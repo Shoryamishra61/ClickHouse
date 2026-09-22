@@ -964,7 +964,14 @@ import SystemTableCloud from '/snippets/zh/_system_table_cloud.mdx';
 * `ProfileEvent_AggregationTopKHeapsFrozen` ([UInt64](/zh/reference/data-types/int-uint)) — 被冻结并回退到常规聚合的 Top-K 聚合堆数量。原因可能是堆在其观测窗口内几乎未拒绝任何数据 (例如，不同分组键的数量未超过 LIMIT) ，也可能是堆边界处无法淘汰的并列集合过度增长 (参见 `enable_group_by_top_k_optimization`) 。
 * `ProfileEvent_DistinctTransformsAbandonedDeduplication` ([UInt64](/zh/reference/data-types/int-uint)) — 有多少去重转换丢弃了其哈希表并停止去重，原因是观察到的输入几乎完全唯一，且下游消费者本身也会去重：包括预备 `DISTINCT` (参见 `allow_preliminary_distinct_abandoning`) 以及在 `IN` 子查询集合填充之前按流执行的预去重。
 * `ProfileEvent_DistinctTransformsSwitchedToPassThrough` ([UInt64](/zh/reference/data-types/int-uint)) — 有多少预备 `DISTINCT` 转换释放了其哈希表并开始让每一行直接通过，原因是查询内存超过了外部 `DISTINCT` 阈值，或预计的哈希分配将超过剩余阈值预算 (参见 `max_bytes_before_external_distinct`) ：最终会落盘的 `DISTINCT` 将负责处理重复项。
+* `ProfileEvent_HashJoinBuildInsertMicroseconds` ([UInt64](/zh/reference/data-types/int-uint)) — HashJoin build-side sub-phase: time spent inserting scattered rows into the shared hash map, including slot-lock waits. A subset of HashJoinBuildMicroseconds.
+* `ProfileEvent_HashJoinBuildLockWaitMicroseconds` ([UInt64](/zh/reference/data-types/int-uint)) — HashJoin build-side: time spent yielding in insertIntoSlots while waiting for a slot mutex. A subset of HashJoinBuildInsertMicroseconds.
+* `ProfileEvent_HashJoinBuildMicroseconds` ([UInt64](/zh/reference/data-types/int-uint)) — Time spent in the HashJoin build phase (adding right-side blocks plus onBuildPhaseFinish), summed over all build threads.
+* `ProfileEvent_HashJoinBuildScatterMicroseconds` ([UInt64](/zh/reference/data-types/int-uint)) — HashJoin build-side sub-phase: time spent in scatterBlockBySlot routing right-side rows into per-slot selectors. A subset of HashJoinBuildMicroseconds. Zero when the join uses a single slot.
 * `ProfileEvent_HashJoinPreallocatedElementsInHashTables` ([UInt64](/zh/reference/data-types/int-uint)) — 为哈希 join 在哈希表中预分配的元素数量。
+* `ProfileEvent_HashJoinProbeGatherMicroseconds` ([UInt64](/zh/reference/data-types/int-uint)) — HashJoin probe-side sub-phase: gathering right-side column values in lazy_output.buildOutput. Does not include left-column replication. A subset of HashJoinProbeMicroseconds.
+* `ProfileEvent_HashJoinProbeLookupMicroseconds` ([UInt64](/zh/reference/data-types/int-uint)) — HashJoin probe-side sub-phase: hash-map lookup (findKey plus recording match row-refs; includes residual ON filter). Does not include gathering column values. A subset of HashJoinProbeMicroseconds.
+* `ProfileEvent_HashJoinProbeMicroseconds` ([UInt64](/zh/reference/data-types/int-uint)) — Time spent joining probe-side blocks in HashJoin (lookup plus draining HashJoinResult), summed over all probe threads.
 * `ProfileEvent_MetadataFromKeeperCacheHit` ([UInt64](/zh/reference/data-types/int-uint)) — 对象存储元数据请求在未向 Keeper 发出请求的情况下直接由缓存响应的次数
 * `ProfileEvent_MetadataFromKeeperCacheMiss` ([UInt64](/zh/reference/data-types/int-uint)) — 对象存储元数据请求必须由 Keeper 响应的次数
 * `ProfileEvent_MetadataFromKeeperCacheTooManyInvalidated` ([UInt64](/zh/reference/data-types/int-uint)) — 文件系统缓存返回过多失效条目的次数
@@ -1801,9 +1808,6 @@ import SystemTableCloud from '/snippets/zh/_system_table_cloud.mdx';
 * `CurrentMetric_DestroyAggregatesThreads` ([Int64](/zh/reference/data-types/int-uint)) — 用于销毁聚合状态的线程池中的线程数量。
 * `CurrentMetric_DestroyAggregatesThreadsActive` ([Int64](/zh/reference/data-types/int-uint)) — 用于销毁聚合状态的线程池中正在运行任务的线程数量。
 * `CurrentMetric_DestroyAggregatesThreadsScheduled` ([Int64](/zh/reference/data-types/int-uint)) — 用于销毁聚合状态的线程池中已排队或正在运行的作业数量。
-* `CurrentMetric_ConcurrentHashJoinPoolThreads` ([Int64](/zh/reference/data-types/int-uint)) — 用于并发哈希连接的线程池中的线程数量。
-* `CurrentMetric_ConcurrentHashJoinPoolThreadsActive` ([Int64](/zh/reference/data-types/int-uint)) — 用于并发哈希连接的线程池中正在运行任务的线程数量。
-* `CurrentMetric_ConcurrentHashJoinPoolThreadsScheduled` ([Int64](/zh/reference/data-types/int-uint)) — 用于并发哈希连接的线程池中已排队或正在运行的作业数量。
 * `CurrentMetric_HashedDictionaryThreads` ([Int64](/zh/reference/data-types/int-uint)) — HashedDictionary 线程池中的线程数量。
 * `CurrentMetric_HashedDictionaryThreadsActive` ([Int64](/zh/reference/data-types/int-uint)) — HashedDictionary 线程池中正在运行任务的线程数量。
 * `CurrentMetric_HashedDictionaryThreadsScheduled` ([Int64](/zh/reference/data-types/int-uint)) — HashedDictionary 线程池中已排队或正在运行的作业数量。
