@@ -280,24 +280,6 @@ DiskPtr IDatabase::getDisk() const
     return Context::getGlobalContextInstance()->getDatabaseDisk();
 }
 
-String IDatabase::resolveTableNamePath(const Names & path_parts) const
-{
-    chassert(!path_parts.empty());
-    String result;
-    for (const auto & part : path_parts)
-    {
-        /// a dot inside a component would be indistinguishable from a path boundary
-        if (part.find('.') != String::npos)
-            throw Exception(ErrorCodes::BAD_ARGUMENTS,
-                "Table path component {} contains a dot, which database {} cannot represent unambiguously",
-                backQuoteIfNeed(part), backQuoteIfNeed(getDatabaseName()));
-        if (!result.empty())
-            result += '.';
-        result += part;
-    }
-    return result;
-}
-
 void IDatabase::validateTableNamespace(std::string_view namespace_parts, ContextPtr context) const
 {
     if (getTableNamespaceSupport() != TableNamespaceSupport::Lexical)

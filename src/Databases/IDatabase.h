@@ -225,12 +225,7 @@ public:
 
     virtual TableNamespaceSupport getTableNamespaceSupport() const { return TableNamespaceSupport::None; }
 
-    /// Throws if the namespace does not exist. `namespace_parts` are separate path
-    /// components, ["a.b"] and ["a", "b"] are different namespaces
     virtual void validateTableNamespace(std::string_view namespace_parts, ContextPtr context) const;
-
-    /// Canonical stored table name for a namespace-qualified path
-    virtual String resolveTableNamePath(const Names & path_parts) const;
 
     /// True for databases such as `MySQL`/`PostgreSQL` whose table list lives on a remote service.
     /// This is distinct from `isExternal`, which classifies whether the engine supports ClickHouse internal table types.
