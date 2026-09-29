@@ -18,13 +18,14 @@ int64_t signedOffset(const Field & offset, bool preceding)
 }
 
 /// -1, 0 or 1 for the ORDER BY key of the row against the key of the current row moved by the offset.
-int compareWithOffset(const WindowTransformParams & params, const SlidingBlocks & blocks, RowNumber row, RowNumber current, const Field & offset, bool preceding)
+int compareWithOffset(const WindowTransformParams & params, const SlidingBlocks & blocks, RowNumber row, RowNumber current, const Field & offset, bool frame_preceding)
 {
     const int direction = params.window_description.order_by[0].direction;
-    const size_t key = params.order_by_indices[0];
-    const IColumn * row_column = blocks.blockAt(row.block).materialized_columns[key].get();
-    const IColumn * current_column = blocks.blockAt(current.block).materialized_columns[key].get();
-    return params.range_offset_comparator(row_column, row.row, current_column, current.row, offset, preceding == (direction > 0)) * direction;
+    const bool offset_is_preceding = frame_preceding == (direction > 0);
+    const size_t key_position = params.order_by_indices[0];
+    const IColumn * row_key_column = blocks.blockAt(row.block).materialized_columns[key_position].get();
+    const IColumn * current_key_column = blocks.blockAt(current.block).materialized_columns[key_position].get();
+    return params.range_offset_comparator(row_key_column, row.row, current_key_column, current.row, offset, offset_is_preceding) * direction;
 }
 
 /// Whether the row lies before the frame of the current row, so the frame start must step over it.
