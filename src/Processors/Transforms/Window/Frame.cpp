@@ -1,0 +1,124 @@
+#include <Processors/Transforms/Window/Frame.h>
+
+#include <base/defines.h>
+
+namespace DB
+{
+
+namespace
+{
+
+int64_t signedOffset(const Field & offset, bool preceding)
+{
+    const auto value = static_cast<int64_t>(offset.safeGet<UInt64>());
+    if (preceding)
+        return -value;
+
+    return value;
+}
+
+/// -1, 0 or 1 for the ORDER BY key of the row against the key of the current row moved by the offset.
+int compareWithOffset(const WindowTransformParams & params, const SlidingBlocks & blocks, RowNumber row, RowNumber current, const Field & offset, bool preceding)
+{
+    const int direction = params.window_description.order_by[0].direction;
+    const size_t key = params.order_by_indices[0];
+    const IColumn * row_column = blocks.blockAt(row.block).materialized_columns[key].get();
+    const IColumn * current_column = blocks.blockAt(current.block).materialized_columns[key].get();
+    return params.range_offset_comparator(row_column, row.row, current_column, current.row, offset, preceding == (direction > 0)) * direction;
+}
+
+/// Whether the row lies before the frame of the current row, so the frame start must step over it.
+bool isBeforeFrame(const WindowTransformParams & params, const SlidingBlocks & blocks, const RowPoint & row, const RowPoint & current)
+{
+    const WindowFrame & frame = params.window_description.frame;
+    switch (frame.begin_type)
+    {
+        case WindowFrame::BoundaryType::Unbounded:
+            return false;
+        case WindowFrame::BoundaryType::Current:
+            return row.peer_group_index_in_partition < current.peer_group_index_in_partition;
+        case WindowFrame::BoundaryType::Offset:
+            switch (frame.type)
+            {
+                case WindowFrame::FrameType::ROWS:
+                    return row.row_index_in_partition < current.row_index_in_partition + signedOffset(frame.begin_offset, frame.begin_preceding);
+                case WindowFrame::FrameType::RANGE:
+                    return compareWithOffset(params, blocks, row.location, current.location, frame.begin_offset, frame.begin_preceding) < 0;
+                case WindowFrame::FrameType::GROUPS:
+                    return row.peer_group_index_in_partition < current.peer_group_index_in_partition + signedOffset(frame.begin_offset, frame.begin_preceding);
+            }
+    }
+    UNREACHABLE();
+}
+
+/// Whether the row lies inside the frame of the current row, so the frame end must step over it.
+bool isInsideFrame(const WindowTransformParams & params, const SlidingBlocks & blocks, const RowPoint & row, const RowPoint & current)
+{
+    const WindowFrame & frame = params.window_description.frame;
+    switch (frame.end_type)
+    {
+        case WindowFrame::BoundaryType::Unbounded:
+            return true;
+        case WindowFrame::BoundaryType::Current:
+            return row.peer_group_index_in_partition <= current.peer_group_index_in_partition;
+        case WindowFrame::BoundaryType::Offset:
+            switch (frame.type)
+            {
+                case WindowFrame::FrameType::ROWS:
+                    return row.row_index_in_partition <= current.row_index_in_partition + signedOffset(frame.end_offset, frame.end_preceding);
+                case WindowFrame::FrameType::RANGE:
+                    return compareWithOffset(params, blocks, row.location, current.location, frame.end_offset, frame.end_preceding) <= 0;
+                case WindowFrame::FrameType::GROUPS:
+                    return row.peer_group_index_in_partition <= current.peer_group_index_in_partition + signedOffset(frame.end_offset, frame.end_preceding);
+            }
+    }
+    UNREACHABLE();
+}
+
+}
+
+Frame::Frame(const WindowTransformParams & params_, const SlidingBlocks & blocks_)
+    : params(params_)
+    , blocks(blocks_)
+{
+}
+
+void Frame::enterPartition(RowNumber partition_start)
+{
+    start = RowPoint{.location = partition_start};
+    end = start;
+}
+
+std::optional<FrameBounds> Frame::advance(const RowPoint & current, const PartitionBounds & partition)
+{
+    const auto advance_cursor = [&](RowPoint & cursor, auto && should_step)
+    {
+        while (cursor.location < partition.end && should_step(cursor))
+        {
+            const RowNumber next = blocks.next(cursor.location);
+            if (next == partition.end && !partition.fully_visible)
+                return false;
+
+            cursor.row_index_in_partition += 1;
+            if (next < partition.end && blocks.blockAt(next.block).index.peer_group_starts[next.row])
+                cursor.peer_group_index_in_partition += 1;
+
+            cursor.location = next;
+        }
+
+        return true;
+    };
+
+    if (!advance_cursor(start, [&](const RowPoint & row) { return isBeforeFrame(params, blocks, row, current); }))
+        return std::nullopt;
+
+    if (end.location < start.location)
+        end = start;
+
+    if (!advance_cursor(end, [&](const RowPoint & row) { return isInsideFrame(params, blocks, row, current); }))
+        return std::nullopt;
+
+    return FrameBounds{start.location, end.location};
+}
+
+}
