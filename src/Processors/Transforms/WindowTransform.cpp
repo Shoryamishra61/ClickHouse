@@ -143,12 +143,12 @@ void WindowTransform::checkInvariants() const
     chassert(partition.bounds().start <= prev_frame.start);
     chassert(prev_frame.start <= prev_frame.end);
     chassert(prev_frame.end <= partition_end);
-    if (current_frame)
+    if (frame.bounds().fully_visible)
     {
-        chassert(prev_frame.start <= current_frame->start);
-        chassert(current_frame->start <= current_frame->end);
-        chassert(prev_frame.end <= current_frame->end);
-        chassert(current_frame->end <= partition_end);
+        chassert(prev_frame.start <= frame.bounds().start);
+        chassert(frame.bounds().start <= frame.bounds().end);
+        chassert(prev_frame.end <= frame.bounds().end);
+        chassert(frame.bounds().end <= partition_end);
     }
 
     chassert(blocks.begin().block <= std::min(prev_frame.start.block, current.location.block));
@@ -159,19 +159,20 @@ void WindowTransform::checkInvariants() const
 // Update the aggregation states after the frame has changed.
 void WindowTransform::updateAggregationState()
 {
-    chassert(current_frame);
+    const FrameBounds current_frame = frame.bounds();
+    chassert(current_frame.fully_visible);
 
     // We might have to reset aggregation state and/or add some rows to it.
     // Figure out what to do.
     bool reset_aggregation = false;
     RowNumber rows_to_add_start;
     RowNumber rows_to_add_end;
-    if (current_frame->start == prev_frame.start)
+    if (current_frame.start == prev_frame.start)
     {
         // The frame start didn't change, add the tail rows.
         reset_aggregation = false;
         rows_to_add_start = prev_frame.end;
-        rows_to_add_end = current_frame->end;
+        rows_to_add_end = current_frame.end;
     }
     else
     {
@@ -180,8 +181,8 @@ void WindowTransform::updateAggregationState()
         // subtract rows from some types of aggregation states, but for now we
         // always have to reset when the frame start changes.
         reset_aggregation = true;
-        rows_to_add_start = current_frame->start;
-        rows_to_add_end = current_frame->end;
+        rows_to_add_start = current_frame.start;
+        rows_to_add_end = current_frame.end;
     }
 
     for (auto & ws : workspaces)
@@ -249,7 +250,8 @@ void WindowTransform::writeOutCurrentRow()
 
     // Whether this row's frame equals the previous row's. The first row of the partition has no
     // previous row in this partition (and thus no previous frame) to compare against.
-    const bool frame_unchanged = current.row_index_in_partition > 0 && current_frame->start == prev_frame.start && current_frame->end == prev_frame.end;
+    const FrameBounds current_frame = frame.bounds();
+    const bool frame_unchanged = current.row_index_in_partition > 0 && current_frame.start == prev_frame.start && current_frame.end == prev_frame.end;
 
     const auto & block = blocks.blockAt(current.location.block);
     for (size_t wi = 0; wi < workspaces.size(); ++wi)
@@ -333,8 +335,8 @@ void WindowTransform::computeReadyRows()
                 peer_group_start = current;
             }
 
-            current_frame = frame.advance(current, partition.bounds());
-            if (!current_frame)
+            frame.advance(current, partition.bounds());
+            if (!frame.bounds().fully_visible)
             {
                 // Wait for more input data to find the frame.
                 chassert(!input_is_finished);
@@ -373,8 +375,7 @@ void WindowTransform::computeReadyRows()
                 return;
             }
 
-            prev_frame = *current_frame;
-            current_frame.reset();
+            prev_frame = frame.bounds();
 
             // Move to the next row. The frame will have to be recalculated.
             // The peer group start is updated at the beginning of the loop,
@@ -414,8 +415,7 @@ void WindowTransform::startNextPartition()
     // We have to reset the frame and other pointers when the new partition
     // starts.
     frame.enterPartition(partition_start);
-    current_frame.reset();
-    prev_frame = FrameBounds{.start = partition_start, .end = partition_start};
+    prev_frame = FrameBounds{.start = partition_start, .end = partition_start, .fully_visible = true};
     chassert(current.location == partition_start);
     current = RowPoint{.location = partition_start};
     peer_group_start = current;

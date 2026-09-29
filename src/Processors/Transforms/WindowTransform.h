@@ -115,14 +115,13 @@ public:
     // frames may be earlier.
     RowPoint peer_group_start;
 
-    // The search for the frame of the current row, and the frame once both
-    // bounds are found. When we move to the next row, both bounds may jump
-    // forward by an unknown number of blocks, e.g. under a RANGE frame, so
-    // sometimes neither of them is known. We update the states of the window
-    // functions once the frame is found, and can then immediately output the
-    // result for the current row, without waiting for more data.
+    // The frame of the current row and its search. When we move to the next
+    // row, both bounds may jump forward by an unknown number of blocks, e.g.
+    // under a RANGE frame, so sometimes neither of them is known. We update the
+    // states of the window functions once the frame is fully visible, and can
+    // then immediately output the result for the current row, without waiting
+    // for more data.
     Frame frame;
-    std::optional<FrameBounds> current_frame;
 
     // The previous frame that corresponds to the current state of the
     // aggregate function. We use it to determine how to update the aggregation
