@@ -87,9 +87,10 @@ void Frame::enterPartition(RowNumber partition_start)
 {
     start = RowPoint{.location = partition_start};
     end = start;
+    fully_visible = false;
 }
 
-std::optional<FrameBounds> Frame::advance(const RowPoint & current, const PartitionBounds & partition)
+void Frame::advance(const RowPoint & current, const PartitionBounds & partition)
 {
     const auto advance_cursor = [&](RowPoint & cursor, auto && should_step)
     {
@@ -109,16 +110,21 @@ std::optional<FrameBounds> Frame::advance(const RowPoint & current, const Partit
         return true;
     };
 
-    if (!advance_cursor(start, [&](const RowPoint & row) { return isBeforeFrame(params, blocks, row, current); }))
-        return std::nullopt;
+    fully_visible = false;
+    const bool start_found = advance_cursor(start, [&](const RowPoint & row) { return isBeforeFrame(params, blocks, row, current); });
+    if (!start_found)
+        return;
 
     if (end.location < start.location)
         end = start;
 
-    if (!advance_cursor(end, [&](const RowPoint & row) { return isInsideFrame(params, blocks, row, current); }))
-        return std::nullopt;
+    const bool end_found = advance_cursor(end, [&](const RowPoint & row) { return isInsideFrame(params, blocks, row, current); });
+    fully_visible = end_found;
+}
 
-    return FrameBounds{start.location, end.location};
+FrameBounds Frame::bounds() const
+{
+    return FrameBounds{.start = start.location, .end = end.location, .fully_visible = fully_visible};
 }
 
 }
