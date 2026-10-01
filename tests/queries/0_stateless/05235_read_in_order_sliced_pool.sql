@@ -58,7 +58,7 @@ SELECT 'whole table', cityHash64(groupArray(k)) FROM (SELECT k FROM t_sliced ORD
 -- One thread, so that the sources cannot run ahead of the merge while the pipeline finishes.
 SELECT 'lazy', k FROM t_sliced ORDER BY k LIMIT 3 SETTINGS max_threads = 1, max_rows_to_read = 4000;
 
--- Descending order keeps the per-part reading.
+-- Descending order reads the slices of every part from its end.
 SELECT 'desc', k FROM t_sliced ORDER BY k DESC LIMIT 3 SETTINGS max_threads = 4;
 
 DROP TABLE t_sliced;

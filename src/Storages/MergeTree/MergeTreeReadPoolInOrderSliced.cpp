@@ -13,19 +13,33 @@ namespace ErrorCodes
 namespace
 {
 
-/// Takes up to max_marks marks from the front of the ranges.
-MarkRanges cutMarks(MarkRanges & from, size_t max_marks)
+/// Takes up to max_marks marks from the front of the ranges, or from their back when reading in reverse
+/// order; the result is in mark order either way.
+MarkRanges cutMarks(MarkRanges & from, size_t max_marks, bool from_back)
 {
     MarkRanges result;
     while (max_marks > 0 && !from.empty())
     {
-        auto & range = from.front();
+        auto & range = from_back ? from.back() : from.front();
         const size_t marks = std::min(range.end - range.begin, max_marks);
-        result.emplace_back(range.begin, range.begin + marks);
-        range.begin += marks;
+        if (from_back)
+        {
+            result.emplace_front(range.end - marks, range.end);
+            range.end -= marks;
+        }
+        else
+        {
+            result.emplace_back(range.begin, range.begin + marks);
+            range.begin += marks;
+        }
         max_marks -= marks;
         if (range.begin == range.end)
-            from.pop_front();
+        {
+            if (from_back)
+                from.pop_back();
+            else
+                from.pop_front();
+        }
     }
     return result;
 }
@@ -41,8 +55,9 @@ bool readersFit(size_t readers_marks, size_t slice_marks)
     return slice_marks <= 2 * readers_marks;
 }
 
-/// Keys that are not known (empty blocks) go last.
-int compareKeys(const Block & lhs, const Block & rhs)
+}
+
+int MergeTreeReadPoolInOrderSliced::compareKeys(const Block & lhs, const Block & rhs, bool reverse)
 {
     if (lhs.columns() == 0 || rhs.columns() == 0)
         return static_cast<int>(lhs.columns() == 0) - static_cast<int>(rhs.columns() == 0);
@@ -51,16 +66,14 @@ int compareKeys(const Block & lhs, const Block & rhs)
     {
         int result = lhs.getByPosition(i).column->compareAt(0, 0, *rhs.getByPosition(i).column, 1);
         if (result != 0)
-            return result;
+            return reverse ? -result : result;
     }
     return 0;
 }
 
-}
-
 bool MergeTreeReadPoolInOrderSliced::QueuedLaneLess::operator()(const QueuedLane & lhs, const QueuedLane & rhs) const
 {
-    const int result = compareKeys(lhs.key, rhs.key);
+    const int result = compareKeys(lhs.key, rhs.key, reverse);
     return result != 0 ? result < 0 : lhs.lane < rhs.lane;
 }
 
@@ -80,7 +93,8 @@ MergeTreeReadPoolInOrderSliced::MergeTreeReadPoolInOrderSliced(
     const ContextPtr & context_,
     RuntimeDataflowStatisticsCacheUpdaterPtr updater_,
     size_t num_sources_,
-    const Block & primary_key_header_)
+    const Block & primary_key_header_,
+    bool read_in_reverse_order_)
     : MergeTreeReadPoolBase(
         std::move(parts_),
         std::move(mutations_snapshot_),
@@ -97,22 +111,22 @@ MergeTreeReadPoolInOrderSliced::MergeTreeReadPoolInOrderSliced(
         context_)
     , updater(std::move(updater_))
     , num_sources(num_sources_)
+    , num_lanes(parts_ranges.size())
     , max_slice_marks(std::max<size_t>(1, pool_settings.min_marks_for_concurrent_read))
     , primary_key_header(primary_key_header_)
+    , reverse(read_in_reverse_order_)
+    , queue(QueuedLaneLess{.reverse = read_in_reverse_order_})
     , last_task_lane(num_sources_)
     , last_readers_marks(num_sources_)
     , pending(num_sources_)
 {
     std::lock_guard lock(mutex);
 
-    const size_t num_lanes = parts_ranges.size();
     lanes.reserve(num_lanes);
-    boundaries.reserve(num_lanes);
     queue_position.resize(num_lanes);
     for (size_t lane = 0; lane < num_lanes; ++lane)
     {
         lanes.push_back(Lane{.unread = parts_ranges[lane].ranges});
-        boundaries.push_back(lanes.back().unread.empty() ? Block{} : keyAtMark(lane, lanes.back().unread.front().begin));
         enqueueLane(lane);
     }
 }
@@ -156,7 +170,8 @@ void MergeTreeReadPoolInOrderSliced::enqueueLane(size_t lane)
     if (unread.empty())
         return;
 
-    auto [it, inserted] = queue.insert(QueuedLane{.key = keyAtMark(lane, unread.front().begin), .lane = lane});
+    const size_t next_mark = reverse ? unread.back().end : unread.front().begin;
+    auto [it, inserted] = queue.insert(QueuedLane{.key = keyAtMark(lane, next_mark), .lane = lane});
     if (!inserted)
         throw Exception(ErrorCodes::LOGICAL_ERROR, "Lane {} is already queued", lane);
     queue_position[lane] = it;
@@ -187,7 +202,7 @@ std::optional<size_t> MergeTreeReadPoolInOrderSliced::nextLaneBefore(size_t lane
         return std::nullopt;
 
     const auto & head = *queue.begin();
-    if (head.lane == lane || compareKeys(head.key, (*position)->key) >= 0)
+    if (head.lane == lane || compareKeys(head.key, (*position)->key, reverse) >= 0)
         return std::nullopt;
     return head.lane;
 }
@@ -196,6 +211,15 @@ bool MergeTreeReadPoolInOrderSliced::laneHasUnreadMarks(size_t lane) const
 {
     std::lock_guard lock(mutex);
     return !lanes[lane].unread.empty();
+}
+
+std::optional<size_t> MergeTreeReadPoolInOrderSliced::nextUnreadMark(size_t lane) const
+{
+    std::lock_guard lock(mutex);
+    const auto & unread = lanes[lane].unread;
+    if (unread.empty())
+        return std::nullopt;
+    return reverse ? unread.back().end : unread.front().begin;
 }
 
 std::optional<size_t> MergeTreeReadPoolInOrderSliced::lastTaskLane(size_t source) const
@@ -245,13 +269,14 @@ MergeTreeReadPoolInOrderSliced::SliceDescription MergeTreeReadPoolInOrderSliced:
 
     dequeueLane(lane);
     const size_t ramp_marks = size_t(1) << std::min<size_t>(lane_state.slices_cut, 16);
-    MarkRanges ranges = cutMarks(lane_state.unread, std::min(max_slice_marks, ramp_marks));
+    MarkRanges ranges = cutMarks(lane_state.unread, std::min(max_slice_marks, ramp_marks), reverse);
     ++lane_state.slices_cut;
     enqueueLane(lane);
 
     SliceDescription description{
         .lane = lane,
         .first_mark = ranges.front().begin,
+        .end_mark = ranges.back().end,
         .marks = ranges.getNumberOfMarks(),
         .rows = per_part_infos[lane]->data_part_info->getIndexGranularity().getRowsCountInRanges(ranges),
     };

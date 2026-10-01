@@ -44,10 +44,12 @@ public:
         const ContextPtr & context_,
         RuntimeDataflowStatisticsCacheUpdaterPtr updater_,
         size_t num_sources_,
-        const Block & primary_key_header_);
+        const Block & primary_key_header_,
+        bool read_in_reverse_order_);
 
     String getName() const override { return "ReadPoolInOrderSliced"; }
-    bool preservesOrderOfRanges() const override { return false; }
+    /// Every task holds ranges in mark order and the slices of a lane are handed out in reading order.
+    bool preservesOrderOfRanges() const override { return true; }
     MergeTreeReadTaskPtr getTask(size_t task_idx, MergeTreeReadTask * previous_task) override;
     void profileFeedback(ReadBufferFromFileBase::ProfileInfo) override {}
 
@@ -55,28 +57,39 @@ public:
     {
         size_t lane;
         size_t first_mark;
+        /// The mark after the last one of the slice.
+        size_t end_mark;
         size_t marks;
         /// Rows in the slice before any filtering, to tell a slice whose rows were mostly filtered out.
         size_t rows;
     };
 
     size_t numSources() const { return num_sources; }
-    size_t numLanes() const { return boundaries.size(); }
+    size_t numLanes() const { return num_lanes; }
+    /// Lanes are read from their end and slices come out from the last mark down.
+    bool readsInReverseOrder() const { return reverse; }
     /// Marks in a slice of a lane that has been read for a while; the first slices of a lane are smaller.
     size_t maxSliceMarks() const { return max_slice_marks; }
 
     /// Marks of the next slice of the lane, if it were cut now.
     size_t nextSliceMarks(size_t lane) const;
 
-    /// Primary key values at the first mark of the lane, one row; empty if the index has no value there.
-    const Block & laneBoundary(size_t lane) const { return boundaries[lane]; }
+    /// Primary key values at the mark of the lane, one row; empty if the index has no value there.
+    Block keyAtMark(size_t lane, size_t mark) const;
 
-    /// The lane whose next unread mark has the smallest primary key: the lane the merge needs next among
+    /// Keys that are not known (empty blocks) go last; `reverse` flips the order of known keys.
+    static int compareKeys(const Block & lhs, const Block & rhs, bool reverse = false);
+
+    /// The mark the lane's unread rows start at in reading order: its first unread mark, or the mark
+    /// after its last unread one when reading in reverse order. Nothing if the lane has no marks left.
+    std::optional<size_t> nextUnreadMark(size_t lane) const;
+
+    /// The lane whose next unread mark comes first in reading order: the lane the merge needs next among
     /// the lanes that still have unread marks.
     std::optional<size_t> nextLane() const;
 
-    /// The lane at the head of the queue if its next key is strictly smaller than the next key of the given
-    /// lane, i.e. a lane the merge needs before it gets to the given lane's next slice.
+    /// The lane at the head of the queue if its next key comes strictly before the next key of the given
+    /// lane in reading order, i.e. a lane the merge needs before it gets to the given lane's next slice.
     std::optional<size_t> nextLaneBefore(size_t lane) const;
 
     /// Marks of the lane not yet cut into a slice.
@@ -123,7 +136,7 @@ private:
         MarkRanges ranges;
     };
 
-    /// A lane with unread marks, ordered by the primary key at its next unread mark.
+    /// A lane with unread marks, ordered by the primary key at its next unread mark in reading order.
     struct QueuedLane
     {
         Block key;
@@ -132,24 +145,22 @@ private:
 
     struct QueuedLaneLess
     {
+        bool reverse;
         bool operator()(const QueuedLane & lhs, const QueuedLane & rhs) const;
     };
 
     using LaneQueue = std::set<QueuedLane, QueuedLaneLess>;
 
-    /// Primary key values at the mark of the lane, one row; empty if the index has no value there.
-    Block keyAtMark(size_t lane, size_t mark) const;
     size_t nextSliceMarksUnlocked(size_t lane) const TSA_REQUIRES(mutex);
     void enqueueLane(size_t lane) TSA_REQUIRES(mutex);
     void dequeueLane(size_t lane) TSA_REQUIRES(mutex);
 
     const RuntimeDataflowStatisticsCacheUpdaterPtr updater;
     const size_t num_sources;
+    const size_t num_lanes;
     const size_t max_slice_marks;
     const Block primary_key_header;
-
-    /// Immutable after construction.
-    std::vector<Block> boundaries;
+    const bool reverse;
 
     mutable std::mutex mutex;
     std::vector<Lane> lanes TSA_GUARDED_BY(mutex);

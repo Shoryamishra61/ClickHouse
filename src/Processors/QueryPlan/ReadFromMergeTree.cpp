@@ -1085,7 +1085,8 @@ Pipe ReadFromMergeTree::readInOrderSliced(
     const MergeTreeIndexBuildContextPtr & index_build_context,
     const Names & required_columns,
     const PoolSettings & pool_settings,
-    UInt64 read_limit)
+    UInt64 read_limit,
+    bool read_in_reverse_order)
 {
     const auto & settings = context->getSettingsRef();
     const size_t num_sources = std::max<size_t>(1, pool_settings.threads);
@@ -1105,8 +1106,8 @@ Pipe ReadFromMergeTree::readInOrderSliced(
         pk_header_columns.push_back({primary_key.data_types[i]->createColumn(), primary_key.data_types[i], primary_key.column_names[i]});
     Block pk_header(std::move(pk_header_columns));
 
-    LOG_TRACE(log, "Reading {} parts in order with {} sources sharing a sliced pool, approx. {} rows",
-        parts_with_ranges.size(), num_sources, total_rows);
+    LOG_TRACE(log, "Reading {} parts in{}order with {} sources sharing a sliced pool, approx. {} rows",
+        parts_with_ranges.size(), read_in_reverse_order ? " reverse " : " ", num_sources, total_rows);
 
     auto pool = std::make_shared<MergeTreeReadPoolInOrderSliced>(
         std::move(parts_with_ranges),
@@ -1124,16 +1125,23 @@ Pipe ReadFromMergeTree::readInOrderSliced(
         context,
         dataflow_cache_updater,
         num_sources,
-        pk_header);
+        pk_header,
+        read_in_reverse_order);
 
     pool->setReadRangesRefiner(createIndexReadRangesRefiner(index_build_context, storage_snapshot->metadata, settings));
 
     Pipes pipes;
     for (size_t i = 0; i < num_sources; ++i)
     {
+        MergeTreeSelectAlgorithmPtr algorithm;
+        if (read_in_reverse_order)
+            algorithm = std::make_unique<MergeTreeInReverseOrderSelectAlgorithm>(i);
+        else
+            algorithm = std::make_unique<MergeTreeThreadSelectAlgorithm>(i);
+
         auto processor = std::make_unique<MergeTreeSelectProcessor>(
             pool,
-            std::make_unique<MergeTreeThreadSelectAlgorithm>(i),
+            std::move(algorithm),
             query_info.row_level_filter,
             query_info.prewhere_info,
             index_read_tasks,
@@ -1146,7 +1154,7 @@ Pipe ReadFromMergeTree::readInOrderSliced(
         processor->addPartLevelToChunk(isQueryWithFinal());
         processor->enableSliceEndMarkers(pool);
         if (settings[Setting::read_in_order_use_virtual_row_per_block])
-            processor->setVirtualRowConversions(virtual_row_conversion, pk_header, /*read_in_reverse_order_=*/ false);
+            processor->setVirtualRowConversions(virtual_row_conversion, pk_header, read_in_reverse_order);
 
         auto source = std::make_shared<MergeTreeSource>(std::move(processor), data.getLogName());
         if (i == 0)
@@ -1156,6 +1164,17 @@ Pipe ReadFromMergeTree::readInOrderSliced(
     }
 
     auto pipe = Pipe::unitePipes(std::move(pipes));
+
+    /// The reverse algorithm returns the chunks of a slice from the last one down; the rows of each chunk
+    /// are reversed here, before the router puts the slices of a lane in that order too.
+    if (read_in_reverse_order)
+    {
+        pipe.addSimpleTransform([&](const SharedHeader & header)
+        {
+            return std::make_shared<ReverseTransform>(header);
+        });
+    }
+
     pipe.addTransform(std::make_shared<MergeTreeInOrderSliceRouter>(pipe.getSharedHeader(), pool, virtual_row_conversion));
     return pipe;
 }
@@ -2076,7 +2095,8 @@ Pipe ReadFromMergeTree::spreadMarkRangesAmongStreamsWithOrder(
     const bool use_sliced_pool = slicedPoolRequested() && !need_preliminary_merge;
     if (use_sliced_pool)
     {
-        Pipe pipe = readInOrderSliced(std::move(parts_with_ranges), index_build_context, column_names, pool_settings, input_order_info->limit);
+        Pipe pipe = readInOrderSliced(
+            std::move(parts_with_ranges), index_build_context, column_names, pool_settings, input_order_info->limit, read_type == ReadType::InReverseOrder);
         if (!pipe.empty() && have_input_columns_removed_after_prewhere)
             out_projection = createProjection(pipe.getHeader());
         return pipe;
@@ -4191,7 +4211,7 @@ bool ReadFromMergeTree::slicedPoolRequested() const
     /// The sliced pool needs the initial virtual rows to keep the merge from demanding every part at
     /// once, and a merge that sees the parts directly, so it is not combined with preliminary merges.
     return context->getSettingsRef()[Setting::read_in_order_use_sliced_pool]
-        && input_order_info && input_order_info->direction == 1
+        && input_order_info
         && virtual_row_conversion
         && !is_parallel_reading_from_replicas
         && !output_each_partition_through_separate_port;

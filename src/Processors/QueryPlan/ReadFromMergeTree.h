@@ -771,7 +771,8 @@ private:
         const MergeTreeIndexBuildContextPtr & index_build_context,
         const Names & required_columns,
         const PoolSettings & pool_settings,
-        UInt64 limit);
+        UInt64 limit,
+        bool read_in_reverse_order);
 
     Pipe spreadMarkRanges(
         RangesInDataParts && parts_with_ranges,
