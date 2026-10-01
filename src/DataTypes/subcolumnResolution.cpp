@@ -48,9 +48,15 @@ std::optional<size_t> findDeclaredParent(const SubstreamPath & path, size_t pref
 }
 
 /// Visits every substream that is offered as a subcolumn, with the name it gets. Each one is a
-/// candidate: another substream may claim the same name.
+/// candidate: another substream may claim the same name. A requested name lets a serialization skip
+/// the substreams that cannot claim it, so pass it when resolving one.
 template <typename Visitor>
-void forEachSubcolumnCandidate(const SubstreamData & data, size_t initial_array_level, Visitor && visit, bool enumerate_dynamic_streams)
+void forEachSubcolumnCandidate(
+    const SubstreamData & data,
+    size_t initial_array_level,
+    Visitor && visit,
+    bool enumerate_dynamic_streams,
+    std::optional<std::string_view> subcolumn_name = {})
 {
     ISerialization::StreamCallback callback = [&](const auto & path)
     {
@@ -68,6 +74,7 @@ void forEachSubcolumnCandidate(const SubstreamData & data, size_t initial_array_
     settings.enumerate_dynamic_streams = enumerate_dynamic_streams;
     settings.enumerate_virtual_streams = true;
     settings.array_level = initial_array_level;
+    settings.subcolumn_name = subcolumn_name;
     data.serialization->enumerateStreams(settings, callback, data);
 }
 
@@ -220,7 +227,7 @@ std::unique_ptr<IDataType::SubcolumnInfo> findSubcolumn(
         }
     };
 
-    forEachSubcolumnCandidate(data, initial_array_level, collect, /*enumerate_dynamic_streams=*/ false);
+    forEachSubcolumnCandidate(data, initial_array_level, collect, /*enumerate_dynamic_streams=*/ false, subcolumn_name);
 
     if (found_path)
         return makeSubcolumnInfo(*found_path, found_path->size(), nullptr);
