@@ -66,7 +66,7 @@ WindowTransform::WindowTransform(SharedHeader input_header_,
     , input(inputs.front())
     , output(outputs.front())
     , indexes(params)
-    , frame(params, blocks)
+    , frame(params)
 {
     initWorkspaces(functions);
 }
@@ -298,7 +298,7 @@ void WindowTransform::addInputBlock(Chunk chunk)
     auto materialized_columns = materializeColumns(chunk.getColumns(), params.should_materialize);
     auto index = indexes.calculate(materialized_columns, rows_count);
     auto & block = blocks.add(std::move(chunk), std::move(materialized_columns), std::move(index));
-    partition.advance(block);
+    partition.advance(blocks);
 
     // Initialize output columns.
     for (auto & ws : workspaces)
@@ -335,7 +335,7 @@ void WindowTransform::computeReadyRows()
                 peer_group_start = current;
             }
 
-            frame.advance(current, partition.bounds());
+            frame.advance(blocks, current, partition.bounds());
             if (!frame.bounds().fully_visible)
             {
                 // Wait for more input data to find the frame.
@@ -410,8 +410,7 @@ void WindowTransform::startNextPartition()
 {
     const RowNumber partition_start = partition.bounds().end;
     partition.beginAt(partition_start);
-    for (int64_t block_number = partition_start.block; !partition.bounds().fully_visible && block_number < blocks.end().block; ++block_number)
-        partition.advance(blocks.blockAt(block_number));
+    partition.advance(blocks);
     // We have to reset the frame and other pointers when the new partition
     // starts.
     frame.enterPartition(partition_start);

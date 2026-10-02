@@ -5,7 +5,7 @@
 namespace DB
 {
 
-/// The rows of the partition seen so far.
+/// Rows-range of the partition seen so far.
 struct PartitionBounds
 {
     RowNumber start;
@@ -19,7 +19,7 @@ public:
     Partition();
 
     void beginAt(RowNumber first_row);
-    void advance(const SlidingBlock & block);
+    void advance(const SlidingBlocks & blocks);
     void finish(RowNumber data_end);
 
     const PartitionBounds & bounds() const;

@@ -30,13 +30,14 @@ void Partition::beginAt(RowNumber first_row)
     found = PartitionBounds{.start = first_row, .end = RowNumber{first_row.block, first_row.row + 1}, .fully_visible = false};
 }
 
-void Partition::advance(const SlidingBlock & block)
+void Partition::advance(const SlidingBlocks & blocks)
 {
-    if (found.fully_visible)
-        return;
-
-    found.end = advancePartitionEnd(block, found.end);
-    found.fully_visible = found.end.block == block.block_number;
+    while (!found.fully_visible && found.end < blocks.end())
+    {
+        const SlidingBlock & block = blocks.blockAt(found.end.block);
+        found.end = advancePartitionEnd(block, found.end);
+        found.fully_visible = found.end.block == block.block_number;
+    }
 }
 
 void Partition::finish(RowNumber data_end)

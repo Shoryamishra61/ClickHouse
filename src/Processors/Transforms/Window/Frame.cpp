@@ -78,12 +78,6 @@ bool isInsideFrame(const WindowTransformParams & params, const SlidingBlocks & b
 
 }
 
-Frame::Frame(const WindowTransformParams & params_, const SlidingBlocks & blocks_)
-    : params(params_)
-    , blocks(blocks_)
-{
-}
-
 void Frame::enterPartition(RowNumber partition_start)
 {
     start = RowPoint{.location = partition_start};
@@ -91,7 +85,12 @@ void Frame::enterPartition(RowNumber partition_start)
     fully_visible = false;
 }
 
-void Frame::advance(const RowPoint & current, const PartitionBounds & partition)
+Frame::Frame(const WindowTransformParams & params_)
+    : params(params_)
+{
+}
+
+void Frame::advance(const SlidingBlocks & blocks, const RowPoint & current, const PartitionBounds & partition)
 {
     const auto advance_cursor = [&](RowPoint & cursor, auto && should_step)
     {
