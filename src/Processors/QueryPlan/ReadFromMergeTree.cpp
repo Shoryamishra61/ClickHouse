@@ -1126,6 +1126,7 @@ Pipe ReadFromMergeTree::readInOrderSliced(
         dataflow_cache_updater,
         num_sources,
         pk_header,
+        virtual_row_conversion,
         read_in_reverse_order);
 
     pool->setReadRangesRefiner(createIndexReadRangesRefiner(index_build_context, storage_snapshot->metadata, settings));
@@ -1152,7 +1153,7 @@ Pipe ReadFromMergeTree::readInOrderSliced(
             &storage_snapshot->metadata->getColumns());
 
         processor->addPartLevelToChunk(isQueryWithFinal());
-        processor->enableSliceEndMarkers(pool);
+        processor->enableSlicedReading(pool, i);
         if (settings[Setting::read_in_order_use_virtual_row_per_block])
             processor->setVirtualRowConversions(virtual_row_conversion, pk_header, read_in_reverse_order);
 
@@ -1175,7 +1176,7 @@ Pipe ReadFromMergeTree::readInOrderSliced(
         });
     }
 
-    pipe.addTransform(std::make_shared<MergeTreeInOrderSliceRouter>(pipe.getSharedHeader(), pool, virtual_row_conversion));
+    pipe.addTransform(std::make_shared<MergeTreeInOrderSliceRouter>(pipe.getSharedHeader(), pool));
     return pipe;
 }
 

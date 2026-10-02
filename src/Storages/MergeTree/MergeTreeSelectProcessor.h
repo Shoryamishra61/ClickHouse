@@ -4,6 +4,7 @@
 #include <Storages/MergeTree/MergeTreeData.h>
 #include <Storages/MergeTree/MergeTreeReadTask.h>
 #include <Storages/MergeTree/MergeTreeSelectAlgorithms.h>
+#include <Storages/MergeTree/MergeTreeSliceInfo.h>
 #include <Storages/MergeTree/RangesInDataPart.h>
 #include <Storages/MergeTree/RequestResponse.h>
 #include <Processors/Chunk.h>
@@ -169,10 +170,14 @@ public:
     /// is emitted so that MergingSortedTransform can reprioritize sources.
     void setVirtualRowConversions(ExpressionActionsPtr virtual_row_conversions_, Block pk_block_header_, bool read_in_reverse_order_);
 
-    /// Emit an empty chunk with MergeTreeSliceEndInfo after the last chunk of every task, and stay alive
-    /// while the pool has no task for this source right now; the stream ends once the pool is finished.
-    /// Used with MergeTreeInOrderSliceRouter.
-    void enableSliceEndMarkers(std::shared_ptr<const MergeTreeReadPoolInOrderSliced> sliced_pool_) { sliced_pool = std::move(sliced_pool_); }
+    /// Read slices from MergeTreeReadPoolInOrderSliced as source `source_index_`: tag every chunk with its
+    /// slice, report ended slices with a marker after asking for the next one, and stay alive while the
+    /// pool has no slice for this source right now; the stream ends once the pool is finished.
+    void enableSlicedReading(std::shared_ptr<MergeTreeReadPoolInOrderSliced> sliced_pool_, size_t source_index_)
+    {
+        sliced_pool = std::move(sliced_pool_);
+        source_index = source_index_;
+    }
 
     void onFinish() const;
 
@@ -221,13 +226,17 @@ private:
 
     ChunkAndProgress buildVirtualRowFromIndex(const MergeTreeReadTask & current_task, const MarkRanges & read_mark_ranges) const;
 
-    /// Set when the pool hands out slices on demand, see enableSliceEndMarkers.
-    std::shared_ptr<const MergeTreeReadPoolInOrderSliced> sliced_pool;
-    /// The query condition cache write and the slice-end marker of the current task are done.
+    /// Set when the pool hands out slices on demand, see enableSlicedReading.
+    std::shared_ptr<MergeTreeReadPoolInOrderSliced> sliced_pool;
+    size_t source_index = 0;
+    /// The slice of the current task, the tag of its chunks.
+    MergeTreeSliceTag current_slice;
+    /// The query condition cache write of the current task is done.
     bool current_task_finalized = false;
 
     void updateQueryConditionCache(const MergeTreeReadTask & finished_task) const;
-    ChunkAndProgress makeSliceEndMarker() const;
+    void tagSlice(Chunk & chunk) const;
+    ChunkAndProgress makeSliceMarker(std::vector<MergeTreeSliceTag> ended, bool idle) const;
 
     LoggerPtr log = getLogger("MergeTreeSelectProcessor");
     std::atomic<bool> is_cancelled{false};

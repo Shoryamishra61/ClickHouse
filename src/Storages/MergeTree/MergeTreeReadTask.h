@@ -230,6 +230,8 @@ public:
     Readers releaseReaders() { return std::move(readers); }
 
     size_t getNumMarksToRead() const { return mark_ranges.getNumberOfMarks(); }
+    /// Marks left to read; the whole task before the first read.
+    const MarkRanges & getMarkRanges() const { return mark_ranges; }
 
     static Readers createReaders(
         const MergeTreeReadTaskInfoPtr & read_info,
