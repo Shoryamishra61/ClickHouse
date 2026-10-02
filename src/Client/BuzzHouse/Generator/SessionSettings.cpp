@@ -707,6 +707,7 @@ std::unordered_map<String, CHSetting> serverSettings = {
     {"asterisk_include_virtual_columns", trueOrFalseSettingNoOracle},
     {"async_insert", trueOrFalseSettingNoOracle},
     {"async_insert_deduplicate", trueOrFalseSettingNoOracle},
+    {"async_insert_select_as_async_insert", trueOrFalseSettingNoOracle},
     {"async_insert_threads", threadSetting},
     {"async_insert_use_adaptive_busy_timeout", trueOrFalseSettingNoOracle},
     {"async_query_sending_for_remote", trueOrFalseSettingNoOracle},
@@ -1061,6 +1062,7 @@ std::unordered_map<String, CHSetting> serverSettings = {
     {"http_skip_not_found_url_for_globs", trueOrFalseSettingNoOracle},
     {"http_wait_end_of_query", trueOrFalseSettingNoOracle},
     {"http_write_exception_in_output_format", trueOrFalseSettingNoOracle},
+    {"http_x_clickhouse_format_overrides_output_format", trueOrFalseSettingNoOracle},
     {"iceberg_compaction_data_cleanup",
      CHSetting(
          [](RandomGenerator & rg, FuzzConfig &) { return std::to_string(rg.thresholdGenerator<uint64_t>(0.3, 0.2, 0, 10800)); },
@@ -1146,6 +1148,16 @@ std::unordered_map<String, CHSetting> serverSettings = {
     {"input_format_custom_skip_trailing_empty_lines", trueOrFalseSettingNoOracle},
     {"input_format_defaults_for_omitted_fields", trueOrFalseSettingNoOracle},
     {"input_format_force_null_for_omitted_fields", trueOrFalseSettingNoOracle},
+    /// 0 is unbounded and can exhaust memory on a wide row
+    {"input_format_freeform_max_search_steps",
+     CHSetting(
+         [](RandomGenerator & rg, FuzzConfig &)
+         {
+             static const DB::Strings choices = {"1", "2", "16", "256", "4096", "65536"};
+             return rg.pickRandomly(choices);
+         },
+         {},
+         false)},
     {"input_format_geojson_unsupported_geometry_handling",
      CHSetting(
          [](RandomGenerator & rg, FuzzConfig &)
@@ -1190,6 +1202,7 @@ std::unordered_map<String, CHSetting> serverSettings = {
     {"input_format_parquet_enable_json_parsing", trueOrFalseSettingNoOracle},
     {"input_format_parquet_enable_row_group_prefetch", trueOrFalseSettingNoOracle},
     {"input_format_parquet_filter_push_down", trueOrFalseSetting},
+    {"input_format_parquet_footer_read_size", CHSetting(bytesRange, {"0", "8", "65536", "1048576"}, false)},
     {"input_format_parquet_local_time_as_utc", trueOrFalseSettingNoOracle},
     {"input_format_parquet_page_filter_push_down", trueOrFalseSetting},
     {"input_format_parquet_preserve_order", trueOrFalseSettingNoOracle},
@@ -1202,6 +1215,15 @@ std::unordered_map<String, CHSetting> serverSettings = {
     {"input_format_protobuf_skip_fields_with_unsupported_types_in_schema_inference", trueOrFalseSettingNoOracle},
     {"input_format_read_datetime_number_as_raw_value", trueOrFalseSettingNoOracle},
     {"input_format_skip_unknown_fields", trueOrFalseSettingNoOracle},
+    {"input_format_sqlite_table_name",
+     CHSetting(
+         [](RandomGenerator & rg, FuzzConfig &)
+         {
+             static const DB::Strings choices = {"''", "'table'", "'t0'"};
+             return rg.pickRandomly(choices);
+         },
+         {},
+         false)},
     {"input_format_try_infer_dates", trueOrFalseSettingNoOracle},
     {"input_format_try_infer_datetimes", trueOrFalseSettingNoOracle},
     {"input_format_try_infer_datetimes_only_datetime64", trueOrFalseSettingNoOracle},
@@ -1276,7 +1298,9 @@ std::unordered_map<String, CHSetting> serverSettings = {
     {"joined_block_split_single_row", trueOrFalseSetting},
     {"json_type_escape_dots_in_keys", trueOrFalseSettingNoOracle},
     {"keeper_map_strict_mode", trueOrFalseSettingNoOracle},
+    {"kill_throw_if_noop", trueOrFalseSettingNoOracle},
     {"least_greatest_legacy_null_behavior", trueOrFalseSetting},
+    {"legacy_array_join_function_nondeterministic_evaluation", trueOrFalseSettingNoOracle},
     {"legacy_column_name_of_tuple_literal", trueOrFalseSettingNoOracle},
     /// No oracle: it restores the old meaning of `max_rows_in_join` / `max_bytes_in_join` (both
     /// fuzzed below), so reaching one spills further instead of failing the query.
@@ -1603,12 +1627,22 @@ static std::unordered_map<String, CHSetting> serverSettings2 = {
     {"output_format_pretty_highlight_trailing_spaces", trueOrFalseSettingNoOracle},
     {"output_format_pretty_multiline_fields", trueOrFalseSettingNoOracle},
     {"output_format_pretty_named_tuples_as_json", trueOrFalseSettingNoOracle},
+    {"output_format_pretty_named_tuples_as_subcolumns", trueOrFalseSettingNoOracle},
     {"output_format_pretty_row_numbers", trueOrFalseSettingNoOracle},
     {"output_format_pretty_use_nbsp_for_padding", trueOrFalseSettingNoOracle},
     {"output_format_protobuf_nullables_with_google_wrappers", trueOrFalseSettingNoOracle},
     {"output_format_sql_insert_include_column_names", trueOrFalseSettingNoOracle},
     {"output_format_sql_insert_quote_names", trueOrFalseSettingNoOracle},
     {"output_format_sql_insert_use_replace", trueOrFalseSettingNoOracle},
+    {"output_format_sqlite_table_name",
+     CHSetting(
+         [](RandomGenerator & rg, FuzzConfig &)
+         {
+             static const DB::Strings choices = {"'table'", "'t0'"};
+             return rg.pickRandomly(choices);
+         },
+         {},
+         false)},
     {"output_format_write_statistics", trueOrFalseSettingNoOracle},
     {"page_cache_inject_eviction", trueOrFalseSettingNoOracle},
     {"parallel_distributed_insert_select", CHSetting(zeroOneTwo, {}, false)},
@@ -1779,7 +1813,7 @@ static std::unordered_map<String, CHSetting> serverSettings2 = {
     {"schema_inference_use_cache_for_hdfs", trueOrFalseSettingNoOracle},
     {"schema_inference_use_cache_for_s3", trueOrFalseSettingNoOracle},
     {"schema_inference_use_cache_for_url", trueOrFalseSettingNoOracle},
-    {"secondary_indices_enable_bulk_filtering", trueOrFalseSetting},
+    {"secondary_indexes_enable_bulk_filtering", trueOrFalseSetting},
     {"select_sequential_consistency", trueOrFalseSetting},
     {"send_logs_level",
      CHSetting(
@@ -2241,6 +2275,8 @@ void loadFuzzerServerSettings(const FuzzConfig & fc)
              {"empty_result_for_aggregation_by_empty_set", trueOrFalseSettingNoOracle}, /// the oracle doesn't get output
              {"external_table_functions_use_nulls", trueOrFalseSettingNoOracle},
              {"external_table_strict_query", trueOrFalseSettingNoOracle},
+             {"ignore_data_skipping_indexes",
+              CHSetting([](RandomGenerator & rg, FuzzConfig &) { return settingCombinations(rg, {"i0", "i1", "i2"}); }, {}, false)},
              {"ignore_data_skipping_indices",
               CHSetting([](RandomGenerator & rg, FuzzConfig &) { return settingCombinations(rg, {"i0", "i1", "i2"}); }, {}, false)},
              {"optimize_using_constraints", trueOrFalseSettingNoOracle},
@@ -2425,7 +2461,8 @@ void loadFuzzerServerSettings(const FuzzConfig & fc)
             = [](RandomGenerator & rg, FuzzConfig &) { return std::to_string(rg.thresholdGenerator<uint64_t>(0.3, 0.3, 0, 60000)); };
 
         serverSettings.insert(
-            {{"async_insert_busy_timeout_min_ms", CHSetting(timeoutMillisRange, {}, false)},
+            {{"arrow_flight_request_timeout_sec", CHSetting(timeoutSecondsRange, {}, false)},
+             {"async_insert_busy_timeout_min_ms", CHSetting(timeoutMillisRange, {}, false)},
              {"async_insert_poll_timeout_ms", CHSetting(timeoutMillisRange, {}, false)},
              {"connect_timeout", CHSetting(timeoutSecondsRange, {}, false)},
              {"connect_timeout_with_failover_ms", CHSetting(timeoutMillisRange, {}, false)},
@@ -2516,6 +2553,8 @@ void loadFuzzerServerSettings(const FuzzConfig & fc)
     {
         serverSettings.insert(
             {{"force_aggregation_in_order", trueOrFalseSettingNoOracle},
+             {"force_data_skipping_indexes",
+              CHSetting([](RandomGenerator & rg, FuzzConfig &) { return settingCombinations(rg, {"i0", "i1", "i2"}); }, {}, false)},
              {"force_data_skipping_indices",
               CHSetting([](RandomGenerator & rg, FuzzConfig &) { return settingCombinations(rg, {"i0", "i1", "i2"}); }, {}, false)},
              {"force_grouping_standard_compatibility", trueOrFalseSettingNoOracle},

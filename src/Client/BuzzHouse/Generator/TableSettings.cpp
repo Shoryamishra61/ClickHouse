@@ -695,6 +695,15 @@ static std::unordered_map<String, CHSetting> mergeTreeTableSettings = {
          false)},
     {"try_fetch_recompressed_part_timeout", highRangeSetting},
     {"ttl_only_drop_parts", trueOrFalseSetting},
+    {"unique_key_conflict_action",
+     CHSetting(
+         [](RandomGenerator & rg, FuzzConfig &)
+         {
+             static const DB::Strings choices = {"'overwrite'", "'ignore'", "'abort'"};
+             return rg.pickRandomly(choices);
+         },
+         {},
+         false)},
     {"use_adaptive_write_buffer_for_dynamic_subcolumns", trueOrFalseSetting},
     {"use_compact_variant_discriminators_serialization", trueOrFalseSetting},
     {"use_const_adaptive_granularity", trueOrFalseSetting},
@@ -1220,7 +1229,9 @@ void loadFuzzerTableSettings(const FuzzConfig & fc)
             {{"fault_probability_after_part_commit", CHSetting(probRange, {}, false)},
              {"fault_probability_before_part_commit", CHSetting(probRange, {}, false)},
              {"min_free_disk_bytes_to_perform_insert", CHSetting(bytesRange, {}, false)},
-             {"min_free_disk_ratio_to_perform_insert", CHSetting(probRange, {}, false)}});
+             {"min_free_disk_ratio_to_perform_insert", CHSetting(probRange, {}, false)},
+             /// A large value stops all background merges of the table
+             {"min_unreserved_disk_space_for_merge", CHSetting(bytesRange, {}, false)}});
     }
 
     std::unordered_map<String, CHSetting> queueSettings
