@@ -33,8 +33,9 @@ using ExpressionActionsPtr = std::shared_ptr<ExpressionActions>;
 /// - the lanes the merge needs next, in the order of the pool's queue, get slices while the marks issued
 ///   so far stay within the read-ahead budget. The budget is zero until a slice comes back with most of
 ///   its rows filtered out. Then it covers the rest of the ramp of slice sizes, so the ramp is read in one
-///   round instead of one slice after another, and once as many slices have missed as the ramp has steps,
-///   reading and not merging is the bottleneck for sure and every source gets a slice.
+///   round instead of one slice after another, and from there it is four times the marks the merge has
+///   consumed, up to a full slice per source: the depth of read-ahead follows the merge's progress, so an
+///   early hit wastes a bounded multiple of what it needed and a long scan reaches every source in a few rounds.
 /// A slice counts as issued until the merge has taken its last row, so the budget bounds the rows held in
 /// the router as well as the sources reading on behalf of the merge. A slice read ahead that comes back
 /// without rows is dropped at once, but its marks stay in the budget until the merge asks again: otherwise,
@@ -113,10 +114,11 @@ private:
     size_t issued_marks = 0;
     /// Marks of the slices read ahead and dropped without rows since the merge last asked.
     size_t fruitless_marks = 0;
-    /// Slices that ended with most of their rows filtered out.
-    size_t misses = 0;
-    /// Slices a lane reads before its slices reach full size (1, 2, 4, ... marks), and their marks in total.
-    size_t ramp_slices = 0;
+    /// Marks of the slices the merge has consumed: taken in full, or dropped without rows.
+    size_t consumed_marks = 0;
+    /// A slice ended with most of its rows filtered out: reading, not merging, is the bottleneck.
+    bool has_miss = false;
+    /// Marks of the slices a lane reads before its slices reach full size (1, 2, 4, ... marks).
     size_t ramp_marks = 0;
 };
 

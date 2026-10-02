@@ -4,6 +4,8 @@
 #include <Processors/Port.h>
 #include <Storages/MergeTree/MergeTreeSliceEndInfo.h>
 
+#include <algorithm>
+
 namespace DB
 {
 
@@ -27,6 +29,7 @@ MergeTreeInOrderSliceRouter::MergeTreeInOrderSliceRouter(
     for (auto & output : outputs)
         lane_outputs.push_back(&output);
 
+    size_t ramp_slices = 0;
     while ((size_t(1) << ramp_slices) < pool->maxSliceMarks())
         ++ramp_slices;
     ramp_marks = (size_t(1) << ramp_slices) - 1;
@@ -157,7 +160,7 @@ void MergeTreeInOrderSliceRouter::consumeInput(size_t source)
 
     /// Most rows of the slice were filtered out: reading is the bottleneck, not merging.
     if (assignment->rows_read * 4 < assignment->rows_in_marks)
-        ++misses;
+        has_miss = true;
 
     assignment.reset();
 }
@@ -165,6 +168,7 @@ void MergeTreeInOrderSliceRouter::consumeInput(size_t source)
 void MergeTreeInOrderSliceRouter::dropSlice(size_t lane_idx, SliceBuffers::iterator slice)
 {
     issued_marks -= slice->second.marks;
+    consumed_marks += slice->second.marks;
     /// Read ahead and found empty: held against the budget until the merge asks again. The lane the merge
     /// waits for is what it needs next, so its empty slices are not held.
     if (!slice->second.had_rows && !lanes[lane_idx].wants_data)
@@ -260,13 +264,11 @@ bool MergeTreeInOrderSliceRouter::announce(size_t lane_idx, size_t mark)
 
 size_t MergeTreeInOrderSliceRouter::readAheadMarks() const
 {
-    /// On remote storage every round of slices is a round trip, so the ramp is read in one round rather than
-    /// slice by slice, and the step to every source is taken as soon as the ramp has missed throughout.
-    if (misses == 0)
+    /// On remote storage every round of slices is a round trip, so the rest of the ramp is read in one round
+    /// rather than slice by slice. From there the depth follows the merge's progress.
+    if (!has_miss)
         return 0;
-    if (misses < ramp_slices)
-        return ramp_marks;
-    return assignments.size() * pool->maxSliceMarks();
+    return std::min(assignments.size() * pool->maxSliceMarks(), std::max(ramp_marks, 4 * consumed_marks));
 }
 
 std::optional<size_t> MergeTreeInOrderSliceRouter::pickIdleSource(size_t lane) const
