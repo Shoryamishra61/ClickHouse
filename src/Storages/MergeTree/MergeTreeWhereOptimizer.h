@@ -16,7 +16,6 @@ namespace Poco { class Logger; }
 namespace DB
 {
 
-class ASTSelectQuery;
 class ASTFunction;
 class MergeTreeData;
 struct StorageInMemoryMetadata;
@@ -44,8 +43,6 @@ public:
         const std::optional<NameSet> & supported_columns_,
         bool supported_columns_include_subcolumns_,
         LoggerPtr log_);
-
-    void optimize(SelectQueryInfo & select_query_info, const ContextPtr & context) const;
 
     struct FilterActionsOptimizeResult
     {
@@ -158,11 +155,6 @@ private:
     /// Transform conjunctions chain in WHERE expression to Conditions list.
     Conditions analyze(const RPNBuilderTreeNode & node, const WhereOptimizerContext & where_optimizer_context) const;
 
-    /// Reconstruct AST from conditions
-    static ASTPtr reconstructAST(const Conditions & conditions);
-
-    void optimizeArbitrary(ASTSelectQuery & select) const;
-
     UInt64 getColumnsSize(const NameSet & columns) const;
 
     double approximateBytesPerRow(const NameSet & columns) const;
@@ -173,8 +165,6 @@ private:
     bool isDeterministicExpressionOverSortingKey(const RPNBuilderTreeNode & node, const ContextPtr & context) const;
 
     bool isSortingKey(const String & column_name) const;
-
-    bool isConstant(const ASTPtr & expr) const;
 
     bool isSubsetOfTableColumns(const NameSet & columns) const;
 
@@ -188,8 +178,6 @@ private:
 
     /// Whether the expression contains a function that reports `isExpensive`.
     static bool isExpensiveExpression(const RPNBuilderTreeNode & node);
-
-    static NameSet determineArrayJoinedNames(const ASTSelectQuery & select);
 
     ConditionSelectivityEstimatorPtr estimator;
 
