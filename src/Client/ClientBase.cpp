@@ -4325,14 +4325,32 @@ bool ClientBase::processAIChat(const String & text_)
     /// server would reject anyway. The effective dialect is not always knowable from
     /// `client_context` (after a `SET profile`, or with `apply_settings_from_server = 0` and a
     /// settings profile of the user selecting another dialect), so decide it exactly like
-    /// `runQueryForAI` and `fetchInternalQueryResult` do. If asking the server fails (a session
-    /// parsing another dialect fails the question itself), the exception explains what to do.
-    if (aiSessionReadonly() == 1 && internalQueriesRequireDialectPin())
+    /// `runQueryForAI` and `fetchInternalQueryResult` do. Asking the server can fail - a session
+    /// that parses another dialect fails the question itself - and then the turn is refused as well,
+    /// with the reason: the messages added to a server exception are not shown without the stack
+    /// trace, so the guidance would not reach the user from the exception.
+    if (aiSessionReadonly() == 1)
     {
-        error_stream << "The AI chat requires the ClickHouse SQL dialect: `readonly = 1` does not allow changing "
-                        "the `dialect` setting. Run `SET dialect = 'clickhouse'` first."
-                     << std::endl;
-        return true;
+        bool dialect_pin_required = true;
+        String probe_error;
+        try
+        {
+            dialect_pin_required = internalQueriesRequireDialectPin();
+        }
+        catch (const Exception & e)
+        {
+            probe_error = getExceptionMessage(e, false);
+        }
+
+        if (dialect_pin_required)
+        {
+            error_stream << "The AI chat requires the ClickHouse SQL dialect: `readonly = 1` does not allow changing "
+                            "the `dialect` setting. Run `SET dialect = 'clickhouse'` first."
+                         << std::endl;
+            if (!probe_error.empty())
+                error_stream << "The effective dialect of the session could not be determined: " << probe_error << std::endl;
+            return true;
+        }
     }
 
     try
