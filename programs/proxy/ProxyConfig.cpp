@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <set>
 #include <unordered_set>
 
 
@@ -389,6 +390,55 @@ ProxyConfiguration ProxyConfiguration::load(const Poco::Util::AbstractConfigurat
                 throw Exception(ErrorCodes::INVALID_CONFIG_PARAMETER,
                     "A routing rule for the '{}' protocol has a secure backend template, but this protocol negotiates "
                     "TLS in-band; the proxy does not support a TLS backend leg for it", toString(protocol));
+        }
+    }
+
+    /// A `tls` or `stream` backend without an explicit port is reached on the port of the listener, which
+    /// `healthCheckPort` does not know. Resolve the probed port of such static backends from the listeners
+    /// that can route to their pools; dynamic backends are resolved by the router, as they serve one listener.
+    std::map<String, std::set<size_t>> pool_listeners;
+    for (size_t i = 0; i < res.listeners.size(); ++i)
+    {
+        const auto & listener = res.listeners[i];
+        if (!listener.default_pool.empty())
+            pool_listeners[listener.default_pool].insert(i);
+        for (const auto & rule : res.rules)
+        {
+            if (rule.pool.empty())
+                continue;
+            if (!rule.protocol.empty())
+            {
+                std::vector<String> names;
+                boost::split(names, rule.protocol, boost::is_any_of(","));
+                if (!std::ranges::any_of(names, [&](String & name) { boost::trim(name); return parseListenerProtocol(name) == listener.protocol; }))
+                    continue;
+            }
+            pool_listeners[rule.pool].insert(i);
+        }
+    }
+    for (auto & [pool_name, pool] : res.pools)
+    {
+        for (auto & backend : pool.backends)
+        {
+            if (backend.health_check_port || backend.tcp_port || backend.http_port || backend.mysql_port
+                || backend.postgresql_port || backend.ssh_port || backend.raw_port)
+                continue;
+
+            std::set<UInt16> ports;
+            bool reached_on_listener_port = false;
+            for (size_t i : pool_listeners[pool_name])
+            {
+                const auto & listener = res.listeners[i];
+                ports.insert(backendPortFor(listener.protocol, backend, listener.port));
+                reached_on_listener_port |= listener.protocol == ListenerProtocol::TLS || listener.protocol == ListenerProtocol::Stream;
+            }
+            if (!reached_on_listener_port)
+                continue;
+            if (ports.size() != 1)
+                throw Exception(ErrorCodes::INVALID_CONFIG_PARAMETER,
+                    "Backend '{}' of pool '{}' is reached on several ports through different listeners; "
+                    "specify the port to probe for health checks in 'health_check_port'", backend.name, pool_name);
+            backend.health_check_port = *ports.begin();
         }
     }
 

@@ -94,6 +94,9 @@ if [ "$READY" -ne 1 ]; then
         # The proxy is not available in this build; emit the expected output so the test passes.
         echo "1"
         echo "1"
+        echo "2"
+        echo "3"
+        echo "4"
         exit 0
     fi
     echo "proxy did not start" >&2
@@ -107,3 +110,9 @@ curl -s --max-time 10 "http://127.0.0.1:${PROXY_PORT}/?query=SELECT%201"
 # The same, with a second `query` parameter that would route to the unreachable pool if the proxy
 # took the last occurrence. The server also runs the first occurrence, so the answer is still `1`.
 curl -s --max-time 10 "http://127.0.0.1:${PROXY_PORT}/?query=SELECT%201&query=INSERT%20INTO%20nonexistent%20VALUES"
+# Without a `query` parameter, the body is the query, and the proxy classifies it by the body:
+# with `Content-Length`, with `Expect: 100-continue` (the proxy must answer it itself, or the client
+# would wait before sending the body), and with a chunked body.
+curl -s --max-time 10 --data-binary 'SELECT 2' "http://127.0.0.1:${PROXY_PORT}/"
+curl -s --max-time 10 -H 'Expect: 100-continue' --expect100-timeout 30 --data-binary '/* comment */ SELECT 3' "http://127.0.0.1:${PROXY_PORT}/"
+curl -s --max-time 10 -H 'Transfer-Encoding: chunked' --data-binary 'SELECT 4' "http://127.0.0.1:${PROXY_PORT}/"

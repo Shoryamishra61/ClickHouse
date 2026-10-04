@@ -55,6 +55,8 @@ struct BackendConfig
     UInt16 raw_port = 0;                /// For TLS and Stream listeners. Zero means the same port as the listener.
     UInt16 health_check_port = 0;       /// The port probed by the health monitor. Zero means the first configured
                                         /// port (native, HTTP, MySQL, PostgreSQL, SSH, raw), or the default native port.
+                                        /// For a backend without ports used by a `tls` or `stream` listener, it is
+                                        /// resolved to the listener's port when the configuration is loaded.
 
     bool secure = false;                /// Encrypt the proxy-to-backend leg.
     UInt32 weight = 1;

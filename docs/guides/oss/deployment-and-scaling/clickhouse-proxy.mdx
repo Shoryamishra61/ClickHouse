@@ -220,6 +220,11 @@ share a common interface and can be extended.
 Rules are checked in order; the first whose criteria all match wins. A rule can match on `host`
 (the TLS SNI or the HTTP `Host` header), `user`, `database`, `query_type` (`select`, `insert` or
 `other`; HTTP only), and `protocol`. It routes either to a named `pool` or to a `backend_template`.
+The query type of an HTTP request is taken from the first `query` URL parameter; without it, the
+request body is the query, and the proxy reads the beginning of the body (the first chunk of a
+chunked body, up to 64 KiB) to classify it. A body that is compressed (`Content-Encoding`, or the
+`decompress` URL parameter) is not inspected, so such a request has no query type and matches only
+the rules without `query_type`.
 Hostnames are matched case-insensitively, as DNS names are case-insensitive: the incoming value is
 lowercased before matching, exact `host` values are compared after lowercasing, and a `host_regexp`
 is compiled as case-insensitive (regexp captures substituted into a `backend_template` are therefore
@@ -276,8 +281,11 @@ The proxy periodically probes every backend with a TCP connection, records laten
 backend down after a number of consecutive failures (bringing it back up when it recovers). The
 probed port is the backend's `<health_check_port>` if set; otherwise the first configured port among
 `tcp_port`, `http_port`, `mysql_port`, `postgresql_port`, `ssh_port` and `raw_port`; otherwise the
-default native port. Set `health_check_port` for a backend that is used through several protocols to
-the port whose availability matters most: the health state is tracked per backend, not per protocol.
+default native port. A backend without any explicit port that is used by a `tls` or `stream` listener
+is reached on the listener's port, so that port is probed (if the backend is reachable on several
+different ports through different listeners, `health_check_port` is required). Set
+`health_check_port` for a backend that is used through several protocols to the port whose
+availability matters most: the health state is tracked per backend, not per protocol.
 If a backend has monitoring credentials (`<monitor_user>` / `<monitor_password>`), the proxy also polls
 its CPU and memory usage over HTTP (HTTPS for a secure backend), which the `least_resources` strategy
 uses.

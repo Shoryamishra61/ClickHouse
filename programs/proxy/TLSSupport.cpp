@@ -2,6 +2,7 @@
 
 #if USE_SILK
 
+#include <Common/Exception.h>
 #include <Common/logger_useful.h>
 
 #include <Poco/Util/AbstractConfiguration.h>
@@ -15,6 +16,14 @@
 #include <Poco/StringTokenizer.h>
 #endif
 
+
+namespace DB
+{
+namespace ErrorCodes
+{
+    extern const int INVALID_CONFIG_PARAMETER;
+}
+}
 
 namespace DB::Proxy
 {
@@ -40,6 +49,12 @@ int parseDisabledProtocols(const Poco::Util::AbstractConfiguration & config, con
         else if (token == "tlsv1") disabled_protocols |= Context::PROTO_TLSV1;
         else if (token == "tlsv1_1") disabled_protocols |= Context::PROTO_TLSV1_1;
         else if (token == "tlsv1_2") disabled_protocols |= Context::PROTO_TLSV1_2;
+        else if (token == "tlsv1_3") disabled_protocols |= Context::PROTO_TLSV1_3;
+        else
+            /// An ignored token would silently leave the protocol enabled despite the hardening policy.
+            throw Exception(ErrorCodes::INVALID_CONFIG_PARAMETER,
+                "Unknown protocol '{}' in '{}'. Supported: sslv2, sslv3, tlsv1, tlsv1_1, tlsv1_2, tlsv1_3",
+                token, prefix + SSLManager::CFG_DISABLE_PROTOCOLS);
     }
     return disabled_protocols;
 }

@@ -59,6 +59,58 @@ String stripPort(const String & host)
     return colon == String::npos ? host : host.substr(0, colon);
 }
 
+/// The framing of an HTTP request body, from the request headers.
+struct HTTPBodyFraming
+{
+    std::optional<UInt64> content_length;
+    bool chunked = false;
+    bool encoded = false;               /// A `Content-Encoding` other than `identity`: the body cannot be read as text.
+    bool expect_continue = false;       /// The client waits for `100 Continue` before sending the body.
+};
+
+/// Without a `query` parameter, the body of the request is the query. Reads the beginning of the body
+/// (the bytes stay in the reader's buffer and are forwarded to the backend unchanged) to classify the query.
+/// Returns nothing if the body cannot be inspected: it is compressed, or its framing is not known.
+std::optional<String> readQueryPrefixFromBody(FiberSocket & client, RecordingReader & reader, const HTTPBodyFraming & framing)
+{
+    /// Enough for the leading keyword after a reasonable amount of whitespace and comments.
+    constexpr size_t max_prefix_bytes = 64 * 1024;
+
+    if (framing.encoded || (!framing.chunked && !framing.content_length))
+        return std::nullopt;
+
+    if (framing.expect_continue)
+    {
+        /// Without this, the client does not send the body until the backend answers, which it cannot do
+        /// before the proxy chooses it. The backend answers `100 Continue` once more: a client must accept
+        /// any number of interim responses.
+        static constexpr std::string_view response = "HTTP/1.1 100 Continue\r\n\r\n";
+        client.sendAll(response.data(), response.size());
+    }
+
+    UInt64 size = 0;
+    if (framing.chunked)
+    {
+        /// Only the first chunk is inspected: chunk-size [ ";" chunk-ext ] CRLF chunk-data.
+        String chunk_header;
+        if (!reader.readLine(chunk_header, 1024))
+            return std::nullopt;
+        const String hex = Poco::trim(chunk_header.substr(0, chunk_header.find(';')));
+        if (hex.empty() || hex.size() > 15 || hex.find_first_not_of("0123456789abcdefABCDEF") != String::npos)
+            return std::nullopt;
+        size = std::stoull(hex, nullptr, 16);
+    }
+    else
+    {
+        size = *framing.content_length;
+    }
+
+    const size_t length = std::min<UInt64>(size, max_prefix_bytes);
+    if (!reader.ensure(length))
+        return std::nullopt;
+    return reader.readFixed(length);
+}
+
 const StaticPageConfig * findStaticPage(const HTTPConfig & http, const String & path)
 {
     for (const auto & page : http.static_pages)
@@ -147,6 +199,7 @@ void handleHTTP(FiberSocket & client, const FrontendContext & ctx)
     std::optional<String> param_database;
     std::optional<String> param_session_id;
     std::optional<String> param_query;
+    bool param_decompress = false;
 
     Poco::URI uri(target);
     for (const auto & [key, value] : uri.getQueryParameters())
@@ -159,6 +212,8 @@ void handleHTTP(FiberSocket & client, const FrontendContext & ctx)
             assign_first(param_session_id, value);
         else if (key == "query")
             assign_first(param_query, value);
+        else if (key == "decompress")
+            param_decompress |= value != "0" && !value.empty();
     }
 
     /// Read the request headers.
@@ -170,6 +225,7 @@ void handleHTTP(FiberSocket & client, const FrontendContext & ctx)
     std::optional<String> header_user;
     std::optional<String> header_database;
     std::optional<String> basic_auth_user;
+    HTTPBodyFraming body_framing;
     String header;
     while (reader.readLine(header, 64 * 1024) && !header.empty())
     {
@@ -186,7 +242,19 @@ void handleHTTP(FiberSocket & client, const FrontendContext & ctx)
         const String name = Poco::toLower(Poco::trim(header.substr(0, colon)));
         const String value = Poco::trim(header.substr(colon + 1));
 
-        if (name == "host")
+        if (name == "content-length")
+        {
+            UInt64 content_length = 0;
+            if (!body_framing.content_length && tryParse(content_length, value))
+                body_framing.content_length = content_length;
+        }
+        else if (name == "transfer-encoding")
+            body_framing.chunked |= Poco::toLower(value).find("chunked") != String::npos;
+        else if (name == "content-encoding")
+            body_framing.encoded |= !value.empty() && Poco::icompare(value, "identity") != 0;
+        else if (name == "expect")
+            body_framing.expect_continue |= Poco::icompare(value, "100-continue") == 0;
+        else if (name == "host")
             assign_first(header_host, Poco::toLower(stripPort(value)));   /// DNS hostnames are case-insensitive.
         else if (name == "x-clickhouse-user")
             assign_first(header_user, value);
@@ -214,7 +282,15 @@ void handleHTTP(FiberSocket & client, const FrontendContext & ctx)
     attributes.database = header_database.value_or(param_database.value_or(""));
     attributes.session_id = param_session_id.value_or("");
     if (param_query)
+    {
         attributes.query_type = classifyQuery(*param_query);
+    }
+    else if (ctx.router.needsQueryType(ListenerProtocol::HTTP) && !param_decompress)
+    {
+        /// With `decompress=1` the body is in the compressed native format and cannot be inspected.
+        if (auto query_prefix = readQueryPrefixFromBody(client, reader, body_framing))
+            attributes.query_type = classifyQuery(*query_prefix);
+    }
 
     if (header_user)
         attributes.user = *header_user;
