@@ -979,10 +979,23 @@ std::atomic<UInt64> MemoryTracker::global_speculative_reservations_released = 0;
 void MemoryTracker::addSpeculativeReservationGlobal(Int64 size)
 {
     global_speculative_reservations_added.fetch_add(static_cast<UInt64>(size), std::memory_order_seq_cst);
+
+    /// The charge of the reservation that follows (`CurrentMemoryTracker::allocGlobal`) is a
+    /// relaxed RMW of `amount` / `rss` inside `allocImpl`, which by itself does not order the
+    /// marker above before it: on a weakly ordered CPU a correction could load the charged
+    /// counter and still miss the marker in `speculativeReservationsAround`, then erase the
+    /// reservation. The release fence pairs with the acquire load of the corrected counter in
+    /// the correction: if that load reads the charge (or any later RMW of the counter), the
+    /// marker happens before it, so the following load of the marker counter sees it.
+    std::atomic_thread_fence(std::memory_order_release);
 }
 
 void MemoryTracker::releaseSpeculativeReservationGlobal(Int64 size)
 {
+    /// No fence is needed here: the release of the charge (`CurrentMemoryTracker::freeGlobal`)
+    /// is sequenced before this RMW, which is a release operation, so a correction whose
+    /// acquire load of this counter reads it is guaranteed to see the released charge in its
+    /// following load of the corrected counter.
     global_speculative_reservations_released.fetch_add(static_cast<UInt64>(size), std::memory_order_seq_cst);
 }
 
