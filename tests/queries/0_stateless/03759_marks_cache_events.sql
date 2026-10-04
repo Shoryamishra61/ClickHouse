@@ -1,4 +1,4 @@
--- Tags: no-parallel-replicas, no-parallel, no-random-detach
+-- Tags: no-parallel-replicas, no-parallel, no-random-settings, no-random-detach
 -- no-random-detach: test checks cache state
 -- Test depends on mark cache, don't run with others in parallel
 
@@ -6,6 +6,7 @@ drop table if exists data;
 create table data (key Int) engine=MergeTree() order by () settings prewarm_mark_cache=0;
 
 set load_marks_asynchronously=0;
+set use_columns_cache=0;
 
 insert into data values (1);
 --
