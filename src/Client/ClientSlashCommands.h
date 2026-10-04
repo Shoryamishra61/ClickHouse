@@ -20,6 +20,10 @@ struct ClientSlashCommand
     std::string_view name;
     /// Whether an argument may follow the name, as in `/help MergeTree`.
     bool takes_argument;
+    /// Whether the command is dispatched in interactive mode only. The other commands are also
+    /// accepted by a noninteractive `clickhouse-local` script, where the interactive-only ones are
+    /// neither accepted nor suggested.
+    bool interactive_only;
 };
 
 /// All the `/`-commands, in the order they are offered in.
@@ -27,10 +31,11 @@ struct ClientSlashCommand
 std::span<const ClientSlashCommand> clientSlashCommands();
 
 /// Diagnose input that looks like a `/`-command but is not one: a misspelled name (with the similar
-/// commands suggested) or an argument given to a command that takes none. Returns nothing when the
-/// input is a valid command, or when it is not a command at all (a `/* comment */`, ...) - it is then
-/// left to the SQL parser as before. The input has to be trimmed of whitespace and `;` already.
-std::optional<String> diagnoseClientSlashCommand(std::string_view trimmed_input);
+/// commands suggested), an argument given to a command that takes none, or an interactive-only
+/// command in a noninteractive session (`interactive` is false). Returns nothing when the input is a
+/// valid command in this mode, or when it is not a command at all (a `/* comment */`, ...) - it is
+/// then left to the SQL parser as before. The input has to be trimmed of whitespace and `;` already.
+std::optional<String> diagnoseClientSlashCommand(std::string_view trimmed_input, bool interactive);
 
 /// Whether the input (trimmed of whitespace and `;`) is one of the `/`-commands, with or without
 /// its argument. In the AI-chat mode such a line runs as the command itself instead of being sent

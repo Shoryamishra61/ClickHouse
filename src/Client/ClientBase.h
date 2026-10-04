@@ -13,6 +13,7 @@
 #include <Common/ShellCommand.h>
 #include <Common/Stopwatch.h>
 #include <Core/ExternalTable.h>
+#include <Core/Field.h>
 #include <Interpreters/Context.h>
 
 #if USE_CLIENT_AI
@@ -490,7 +491,7 @@ protected:
     void initTTYBuffer(ProgressOption progress_option, ProgressOption progress_table_option);
     void initKeystrokeInterceptor();
 
-    String appendSmileyIfNeeded(const String & prompt);
+    static String appendSmileyIfNeeded(const String & prompt);
 
     /// Should be one of the first, to be destroyed the last,
     /// since other members can use them.
@@ -598,6 +599,9 @@ protected:
 
     UInt64 server_revision = 0;
     String server_version;
+    /// A template for the prompt rendered by getPrompt: the `{display_name}` placeholder
+    /// is substituted there on every call (the current dialect is appended to it when
+    /// it is not the default one), and the `:) ` smiley is appended if missing.
     String prompt;
     String server_display_name;
 
@@ -763,6 +767,10 @@ protected:
     /// sends to the client for it to know (`apply_settings_from_server`), are the ones the server
     /// parses with and must not be overridden - see `pinOutboundDialect`.
     SettingsChanges current_query_parse_settings_changed_by_query;
+
+    /// True when the current query is a SQL `SET` escape parsed with `ParserQuery` while a
+    /// non-ClickHouse dialect was active. Its outbound transport dialect must be `clickhouse`.
+    bool current_query_is_set_escape = false;
 
     std::atomic_bool cancelled = false;
     std::atomic_bool cancelled_printed = false;
