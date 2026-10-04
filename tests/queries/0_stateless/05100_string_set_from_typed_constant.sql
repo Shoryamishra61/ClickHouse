@@ -65,6 +65,7 @@ SELECT ['2020-01-01'] IN ([toDate('2020-01-01')]), ['18262'] IN ([toDate('2020-0
 SELECT x FROM values('x Array(String)', [toDate('2020-01-01')]);
 SELECT x FROM values('x Array(Array(String))', [[toIPv4('1.2.3.4')]]);
 SELECT x FROM values('x Tuple(String, String)', (toDate('2020-01-01'), toUUID('00000000-0000-0000-0000-000000000001')));
+SELECT x FROM values('x Tuple(String, String)', CAST((toDate('2020-01-01'), toUUID('00000000-0000-0000-0000-000000000001')), 'Nullable(Tuple(Date, UUID))'));
 SELECT CAST(map(toDate('2020-01-01'), true), 'Map(String, String)');
 SELECT x FROM values('x Map(String, String)', map(toDate('2020-01-01'), true));
 SET bool_true_representation = 'yes';

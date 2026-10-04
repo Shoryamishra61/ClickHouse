@@ -300,6 +300,22 @@ Field rescaleDecimal64Field(const Field & src, const ToDataType & to_type, bool 
     return DecimalField<T>(DecimalUtils::decimalFromComponentsWithMultiplier<T>(value, 0, 1), scale_to);
 }
 
+/// Only `to_type` is unwrapped by `convertFieldToType`, so the source type hint can still be wrapped in
+/// `Nullable` or `LowCardinality` (`Nullable(Tuple(Date, UUID))` converted to `Tuple(String, String)`).
+const IDataType * unwrapTypeHint(const IDataType * hint)
+{
+    while (hint)
+    {
+        if (const auto * nullable_hint = typeid_cast<const DataTypeNullable *>(hint))
+            hint = nullable_hint->getNestedType().get();
+        else if (const auto * low_cardinality_hint = typeid_cast<const DataTypeLowCardinality *>(hint))
+            hint = low_cardinality_hint->getDictionaryType().get();
+        else
+            break;
+    }
+    return hint;
+}
+
 Field convertFieldToTypeImpl(const Field & src, const IDataType & type, const IDataType * from_type_hint, const FormatSettings & format_settings, bool strict, bool convert_inexact_floats)
 {
     if (from_type_hint && from_type_hint->equals(type))
@@ -747,17 +763,7 @@ Field convertFieldToTypeImpl(const Field & src, const IDataType & type, const ID
         }
 
         /// An Enum arrives as its underlying number, but `CAST(enum AS String)` uses the name.
-        /// Only `to_type` is unwrapped by the caller, so unwrap the hint here.
-        const IDataType * unwrapped_hint = from_type_hint;
-        while (unwrapped_hint)
-        {
-            if (const auto * nullable_hint = typeid_cast<const DataTypeNullable *>(unwrapped_hint))
-                unwrapped_hint = nullable_hint->getNestedType().get();
-            else if (const auto * low_cardinality_hint = typeid_cast<const DataTypeLowCardinality *>(unwrapped_hint))
-                unwrapped_hint = low_cardinality_hint->getDictionaryType().get();
-            else
-                break;
-        }
+        const IDataType * unwrapped_hint = unwrapTypeHint(from_type_hint);
 
         /// Re-enter so that a `FixedString` target still zero-pads the name to its width.
         if (const auto * enum_from_type = dynamic_cast<const IDataTypeEnum *>(unwrapped_hint))
@@ -803,7 +809,7 @@ Field convertFieldToTypeImpl(const Field & src, const IDataType & type, const ID
             const auto & element_type = *(type_array->getNestedType());
             /// Pass the source element type down, so that an element rendered to `String` is written as
             /// `CAST` writes it (`[toDate('2020-01-01')]` to `Array(String)` gives `['2020-01-01']`).
-            const auto * array_hint = typeid_cast<const DataTypeArray *>(from_type_hint);
+            const auto * array_hint = typeid_cast<const DataTypeArray *>(unwrapTypeHint(from_type_hint));
             const IDataType * element_hint = array_hint ? array_hint->getNestedType().get() : nullptr;
             bool have_unconvertible_element = false;
             Array res(src_arr_size);
@@ -837,7 +843,7 @@ Field convertFieldToTypeImpl(const Field & src, const IDataType & type, const ID
                     src_tuple_size);
 
             /// Pass the source element types down, see the comment for arrays above.
-            const auto * tuple_hint = typeid_cast<const DataTypeTuple *>(from_type_hint);
+            const auto * tuple_hint = typeid_cast<const DataTypeTuple *>(unwrapTypeHint(from_type_hint));
             if (tuple_hint && tuple_hint->getElements().size() != src_tuple_size)
                 tuple_hint = nullptr;
 
@@ -1024,7 +1030,7 @@ Field convertFieldToTypeImpl(const Field & src, const IDataType & type, const ID
             const auto & value_type = *type_map->getValueType();
 
             /// Pass the source key and value types down, see the comment for arrays above.
-            const auto * map_hint = typeid_cast<const DataTypeMap *>(from_type_hint);
+            const auto * map_hint = typeid_cast<const DataTypeMap *>(unwrapTypeHint(from_type_hint));
             const IDataType * key_hint = map_hint ? map_hint->getKeyType().get() : nullptr;
             const IDataType * value_hint = map_hint ? map_hint->getValueType().get() : nullptr;
 
