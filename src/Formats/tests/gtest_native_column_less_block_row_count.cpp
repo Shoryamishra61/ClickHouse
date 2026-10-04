@@ -1,12 +1,18 @@
 #include <gtest/gtest.h>
 
 #include <Common/Exception.h>
+#include <Common/tests/gtest_global_context.h>
+#include <Common/tests/gtest_global_register.h>
 #include <Core/Block.h>
 #include <Core/ProtocolDefines.h>
+#include <Formats/FormatFactory.h>
+#include <Formats/FormatSettings.h>
 #include <Formats/NativeReader.h>
 #include <Formats/NativeWriter.h>
 #include <IO/ReadBufferFromString.h>
 #include <IO/WriteBufferFromString.h>
+#include <Processors/Formats/IInputFormat.h>
+#include <Processors/Formats/IOutputFormat.h>
 
 namespace DB::ErrorCodes
 {
@@ -40,6 +46,19 @@ Block readFromString(const String & data, UInt64 revision)
     ReadBufferFromString in(data);
     NativeReader reader(in, revision);
     return reader.read();
+}
+
+String writeWithOutputFormat(const Block & block, UInt64 revision)
+{
+    tryRegisterFormats();
+    FormatSettings settings;
+    settings.client_protocol_version = revision;
+    WriteBufferFromOwnString out;
+    auto format = FormatFactory::instance().getOutputFormat("Native", out, Block{}, getContext().context, settings);
+    format->write(block);
+    format->finalize();
+    out.finalize();
+    return out.str();
 }
 
 }
@@ -85,6 +104,51 @@ TEST(NativeColumnLessBlock, NewLayoutRejectedBelowRevision)
     try
     {
         readFromString(data, DBMS_MIN_REVISION_WITH_COLUMN_LESS_BLOCK_ROW_COUNT - 1);
+        FAIL() << "Expected INCORRECT_DATA";
+    }
+    catch (const Exception & e)
+    {
+        ASSERT_EQ(e.code(), ErrorCodes::INCORRECT_DATA);
+    }
+}
+
+/// The `Native` output format passes the row count of a column-less block to the writer, at the revision
+/// that introduced it (e.g. HTTP with `client_protocol_version`).
+TEST(NativeColumnLessBlock, OutputFormatRowCountRoundTrips)
+{
+    constexpr UInt64 revision = DBMS_MIN_REVISION_WITH_COLUMN_LESS_BLOCK_ROW_COUNT;
+    auto result = readFromString(writeWithOutputFormat(makeColumnLessBlock(42), revision), revision);
+    ASSERT_EQ(result.columns(), 0);
+    ASSERT_EQ(result.info.num_rows_without_columns, 42);
+}
+
+/// Below that revision (a `Native` file, for one) the `Native` output format refuses the rows instead of
+/// silently writing an empty block.
+TEST(NativeColumnLessBlock, OutputFormatOlderRevisionIsRefused)
+{
+    try
+    {
+        writeWithOutputFormat(makeColumnLessBlock(42), 0);
+        FAIL() << "Expected NOT_IMPLEMENTED";
+    }
+    catch (const Exception & e)
+    {
+        ASSERT_EQ(e.code(), ErrorCodes::NOT_IMPLEMENTED);
+    }
+}
+
+/// The `Native` input format reads at revision 0, where a block of no columns and some rows is malformed
+/// data, not the end of the data.
+TEST(NativeColumnLessBlock, InputFormatRejectsColumnLessRows)
+{
+    tryRegisterFormats();
+    /// The layout of a block at revision 0: the number of columns, then the number of rows.
+    const String data("\x00\x2a", 2);
+    ReadBufferFromString in(data);
+    auto format = FormatFactory::instance().getInput("Native", in, Block{}, getContext().context, 1000);
+    try
+    {
+        format->read();
         FAIL() << "Expected INCORRECT_DATA";
     }
     catch (const Exception & e)
