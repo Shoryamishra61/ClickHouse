@@ -161,4 +161,8 @@ private:
 /// `Delta` without arguments) cannot be constructed from the top-level composite type.
 bool codecResolvesToLossyCompression(const ASTPtr & codec_ast, const DataTypePtr & column_type);
 
+/// Type-specific codecs read a compressed block as a sequence of values, so a block must not end or begin in the middle of a value.
+/// Rounds the block size down to a multiple of the value size, but not below one value.
+size_t roundCompressBlockSizeToWholeValues(size_t block_size, const IDataType & type);
+
 }
