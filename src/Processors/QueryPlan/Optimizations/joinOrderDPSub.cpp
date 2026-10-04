@@ -614,6 +614,14 @@ std::shared_ptr<DPJoinEntry> DPSubJoinOrderOptimizer::solve()
     }
 
     Checker checker(n, *this);
+    /// The table starts with empty leaves; without the relation estimates every leaf would be
+    /// costed as one row and every join cardinality would be unknown.
+    for (size_t i = 0; i < n; ++i)
+    {
+        auto & leaf = checker.getDPTable()[static_cast<Bitvector>(1) << i];
+        leaf.estimated_rows = query_graph.relation_stats[i].estimated_rows;
+        leaf.column_stats = query_graph.relation_stats[i].column_stats;
+    }
     Enumerator enumerator(n, max_nr_ccps, log);
     enumerator.enumerate(checker, query_graph);
 
