@@ -417,8 +417,6 @@ MergeTreeReadTaskInfoPtr MergeTreeReadPoolStatelessParts::buildTaskInfoForPart(c
         /*with_subcolumns=*/ true);
 
     read_task_info->const_virtual_fields = shared_virtual_fields;
-    read_task_info->const_virtual_fields.emplace("_part_index", read_task_info->part_index_in_query);
-    read_task_info->const_virtual_fields.emplace("_part_starting_offset", read_task_info->part_starting_offset_in_query);
     read_task_info->deserialization_prefixes_cache = std::make_shared<DeserializationPrefixesCache>();
 
     return read_task_info;
