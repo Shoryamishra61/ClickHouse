@@ -13,6 +13,7 @@ namespace DB
 namespace ErrorCodes
 {
     extern const int INVALID_CONFIG_PARAMETER;
+    extern const int LOGICAL_ERROR;
 }
 }
 
@@ -32,6 +33,9 @@ public:
         UInt64 total_weight = 0;
         for (const auto & backend : candidates)
             total_weight += backend->config().weight;
+        /// Backend weights are validated to be positive, and a pool never chooses among zero candidates.
+        if (total_weight == 0)
+            throw Exception(ErrorCodes::LOGICAL_ERROR, "No candidate backends with positive weight");
 
         UInt64 point = std::uniform_int_distribution<UInt64>(0, total_weight - 1)(thread_local_rng);
         for (const auto & backend : candidates)
@@ -55,6 +59,9 @@ public:
         UInt64 total_weight = 0;
         for (const auto & backend : candidates)
             total_weight += backend->config().weight;
+        /// Backend weights are validated to be positive, and a pool never chooses among zero candidates.
+        if (total_weight == 0)
+            throw Exception(ErrorCodes::LOGICAL_ERROR, "No candidate backends with positive weight");
 
         UInt64 point = counter.fetch_add(1, std::memory_order_relaxed) % total_weight;
         for (const auto & backend : candidates)

@@ -64,7 +64,7 @@ int runCheck(CheckTask * task) noexcept
 HealthMonitor::HealthMonitor(const ProxyConfiguration & config_, Router & router_, Poco::Net::Context::Ptr client_tls_context_)
     : config(config_)
     , router(router_)
-    , client_tls_context(std::move(client_tls_context_))
+    , client_tls_context(client_tls_context_)
     , log(getLogger("ProxyHealth"))
 {
 }
