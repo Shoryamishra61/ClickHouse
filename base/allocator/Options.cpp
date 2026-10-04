@@ -32,18 +32,18 @@ constinit std::atomic<unsigned> dss_prec_default{unsigned(DSS_PREC_DEFAULT)};
 }
 
 /// jemalloc: extent_dss_prec_get
-DssPrec extentDssPrecGet()
+DSSPrec extentDSSPrecGet()
 {
     if constexpr (!config::have_dss)
-        return DssPrec::Disabled;
-    return DssPrec(dss_prec_default.load(std::memory_order_acquire));
+        return DSSPrec::Disabled;
+    return DSSPrec(dss_prec_default.load(std::memory_order_acquire));
 }
 
 /// jemalloc: extent_dss_prec_set
-bool extentDssPrecSet(DssPrec dss_prec)
+bool extentDSSPrecSet(DSSPrec dss_prec)
 {
     if constexpr (!config::have_dss)
-        return dss_prec != DssPrec::Disabled;
+        return dss_prec != DSSPrec::Disabled;
     dss_prec_default.store(unsigned(dss_prec), std::memory_order_release);
     return false;
 }

@@ -199,7 +199,7 @@ std::vector<uint64_t> ourStats(Arena * arena)
     std::vector<uint64_t> out;
     put(out, nthreads);
     uint64_t dss_ind = 99;
-    for (unsigned i = 0; i < unsigned(DssPrec::Limit); ++i)
+    for (unsigned i = 0; i < unsigned(DSSPrec::Limit); ++i)
         if (std::strcmp(dss, dss_prec_names[i]) == 0)
             dss_ind = i;
     put(out, dss_ind);

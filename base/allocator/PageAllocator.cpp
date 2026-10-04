@@ -583,12 +583,12 @@ bool PaShard::init(
     return false;
 }
 
-bool PaShard::enableHpa(ThreadState * /*tsdn*/)
+bool PaShard::enableHPA(ThreadState * /*tsdn*/)
 {
     return true;
 }
 
-void PaShard::disableHpa(ThreadState * /*tsdn*/)
+void PaShard::disableHPA(ThreadState * /*tsdn*/)
 {
     use_hpa.store(false, std::memory_order_relaxed);
 }

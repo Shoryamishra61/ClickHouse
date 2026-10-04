@@ -388,7 +388,7 @@ void tcachePostforkChild(ThreadState * tsdn);
 /// jemalloc: tcache_flush
 void tcacheFlush(ThreadState & tsd);
 
-/// `tcacheTsdDataInit` (ThreadState.h) is jemalloc's `tsd_tcache_enabled_data_init`.
+/// `tcacheTSDDataInit` (ThreadState.h) is jemalloc's `tsd_tcache_enabled_data_init`.
 
 /// `thread.tcache.enabled`.
 /// jemalloc: tcache_enabled_set
@@ -413,20 +413,20 @@ uint8_t tcacheNfillSmallLgDivGet(ThreadCacheSlow * tcache_slow, szind_t szind);
 void tcacheNfillSmallBurstPrepare(ThreadCacheSlow * tcache_slow, szind_t szind);
 void tcacheNfillSmallBurstReset(ThreadCacheSlow * tcache_slow, szind_t szind);
 /// jemalloc: tcache_nfill_small_gc_update
-void tcacheNfillSmallGcUpdate(ThreadCacheSlow * tcache_slow, szind_t szind, cache_bin_sz_t limit);
+void tcacheNfillSmallGCUpdate(ThreadCacheSlow * tcache_slow, szind_t szind, cache_bin_sz_t limit);
 /// jemalloc: tcache_gc_item_delay_compute
-uint8_t tcacheGcItemDelayCompute(szind_t szind);
+uint8_t tcacheGCItemDelayCompute(szind_t szind);
 /// jemalloc: tcache_gc_is_addr_remote
-bool tcacheGcIsAddrRemote(void * addr, uintptr_t min, uintptr_t max);
+bool tcacheGCIsAddrRemote(void * addr, uintptr_t min, uintptr_t max);
 /// jemalloc: tcache_gc_small_nremote_get
-cache_bin_sz_t tcacheGcSmallNremoteGet(
+cache_bin_sz_t tcacheGCSmallNremoteGet(
     CacheBin * cache_bin, void * addr, uintptr_t & addr_min, uintptr_t & addr_max, szind_t szind, size_t nflush);
 /// jemalloc: tcache_gc_small_bin_shuffle
-void tcacheGcSmallBinShuffle(CacheBin * cache_bin, cache_bin_sz_t nremote, uintptr_t addr_min, uintptr_t addr_max);
+void tcacheGCSmallBinShuffle(CacheBin * cache_bin, cache_bin_sz_t nremote, uintptr_t addr_min, uintptr_t addr_max);
 
 }
 
-/// The GC event handler entry points (ThreadEvent.h): `tcacheGcNewEventWait`, `tcacheGcPostponedEventWait`,
-/// `tcacheGcEvent`.
+/// The GC event handler entry points (ThreadEvent.h): `tcacheGCNewEventWait`, `tcacheGCPostponedEventWait`,
+/// `tcacheGCEvent`.
 
 }

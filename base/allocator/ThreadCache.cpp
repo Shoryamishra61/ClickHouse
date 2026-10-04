@@ -50,13 +50,13 @@ size_t tcacheSalloc(ThreadState * tsdn, const void * ptr)
 /// --- GC event wait functions ---------------------------------------------------------------------------------------
 
 /// jemalloc: tcache_gc_new_event_wait
-uint64_t tcacheGcNewEventWait(ThreadState & /*tsd*/)
+uint64_t tcacheGCNewEventWait(ThreadState & /*tsd*/)
 {
     return opt.tcache_gc_incr_bytes;
 }
 
 /// jemalloc: tcache_gc_postponed_event_wait
-uint64_t tcacheGcPostponedEventWait(ThreadState & /*tsd*/)
+uint64_t tcacheGCPostponedEventWait(ThreadState & /*tsd*/)
 {
     return TE_MIN_START_WAIT;
 }
@@ -117,7 +117,7 @@ void tcacheNfillSmallBurstReset(ThreadCacheSlow * tcache_slow, szind_t szind)
 /// limit == 0: the fill count should be increased, i.e. lg_div (base) should be decreased.
 /// limit != 0: limit is ncached_max, the fill count should be decreased, i.e. lg_div (base) should be increased.
 /// jemalloc: tcache_nfill_small_gc_update
-void tcacheNfillSmallGcUpdate(ThreadCacheSlow * tcache_slow, szind_t szind, cache_bin_sz_t limit)
+void tcacheNfillSmallGCUpdate(ThreadCacheSlow * tcache_slow, szind_t szind, cache_bin_sz_t limit)
 {
     CacheBinFillCtl * ctl = tcacheBinFillCtlGet(tcache_slow, szind);
     if (!limit && ctl->base > 1)
@@ -135,7 +135,7 @@ void tcacheNfillSmallGcUpdate(ThreadCacheSlow * tcache_slow, szind_t szind, cach
 }
 
 /// jemalloc: tcache_gc_item_delay_compute
-uint8_t tcacheGcItemDelayCompute(szind_t szind)
+uint8_t tcacheGCItemDelayCompute(szind_t szind)
 {
     JE_ASSERT(szind < SC_NBINS);
     size_t sz = sz::indexToSize(szind);
@@ -149,7 +149,7 @@ uint8_t tcacheGcItemDelayCompute(szind_t szind)
 /// --- GC ------------------------------------------------------------------------------------------------------------
 
 /// jemalloc: tcache_gc_is_addr_remote
-bool tcacheGcIsAddrRemote(void * addr, uintptr_t min, uintptr_t max)
+bool tcacheGCIsAddrRemote(void * addr, uintptr_t min, uintptr_t max)
 {
     JE_ASSERT(addr != nullptr);
     return reinterpret_cast<uintptr_t>(addr) < min || reinterpret_cast<uintptr_t>(addr) >= max;
@@ -158,7 +158,7 @@ bool tcacheGcIsAddrRemote(void * addr, uintptr_t min, uintptr_t max)
 /// Counts the cached pointers that are remote w.r.t. the slab at `addr` or its 2 MiB neighborhood, and selects the
 /// range to keep.
 /// jemalloc: tcache_gc_small_nremote_get
-cache_bin_sz_t tcacheGcSmallNremoteGet(
+cache_bin_sz_t tcacheGCSmallNremoteGet(
     CacheBin * cache_bin, void * addr, uintptr_t & addr_min, uintptr_t & addr_max, szind_t szind, size_t nflush)
 {
     JE_ASSERT(addr != nullptr);
@@ -181,8 +181,8 @@ cache_bin_sz_t tcacheGcSmallNremoteGet(
     cache_bin_sz_t ncached = cache_bin->ncachedGetLocal();
     for (void ** cur = head; cur < head + ncached; ++cur)
     {
-        n_remote_slab = static_cast<cache_bin_sz_t>(n_remote_slab + tcacheGcIsAddrRemote(*cur, slab_min, slab_max));
-        n_remote_neighbor = static_cast<cache_bin_sz_t>(n_remote_neighbor + tcacheGcIsAddrRemote(*cur, neighbor_min, neighbor_max));
+        n_remote_slab = static_cast<cache_bin_sz_t>(n_remote_slab + tcacheGCIsAddrRemote(*cur, slab_min, slab_max));
+        n_remote_neighbor = static_cast<cache_bin_sz_t>(n_remote_neighbor + tcacheGCIsAddrRemote(*cur, neighbor_min, neighbor_max));
     }
     /// Since the slab size is dynamic and can be larger than 2M (`TCACHE_GC_NEIGHBOR_LIMIT`), there is no guarantee
     /// as to which of `n_remote_slab` and `n_remote_neighbor` is greater.
@@ -206,7 +206,7 @@ cache_bin_sz_t tcacheGcSmallNremoteGet(
 /// Shuffles the ptrs in the bin to put the remote pointers at the bottom; the local ones move to the top keeping
 /// their relative order.
 /// jemalloc: tcache_gc_small_bin_shuffle
-void tcacheGcSmallBinShuffle(CacheBin * cache_bin, cache_bin_sz_t nremote, uintptr_t addr_min, uintptr_t addr_max)
+void tcacheGCSmallBinShuffle(CacheBin * cache_bin, cache_bin_sz_t nremote, uintptr_t addr_min, uintptr_t addr_max)
 {
     void ** swap = nullptr;
     cache_bin_sz_t ncached = cache_bin->ncachedGetLocal();
@@ -219,7 +219,7 @@ void tcacheGcSmallBinShuffle(CacheBin * cache_bin, cache_bin_sz_t nremote, uintp
     void ** head = cache_bin->stack_head;
     for (void ** cur = head; cur < head + ntop; ++cur)
     {
-        if (!tcacheGcIsAddrRemote(*cur, addr_min, addr_max))
+        if (!tcacheGCIsAddrRemote(*cur, addr_min, addr_max))
         {
             /// Tracks the number of non-remote ptrs seen so far.
             ++cnt;
@@ -228,13 +228,13 @@ void tcacheGcSmallBinShuffle(CacheBin * cache_bin, cache_bin_sz_t nremote, uintp
             if (swap != nullptr)
             {
                 JE_ASSERT(swap < cur);
-                JE_ASSERT(tcacheGcIsAddrRemote(*swap, addr_min, addr_max));
+                JE_ASSERT(tcacheGCIsAddrRemote(*swap, addr_min, addr_max));
                 void * tmp = *cur;
                 *cur = *swap;
                 *swap = tmp;
                 ++swap;
                 JE_ASSERT(swap <= cur);
-                JE_ASSERT(tcacheGcIsAddrRemote(*swap, addr_min, addr_max));
+                JE_ASSERT(tcacheGCIsAddrRemote(*swap, addr_min, addr_max));
             }
             continue;
         }
@@ -250,9 +250,9 @@ void tcacheGcSmallBinShuffle(CacheBin * cache_bin, cache_bin_sz_t nremote, uintp
         /// Early break if all non-remote ptrs have been moved.
         if (cnt == ntop)
             break;
-        if (!tcacheGcIsAddrRemote(*cur, addr_min, addr_max))
+        if (!tcacheGCIsAddrRemote(*cur, addr_min, addr_max))
         {
-            JE_ASSERT(tcacheGcIsAddrRemote(*(head + cnt), addr_min, addr_max));
+            JE_ASSERT(tcacheGCIsAddrRemote(*(head + cnt), addr_min, addr_max));
             void * tmp = *cur;
             *cur = *(head + cnt);
             *(head + cnt) = tmp;
@@ -267,8 +267,8 @@ void tcacheGcSmallBinShuffle(CacheBin * cache_bin, cache_bin_sz_t nremote, uintp
         {
             JE_ASSERT(*cur != nullptr);
             JE_ASSERT(
-                ((cur < head + ntop) && !tcacheGcIsAddrRemote(*cur, addr_min, addr_max))
-                || ((cur >= head + ntop) && tcacheGcIsAddrRemote(*cur, addr_min, addr_max)));
+                ((cur < head + ntop) && !tcacheGCIsAddrRemote(*cur, addr_min, addr_max))
+                || ((cur >= head + ntop) && tcacheGCIsAddrRemote(*cur, addr_min, addr_max)));
         }
     }
 }
@@ -280,7 +280,7 @@ namespace
 
 /// The base address of the arena's current slab of the bin (`slabcur`, else the first nonfull slab), or null.
 /// jemalloc: tcache_gc_small_heuristic_addr_get
-inline void * tcacheGcSmallHeuristicAddrGet(ThreadState & tsd, ThreadCacheSlow * tcache_slow, szind_t szind)
+inline void * tcacheGCSmallHeuristicAddrGet(ThreadState & tsd, ThreadCacheSlow * tcache_slow, szind_t szind)
 {
     JE_ASSERT(szind < SC_NBINS);
     ThreadState * tsdn = &tsd;
@@ -299,7 +299,7 @@ inline void * tcacheGcSmallHeuristicAddrGet(ThreadState & tsd, ThreadCacheSlow *
 
 /// Aims to flush 3/4 of the items below low-water, with remote pointers being prioritized for flushing.
 /// jemalloc: tcache_gc_small
-bool tcacheGcSmall(ThreadState & tsd, ThreadCacheSlow * tcache_slow, ThreadCache * tcache, szind_t szind)
+bool tcacheGCSmall(ThreadState & tsd, ThreadCacheSlow * tcache_slow, ThreadCache * tcache, szind_t szind)
 {
     JE_ASSERT(szind < SC_NBINS);
 
@@ -311,13 +311,13 @@ bool tcacheGcSmall(ThreadState & tsd, ThreadCacheSlow * tcache_slow, ThreadCache
     {
         /// There are unused items within the GC period => reduce the fill count. The limit != 0 is borrowed to
         /// indicate that the fill count should be reduced.
-        tcacheNfillSmallGcUpdate(tcache_slow, szind, /* limit */ cache_bin->ncachedMaxGet());
+        tcacheNfillSmallGCUpdate(tcache_slow, szind, /* limit */ cache_bin->ncachedMaxGet());
     }
     else if (tcache_slow->bin_refilled[szind])
     {
         /// There have been refills within the GC period => increase the fill count. The limit set to 0 is borrowed
         /// to indicate that the fill count should be increased.
-        tcacheNfillSmallGcUpdate(tcache_slow, szind, /* limit */ 0);
+        tcacheNfillSmallGCUpdate(tcache_slow, szind, /* limit */ 0);
         tcache_slow->bin_refilled[szind] = false;
     }
     JE_ASSERT(!tcache_slow->bin_refilled[szind]);
@@ -334,7 +334,7 @@ bool tcacheGcSmall(ThreadState & tsd, ThreadCacheSlow * tcache_slow, ThreadCache
             return false;
         }
 
-        tcache_slow->bin_flush_delay_items[szind] = tcacheGcItemDelayCompute(szind);
+        tcache_slow->bin_flush_delay_items[szind] = tcacheGCItemDelayCompute(szind);
         goto label_flush;
     }
 
@@ -344,7 +344,7 @@ bool tcacheGcSmall(ThreadState & tsd, ThreadCacheSlow * tcache_slow, ThreadCache
             goto label_flush;
 
         /// Query the arena binshard to get heuristic locality info.
-        void * addr = tcacheGcSmallHeuristicAddrGet(tsd, tcache_slow, szind);
+        void * addr = tcacheGCSmallHeuristicAddrGet(tsd, tcache_slow, szind);
         if (addr == nullptr)
             goto label_flush;
 
@@ -352,7 +352,7 @@ bool tcacheGcSmall(ThreadState & tsd, ThreadCacheSlow * tcache_slow, ThreadCache
         /// range.
         uintptr_t addr_min;
         uintptr_t addr_max;
-        cache_bin_sz_t nremote = tcacheGcSmallNremoteGet(cache_bin, addr, addr_min, addr_max, szind, nflush);
+        cache_bin_sz_t nremote = tcacheGCSmallNremoteGet(cache_bin, addr, addr_min, addr_max, szind, nflush);
 
         /// Update nflush to the larger of the intended flush count and the number of remote ptrs.
         if (nremote > nflush)
@@ -367,7 +367,7 @@ bool tcacheGcSmall(ThreadState & tsd, ThreadCacheSlow * tcache_slow, ThreadCache
         /// Move the remote pointers to the bottom of the bin for flushing. As long as moved to the bottom, the order
         /// of these nremote ptrs does not matter, since they are going to be flushed anyway. The rest of the ptrs are
         /// moved to the top of the bin, and their relative order is maintained.
-        tcacheGcSmallBinShuffle(cache_bin, nremote, addr_min, addr_max);
+        tcacheGCSmallBinShuffle(cache_bin, nremote, addr_min, addr_max);
     }
 
 label_flush:
@@ -383,7 +383,7 @@ label_flush:
 
 /// Like the small GC, flushes 3/4 of the untouched items; but simply the bottom ones, without any locality check.
 /// jemalloc: tcache_gc_large
-bool tcacheGcLarge(ThreadState & tsd, ThreadCacheSlow * /*tcache_slow*/, ThreadCache * tcache, szind_t szind)
+bool tcacheGCLarge(ThreadState & tsd, ThreadCacheSlow * /*tcache_slow*/, ThreadCache * tcache, szind_t szind)
 {
     JE_ASSERT(szind >= SC_NBINS);
     CacheBin * cache_bin = &tcache->bins[szind];
@@ -398,7 +398,7 @@ bool tcacheGcLarge(ThreadState & tsd, ThreadCacheSlow * /*tcache_slow*/, ThreadC
 
 /// Tries to GC one bin; returns true if some items were flushed.
 /// jemalloc: tcache_try_gc_bin
-bool tcacheTryGcBin(ThreadState & tsd, ThreadCacheSlow * tcache_slow, ThreadCache * tcache, szind_t szind)
+bool tcacheTryGCBin(ThreadState & tsd, ThreadCacheSlow * tcache_slow, ThreadCache * tcache, szind_t szind)
 {
     JE_ASSERT(tcache != nullptr);
     CacheBin * cache_bin = &tcache->bins[szind];
@@ -407,7 +407,7 @@ bool tcacheTryGcBin(ThreadState & tsd, ThreadCacheSlow * tcache_slow, ThreadCach
 
     bool is_small = (szind < SC_NBINS);
     tcacheBinFlushStashed(tsd, tcache, cache_bin, szind, is_small);
-    bool ret = is_small ? tcacheGcSmall(tsd, tcache_slow, tcache, szind) : tcacheGcLarge(tsd, tcache_slow, tcache, szind);
+    bool ret = is_small ? tcacheGCSmall(tsd, tcache_slow, tcache, szind) : tcacheGCLarge(tsd, tcache_slow, tcache, szind);
     cache_bin->lowWaterSet();
     return ret;
 }
@@ -415,7 +415,7 @@ bool tcacheTryGcBin(ThreadState & tsd, ThreadCacheSlow * tcache_slow, ThreadCach
 }
 
 /// jemalloc: tcache_gc_event
-void tcacheGcEvent(ThreadState & tsd)
+void tcacheGCEvent(ThreadState & tsd)
 {
     ThreadCache * tcache = tcacheGet(tsd);
     if (tcache == nullptr)
@@ -428,7 +428,7 @@ void tcacheGcEvent(ThreadState & tsd)
     if (!opt.experimental_tcache_gc)
     {
         szind_t szind = tcache_slow->next_gc_bin;
-        tcacheTryGcBin(tsd, tcache_slow, tcache, szind);
+        tcacheTryGCBin(tsd, tcache_slow, tcache, szind);
         ++tcache_slow->next_gc_bin;
         if (tcache_slow->next_gc_bin == tcacheNbinsGet(tcache_slow))
             tcache_slow->next_gc_bin = 0;
@@ -458,7 +458,7 @@ void tcacheGcEvent(ThreadState & tsd)
     for (unsigned i = 0; i < small_nbins && gc_small_nbins < TCACHE_GC_SMALL_NBINS_MAX; ++i)
     {
         JE_ASSERT(szind_small < SC_NBINS);
-        if (tcacheTryGcBin(tsd, tcache_slow, tcache, szind_small))
+        if (tcacheTryGCBin(tsd, tcache_slow, tcache, szind_small))
             ++gc_small_nbins;
         if (++szind_small == small_nbins)
             szind_small = 0;
@@ -472,7 +472,7 @@ void tcacheGcEvent(ThreadState & tsd)
     for (unsigned i = SC_NBINS; i < tcache_nbins && gc_large_nbins < TCACHE_GC_LARGE_NBINS_MAX; ++i)
     {
         JE_ASSERT(szind_large >= SC_NBINS && szind_large < tcache_nbins);
-        if (tcacheTryGcBin(tsd, tcache_slow, tcache, szind_large))
+        if (tcacheTryGCBin(tsd, tcache_slow, tcache, szind_large))
             ++gc_large_nbins;
         if (++szind_large == tcache_nbins)
             szind_large = SC_NBINS;
@@ -727,7 +727,7 @@ void tcacheInit(ThreadState & /*tsd*/, ThreadCacheSlow * tcache_slow, ThreadCach
         {
             tcacheBinFillCtlInit(tcache_slow, i);
             tcache_slow->bin_refilled[i] = false;
-            tcache_slow->bin_flush_delay_items[i] = tcacheGcItemDelayCompute(i);
+            tcache_slow->bin_flush_delay_items[i] = tcacheGCItemDelayCompute(i);
         }
         CacheBin * cache_bin = &tcache->bins[i];
         if (tcache_bin_info[i].ncached_max > 0)
@@ -820,7 +820,7 @@ namespace
 /// jemalloc: tcache_stack_alloc_impl
 void * tcacheStackAllocImpl(ThreadState * tsdn, size_t size, size_t alignment)
 {
-    if (cacheBinStackUseThp())
+    if (cacheBinStackUseTHP())
     {
         /// Alignment is ignored since it comes from THP.
         JE_ASSERT(alignment == QUANTUM);
@@ -930,7 +930,7 @@ ThreadCache * tcacheCreateExplicit(ThreadState & tsd)
 
 /// Called upon tsd initialization.
 /// jemalloc: tsd_tcache_enabled_data_init
-bool tcacheTsdDataInit(ThreadState & tsd)
+bool tcacheTSDDataInit(ThreadState & tsd)
 {
     tsd.tcache_enabled = opt.tcache;
     /// The tcache is not available yet, but we need to set up its tcache_nbins in advance.
@@ -1056,7 +1056,7 @@ void tcacheDestroy(ThreadState & tsd, ThreadCache * tcache, bool tsd_tcache)
         [[maybe_unused]] CacheBin * cache_bin = &tcache->bins[0];
         cache_bin->assertEmpty();
     }
-    if (tsd_tcache && cacheBinStackUseThp())
+    if (tsd_tcache && cacheBinStackUseTHP())
         b0DallocTcacheStack(&tsd, tcache_slow->dyn_alloc);
     else
         idalloctm(&tsd, tcache_slow->dyn_alloc, nullptr, nullptr, true, true);

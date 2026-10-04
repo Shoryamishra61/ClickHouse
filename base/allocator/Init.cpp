@@ -519,7 +519,7 @@ bool mallocInitHard()
 
     init_lock.unlock(nullptr);
     /// Recursive allocation relies on functional tsd.
-    ThreadState * tsd = ThreadState::mallocTsdBoot0();
+    ThreadState * tsd = ThreadState::mallocTSDBoot0();
     if (tsd == nullptr)
         return true;
     if (mallocInitHardRecursible())
@@ -552,7 +552,7 @@ bool mallocInitHard()
     postReentrancy(*tsd);
     init_lock.unlock(tsd);
 
-    ThreadState::mallocTsdBoot1();
+    ThreadState::mallocTSDBoot1();
     /// Update TSD after tsd_boot1.
     tsd = &ThreadState::fetch();
     if (opt.background_thread)

@@ -167,7 +167,7 @@ char * x2s(uintmax_t x, bool alt_form, bool uppercase, char * s, size_t * slen_p
 constexpr unsigned char UNSIGNED_FLAG = 0x80;
 
 /// jemalloc: malloc_write_fd_syscall
-ssize_t writeFdSyscall(int fd, const void * buf, size_t count)
+ssize_t writeFDSyscall(int fd, const void * buf, size_t count)
 {
 #if !defined(__APPLE__) && defined(SYS_write)
     if constexpr (config::use_syscall)
@@ -179,7 +179,7 @@ ssize_t writeFdSyscall(int fd, const void * buf, size_t count)
 }
 
 /// jemalloc: malloc_read_fd_syscall
-ssize_t readFdSyscall(int fd, void * buf, size_t count)
+ssize_t readFDSyscall(int fd, void * buf, size_t count)
 {
 #if !defined(__APPLE__) && defined(SYS_read)
     if constexpr (config::use_syscall)
@@ -214,7 +214,7 @@ static_assert(
 /// jemalloc: wrtmessage
 void defaultWriteMessage(void *, const char * s)
 {
-    writeFd(STDERR_FILENO, s, std::strlen(s));
+    writeFD(STDERR_FILENO, s, std::strlen(s));
 }
 
 /// jemalloc: malloc_write
@@ -754,12 +754,12 @@ void printMessage(const char * fmt, ...)
 }
 
 /// jemalloc: malloc_write_fd
-ssize_t writeFd(int fd, const void * buf, size_t count)
+ssize_t writeFD(int fd, const void * buf, size_t count)
 {
     size_t bytes_written = 0;
     do
     {
-        ssize_t result = writeFdSyscall(fd, static_cast<const char *>(buf) + bytes_written, count - bytes_written);
+        ssize_t result = writeFDSyscall(fd, static_cast<const char *>(buf) + bytes_written, count - bytes_written);
         if (result < 0)
         {
             if (errno == EINTR)
@@ -773,12 +773,12 @@ ssize_t writeFd(int fd, const void * buf, size_t count)
 }
 
 /// jemalloc: malloc_read_fd
-ssize_t readFd(int fd, void * buf, size_t count)
+ssize_t readFD(int fd, void * buf, size_t count)
 {
     size_t bytes_read = 0;
     do
     {
-        ssize_t result = readFdSyscall(fd, static_cast<char *>(buf) + bytes_read, count - bytes_read);
+        ssize_t result = readFDSyscall(fd, static_cast<char *>(buf) + bytes_read, count - bytes_read);
         if (result < 0)
         {
             if (errno == EINTR)

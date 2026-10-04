@@ -287,15 +287,15 @@ TEST(Format, FileIO)
 {
     int fds[2];
     REQUIRE(::pipe(fds) == 0);
-    CHECK_EQ(writeFd(fds[1], "abcdef", 6), 6);
-    CHECK_EQ(writeFd(fds[1], "", 0), 0);
+    CHECK_EQ(writeFD(fds[1], "abcdef", 6), 6);
+    CHECK_EQ(writeFD(fds[1], "", 0), 0);
     CHECK_EQ(closeFile(fds[1]), 0);
     char rb[16] = {};
-    CHECK_EQ(readFd(fds[0], rb, sizeof(rb)), 6);
+    CHECK_EQ(readFD(fds[0], rb, sizeof(rb)), 6);
     CHECK_STREQ(rb, "abcdef");
-    CHECK_EQ(readFd(fds[0], rb, sizeof(rb)), 0);
+    CHECK_EQ(readFD(fds[0], rb, sizeof(rb)), 0);
     CHECK_EQ(closeFile(fds[0]), 0);
-    CHECK_LT(writeFd(fds[1], "x", 1), 0);
+    CHECK_LT(writeFD(fds[1], "x", 1), 0);
 
     int fd = openFile("/proc/self/stat", O_RDONLY);
     if (fd < 0)

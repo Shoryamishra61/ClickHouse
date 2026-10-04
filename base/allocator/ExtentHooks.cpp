@@ -20,7 +20,7 @@ void * ehooksDefaultAllocImpl(
     void * ret = extentAllocMmap(new_addr, size, alignment, zero, commit);
 
     if (config::have_madvise_huge && ret)
-        pages::setThpState(ret, size);
+        pages::setTHPState(ret, size);
     return ret;
 }
 
@@ -64,7 +64,7 @@ bool ehooksDefaultPurgeForcedImpl(void * addr, size_t offset, size_t length)
 void ehooksDefaultZeroImpl(void * addr, size_t size)
 {
     bool needs_memset = true;
-    if (opt.thp != ThpMode::Always)
+    if (opt.thp != THPMode::Always)
         needs_memset = pages::purgeForced(addr, size);
     if (needs_memset)
         memset(addr, 0, size);

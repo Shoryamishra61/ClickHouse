@@ -39,7 +39,7 @@ constinit const char * const system_thp_mode_names[] = {"madvise", "always", "ne
 
 constinit const char * const metadata_thp_mode_names[] = {"disabled", "auto", "always"};
 
-constinit SystemThpMode init_system_thp_mode = SystemThpMode::Madvise;
+constinit SystemTHPMode init_system_thp_mode = SystemTHPMode::Madvise;
 
 namespace pages
 {
@@ -116,7 +116,7 @@ int madviseDontNeedZeroesPages()
 /// Name the mapping in `/proc/<pid>/maps`, e.g. `7f4836000000-7f4836800000 rw-p 00000000 00:00 0
 /// [anon:jemalloc_pg_overcommit]`. Errors are ignored (EINVAL on kernels without `CONFIG_ANON_VMA_NAME`).
 /// jemalloc: os_page_id
-[[maybe_unused]] int osPageId(void * addr, size_t size, const char * name)
+[[maybe_unused]] int osPageID(void * addr, size_t size, const char * name)
 {
 #if defined(__linux__)
     JE_ASSERT(addr != nullptr);
@@ -160,7 +160,7 @@ void * osPagesMap(void * addr, size_t size, size_t /*alignment*/, bool * commit)
     if constexpr (config::pageid)
     {
         if (ret != nullptr)
-            osPageId(ret, size, os_overcommits ? "jemalloc_pg_overcommit" : "jemalloc_pg");
+            osPageID(ret, size, os_overcommits ? "jemalloc_pg_overcommit" : "jemalloc_pg");
     }
     return ret;
 }
@@ -341,7 +341,7 @@ bool osOvercommitsSysctl()
     if (fd == -1)
         return false; /// Error.
 
-    ssize_t nread = readFd(fd, &buf, sizeof(buf));
+    ssize_t nread = readFD(fd, &buf, sizeof(buf));
     closeFile(fd);
 
     if (nread < 1)
@@ -355,10 +355,10 @@ bool osOvercommitsSysctl()
 }
 
 /// jemalloc: pages_should_skip_set_thp_state
-bool pagesShouldSkipSetThpState()
+bool pagesShouldSkipSetTHPState()
 {
-    return opt.thp == ThpMode::DoNothing || (opt.thp == ThpMode::Always && init_system_thp_mode == SystemThpMode::Always)
-        || (opt.thp == ThpMode::Never && init_system_thp_mode == SystemThpMode::Never);
+    return opt.thp == THPMode::DoNothing || (opt.thp == THPMode::Always && init_system_thp_mode == SystemTHPMode::Always)
+        || (opt.thp == THPMode::Never && init_system_thp_mode == SystemTHPMode::Never);
 }
 
 }
@@ -367,11 +367,11 @@ namespace
 {
 
 /// jemalloc: init_thp_state
-void initThpState()
+void initTHPState()
 {
     if constexpr (!config::have_madvise_huge)
     {
-        if (metadataThpEnabled() && opt.abort)
+        if (metadataTHPEnabled() && opt.abort)
         {
             writeMessage("<jemalloc>: no MADV_HUGEPAGE support\n");
             abort();
@@ -387,23 +387,23 @@ void initThpState()
         int fd = openFile("/sys/kernel/mm/transparent_hugepage/enabled", O_RDONLY);
         if (fd != -1)
         {
-            ssize_t nread = readFd(fd, &buf, sizeof(buf));
+            ssize_t nread = readFD(fd, &buf, sizeof(buf));
             closeFile(fd);
             if (nread >= 0)
             {
                 if (strncmp(buf, sys_state_madvise, static_cast<size_t>(nread)) == 0)
                 {
-                    init_system_thp_mode = SystemThpMode::Madvise;
+                    init_system_thp_mode = SystemTHPMode::Madvise;
                     return;
                 }
                 if (strncmp(buf, sys_state_always, static_cast<size_t>(nread)) == 0)
                 {
-                    init_system_thp_mode = SystemThpMode::Always;
+                    init_system_thp_mode = SystemTHPMode::Always;
                     return;
                 }
                 if (strncmp(buf, sys_state_never, static_cast<size_t>(nread)) == 0)
                 {
-                    init_system_thp_mode = SystemThpMode::Never;
+                    init_system_thp_mode = SystemTHPMode::Never;
                     return;
                 }
                 /// `opt_hpa_opts.hugify_style` adjustments are dropped together with HPA.
@@ -412,8 +412,8 @@ void initThpState()
     }
 
     /// label_error:
-    opt.thp = ThpMode::NotSupported;
-    init_system_thp_mode = SystemThpMode::NotSupported;
+    opt.thp = THPMode::NotSupported;
+    init_system_thp_mode = SystemTHPMode::NotSupported;
 }
 
 }
@@ -622,17 +622,17 @@ bool doDump(void * addr, size_t size)
 }
 
 /// jemalloc: pages_set_thp_state
-void setThpState(void * ptr, size_t size)
+void setTHPState(void * ptr, size_t size)
 {
-    if (pagesShouldSkipSetThpState())
+    if (pagesShouldSkipSetTHPState())
         return;
-    JE_ASSERT(opt.thp != ThpMode::NotSupported && init_system_thp_mode != SystemThpMode::NotSupported);
+    JE_ASSERT(opt.thp != THPMode::NotSupported && init_system_thp_mode != SystemTHPMode::NotSupported);
 
-    if (opt.thp == ThpMode::Always && init_system_thp_mode == SystemThpMode::Madvise)
+    if (opt.thp == THPMode::Always && init_system_thp_mode == SystemTHPMode::Madvise)
         pagesHugeUnaligned(ptr, size);
-    else if (opt.thp == ThpMode::Never)
+    else if (opt.thp == THPMode::Never)
     {
-        JE_ASSERT(init_system_thp_mode == SystemThpMode::Madvise || init_system_thp_mode == SystemThpMode::Always);
+        JE_ASSERT(init_system_thp_mode == SystemTHPMode::Madvise || init_system_thp_mode == SystemTHPMode::Always);
         pagesNohugeUnaligned(ptr, size);
     }
 }
@@ -681,7 +681,7 @@ bool boot()
     os_overcommits = false;
 #endif
 
-    initThpState();
+    initTHPState();
 
     if constexpr (!config::os_freebsd)
     {

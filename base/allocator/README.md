@@ -34,7 +34,7 @@ From the bottom up:
 | Page allocator | `ExtentSet`, `ExtentCache`, `ExtentOps`, `ExpGrow.h`, `Decay`, `PageAllocator`, `Sanitizer` | `eset.c`, `ecache.c`, `extent.c`, `exp_grow.c`, `decay.c`, `pac.c`, `pa.c`, `san.c`, `san_bump.c` |
 | Arenas | `Bin`, `Arena`, `ArenaLarge.cpp`, `ArenaInlines.h`, `Arenas` | `bin.c`, `arena.c`, `large.c`, arena selection in `jemalloc.c` |
 | Threads | `CacheBin`, `ThreadCache`, `ThreadEvent`, `ThreadState` | `cache_bin.c`, `tcache.c`, `thread_event.c`, `tsd.c` |
-| Front-end | `Options`, `Conf`, `Init`, `Fork.cpp`, `Frontend.h`, `Imalloc.h`, `Api.cpp`, `BatchAlloc.cpp`, `BackgroundThread`, `Zone.cpp` | `jemalloc.c`, `conf.c`, `background_thread.c`, `zone.c` |
+| Front-end | `Options`, `Conf`, `Init`, `Fork.cpp`, `Frontend.h`, `Imalloc.h`, `API.cpp`, `BatchAlloc.cpp`, `BackgroundThread`, `Zone.cpp` | `jemalloc.c`, `conf.c`, `background_thread.c`, `zone.c` |
 | Profiling | `Prof`, `ProfData.cpp`, `ProfSys.cpp`, `ProfRecent.cpp`, `ProfStats.cpp`, `ProfHooks.h`, `ProfTree.h`, `CuckooHash` | `prof*.c`, `ckh.c` |
 | Introspection | `Ctl*`, `Emitter.h`, `Stats` | `ctl.c`, `emitter.h`, `stats.c` |
 

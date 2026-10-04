@@ -192,7 +192,7 @@ TEST(Emitter, Modal)
         "  I6: 123\n");
 }
 
-TEST(Emitter, JsonArray)
+TEST(Emitter, JSONArray)
 {
     expectEmitOutput(em::script_json_array,
         "{\n"
@@ -228,7 +228,7 @@ TEST(Emitter, JsonArray)
         "");
 }
 
-TEST(Emitter, JsonNestedArray)
+TEST(Emitter, JSONNestedArray)
 {
     expectEmitOutput(em::script_json_nested_array,
         "{\n"

@@ -66,7 +66,7 @@ inline uint64_t profGeometricWait(uint64_t & prng_state, unsigned lg_sample)
 namespace jemalloc
 {
 
-bool tcacheTsdDataInit(ThreadState & tsd)
+bool tcacheTSDDataInit(ThreadState & tsd)
 {
     thread_test::record("tcacheTsdDataInit", tsd);
     tsd.tcache_enabled = opt.tcache;
@@ -104,17 +104,17 @@ void a0dalloc(void * ptr)
     std::free(ptr);
 }
 
-uint64_t tcacheGcNewEventWait(ThreadState &)
+uint64_t tcacheGCNewEventWait(ThreadState &)
 {
     return opt.tcache_gc_incr_bytes;
 }
 
-uint64_t tcacheGcPostponedEventWait(ThreadState &)
+uint64_t tcacheGCPostponedEventWait(ThreadState &)
 {
     return TE_MIN_START_WAIT;
 }
 
-void tcacheGcEvent(ThreadState & tsd)
+void tcacheGCEvent(ThreadState & tsd)
 {
     thread_test::record("tcacheGcEvent", tsd);
 }

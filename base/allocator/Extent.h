@@ -385,7 +385,7 @@ public:
     }
 
     /// jemalloc: edata_esn_set
-    JE_ALWAYS_INLINE void setEsn(size_t esn) { e_size_esn = (e_size_esn & ~EDATA_ESN_MASK) | (esn & EDATA_ESN_MASK); }
+    JE_ALWAYS_INLINE void setESN(size_t esn) { e_size_esn = (e_size_esn & ~EDATA_ESN_MASK) | (esn & EDATA_ESN_MASK); }
 
     /// jemalloc: edata_bsize_set
     JE_ALWAYS_INLINE void setBsize(size_t bsize) { e_bsize = bsize; }
@@ -443,7 +443,7 @@ public:
     }
 
     /// jemalloc: edata_sn_set
-    JE_ALWAYS_INLINE void setSn(uint64_t sn) { e_sn = sn; }
+    JE_ALWAYS_INLINE void setSN(uint64_t sn) { e_sn = sn; }
 
     /// jemalloc: edata_state_set
     JE_ALWAYS_INLINE void setState(ExtentState state) { setBits(extent_bits::state, state); }
@@ -513,7 +513,7 @@ public:
         setSize(size);
         setSlab(slab);
         setSzind(szind);
-        setSn(sn);
+        setSN(sn);
         setState(state);
         setGuarded(false);
         setZeroed(zeroed);
@@ -532,7 +532,7 @@ public:
         setBsize(bsize);
         setSlab(false);
         setSzind(SC_NSIZES);
-        setSn(sn);
+        setSN(sn);
         setState(extent_state_active);
         /// See comments in `base_edata_is_reused`.
         setGuarded(reused);
@@ -546,7 +546,7 @@ public:
     /// --- Comparators -----------------------------------------------------------------------------------------------
 
     /// jemalloc: edata_esn_comp
-    static JE_ALWAYS_INLINE int compareEsn(const Extent * a, const Extent * b)
+    static JE_ALWAYS_INLINE int compareESN(const Extent * a, const Extent * b)
     {
         size_t a_esn = a->esn();
         size_t b_esn = b->esn();
@@ -589,7 +589,7 @@ public:
     /// jemalloc: edata_esnead_comp
     static JE_ALWAYS_INLINE int compareEsnead(const Extent * a, const Extent * b)
     {
-        return (2 * compareEsn(a, b)) + compareEad(a, b);
+        return (2 * compareESN(a, b)) + compareEad(a, b);
     }
 
 private:

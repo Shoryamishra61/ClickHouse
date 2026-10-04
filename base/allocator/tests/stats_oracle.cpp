@@ -98,7 +98,7 @@ std::vector<std::string> normalizeTable(const std::string & text)
 }
 
 /// The (compact, single-line) JSON output split into tokens at the structural characters.
-std::vector<std::string> normalizeJson(const std::string & text)
+std::vector<std::string> normalizeJSON(const std::string & text)
 {
     std::vector<std::string> tokens;
     std::string current;
@@ -142,7 +142,7 @@ void compareOutputs(const char * opts)
     if (json)
     {
         CHECK(ours.back() == '}');
-        compareLines(normalizeJson(ref), normalizeJson(ours), opts);
+        compareLines(normalizeJSON(ref), normalizeJSON(ours), opts);
     }
     else
     {
@@ -170,7 +170,7 @@ bool generalLeavesAvailable()
 
 /// Both allocators place the main thread on the arena of the same CPU (per-CPU arenas). Called after the
 /// initialization of both (the per-CPU mode is disabled if the affinity mask differs from the number of CPUs).
-void pinToCpu0()
+void pinToCPU0()
 {
     cpu_set_t set;
     CPU_ZERO(&set);
@@ -183,7 +183,7 @@ void pinToCpu0()
 TEST(StatsOracle, Structure)
 {
     bool general = generalLeavesAvailable();
-    pinToCpu0();
+    pinToCPU0();
 
     /// Every flag separately and some combinations, in both output modes.
     static const char * const options[] = {

@@ -167,7 +167,7 @@ size_t unbiasedSize(void * ptr)
     return sz::indexToSizeUnsafe(sz::sizeToIndex(isalloc(&ThreadState::fetch(), ptr)));
 }
 
-uint64_t mainThrUid()
+uint64_t mainThrUID()
 {
     ThreadState & tsd = ThreadState::fetch();
     ProfThreadData * tdata = profTdataGet(tsd, true);
@@ -289,7 +289,7 @@ TEST(Prof, DumpFormatAndLifecycle)
     init();
     installBacktraceHook();
     ThreadState & tsd = ThreadState::fetch();
-    uint64_t uid = mainThrUid();
+    uint64_t uid = mainThrUID();
     ProfThreadData * tdata = profTdataGet(tsd, false);
     CHECK(tdata->lock == &tdata_locks[uid % PROF_NTDATA_LOCKS]);
     CHECK_EQ(profBtCount(), size_t(0));
@@ -430,7 +430,7 @@ TEST(Prof, Reset)
     init();
     installBacktraceHook();
     ThreadState & tsd = ThreadState::fetch();
-    uint64_t uid = mainThrUid();
+    uint64_t uid = mainThrUID();
     ProfThreadData * old_tdata = profTdataGet(tsd, false);
     uint64_t old_discrim = old_tdata->thr_discrim;
     size_t tdatas_before = profTdataCount();
@@ -592,7 +592,7 @@ TEST(Prof, RecentAllocations)
     init();
     installBacktraceHook();
     ThreadState & tsd = ThreadState::fetch();
-    uint64_t uid = mainThrUid();
+    uint64_t uid = mainThrUID();
 
     ssize_t max = 2;
     ssize_t old_max = -5;

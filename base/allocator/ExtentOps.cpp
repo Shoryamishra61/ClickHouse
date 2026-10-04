@@ -501,7 +501,7 @@ Extent * extentGrowRetained(ThreadState * tsdn, PageAllocator * pac, ExtentHooks
         alloc_size,
         false,
         SC_NSIZES,
-        extentSnNext(pac),
+        extentSNNext(pac),
         extent_state_active,
         zeroed,
         committed,
@@ -865,7 +865,7 @@ bool extentMergeImpl(ThreadState * tsdn, PageAllocator * pac, ExtentHooks * ehoo
     JE_ASSERT(a->state() == extent_state_active || a->state() == extent_state_merging);
     a->setState(extent_state_active);
     a->setSize(a->size() + b->size());
-    a->setSn((a->sn() < b->sn()) ? a->sn() : b->sn());
+    a->setSN((a->sn() < b->sn()) ? a->sn() : b->sn());
     a->setZeroed(a->zeroed() && b->zeroed());
 
     pac->emap->mergeCommit(tsdn, &prepare, a, b);
@@ -879,7 +879,7 @@ bool extentMergeImpl(ThreadState * tsdn, PageAllocator * pac, ExtentHooks * ehoo
 
 /// --- Public functions ----------------------------------------------------------------------------------------------
 
-size_t extentSnNext(PageAllocator * pac)
+size_t extentSNNext(PageAllocator * pac)
 {
     return pac->extent_sn_next.fetch_add(1, std::memory_order_relaxed);
 }
@@ -1095,7 +1095,7 @@ namespace
 /// below the arena layer (the base uses it), so it is done here, in the only caller that passes the arena's hooks
 /// with a fixed address. The arena's `edata_cache` is `pac->edata_cache`.
 /// jemalloc: extent_alloc_dss (the `label_oom` path)
-void extentAllocDssFailed(ThreadState * tsdn, PageAllocator * pac)
+void extentAllocDSSFailed(ThreadState * tsdn, PageAllocator * pac)
 {
     Extent * gap = pac->edata_cache->get(tsdn);
     if (gap == nullptr)
@@ -1104,7 +1104,7 @@ void extentAllocDssFailed(ThreadState * tsdn, PageAllocator * pac)
 }
 
 /// jemalloc: ehooks_alloc (the DSS part of `extent_alloc_core` around the mmap attempt)
-void * extentHooksAllocWithDss(
+void * extentHooksAllocWithDSS(
     ThreadState * tsdn, PageAllocator * pac, ExtentHooks * ehooks, void * new_addr, size_t size, size_t alignment, bool * zero, bool * commit)
 {
     if constexpr (!config::have_dss)
@@ -1112,12 +1112,12 @@ void * extentHooksAllocWithDss(
 
     Arena * arena = arenaGet(tsdn, ehooks->indGet(), false);
     /// A null arena indicates `arena_create`.
-    DssPrec dss = arena == nullptr ? DssPrec::Disabled : DssPrec(arena->dss_prec.load(std::memory_order_relaxed));
-    if (dss == DssPrec::Primary)
-        extentAllocDssFailed(tsdn, pac);
+    DSSPrec dss = arena == nullptr ? DSSPrec::Disabled : DSSPrec(arena->dss_prec.load(std::memory_order_relaxed));
+    if (dss == DSSPrec::Primary)
+        extentAllocDSSFailed(tsdn, pac);
     void * ret = ehooks->alloc(tsdn, new_addr, size, alignment, zero, commit);
-    if (ret == nullptr && dss == DssPrec::Secondary)
-        extentAllocDssFailed(tsdn, pac);
+    if (ret == nullptr && dss == DSSPrec::Secondary)
+        extentAllocDSSFailed(tsdn, pac);
     return ret;
 }
 
@@ -1138,7 +1138,7 @@ Extent * extentAllocWrapper(
     if (edata == nullptr)
         return nullptr;
     size_t palignment = alignmentCeiling(alignment, PAGE);
-    void * addr = extentHooksAllocWithDss(tsdn, pac, ehooks, new_addr, size, palignment, &zero, commit);
+    void * addr = extentHooksAllocWithDSS(tsdn, pac, ehooks, new_addr, size, palignment, &zero, commit);
     if (addr == nullptr)
     {
         pac->edata_cache->put(tsdn, edata);
@@ -1150,7 +1150,7 @@ Extent * extentAllocWrapper(
         size,
         /* slab */ false,
         SC_NSIZES,
-        extentSnNext(pac),
+        extentSNNext(pac),
         extent_state_active,
         zero,
         *commit,

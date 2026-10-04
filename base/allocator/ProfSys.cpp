@@ -156,7 +156,7 @@ namespace
 {
 
 /// jemalloc: prof_get_pid_namespace
-long profGetPidNamespace()
+long profGetPIDNamespace()
 {
     long ret = 0;
 
@@ -237,7 +237,7 @@ void profDumpFlush(void * opaque, const char * s)
     auto * arg = static_cast<ProfDumpArg *>(opaque);
     if (!arg->error)
     {
-        ssize_t err = writeFd(arg->prof_dump_fd, s, strlen(s));
+        ssize_t err = writeFD(arg->prof_dump_fd, s, strlen(s));
         profDumpCheckPossibleError(arg, err == -1, "<jemalloc>: failed to write during heap profile flush\n");
     }
 }
@@ -349,7 +349,7 @@ ssize_t profDumpReadMapsCb(void * read_cbopaque, void * buf, size_t limit)
 {
     int mfd = *static_cast<int *>(read_cbopaque);
     JE_ASSERT(mfd != -1);
-    return readFd(mfd, buf, limit);
+    return readFD(mfd, buf, limit);
 }
 
 /// jemalloc: prof_dump_maps
@@ -435,7 +435,7 @@ void profDumpFilename(ThreadState & tsd, char * filename, char v, uint64_t vseq)
                 DUMP_FILENAME_BUFSIZE,
                 "%s.%ld.%d.%llu.%c%llu.heap",
                 prefix,
-                profGetPidNamespace(),
+                profGetPIDNamespace(),
                 profGetpid(),
                 seq,
                 v,
@@ -460,7 +460,7 @@ void profDumpFilename(ThreadState & tsd, char * filename, char v, uint64_t vseq)
         if (opt.prof_pid_namespace)
         {
             /// "<prefix>.<pid_namespace>.<pid>.<seq>.<v>.heap"
-            format(filename, DUMP_FILENAME_BUFSIZE, "%s.%ld.%d.%llu.%c.heap", prefix, profGetPidNamespace(), profGetpid(), seq, v);
+            format(filename, DUMP_FILENAME_BUFSIZE, "%s.%ld.%d.%llu.%c.heap", prefix, profGetPIDNamespace(), profGetpid(), seq, v);
         }
         else
         {

@@ -119,7 +119,7 @@ bool extentMergeWrapper(ThreadState * tsdn, PageAllocator * pac, ExtentHooks * e
 bool extentCommitZero(ThreadState * tsdn, ExtentHooks * ehooks, Extent * edata, bool commit, bool zero, bool growing_retained);
 
 /// jemalloc: extent_sn_next
-size_t extentSnNext(PageAllocator * pac);
+size_t extentSNNext(PageAllocator * pac);
 
 /// Returns true on error.
 /// jemalloc: extent_boot

@@ -263,9 +263,9 @@ void peakEvent(ThreadState & tsd);
 /// interval).
 
 /// jemalloc: tcache_gc_new_event_wait, tcache_gc_postponed_event_wait, tcache_gc_event (`tcache.c`)
-uint64_t tcacheGcNewEventWait(ThreadState & tsd);
-uint64_t tcacheGcPostponedEventWait(ThreadState & tsd);
-void tcacheGcEvent(ThreadState & tsd);
+uint64_t tcacheGCNewEventWait(ThreadState & tsd);
+uint64_t tcacheGCPostponedEventWait(ThreadState & tsd);
+void tcacheGCEvent(ThreadState & tsd);
 
 /// The postponed wait of prof sampling is computed as a new wait (to avoid sampling bias).
 /// jemalloc: prof_sample_new_event_wait, prof_sample_event_handler (`prof.c`)

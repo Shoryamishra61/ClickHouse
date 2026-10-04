@@ -336,10 +336,10 @@ JE_ALWAYS_INLINE void fastpathSuccessFinish(ThreadState * tsd, uint64_t allocate
 template <void * (*fallback_alloc)(size_t)>
 JE_ALWAYS_INLINE void * imallocFastpath(size_t size)
 {
-    if (Tsd::get_allocates && JE_UNLIKELY(!mallocInitialized()))
+    if (TSD::get_allocates && JE_UNLIKELY(!mallocInitialized()))
         return fallback_alloc(size);
 
-    ThreadState * tsd = Tsd::get(false);
+    ThreadState * tsd = TSD::get(false);
     if (JE_UNLIKELY((size > SC_LOOKUP_MAXCLASS) || tsd == nullptr))
         return fallback_alloc(size);
 
@@ -489,7 +489,7 @@ JE_ALWAYS_INLINE bool freeFastpathNonfastAligned(void * ptr, bool check_prof)
 /// jemalloc: free_fastpath
 JE_ALWAYS_INLINE bool freeFastpath(void * ptr, size_t size, bool size_hint)
 {
-    ThreadState * tsd = Tsd::get(false);
+    ThreadState * tsd = TSD::get(false);
     /// The branch gets optimized away unless the TSD implementation allocates.
     if (JE_UNLIKELY(tsd == nullptr))
         return false;
@@ -558,7 +558,7 @@ JE_ALWAYS_INLINE bool freeFastpath(void * ptr, size_t size, bool size_hint)
     return true;
 }
 
-/// The slow paths of `malloc`, `free`, `sdallocx` (noinline, defined in Api.cpp).
+/// The slow paths of `malloc`, `free`, `sdallocx` (noinline, defined in API.cpp).
 /// jemalloc: malloc_default, free_default, sdallocx_default
 JE_NOINLINE void * mallocDefault(size_t size);
 JE_NOINLINE void freeDefault(void * ptr);

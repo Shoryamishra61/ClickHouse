@@ -348,10 +348,10 @@ public:
 
     /// HPA is dropped: always fails (returns true). It is never called, because `opt.hpa` is forced to false at boot.
     /// jemalloc: pa_shard_enable_hpa
-    bool enableHpa(ThreadState * tsdn);
+    bool enableHPA(ThreadState * tsdn);
 
     /// jemalloc: pa_shard_disable_hpa
-    void disableHpa(ThreadState * tsdn);
+    void disableHPA(ThreadState * tsdn);
 
     /// The PA-specific parts of arena reset (i.e. freeing all active allocations).
     /// jemalloc: pa_shard_reset

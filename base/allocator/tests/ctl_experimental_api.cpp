@@ -1,4 +1,4 @@
-/// The `experimental.*` leaves through the public API of the fully initialized allocator (the test links Api.cpp,
+/// The `experimental.*` leaves through the public API of the fully initialized allocator (the test links API.cpp,
 /// whose constructor initializes the allocator with `MALLOC_CONF` from the environment; the test is registered twice:
 /// without and with heap profiling). Ports of jemalloc's `test/unit/inspect.c`, `test/unit/batch_alloc.c` (and
 /// `batch_alloc_prof.c`), the public API part of `test/unit/safety_check.c` (the redzone checks themselves only exist
@@ -59,7 +59,7 @@ void checkUtilValid(const char * node, void * out, size_t * out_sz, void * in, s
 }
 
 /// jemalloc: test/unit/inspect.c test_query
-TEST(CtlExperimentalApi, UtilizationQuery)
+TEST(CtlExperimentalAPI, UtilizationQuery)
 {
     /// jemalloc runs `test/unit/inspect.c` with `prof:false`: sampled small allocations are not slabs.
     if (opt.prof)
@@ -148,7 +148,7 @@ TEST(CtlExperimentalApi, UtilizationQuery)
 }
 
 /// jemalloc: test/unit/inspect.c test_batch
-TEST(CtlExperimentalApi, UtilizationBatchQuery)
+TEST(CtlExperimentalAPI, UtilizationBatchQuery)
 {
     /// jemalloc runs `test/unit/inspect.c` with `prof:false`: sampled small allocations are not slabs.
     if (opt.prof)
@@ -353,25 +353,25 @@ void testWrapper(size_t size, size_t alignment, bool zero, unsigned arena_flag)
 }
 
 /// jemalloc: test/unit/batch_alloc.c test_batch_alloc
-TEST(CtlExperimentalApi, BatchAlloc)
+TEST(CtlExperimentalAPI, BatchAlloc)
 {
     testWrapper(11, 0, false, 0);
 }
 
 /// jemalloc: test/unit/batch_alloc.c test_batch_alloc_zero
-TEST(CtlExperimentalApi, BatchAllocZero)
+TEST(CtlExperimentalAPI, BatchAllocZero)
 {
     testWrapper(11, 0, true, 0);
 }
 
 /// jemalloc: test/unit/batch_alloc.c test_batch_alloc_aligned
-TEST(CtlExperimentalApi, BatchAllocAligned)
+TEST(CtlExperimentalAPI, BatchAllocAligned)
 {
     testWrapper(7, 16, false, 0);
 }
 
 /// jemalloc: test/unit/batch_alloc.c test_batch_alloc_manual_arena
-TEST(CtlExperimentalApi, BatchAllocManualArena)
+TEST(CtlExperimentalAPI, BatchAllocManualArena)
 {
     unsigned arena_ind;
     size_t len_unsigned = sizeof(unsigned);
@@ -380,7 +380,7 @@ TEST(CtlExperimentalApi, BatchAllocManualArena)
 }
 
 /// jemalloc: test/unit/batch_alloc.c test_batch_alloc_large
-TEST(CtlExperimentalApi, BatchAllocLarge)
+TEST(CtlExperimentalAPI, BatchAllocLarge)
 {
     size_t size = SC_LARGE_MINCLASS;
     for (size_t batch = 0; batch < 4; ++batch)
@@ -400,7 +400,7 @@ TEST(CtlExperimentalApi, BatchAllocLarge)
 
 /// The access checks of `experimental.batch_alloc` (jemalloc: `VERIFY_READ(size_t)`, `ASSURED_WRITE`) and the
 /// failure of an invalid size.
-TEST(CtlExperimentalApi, BatchAllocErrors)
+TEST(CtlExperimentalAPI, BatchAllocErrors)
 {
     BatchAllocPacket packet = {global_ptrs, 1, 8, 0};
     size_t filled = 12345;
@@ -436,7 +436,7 @@ void fakeAbort(const char * message)
 /// jemalloc: experimental_hooks_safety_check_abort_ctl. The redzone tests of `test/unit/safety_check.c` are skipped
 /// in jemalloc without `config_opt_safety_checks`; here the hook is installed through `mallctl` and the failure path
 /// (`safety_check_fail`) is called directly.
-TEST(CtlExperimentalApi, SafetyCheckAbortHook)
+TEST(CtlExperimentalAPI, SafetyCheckAbortHook)
 {
     const char * node = "experimental.hooks.safety_check_abort";
     SafetyCheckAbortHook hook = fakeAbort;
@@ -462,7 +462,7 @@ TEST(CtlExperimentalApi, SafetyCheckAbortHook)
 
 /// --- experimental.arenas.<i>.pactivep, experimental.arenas_create_ext -----------------------------------------------
 
-TEST(CtlExperimentalApi, ArenasPactivep)
+TEST(CtlExperimentalAPI, ArenasPactivep)
 {
     unsigned arena_ind;
     size_t len = sizeof(arena_ind);
@@ -520,7 +520,7 @@ static_assert(sizeof(TestArenaConfig) == sizeof(ArenaConfig));
 
 }
 
-TEST(CtlExperimentalApi, ArenasCreateExt)
+TEST(CtlExperimentalAPI, ArenasCreateExt)
 {
     const char * node = "experimental.arenas_create_ext";
     unsigned narenas_before;
@@ -600,7 +600,7 @@ struct TestThunk
 
 }
 
-TEST(CtlExperimentalApi, ThreadActivityCallback)
+TEST(CtlExperimentalAPI, ThreadActivityCallback)
 {
     const char * node = "experimental.thread.activity_callback";
     ActivityRecord record;

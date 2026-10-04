@@ -789,7 +789,7 @@ JEMALLOC_EXPORT int JEMALLOC_NOTHROW je_mallctlnametomib(const char * name, size
         return EAGAIN;
 
     ThreadState & tsd = ThreadState::fetch();
-    return ctlNameToMib(tsd, name, mibp, miblenp);
+    return ctlNameToMIB(tsd, name, mibp, miblenp);
 }
 
 /// jemalloc: je_mallctlbymib
@@ -800,7 +800,7 @@ je_mallctlbymib(const size_t * mib, size_t miblen, void * oldp, size_t * oldlenp
         return EAGAIN;
 
     ThreadState & tsd = ThreadState::fetch();
-    return ctlByMib(tsd, mib, miblen, oldp, oldlenp, newp, newlen);
+    return ctlByMIB(tsd, mib, miblen, oldp, oldlenp, newp, newlen);
 }
 
 /// NB: does not initialize the allocator (like jemalloc).

@@ -16,7 +16,7 @@ namespace
 
 constinit Mutex global_mutex;
 
-ThreadState * fakeTsd(uintptr_t i)
+ThreadState * fakeTSD(uintptr_t i)
 {
     return reinterpret_cast<ThreadState *>(0x1000 * (i + 1));
 }
@@ -25,12 +25,12 @@ ThreadState * fakeTsd(uintptr_t i)
 /// releases it.
 void contendOnce(Mutex & mutex)
 {
-    mutex.lock(fakeTsd(0));
+    mutex.lock(fakeTSD(0));
     std::thread waiter(
         [&]
         {
-            mutex.lock(fakeTsd(1));
-            mutex.unlock(fakeTsd(1));
+            mutex.lock(fakeTSD(1));
+            mutex.unlock(fakeTSD(1));
         });
     while (mutex.profData().n_waiting_thds.load(std::memory_order_relaxed) == 0)
         std::this_thread::yield();
@@ -39,7 +39,7 @@ void contendOnce(Mutex & mutex)
     NsTime start = NsTime::now();
     while (start.nsSince() < 20 * NsTime::MILLION)
         std::this_thread::yield();
-    mutex.unlock(fakeTsd(0));
+    mutex.unlock(fakeTSD(0));
     waiter.join();
 }
 
@@ -76,9 +76,9 @@ TEST(Mutex, Names)
 
 TEST(Mutex, StaticInitializer)
 {
-    global_mutex.lock(fakeTsd(0));
+    global_mutex.lock(fakeTSD(0));
     CHECK(global_mutex.isLocked());
-    global_mutex.unlock(fakeTsd(0));
+    global_mutex.unlock(fakeTSD(0));
     CHECK(!global_mutex.isLocked());
     CHECK_EQ(global_mutex.profData().n_lock_ops, 1u);
 }
@@ -89,8 +89,8 @@ TEST(Mutex, OwnerSwitches)
     REQUIRE(!mutex.init("test", MutexRank::LEAF));
     for (uintptr_t i = 0; i < 10; ++i)
     {
-        mutex.lock(fakeTsd(i / 3));
-        mutex.unlock(fakeTsd(i / 3));
+        mutex.lock(fakeTSD(i / 3));
+        mutex.unlock(fakeTSD(i / 3));
     }
     mutex.lock(nullptr);
     MutexProfData data;
@@ -109,17 +109,17 @@ TEST(Mutex, TryLock)
 {
     Mutex mutex;
     REQUIRE(!mutex.init("test", MutexRank::LEAF));
-    CHECK(mutex.tryLock(fakeTsd(0)));
+    CHECK(mutex.tryLock(fakeTSD(0)));
     bool other_result = true;
-    std::thread([&] { other_result = mutex.tryLock(fakeTsd(1)); }).join();
+    std::thread([&] { other_result = mutex.tryLock(fakeTSD(1)); }).join();
     CHECK(!other_result);
-    mutex.unlock(fakeTsd(0));
+    mutex.unlock(fakeTSD(0));
     std::thread(
         [&]
         {
-            other_result = mutex.tryLock(fakeTsd(1));
+            other_result = mutex.tryLock(fakeTSD(1));
             if (other_result)
-                mutex.unlock(fakeTsd(1));
+                mutex.unlock(fakeTSD(1));
         })
         .join();
     CHECK(other_result);
@@ -144,7 +144,7 @@ TEST(Mutex, Contention)
             {
                 for (int i = 0; i < iterations; ++i)
                 {
-                    MutexLock lock(fakeTsd(t), mutex);
+                    MutexLock lock(fakeTSD(t), mutex);
                     ++counter;
                 }
             });
@@ -218,17 +218,17 @@ TEST(Mutex, ProfAggregation)
     contendOnce(a);
     for (int i = 0; i < 5; ++i)
     {
-        b.lock(fakeTsd(7));
-        b.unlock(fakeTsd(7));
+        b.lock(fakeTSD(7));
+        b.unlock(fakeTSD(7));
     }
 
     MutexProfData accum;
-    a.lock(fakeTsd(0));
-    a.profAccum(fakeTsd(0), accum);
-    a.unlock(fakeTsd(0));
-    b.lock(fakeTsd(7));
-    b.profAccum(fakeTsd(7), accum);
-    b.unlock(fakeTsd(7));
+    a.lock(fakeTSD(0));
+    a.profAccum(fakeTSD(0), accum);
+    a.unlock(fakeTSD(0));
+    b.lock(fakeTSD(7));
+    b.profAccum(fakeTSD(7), accum);
+    b.unlock(fakeTSD(7));
     /// a: 2 + 1, b: 5 + 1.
     CHECK_EQ(accum.n_lock_ops, 3u + 6u);
     CHECK_EQ(accum.n_owner_switches, 3u + 1u);

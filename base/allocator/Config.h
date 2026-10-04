@@ -36,10 +36,10 @@ enum class Arch : uint8_t
 };
 
 /// How thread-specific data is implemented (jemalloc: `tsd_tls.h`, `tsd_malloc_thread_cleanup.h`, `tsd_generic.h`).
-enum class TsdImpl : uint8_t
+enum class TSDImpl : uint8_t
 {
     /// `thread_local` (initial-exec) + a pthread key whose destructor cleans up. Linux.
-    Tls,
+    TLS,
     /// `thread_local` + libc's `_malloc_thread_cleanup` hook. FreeBSD.
     MallocThreadCleanup,
     /// `pthread_getspecific` with an allocated wrapper. Darwin.
@@ -213,7 +213,7 @@ inline constexpr bool mutex_init_cb = os_freebsd;
 inline constexpr bool lazy_lock = os_freebsd;
 
 /// The thread-specific data implementation.
-inline constexpr TsdImpl tsd_impl = os_freebsd ? TsdImpl::MallocThreadCleanup : (os_darwin ? TsdImpl::Generic : TsdImpl::Tls);
+inline constexpr TSDImpl tsd_impl = os_freebsd ? TSDImpl::MallocThreadCleanup : (os_darwin ? TSDImpl::Generic : TSDImpl::TLS);
 
 /// JEMALLOC_TLS_MODEL_INITIAL_EXEC is not available on Linux aarch64 musl.
 inline constexpr bool tls_model_initial_exec = !(os_linux && musl && arch == Arch::AArch64);

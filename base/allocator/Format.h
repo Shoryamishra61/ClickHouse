@@ -16,7 +16,7 @@
 #include <sys/types.h>
 
 /// The application-settable message hook (`je_malloc_message`), read on every call.
-/// NOTE: defined (weak, default visibility) in Format.cpp for now; it may move to Api.cpp.
+/// NOTE: defined (weak, default visibility) in Format.cpp for now; it may move to API.cpp.
 extern "C" __attribute__((visibility("default"))) void (*je_malloc_message)(void * cbopaque, const char * s);
 
 /// Format macros for 32/64-bit integers and pointers (`FMTd64` etc. in jemalloc).
@@ -93,11 +93,11 @@ void printMessage(const char * fmt, ...) JE_FORMAT_PRINTF(1, 2);
 
 /// Write all `count` bytes, retrying on EINTR. Returns the number of bytes written or a negative value on error.
 /// jemalloc: malloc_write_fd
-ssize_t writeFd(int fd, const void * buf, size_t count);
+ssize_t writeFD(int fd, const void * buf, size_t count);
 
 /// Read up to `count` bytes (until EOF), retrying on EINTR. Returns the number of bytes read or a negative value.
 /// jemalloc: malloc_read_fd
-ssize_t readFd(int fd, void * buf, size_t count);
+ssize_t readFD(int fd, void * buf, size_t count);
 
 /// jemalloc: malloc_open
 int openFile(const char * path, int flags);

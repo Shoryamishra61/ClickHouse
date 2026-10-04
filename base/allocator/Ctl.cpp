@@ -102,7 +102,7 @@ CtlArena * arenasI(size_t i)
 void ctlArenaClear(CtlArena * ctl_arena)
 {
     ctl_arena->nthreads = 0;
-    ctl_arena->dss = dss_prec_names[unsigned(DssPrec::Limit)];
+    ctl_arena->dss = dss_prec_names[unsigned(DSSPrec::Limit)];
     ctl_arena->dirty_decay_ms = -1;
     ctl_arena->muzzy_decay_ms = -1;
     ctl_arena->pactive = 0;
@@ -590,7 +590,7 @@ int ctlLookup(
 }
 
 /// jemalloc: ctl_lookupbymib
-int ctlLookupByMib(ThreadState * tsdn, const CtlNode ** ending_nodep, const size_t * mib, size_t miblen)
+int ctlLookupByMIB(ThreadState * tsdn, const CtlNode ** ending_nodep, const size_t * mib, size_t miblen)
 {
     const CtlNode * node = ctl_super_root_node;
     for (size_t i = 0; i < miblen; ++i)
@@ -644,7 +644,7 @@ int ctlByName(ThreadState & tsd, const char * name, void * oldp, size_t * oldlen
 }
 
 /// jemalloc: ctl_nametomib
-int ctlNameToMib(ThreadState & tsd, const char * name, size_t * mibp, size_t * miblenp)
+int ctlNameToMIB(ThreadState & tsd, const char * name, size_t * mibp, size_t * miblenp)
 {
     if (ctlEnsureInitialized(tsd))
         return EAGAIN;
@@ -652,13 +652,13 @@ int ctlNameToMib(ThreadState & tsd, const char * name, size_t * mibp, size_t * m
 }
 
 /// jemalloc: ctl_bymib
-int ctlByMib(ThreadState & tsd, const size_t * mib, size_t miblen, void * oldp, size_t * oldlenp, void * newp, size_t newlen)
+int ctlByMIB(ThreadState & tsd, const size_t * mib, size_t miblen, void * oldp, size_t * oldlenp, void * newp, size_t newlen)
 {
     if (ctlEnsureInitialized(tsd))
         return EAGAIN;
 
     const CtlNode * node = nullptr;
-    int ret = ctlLookupByMib(&tsd, &node, mib, miblen);
+    int ret = ctlLookupByMIB(&tsd, &node, mib, miblen);
     if (ret != 0)
         return ret;
 
@@ -670,13 +670,13 @@ int ctlByMib(ThreadState & tsd, const size_t * mib, size_t miblen, void * oldp, 
 }
 
 /// jemalloc: ctl_mibnametomib
-int ctlMibNameToMib(ThreadState & tsd, size_t * mib, size_t miblen, const char * name, size_t * miblenp)
+int ctlMIBNameToMIB(ThreadState & tsd, size_t * mib, size_t miblen, const char * name, size_t * miblenp)
 {
     if (ctlEnsureInitialized(tsd))
         return EAGAIN;
 
     const CtlNode * node = nullptr;
-    int ret = ctlLookupByMib(&tsd, &node, mib, miblen);
+    int ret = ctlLookupByMIB(&tsd, &node, mib, miblen);
     if (ret != 0)
         return ret;
     if (node == nullptr || node->isLeaf())
@@ -691,7 +691,7 @@ int ctlMibNameToMib(ThreadState & tsd, size_t * mib, size_t miblen, const char *
 }
 
 /// jemalloc: ctl_bymibname
-int ctlByMibName(
+int ctlByMIBName(
     ThreadState & tsd,
     size_t * mib,
     size_t miblen,
@@ -706,7 +706,7 @@ int ctlByMibName(
         return EAGAIN;
 
     const CtlNode * node = nullptr;
-    int ret = ctlLookupByMib(&tsd, &node, mib, miblen);
+    int ret = ctlLookupByMIB(&tsd, &node, mib, miblen);
     if (ret != 0)
         return ret;
     if (node == nullptr || node->isLeaf())

@@ -84,7 +84,7 @@ void dumpOptions(const SizeClassData & sc_data, const unsigned * bin_shard_sizes
     U("thp", unsigned(opt.thp));
     B("retain", opt.retain);
     S("dss", opt.dss);
-    U("dss_prec_default", unsigned(extentDssPrecGet()));
+    U("dss_prec_default", unsigned(extentDSSPrecGet()));
     U("lg_extent_max_active_fit", opt.lg_extent_max_active_fit);
     U("process_madvise_max_batch", opt.process_madvise_max_batch);
     I("mutex_max_spin", opt.mutex_max_spin);

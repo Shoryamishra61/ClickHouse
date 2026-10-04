@@ -133,7 +133,7 @@ private:
     static void * extentBumpAllocHelper(Extent * edata, size_t * gap_size, size_t size, size_t alignment);
 
     size_t getNumBlocks(bool with_new_block) const;
-    void autoThpSwitch(ThreadState * tsdn);
+    void autoTHPSwitch(ThreadState * tsdn);
     void edataHeapInsert(ThreadState * tsdn, Extent * edata);
     Extent * allocBaseEdata(ThreadState * tsdn);
     void extentBumpAllocPost(ThreadState * tsdn, Extent * edata, size_t gap_size, void * addr, size_t size);

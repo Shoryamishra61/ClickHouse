@@ -4,7 +4,7 @@
 /// jemalloc: `bin.h`, `src/bin.c`, `bin_inlines.h`, `bin_stats.h`, `bin_types.h` (`Bin` = `bin_t`).
 ///
 /// `bin_shard_sizes_boot` / `bin_update_shard_size` and `BIN_SHARDS_MAX` live in SizeClasses.h (bin_info); the
-/// per-thread shard binding (`tsd_binshards_t`) is `TsdBinshards` in ThreadState.h.
+/// per-thread shard binding (`tsd_binshards_t`) is `TSDBinshards` in ThreadState.h.
 
 #include <allocator/Bitmap.h>
 #include <allocator/Common.h>

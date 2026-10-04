@@ -48,7 +48,7 @@ void bootArenas()
 }
 
 /// `arenaNew` enters and leaves reentrancy for `ind != 0`, which needs a tsd in a nominal state.
-ThreadState & arenaTsd()
+ThreadState & arenaTSD()
 {
     static ThreadState tsd;
     tsd.state.store(tsd_state_nominal_slow, std::memory_order_relaxed);
@@ -60,7 +60,7 @@ void setUpArenaTable()
 {
     bootArenas();
     for (unsigned i = 0; i < 2; ++i)
-        REQUIRE(arenaNew(&arenaTsd(), i, &arena_config_default) != nullptr);
+        REQUIRE(arenaNew(&arenaTSD(), i, &arena_config_default) != nullptr);
     narenasTotalSet(TEST_NARENAS);
 }
 
@@ -79,10 +79,10 @@ void setUp()
     test_tsd.rtree_ctx.init();
 }
 
-int nameToMib(const char * name, size_t * mib, size_t * miblen)
+int nameToMIB(const char * name, size_t * mib, size_t * miblen)
 {
     setUp();
-    return ctlNameToMib(test_tsd, name, mib, miblen);
+    return ctlNameToMIB(test_tsd, name, mib, miblen);
 }
 
 /// Returns the error code; `*mib`/`*len` are filled on success.
@@ -90,7 +90,7 @@ int lookup(const char * name, size_t (&mib)[CTL_MAX_DEPTH], size_t & len)
 {
     len = CTL_MAX_DEPTH;
     std::memset(mib, 0xff, sizeof(mib));
-    return nameToMib(name, mib, &len);
+    return nameToMIB(name, mib, &len);
 }
 
 int byName(const char * name, void * oldp, size_t * oldlenp, void * newp = nullptr, size_t newlen = 0)
@@ -109,7 +109,7 @@ int readValue(const char * name, T & value)
     return ret;
 }
 
-void checkMib(const char * name, std::initializer_list<size_t> expected)
+void checkMIB(const char * name, std::initializer_list<size_t> expected)
 {
     size_t mib[CTL_MAX_DEPTH];
     size_t len;
@@ -142,42 +142,42 @@ void checkNoEntry(const char * name)
 
 }
 
-TEST(Ctl, NameToMib)
+TEST(Ctl, NameToMIB)
 {
-    checkMib("version", {0});
-    checkMib("epoch", {1});
-    checkMib("thread.tcache.ncached_max.write", {4, 5, 3, 1});
-    checkMib("config.xmalloc", {5, 12});
-    checkMib("opt.abort", {6, 0});
-    checkMib("opt.lg_extent_max_active_fit", {6, 55});
-    checkMib("opt.malloc_conf.global_var_2_conf_harder", {6, 78, 3});
-    checkMib("arena.0.decay", {8, 0, 1});
-    checkMib("arena.4096.name", {8, 4096, 11});
-    checkMib("arenas.bin.3.nshards", {9, 9, 3, 3});
-    checkMib("arenas.lookup", {9, 13});
-    checkMib("prof.stats", {10, 10});
-    checkMib("stats.arenas.0.bins.5.mutex.max_num_thds", {11, 11, 0, 34, 5, 10, 6});
-    checkMib("stats.arenas.4096.hpa_shard.nonfull_slabs.63.ndirty_huge", {11, 11, 4096, 38, 11, 63, 5});
-    checkMib("stats.arenas.1.hpa_sec_dalloc_noflush", {11, 11, 1, 29});
-    checkMib("stats.mutexes.reset", {11, 10, 9});
-    checkMib("stats.zero_reallocs", {11, 12});
-    checkMib("approximate_stats.active", {12, 0});
-    checkMib("experimental.thread.activity_callback", {13, 6, 0});
+    checkMIB("version", {0});
+    checkMIB("epoch", {1});
+    checkMIB("thread.tcache.ncached_max.write", {4, 5, 3, 1});
+    checkMIB("config.xmalloc", {5, 12});
+    checkMIB("opt.abort", {6, 0});
+    checkMIB("opt.lg_extent_max_active_fit", {6, 55});
+    checkMIB("opt.malloc_conf.global_var_2_conf_harder", {6, 78, 3});
+    checkMIB("arena.0.decay", {8, 0, 1});
+    checkMIB("arena.4096.name", {8, 4096, 11});
+    checkMIB("arenas.bin.3.nshards", {9, 9, 3, 3});
+    checkMIB("arenas.lookup", {9, 13});
+    checkMIB("prof.stats", {10, 10});
+    checkMIB("stats.arenas.0.bins.5.mutex.max_num_thds", {11, 11, 0, 34, 5, 10, 6});
+    checkMIB("stats.arenas.4096.hpa_shard.nonfull_slabs.63.ndirty_huge", {11, 11, 4096, 38, 11, 63, 5});
+    checkMIB("stats.arenas.1.hpa_sec_dalloc_noflush", {11, 11, 1, 29});
+    checkMIB("stats.mutexes.reset", {11, 10, 9});
+    checkMIB("stats.zero_reallocs", {11, 12});
+    checkMIB("approximate_stats.active", {12, 0});
+    checkMIB("experimental.thread.activity_callback", {13, 6, 0});
 }
 
 TEST(Ctl, PartialNames)
 {
     /// Partial names succeed in `mallctlnametomib`.
-    checkMib("stats", {11});
-    checkMib("stats.arenas", {11, 11});
-    checkMib("stats.arenas.0", {11, 11, 0});
-    checkMib("arena.4097", {8, 4097});
-    checkMib("opt.malloc_conf", {6, 78});
+    checkMIB("stats", {11});
+    checkMIB("stats.arenas", {11, 11});
+    checkMIB("stats.arenas.0", {11, 11, 0});
+    checkMIB("arena.4097", {8, 4097});
+    checkMIB("opt.malloc_conf", {6, 78});
 
     /// A too-small MIB buffer returns a truncated prefix successfully.
     size_t mib[CTL_MAX_DEPTH] = {};
     size_t len = 2;
-    CHECK_EQ(nameToMib("stats.arenas.0.pactive", mib, &len), 0);
+    CHECK_EQ(nameToMIB("stats.arenas.0.pactive", mib, &len), 0);
     CHECK_EQ(len, size_t(2));
     CHECK_EQ(mib[0], size_t(11));
     CHECK_EQ(mib[1], size_t(11));
@@ -209,32 +209,32 @@ TEST(Ctl, InvalidNames)
     checkNoEntry("arena.18446744073709551614");
     checkNoEntry("arena.99999999999999999999.decay");
     /// Arena indices: `i <= narenas` (`narenas` is the alias of MALLCTL_ARENAS_ALL), 4096, 4097.
-    checkMib("arena.4", {8, 4});
+    checkMIB("arena.4", {8, 4});
     checkNoEntry("arena.5");
     checkNoEntry("arena.4095");
     checkNoEntry("arena.4098");
     /// `stats.arenas.<i>`: only initialized arenas (at the last refresh), the alias, and 4096 (4097 only after a
     /// destroy).
-    checkMib("stats.arenas.1", {11, 11, 1});
+    checkMIB("stats.arenas.1", {11, 11, 1});
     checkNoEntry("stats.arenas.2");
-    checkMib("stats.arenas.4", {11, 11, 4});
-    checkMib("stats.arenas.4096", {11, 11, 4096});
+    checkMIB("stats.arenas.4", {11, 11, 4});
+    checkMIB("stats.arenas.4096", {11, 11, 4096});
     checkNoEntry("stats.arenas.4097");
     checkNoEntry("experimental.arenas.4097");
-    checkMib("experimental.arenas.0.pactivep", {13, 2, 0, 0});
+    checkMIB("experimental.arenas.0.pactivep", {13, 2, 0, 0});
     /// `prof.stats.*` only exist with `prof` and `prof_stats`.
     checkNoEntry("prof.stats.bins.0");
-    checkMib("prof.stats.bins", {10, 10, 0});
+    checkMIB("prof.stats.bins", {10, 10, 0});
 }
 
 TEST(Ctl, LenientIndices)
 {
     /// `malloc_strtoumax` skips whitespace, accepts a sign, and stops at the first non-digit (the element is still
     /// delimited by the dot).
-    checkMib("stats.arenas.0x.pactive", {11, 11, 0, 5});
-    checkMib("stats.arenas. 1.pactive", {11, 11, 1, 5});
-    checkMib("stats.arenas.+1.pactive", {11, 11, 1, 5});
-    checkMib("arenas.bin.007.size", {9, 9, 7, 0});
+    checkMIB("stats.arenas.0x.pactive", {11, 11, 0, 5});
+    checkMIB("stats.arenas. 1.pactive", {11, 11, 1, 5});
+    checkMIB("stats.arenas.+1.pactive", {11, 11, 1, 5});
+    checkMIB("arenas.bin.007.size", {9, 9, 7, 0});
     checkNoEntry("stats.arenas..pactive");
 }
 
@@ -243,17 +243,17 @@ TEST(Ctl, OffByOneIndices)
     /// jemalloc accepts `SC_NBINS` and `SC_NSIZES - SC_NBINS` (off by one) and rejects the next one.
     char name[64];
     std::snprintf(name, sizeof(name), "arenas.bin.%u.size", SC_NBINS);
-    checkMib(name, {9, 9, SC_NBINS, 0});
+    checkMIB(name, {9, 9, SC_NBINS, 0});
     std::snprintf(name, sizeof(name), "arenas.bin.%u.size", SC_NBINS + 1);
     checkNoEntry(name);
     std::snprintf(name, sizeof(name), "arenas.lextent.%u.size", SC_NSIZES - SC_NBINS);
-    checkMib(name, {9, 11, SC_NSIZES - SC_NBINS, 0});
+    checkMIB(name, {9, 11, SC_NSIZES - SC_NBINS, 0});
     std::snprintf(name, sizeof(name), "arenas.lextent.%u.size", SC_NSIZES - SC_NBINS + 1);
     checkNoEntry(name);
     std::snprintf(name, sizeof(name), "stats.arenas.0.bins.%u.nmalloc", SC_NBINS);
-    checkMib(name, {11, 11, 0, 34, SC_NBINS, 0});
+    checkMIB(name, {11, 11, 0, 34, SC_NBINS, 0});
     std::snprintf(name, sizeof(name), "stats.arenas.0.extents.%u.ndirty", SC_NPSIZES - 1);
-    checkMib(name, {11, 11, 0, 36, SC_NPSIZES - 1, 0});
+    checkMIB(name, {11, 11, 0, 36, SC_NPSIZES - 1, 0});
     std::snprintf(name, sizeof(name), "stats.arenas.0.extents.%u.ndirty", SC_NPSIZES);
     checkNoEntry(name);
     checkNoEntry("stats.arenas.0.hpa_shard.nonfull_slabs.64");
@@ -269,7 +269,7 @@ TEST(Ctl, OffByOneIndices)
     CHECK_EQ(size, size_t(0));
 }
 
-TEST(Ctl, ByMib)
+TEST(Ctl, ByMIB)
 {
     setUp();
     size_t mib[CTL_MAX_DEPTH];
@@ -277,24 +277,24 @@ TEST(Ctl, ByMib)
     REQUIRE(lookup("arenas.page", mib, len) == 0);
     size_t page = 0;
     size_t page_len = sizeof(page);
-    CHECK_EQ(ctlByMib(test_tsd, mib, len, &page, &page_len, nullptr, 0), 0);
+    CHECK_EQ(ctlByMIB(test_tsd, mib, len, &page, &page_len, nullptr, 0), 0);
     CHECK_EQ(page, PAGE);
 
     /// Partial MIB.
-    CHECK_EQ(ctlByMib(test_tsd, mib, 1, &page, &page_len, nullptr, 0), ENOENT);
+    CHECK_EQ(ctlByMIB(test_tsd, mib, 1, &page, &page_len, nullptr, 0), ENOENT);
     /// Out of range.
     size_t bad[] = {9, 14};
-    CHECK_EQ(ctlByMib(test_tsd, bad, 2, &page, &page_len, nullptr, 0), ENOENT);
+    CHECK_EQ(ctlByMIB(test_tsd, bad, 2, &page, &page_len, nullptr, 0), ENOENT);
     size_t bad_root[] = {14};
-    CHECK_EQ(ctlByMib(test_tsd, bad_root, 1, &page, &page_len, nullptr, 0), ENOENT);
+    CHECK_EQ(ctlByMIB(test_tsd, bad_root, 1, &page, &page_len, nullptr, 0), ENOENT);
     /// Longer than the path.
     size_t longer[] = {9, 4, 0};
-    CHECK_EQ(ctlByMib(test_tsd, longer, 3, &page, &page_len, nullptr, 0), ENOENT);
+    CHECK_EQ(ctlByMIB(test_tsd, longer, 3, &page, &page_len, nullptr, 0), ENOENT);
     /// Invalid index.
     size_t bad_index[] = {8, 4095, 0};
-    CHECK_EQ(ctlByMib(test_tsd, bad_index, 3, &page, &page_len, nullptr, 0), ENOENT);
+    CHECK_EQ(ctlByMIB(test_tsd, bad_index, 3, &page, &page_len, nullptr, 0), ENOENT);
     /// An empty MIB is the root.
-    CHECK_EQ(ctlByMib(test_tsd, mib, 0, &page, &page_len, nullptr, 0), ENOENT);
+    CHECK_EQ(ctlByMIB(test_tsd, mib, 0, &page, &page_len, nullptr, 0), ENOENT);
 
     /// The MIB of `arenas.bin.<i>.size` with every bin.
     REQUIRE(lookup("arenas.bin.0.size", mib, len) == 0);
@@ -303,12 +303,12 @@ TEST(Ctl, ByMib)
         mib[2] = i;
         size_t size = 0;
         size_t size_len = sizeof(size);
-        CHECK_EQ(ctlByMib(test_tsd, mib, len, &size, &size_len, nullptr, 0), 0);
+        CHECK_EQ(ctlByMIB(test_tsd, mib, len, &size, &size_len, nullptr, 0), 0);
         CHECK_EQ(size, sz::indexToSize(i));
     }
 }
 
-TEST(Ctl, MibNameToMib)
+TEST(Ctl, MIBNameToMIB)
 {
     setUp();
     size_t mib[CTL_MAX_DEPTH];
@@ -317,7 +317,7 @@ TEST(Ctl, MibNameToMib)
     REQUIRE(len == 2);
 
     size_t total = CTL_MAX_DEPTH;
-    CHECK_EQ(ctlMibNameToMib(test_tsd, mib, 2, "0.bins.3.curregs", &total), 0);
+    CHECK_EQ(ctlMIBNameToMIB(test_tsd, mib, 2, "0.bins.3.curregs", &total), 0);
     CHECK_EQ(total, size_t(6));
     CHECK_EQ(mib[2], size_t(0));
     CHECK_EQ(mib[3], size_t(34));
@@ -328,22 +328,22 @@ TEST(Ctl, MibNameToMib)
     size_t leaf_mib[CTL_MAX_DEPTH];
     REQUIRE(lookup("version", leaf_mib, len) == 0);
     total = CTL_MAX_DEPTH;
-    CHECK_EQ(ctlMibNameToMib(test_tsd, leaf_mib, 1, "x", &total), ENOENT);
+    CHECK_EQ(ctlMIBNameToMIB(test_tsd, leaf_mib, 1, "x", &total), ENOENT);
     /// Unknown name relative to the node.
     total = CTL_MAX_DEPTH;
-    CHECK_EQ(ctlMibNameToMib(test_tsd, mib, 2, "0.no_such", &total), ENOENT);
+    CHECK_EQ(ctlMIBNameToMIB(test_tsd, mib, 2, "0.no_such", &total), ENOENT);
 
-    /// `ctlByMibName` reads the leaf (here relative to the root).
+    /// `ctlByMIBName` reads the leaf (here relative to the root).
     total = CTL_MAX_DEPTH;
     const char * version = nullptr;
     size_t version_len = sizeof(version);
-    CHECK_EQ(ctlByMibName(test_tsd, mib, 0, "version", &total, &version, &version_len, nullptr, 0), 0);
+    CHECK_EQ(ctlByMIBName(test_tsd, mib, 0, "version", &total, &version, &version_len, nullptr, 0), 0);
     CHECK_EQ(total, size_t(1));
     CHECK_STREQ(version, "5.3-RC");
     /// A partial name relative to a node is not a leaf.
     REQUIRE(lookup("stats.arenas", mib, len) == 0);
     total = CTL_MAX_DEPTH;
-    CHECK_EQ(ctlByMibName(test_tsd, mib, 2, "0", &total, &version, &version_len, nullptr, 0), ENOENT);
+    CHECK_EQ(ctlByMIBName(test_tsd, mib, 2, "0", &total, &version, &version_len, nullptr, 0), ENOENT);
 }
 
 TEST(Ctl, ReadWriteChecks)

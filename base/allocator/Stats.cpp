@@ -51,21 +51,21 @@ int mallctl(const char * name, void * oldp, size_t * oldlenp, void * newp, size_
 }
 
 /// jemalloc: je_mallctlnametomib
-int mallctlNameToMib(const char * name, size_t * mibp, size_t * miblenp)
+int mallctlNameToMIB(const char * name, size_t * mibp, size_t * miblenp)
 {
     if (JE_UNLIKELY(mallocInit()))
         return EAGAIN;
     ThreadState & tsd = ThreadState::fetch();
-    return ctlNameToMib(tsd, name, mibp, miblenp);
+    return ctlNameToMIB(tsd, name, mibp, miblenp);
 }
 
 /// jemalloc: je_mallctlbymib
-int mallctlByMib(const size_t * mib, size_t miblen, void * oldp, size_t * oldlenp, void * newp, size_t newlen)
+int mallctlByMIB(const size_t * mib, size_t miblen, void * oldp, size_t * oldlenp, void * newp, size_t newlen)
 {
     if (JE_UNLIKELY(mallocInit()))
         return EAGAIN;
     ThreadState & tsd = ThreadState::fetch();
-    return ctlByMib(tsd, mib, miblen, oldp, oldlenp, newp, newlen);
+    return ctlByMIB(tsd, mib, miblen, oldp, oldlenp, newp, newlen);
 }
 
 /// jemalloc: xmallctl
@@ -79,9 +79,9 @@ void xmallctl(const char * name, void * oldp, size_t * oldlenp, void * newp, siz
 }
 
 /// jemalloc: xmallctlnametomib
-void xmallctlNameToMib(const char * name, size_t * mibp, size_t * miblenp)
+void xmallctlNameToMIB(const char * name, size_t * mibp, size_t * miblenp)
 {
-    if (mallctlNameToMib(name, mibp, miblenp) != 0)
+    if (mallctlNameToMIB(name, mibp, miblenp) != 0)
     {
         printMessage("<jemalloc>: Failure in xmallctlnametomib(\"%s\", ...)\n", name);
         abort();
@@ -89,9 +89,9 @@ void xmallctlNameToMib(const char * name, size_t * mibp, size_t * miblenp)
 }
 
 /// jemalloc: xmallctlbymib
-void xmallctlByMib(const size_t * mib, size_t miblen, void * oldp, size_t * oldlenp, void * newp, size_t newlen)
+void xmallctlByMIB(const size_t * mib, size_t miblen, void * oldp, size_t * oldlenp, void * newp, size_t newlen)
 {
-    if (mallctlByMib(mib, miblen, oldp, oldlenp, newp, newlen) != 0)
+    if (mallctlByMIB(mib, miblen, oldp, oldlenp, newp, newlen) != 0)
     {
         writeMessage("<jemalloc>: Failure in xmallctlbymib()\n");
         abort();
@@ -99,9 +99,9 @@ void xmallctlByMib(const size_t * mib, size_t miblen, void * oldp, size_t * oldl
 }
 
 /// jemalloc: xmallctlmibnametomib
-void xmallctlMibNameToMib(size_t * mib, size_t miblen, const char * name, size_t * miblenp)
+void xmallctlMIBNameToMIB(size_t * mib, size_t miblen, const char * name, size_t * miblenp)
 {
-    if (ctlMibNameToMib(ThreadState::fetch(), mib, miblen, name, miblenp) != 0)
+    if (ctlMIBNameToMIB(ThreadState::fetch(), mib, miblen, name, miblenp) != 0)
     {
         writeMessage("<jemalloc>: Failure in ctl_mibnametomib()\n");
         abort();
@@ -109,10 +109,10 @@ void xmallctlMibNameToMib(size_t * mib, size_t miblen, const char * name, size_t
 }
 
 /// jemalloc: xmallctlbymibname
-void xmallctlByMibName(
+void xmallctlByMIBName(
     size_t * mib, size_t miblen, const char * name, size_t * miblenp, void * oldp, size_t * oldlenp, void * newp, size_t newlen)
 {
-    if (ctlByMibName(ThreadState::fetch(), mib, miblen, name, miblenp, oldp, oldlenp, newp, newlen) != 0)
+    if (ctlByMIBName(ThreadState::fetch(), mib, miblen, name, miblenp, oldp, oldlenp, newp, newlen) != 0)
     {
         writeMessage("<jemalloc>: Failure in ctl_bymibname()\n");
         abort();
@@ -132,7 +132,7 @@ void ctlLeafPrepare(size_t * mib, size_t miblen, const char * name)
 {
     JE_ASSERT(miblen < CTL_MAX_DEPTH);
     size_t miblen_new = CTL_MAX_DEPTH;
-    xmallctlMibNameToMib(mib, miblen, name, &miblen_new);
+    xmallctlMIBNameToMIB(mib, miblen, name, &miblen_new);
     JE_ASSERT(miblen_new > miblen);
 }
 
@@ -143,34 +143,34 @@ void ctlLeaf(size_t * mib, size_t miblen, const char * leaf, T * v)
     JE_ASSERT(miblen < CTL_MAX_DEPTH);
     size_t miblen_new = CTL_MAX_DEPTH;
     size_t sz = sizeof(T);
-    xmallctlByMibName(mib, miblen, leaf, &miblen_new, static_cast<void *>(v), &sz, nullptr, 0);
+    xmallctlByMIBName(mib, miblen, leaf, &miblen_new, static_cast<void *>(v), &sz, nullptr, 0);
     JE_ASSERT(miblen_new == miblen + 1);
 }
 
 /// jemalloc: CTL_MIB_GET
 template <typename T>
-void ctlMibGet(const char * name, size_t i, T * v, size_t ind)
+void ctlMIBGet(const char * name, size_t i, T * v, size_t ind)
 {
     size_t mib[CTL_MAX_DEPTH];
     size_t miblen = sizeof(mib) / sizeof(size_t);
     size_t sz = sizeof(T);
-    xmallctlNameToMib(name, mib, &miblen);
+    xmallctlNameToMIB(name, mib, &miblen);
     mib[ind] = i;
-    xmallctlByMib(mib, miblen, static_cast<void *>(v), &sz, nullptr, 0);
+    xmallctlByMIB(mib, miblen, static_cast<void *>(v), &sz, nullptr, 0);
 }
 
 /// jemalloc: CTL_M1_GET
 template <typename T>
 void ctlM1Get(const char * name, size_t i, T * v)
 {
-    ctlMibGet(name, i, v, 1);
+    ctlMIBGet(name, i, v, 1);
 }
 
 /// jemalloc: CTL_M2_GET
 template <typename T>
 void ctlM2Get(const char * name, size_t i, T * v)
 {
-    ctlMibGet(name, i, v, 2);
+    ctlMIBGet(name, i, v, 2);
 }
 
 /// --- Helpers ----------------------------------------------------------------------------------------------------
@@ -864,7 +864,7 @@ JE_COLD void statsArenaExtentsPrint(Emitter & emitter, unsigned i)
 }
 
 /// jemalloc: stats_arena_hpa_shard_sec_print
-void statsArenaHpaShardSecPrint(Emitter & emitter, unsigned i)
+void statsArenaHPAShardSECPrint(Emitter & emitter, unsigned i)
 {
     size_t sec_bytes;
     size_t sec_hits;
@@ -887,7 +887,7 @@ void statsArenaHpaShardSecPrint(Emitter & emitter, unsigned i)
 }
 
 /// jemalloc: stats_arena_hpa_shard_counters_print
-void statsArenaHpaShardCountersPrint(Emitter & emitter, unsigned i, uint64_t uptime)
+void statsArenaHPAShardCountersPrint(Emitter & emitter, unsigned i, uint64_t uptime)
 {
     size_t npageslabs;
     size_t nactive;
@@ -983,7 +983,7 @@ void statsArenaHpaShardCountersPrint(Emitter & emitter, unsigned i, uint64_t upt
 }
 
 /// The "full" / "empty" slabs part of `stats_arena_hpa_shard_slabs_print`; `kind` is `full_slabs` or `empty_slabs`.
-void statsArenaHpaShardFullOrEmptySlabsPrint(Emitter & emitter, unsigned i, const char * kind)
+void statsArenaHPAShardFullOrEmptySlabsPrint(Emitter & emitter, unsigned i, const char * kind)
 {
     const bool full = kind[0] == 'f';
     size_t npageslabs_huge;
@@ -1045,7 +1045,7 @@ void statsArenaHpaShardFullOrEmptySlabsPrint(Emitter & emitter, unsigned i, cons
 }
 
 /// jemalloc: stats_arena_hpa_shard_slabs_print
-void statsArenaHpaShardSlabsPrint(Emitter & emitter, unsigned i)
+void statsArenaHPAShardSlabsPrint(Emitter & emitter, unsigned i)
 {
     EmitterRow header_row;
     header_row.init();
@@ -1062,10 +1062,10 @@ void statsArenaHpaShardSlabsPrint(Emitter & emitter, unsigned i)
     size_t nretained_nonhuge;
 
     /// Full slab stats.
-    statsArenaHpaShardFullOrEmptySlabsPrint(emitter, i, "full_slabs");
+    statsArenaHPAShardFullOrEmptySlabsPrint(emitter, i, "full_slabs");
 
     /// Next, empty slab stats.
-    statsArenaHpaShardFullOrEmptySlabsPrint(emitter, i, "empty_slabs");
+    statsArenaHPAShardFullOrEmptySlabsPrint(emitter, i, "empty_slabs");
 
     /// Last, nonfull slab stats.
     ColHdr size;
@@ -1143,13 +1143,13 @@ void statsArenaHpaShardSlabsPrint(Emitter & emitter, unsigned i)
 }
 
 /// jemalloc: stats_arena_hpa_shard_print
-void statsArenaHpaShardPrint(Emitter & emitter, unsigned i, uint64_t uptime)
+void statsArenaHPAShardPrint(Emitter & emitter, unsigned i, uint64_t uptime)
 {
-    statsArenaHpaShardSecPrint(emitter, i);
+    statsArenaHPAShardSECPrint(emitter, i);
 
     emitter.jsonObjectKvBegin("hpa_shard");
-    statsArenaHpaShardCountersPrint(emitter, i, uptime);
-    statsArenaHpaShardSlabsPrint(emitter, i);
+    statsArenaHPAShardCountersPrint(emitter, i, uptime);
+    statsArenaHPAShardSlabsPrint(emitter, i);
     emitter.jsonObjectEnd(); /// End "hpa_shard"
 }
 
@@ -1535,7 +1535,7 @@ JE_COLD void statsArenaPrint(Emitter & emitter, unsigned i, bool bins, bool larg
     if (extents)
         statsArenaExtentsPrint(emitter, i);
     if (hpa)
-        statsArenaHpaShardPrint(emitter, i, uptime);
+        statsArenaHPAShardPrint(emitter, i, uptime);
 }
 
 /// --- General information ----------------------------------------------------------------------------------------
@@ -2018,18 +2018,18 @@ JE_COLD void statsPrintHelper(
         unsigned i;
         unsigned ninitialized;
 
-        xmallctlNameToMib("arena.0.initialized", mib, &miblen);
+        xmallctlNameToMIB("arena.0.initialized", mib, &miblen);
         for (i = ninitialized = 0; i < narenas; i++)
         {
             mib[1] = i;
             sz = sizeof(bool);
-            xmallctlByMib(mib, miblen, &initialized[i], &sz, nullptr, 0);
+            xmallctlByMIB(mib, miblen, &initialized[i], &sz, nullptr, 0);
             if (initialized[i])
                 ninitialized++;
         }
         mib[1] = MALLCTL_ARENAS_DESTROYED;
         sz = sizeof(bool);
-        xmallctlByMib(mib, miblen, &destroyed_initialized, &sz, nullptr, 0);
+        xmallctlByMIB(mib, miblen, &destroyed_initialized, &sz, nullptr, 0);
 
         /// Merged stats.
         if (merged && (ninitialized > 1 || !unmerged))

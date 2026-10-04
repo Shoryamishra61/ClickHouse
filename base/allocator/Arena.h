@@ -233,7 +233,7 @@ public:
     /// "tcache_ql", `MutexRank::TCACHE_QL`.
     Mutex tcache_ql_mtx;
 
-    /// Represents a `DssPrec`, but atomically.
+    /// Represents a `DSSPrec`, but atomically.
     std::atomic<unsigned> dss_prec{0};
 
     /// Extant large allocations (only tracked for manual arenas). Synchronization: `large_mtx`.
@@ -534,11 +534,11 @@ void * arenaRalloc(
     ThreadCache * tcache);
 
 /// jemalloc: arena_dss_prec_get
-DssPrec arenaDssPrecGet(Arena * arena);
+DSSPrec arenaDSSPrecGet(Arena * arena);
 
 /// Returns true on error.
 /// jemalloc: arena_dss_prec_set
-bool arenaDssPrecSet(Arena * arena, DssPrec dss_prec);
+bool arenaDSSPrecSet(Arena * arena, DSSPrec dss_prec);
 
 /// Copies the name (with the terminating zero) into `name` (at least `ARENA_NAME_LEN` bytes).
 /// jemalloc: arena_name_get

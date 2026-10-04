@@ -164,7 +164,7 @@ const char * obtainMallocConf(unsigned which_source, char * readlink_buf)
 }
 
 /// jemalloc: validate_hpa_settings
-void validateHpaSettings()
+void validateHPASettings()
 {
     if (!hpaSupported() || !opt.hpa)
         return;
@@ -335,8 +335,8 @@ private:
         return done();
     }
 
-    bool handleMetadataThp();
-    bool handleDss();
+    bool handleMetadataTHP();
+    bool handleDSS();
     bool handleNarenas();
     bool handleNarenasRatio();
     bool handleBinShards();
@@ -345,16 +345,16 @@ private:
     bool handleJunk();
     bool handleLgTcacheMax();
     bool handlePercpuArena();
-    bool handleHpaHugifyStyle();
-    bool handleHpaDirtyMult();
+    bool handleHPAHugifyStyle();
+    bool handleHPADirtyMult();
     bool handleSlabSizes();
     bool handleProfTimeResolution();
-    bool handleThp();
+    bool handleTHP();
     bool handleZeroRealloc();
-    bool handleLgSanUafAlign();
+    bool handleLgSanUAFAlign();
 };
 
-bool ConfPair::handleMetadataThp()
+bool ConfPair::handleMetadataTHP()
 {
     if (!matchKeyPrefix("metadata_thp"))
         return false;
@@ -363,7 +363,7 @@ bool ConfPair::handleMetadataThp()
     {
         if (matchValuePrefix(metadata_thp_mode_names[m]))
         {
-            opt.metadata_thp = MetadataThpMode(m);
+            opt.metadata_thp = MetadataTHPMode(m);
             found = true;
             break;
         }
@@ -373,16 +373,16 @@ bool ConfPair::handleMetadataThp()
     return done();
 }
 
-bool ConfPair::handleDss()
+bool ConfPair::handleDSS()
 {
     if (!matchKeyPrefix("dss"))
         return false;
     bool found = false;
-    for (unsigned m = 0; m < unsigned(DssPrec::Limit); ++m)
+    for (unsigned m = 0; m < unsigned(DSSPrec::Limit); ++m)
     {
         if (matchValuePrefix(dss_prec_names[m]))
         {
-            if (extentDssPrecSet(DssPrec(m)))
+            if (extentDSSPrecSet(DSSPrec(m)))
                 error("Error setting dss");
             else
             {
@@ -527,7 +527,7 @@ bool ConfPair::handlePercpuArena()
     return done();
 }
 
-bool ConfPair::handleHpaHugifyStyle()
+bool ConfPair::handleHPAHugifyStyle()
 {
     if (!matchKeyPrefix("hpa_hugify_style"))
         return false;
@@ -536,7 +536,7 @@ bool ConfPair::handleHpaHugifyStyle()
     {
         if (matchValuePrefix(hpa_hugify_style_names[m]))
         {
-            opt.hpa_opts.hugify_style = HpaHugifyStyle(m);
+            opt.hpa_opts.hugify_style = HPAHugifyStyle(m);
             found = true;
             break;
         }
@@ -546,7 +546,7 @@ bool ConfPair::handleHpaHugifyStyle()
     return done();
 }
 
-bool ConfPair::handleHpaDirtyMult()
+bool ConfPair::handleHPADirtyMult()
 {
     if (!match("hpa_dirty_mult"))
         return false;
@@ -609,7 +609,7 @@ bool ConfPair::handleProfTimeResolution()
     return done();
 }
 
-bool ConfPair::handleThp()
+bool ConfPair::handleTHP()
 {
     if (!match("thp"))
         return false;
@@ -620,7 +620,7 @@ bool ConfPair::handleThp()
         {
             if (!config::have_madvise_huge && !have_memcntl)
                 error("No THP support");
-            opt.thp = ThpMode(m);
+            opt.thp = THPMode(m);
             found = true;
             break;
         }
@@ -645,7 +645,7 @@ bool ConfPair::handleZeroRealloc()
     return done();
 }
 
-bool ConfPair::handleLgSanUafAlign()
+bool ConfPair::handleLgSanUAFAlign()
 {
     if (!config::uaf_detection || !match("lg_san_uaf_align"))
         return false;
@@ -683,8 +683,8 @@ void ConfPair::process()
         || handleBool(opt.cache_oblivious, "cache_oblivious") || handleBool(opt.trust_madvise, "trust_madvise")
         || handleBool(opt.experimental_hpa_start_huge_if_thp_always, "experimental_hpa_start_huge_if_thp_always")
         || handleBool(opt.experimental_hpa_enforce_hugify, "experimental_hpa_enforce_hugify")
-        || handleBool(opt.huge_arena_pac_thp, "huge_arena_pac_thp") || handleMetadataThp() || handleBool(opt.retain, "retain")
-        || handleDss() || handleNarenas() || handleNarenasRatio() || handleBinShards() || handleTcacheNcachedMax()
+        || handleBool(opt.huge_arena_pac_thp, "huge_arena_pac_thp") || handleMetadataTHP() || handleBool(opt.retain, "retain")
+        || handleDSS() || handleNarenas() || handleNarenasRatio() || handleBinShards() || handleTcacheNcachedMax()
         || handleT<int64_t>(opt.mutex_max_spin, "mutex_max_spin", -1, INT64_MAX, true, false, false))
         return;
 
@@ -747,7 +747,7 @@ void ConfPair::process()
         || handleT<size_t>(opt.hpa_opts.purge_threshold, "hpa_purge_threshold", PAGE, HUGEPAGE, true, true, true)
         || handleHugepageRatio(opt.hpa_opts.purge_threshold, "hpa_purge_threshold_ratio")
         || handleT<uint64_t>(opt.hpa_opts.min_purge_delay_ms, "hpa_min_purge_delay_ms", 0, UINT64_MAX, false, false, false)
-        || handleHpaHugifyStyle() || handleHpaDirtyMult()
+        || handleHPAHugifyStyle() || handleHPADirtyMult()
         || handleT<size_t>(opt.hpa_sec_opts.nshards, "hpa_sec_nshards", 0, 0, true, false, true)
         || handleT<size_t>(opt.hpa_sec_opts.max_alloc, "hpa_sec_max_alloc", PAGE, USIZE_GROW_SLOW_THRESHOLD, true, true, true)
         || handleT<size_t>(opt.hpa_sec_opts.max_bytes, "hpa_sec_max_bytes", SEC_OPTS_MAX_BYTES_DEFAULT, 0, true, false, true)
@@ -777,7 +777,7 @@ void ConfPair::process()
     }
     /// `config_log` is false: `log` is an invalid key.
 
-    if (handleThp() || handleZeroRealloc() || handleLgSanUafAlign()
+    if (handleTHP() || handleZeroRealloc() || handleLgSanUAFAlign()
         || handleT<size_t>(opt.san_guard_small, "san_guard_small", 0, SIZE_MAX, false, false, false)
         || handleT<size_t>(opt.san_guard_large, "san_guard_large", 0, SIZE_MAX, false, false, false)
         /// Disabling large size classes is now the default behavior in jemalloc. Although it is configurable in
@@ -818,7 +818,7 @@ void mallocConfInitHelper(
         while (*opts != '\0' && !confNext(&opts, &k, &klen, &v, &vlen))
             ConfPair(initial_call, sc_data, bin_shard_sizes, k, klen, v, vlen).process();
 
-        validateHpaSettings();
+        validateHPASettings();
         if (opt.abort_conf && had_conf_error)
             mallocAbortInvalidConf();
     }

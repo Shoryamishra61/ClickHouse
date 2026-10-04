@@ -148,10 +148,10 @@ TEST(Arena, Creation)
 
     CHECK_EQ(arenaDecayMsGet(arena, extent_state_dirty), opt.dirty_decay_ms);
     CHECK_EQ(arenaDecayMsGet(arena, extent_state_muzzy), opt.muzzy_decay_ms);
-    CHECK(arenaDssPrecGet(arena) == DSS_PREC_DEFAULT);
-    CHECK(!arenaDssPrecSet(arena, DssPrec::Primary));
-    CHECK(arenaDssPrecGet(arena) == DssPrec::Primary);
-    CHECK(!arenaDssPrecSet(arena, DSS_PREC_DEFAULT));
+    CHECK(arenaDSSPrecGet(arena) == DSS_PREC_DEFAULT);
+    CHECK(!arenaDSSPrecSet(arena, DSSPrec::Primary));
+    CHECK(arenaDSSPrecGet(arena) == DSSPrec::Primary);
+    CHECK(!arenaDSSPrecSet(arena, DSS_PREC_DEFAULT));
 
     Totals * t = stats(arena);
     CHECK_EQ(t->nthreads, 0u);

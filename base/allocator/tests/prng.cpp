@@ -6,7 +6,7 @@
 
 using namespace jemalloc;
 
-TEST(Prng, LgRangeU32)
+TEST(PRNG, LgRangeU32)
 {
     constexpr uint32_t expected[] = {1u, 60u, 1685u, 7809u, 1477088u, 55188319u, 887721383u, 14u};
     uint32_t state = 42;
@@ -15,7 +15,7 @@ TEST(Prng, LgRangeU32)
     CHECK_EQ(state, 3892475298u);
 }
 
-TEST(Prng, LgRangeU64)
+TEST(PRNG, LgRangeU64)
 {
     constexpr uint64_t expected[] = {1ull, 230ull, 216446ull, 169221187ull, 93478802833ull, 1845695507102ull,
         784015565464968ull, 2812299150962093586ull};
@@ -30,7 +30,7 @@ TEST(Prng, LgRangeU64)
     CHECK_EQ(state_zu, 2812299150962093586ull);
 }
 
-TEST(Prng, Range)
+TEST(PRNG, Range)
 {
     {
         constexpr uint32_t expected[] = {0u, 817u, 563u, 723u, 2507u, 3267u, 2346u, 4167u};
@@ -55,14 +55,14 @@ TEST(Prng, Range)
     }
 }
 
-TEST(Prng, RangeOneDoesNotAdvance)
+TEST(PRNG, RangeOneDoesNotAdvance)
 {
     uint64_t state = 123;
     CHECK_EQ(prngRangeU64(state, 1), 0u);
     CHECK_EQ(state, 123u);
 }
 
-TEST(Prng, Constexpr)
+TEST(PRNG, Constexpr)
 {
     constexpr uint64_t value = []
     {

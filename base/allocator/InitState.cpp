@@ -17,7 +17,7 @@ constinit bool malloc_slow = true;
 /// The number of CPUs (declared in Mutex.h). jemalloc: ncpus
 constinit unsigned ncpus = 0;
 
-/// Declared in Frontend.h (here rather than in Api.cpp because the `stats.zero_reallocs` mallctl reads it).
+/// Declared in Frontend.h (here rather than in API.cpp because the `stats.zero_reallocs` mallctl reads it).
 /// jemalloc: zero_realloc_count
 constinit std::atomic<size_t> zero_realloc_count{0};
 

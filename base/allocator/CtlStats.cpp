@@ -17,7 +17,7 @@
 namespace jemalloc
 {
 
-/// The number of `realloc(ptr, 0)` calls (`stats.zero_reallocs`). Defined by the front-end (Api.cpp).
+/// The number of `realloc(ptr, 0)` calls (`stats.zero_reallocs`). Defined by the front-end (API.cpp).
 /// jemalloc: zero_realloc_count
 extern std::atomic<size_t> zero_realloc_count;
 
@@ -50,7 +50,7 @@ JE_CTL_STATS_LEAF(statsActive, size_t, ctl_stats->active)
 JE_CTL_STATS_LEAF(statsMetadata, size_t, ctl_stats->metadata)
 JE_CTL_STATS_LEAF(statsMetadataEdata, size_t, ctl_stats->metadata_edata)
 JE_CTL_STATS_LEAF(statsMetadataRtree, size_t, ctl_stats->metadata_rtree)
-JE_CTL_STATS_LEAF(statsMetadataThp, size_t, ctl_stats->metadata_thp)
+JE_CTL_STATS_LEAF(statsMetadataTHP, size_t, ctl_stats->metadata_thp)
 JE_CTL_STATS_LEAF(statsResident, size_t, ctl_stats->resident)
 JE_CTL_STATS_LEAF(statsMapped, size_t, ctl_stats->mapped)
 JE_CTL_STATS_LEAF(statsRetained, size_t, ctl_stats->retained)
@@ -164,7 +164,7 @@ int approximateStatsActive(ThreadState & tsd, const size_t *, size_t, void * old
             tsd, mib, miblen, oldp, oldlenp, newp, newlen); \
     }
 
-JE_CTL_ARENA_LEAF(statsArenasIDss, const char *, dss)
+JE_CTL_ARENA_LEAF(statsArenasIDSS, const char *, dss)
 JE_CTL_ARENA_LEAF(statsArenasIDirtyDecayMs, ssize_t, dirty_decay_ms)
 JE_CTL_ARENA_LEAF(statsArenasIMuzzyDecayMs, ssize_t, muzzy_decay_ms)
 JE_CTL_ARENA_LEAF(statsArenasINthreads, unsigned, nthreads)
@@ -260,7 +260,7 @@ JE_CTL_SLOT_LEAF(statsArenasIBase, size_t, slotStats(m)->astats.base)
 JE_CTL_SLOT_LEAF(statsArenasIInternal, size_t, slotStats(m)->astats.internal.load(std::memory_order_relaxed))
 JE_CTL_SLOT_LEAF(statsArenasIMetadataEdata, size_t, slotStats(m)->astats.metadata_edata)
 JE_CTL_SLOT_LEAF(statsArenasIMetadataRtree, size_t, slotStats(m)->astats.metadata_rtree)
-JE_CTL_SLOT_LEAF(statsArenasIMetadataThp, size_t, slotStats(m)->astats.metadata_thp)
+JE_CTL_SLOT_LEAF(statsArenasIMetadataTHP, size_t, slotStats(m)->astats.metadata_thp)
 JE_CTL_SLOT_LEAF(statsArenasITcacheBytes, size_t, slotStats(m)->astats.tcache_bytes)
 JE_CTL_SLOT_LEAF(statsArenasITcacheStashedBytes, size_t, slotStats(m)->astats.tcache_stashed_bytes)
 JE_CTL_SLOT_LEAF(statsArenasIResident, size_t, slotStats(m)->astats.resident)

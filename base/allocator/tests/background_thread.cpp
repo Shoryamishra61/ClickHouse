@@ -143,7 +143,7 @@ void bootOnce()
     REQUIRE(!arenaBoot(&default_sc_data, b0get(), false));
     REQUIRE(!arenas_lock.init("arenas", MutexRank::ARENAS, MutexLockOrder::RankExclusive));
     /// The background threads use the TLS TSD (`tsd_internal_fetch`).
-    REQUIRE(!Tsd::boot0());
+    REQUIRE(!TSD::boot0());
 
     narenas_auto = 1;
     manual_arena_base = narenas_auto + 1;

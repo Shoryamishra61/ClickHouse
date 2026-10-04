@@ -82,24 +82,24 @@ constexpr bool percpuArenaEnabled(PercpuArenaMode mode)
 /// jemalloc: percpu_arena_mode_names = {"percpu", "phycpu", "disabled", "percpu", "phycpu"}
 extern const char * const percpu_arena_mode_names[5];
 
-/// The `metadata_thp` option (`MetadataThpMode`, `metadata_thp_mode_limit`, `metadata_thp_mode_names` are defined in
-/// Pages.h), the `thp` option (`ThpMode`, `thp_mode_names_limit`, `thp_mode_names` in Pages.h) and the `dss` option
-/// (`DssPrec`, `DSS_DEFAULT`, `dss_prec_names` in ExtentHooks.h). Declared opaquely here to keep this header light.
-enum class MetadataThpMode : unsigned;
-enum class ThpMode : unsigned;
-enum class DssPrec : unsigned;
+/// The `metadata_thp` option (`MetadataTHPMode`, `metadata_thp_mode_limit`, `metadata_thp_mode_names` are defined in
+/// Pages.h), the `thp` option (`THPMode`, `thp_mode_names_limit`, `thp_mode_names` in Pages.h) and the `dss` option
+/// (`DSSPrec`, `DSS_DEFAULT`, `dss_prec_names` in ExtentHooks.h). Declared opaquely here to keep this header light.
+enum class MetadataTHPMode : unsigned;
+enum class THPMode : unsigned;
+enum class DSSPrec : unsigned;
 
 /// The current default DSS precedence for new arenas (`dss` option, `arena.<MALLCTL_ARENAS_ALL>.dss`).
 /// `Disabled` when the platform has no DSS (Darwin).
 /// jemalloc: extent_dss_prec_get
-DssPrec extentDssPrecGet();
+DSSPrec extentDSSPrecGet();
 
 /// Returns true on error (a non-`Disabled` precedence on a platform without DSS).
 /// jemalloc: extent_dss_prec_set
-bool extentDssPrecSet(DssPrec dss_prec);
+bool extentDSSPrecSet(DSSPrec dss_prec);
 
 /// jemalloc: hpa_hugify_style_t (HPA is dropped; the option is only stored and reported).
-enum class HpaHugifyStyle : unsigned
+enum class HPAHugifyStyle : unsigned
 {
     /// jemalloc: hpa_hugify_style_auto
     Auto = 0,
@@ -164,7 +164,7 @@ inline constexpr size_t HUGEPAGE_PAGES = HUGEPAGE / PAGE;
 
 /// HPA options (dropped feature: stored and reported only).
 /// jemalloc: hpa_shard_opts_t, HPA_SHARD_OPTS_DEFAULT (`hpa_opts.h`)
-struct HpaShardOpts
+struct HPAShardOpts
 {
     size_t slab_max_alloc = 64 * 1024;
     size_t hugification_threshold = HUGEPAGE * 95 / 100;
@@ -176,12 +176,12 @@ struct HpaShardOpts
     ssize_t experimental_max_purge_nhp = -1;
     size_t purge_threshold = PAGE;
     uint64_t min_purge_delay_ms = 0;
-    HpaHugifyStyle hugify_style = HpaHugifyStyle::Lazy;
+    HPAHugifyStyle hugify_style = HPAHugifyStyle::Lazy;
 };
 
 /// SEC options (dropped feature: stored and reported only).
 /// jemalloc: sec_opts_t, SEC_OPTS_DEFAULT (`sec_opts.h`)
-struct SecOpts
+struct SECOpts
 {
     size_t nshards = SEC_OPTS_NSHARDS_DEFAULT;
     size_t max_alloc = SEC_OPTS_MAX_ALLOC_DEFAULT;
@@ -245,9 +245,9 @@ struct Options
     /// jemalloc: opt_hpa
     bool hpa = false;
     /// jemalloc: opt_hpa_opts
-    HpaShardOpts hpa_opts;
+    HPAShardOpts hpa_opts;
     /// jemalloc: opt_hpa_sec_opts
-    SecOpts hpa_sec_opts;
+    SECOpts hpa_sec_opts;
     /// jemalloc: opt_experimental_hpa_start_huge_if_thp_always (`hpa.c`)
     bool experimental_hpa_start_huge_if_thp_always = true;
     /// jemalloc: opt_experimental_hpa_enforce_hugify (`hpa.c`)
@@ -269,9 +269,9 @@ struct Options
     /// --- base.c, pages.c, extent_mmap.c, extent_dss.c, extent.c ---
 
     /// jemalloc: opt_metadata_thp (METADATA_THP_DEFAULT)
-    MetadataThpMode metadata_thp = MetadataThpMode(0); /// MetadataThpMode::Disabled
+    MetadataTHPMode metadata_thp = MetadataTHPMode(0); /// MetadataTHPMode::Disabled
     /// Set to `NotSupported` by the pages boot when THP is unavailable. jemalloc: opt_thp
-    ThpMode thp = ThpMode(0); /// THP_MODE_DEFAULT = ThpMode::DoNothing
+    THPMode thp = THPMode(0); /// THP_MODE_DEFAULT = THPMode::DoNothing
     /// jemalloc: opt_retain (`JEMALLOC_RETAIN`)
     bool retain = config::retain;
     /// One of `dss_prec_names`. jemalloc: opt_dss

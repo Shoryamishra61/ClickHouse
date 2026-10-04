@@ -18,7 +18,7 @@ enum class TeHandler : uint8_t
 {
     ProfSample,
     StatsInterval,
-    TcacheGc,
+    TcacheGC,
     Peak,
 };
 
@@ -31,7 +31,7 @@ bool teHandlerEnabled(TeHandler handler)
             return config::prof && opt.prof;
         case TeHandler::StatsInterval:
             return opt.stats_interval >= 0;
-        case TeHandler::TcacheGc:
+        case TeHandler::TcacheGC:
             return opt.tcache_gc_incr_bytes > 0;
         case TeHandler::Peak:
             return config::stats;
@@ -48,8 +48,8 @@ uint64_t teHandlerNewEventWait(ThreadState & tsd, TeHandler handler)
             return profSampleNewEventWait(tsd);
         case TeHandler::StatsInterval:
             return statsIntervalNewEventWait(tsd);
-        case TeHandler::TcacheGc:
-            return tcacheGcNewEventWait(tsd);
+        case TeHandler::TcacheGC:
+            return tcacheGCNewEventWait(tsd);
         case TeHandler::Peak:
             return peakEventNewEventWait(tsd);
     }
@@ -65,8 +65,8 @@ uint64_t teHandlerPostponedEventWait(ThreadState & tsd, TeHandler handler)
             return profSamplePostponedEventWait(tsd);
         case TeHandler::StatsInterval:
             return statsIntervalPostponedEventWait(tsd);
-        case TeHandler::TcacheGc:
-            return tcacheGcPostponedEventWait(tsd);
+        case TeHandler::TcacheGC:
+            return tcacheGCPostponedEventWait(tsd);
         case TeHandler::Peak:
             return peakEventPostponedEventWait(tsd);
     }
@@ -84,8 +84,8 @@ void teHandlerEvent(ThreadState & tsd, TeHandler handler)
         case TeHandler::StatsInterval:
             statsIntervalEvent(tsd);
             return;
-        case TeHandler::TcacheGc:
-            tcacheGcEvent(tsd);
+        case TeHandler::TcacheGC:
+            tcacheGCEvent(tsd);
             return;
         case TeHandler::Peak:
             peakEvent(tsd);
@@ -96,15 +96,15 @@ void teHandlerEvent(ThreadState & tsd, TeHandler handler)
 
 /// The handler tables in jemalloc's order (`thread_event_registry.c`). The user event slots are never installed.
 /// jemalloc: te_alloc_handlers, te_dalloc_handlers
-constexpr TeHandler te_alloc_handlers[] = {TeHandler::ProfSample, TeHandler::StatsInterval, TeHandler::TcacheGc, TeHandler::Peak};
-constexpr TeHandler te_dalloc_handlers[] = {TeHandler::TcacheGc, TeHandler::Peak};
+constexpr TeHandler te_alloc_handlers[] = {TeHandler::ProfSample, TeHandler::StatsInterval, TeHandler::TcacheGC, TeHandler::Peak};
+constexpr TeHandler te_dalloc_handlers[] = {TeHandler::TcacheGC, TeHandler::Peak};
 
 static_assert(te_alloc_handlers[te_alloc_prof_sample] == TeHandler::ProfSample);
 static_assert(te_alloc_handlers[te_alloc_stats_interval] == TeHandler::StatsInterval);
-static_assert(te_alloc_handlers[te_alloc_tcache_gc] == TeHandler::TcacheGc);
+static_assert(te_alloc_handlers[te_alloc_tcache_gc] == TeHandler::TcacheGC);
 static_assert(te_alloc_handlers[te_alloc_peak] == TeHandler::Peak);
 static_assert(std::size(te_alloc_handlers) == te_alloc_user0);
-static_assert(te_dalloc_handlers[te_dalloc_tcache_gc] == TeHandler::TcacheGc);
+static_assert(te_dalloc_handlers[te_dalloc_tcache_gc] == TeHandler::TcacheGC);
 static_assert(te_dalloc_handlers[te_dalloc_peak] == TeHandler::Peak);
 static_assert(std::size(te_dalloc_handlers) == te_dalloc_user0);
 
@@ -255,9 +255,9 @@ inline size_t teUpdateAllocEvents(ThreadState & tsd, TeHandler * to_trigger, uin
     uint64_t * waits = tsd.te_data.alloc_wait;
     if (opt.tcache_gc_incr_bytes > 0)
     {
-        JE_ASSERT(teHandlerEnabled(TeHandler::TcacheGc));
-        if (teUpdateWait(tsd, accumbytes, allow, waits[te_alloc_tcache_gc], wait, TeHandler::TcacheGc, opt.tcache_gc_incr_bytes))
-            to_trigger[nto_trigger++] = TeHandler::TcacheGc;
+        JE_ASSERT(teHandlerEnabled(TeHandler::TcacheGC));
+        if (teUpdateWait(tsd, accumbytes, allow, waits[te_alloc_tcache_gc], wait, TeHandler::TcacheGC, opt.tcache_gc_incr_bytes))
+            to_trigger[nto_trigger++] = TeHandler::TcacheGC;
     }
     if constexpr (config::prof)
     {
@@ -294,9 +294,9 @@ inline size_t teUpdateDallocEvents(ThreadState & tsd, TeHandler * to_trigger, ui
     uint64_t * waits = tsd.te_data.dalloc_wait;
     if (opt.tcache_gc_incr_bytes > 0)
     {
-        JE_ASSERT(teHandlerEnabled(TeHandler::TcacheGc));
-        if (teUpdateWait(tsd, accumbytes, allow, waits[te_dalloc_tcache_gc], wait, TeHandler::TcacheGc, opt.tcache_gc_incr_bytes))
-            to_trigger[nto_trigger++] = TeHandler::TcacheGc;
+        JE_ASSERT(teHandlerEnabled(TeHandler::TcacheGC));
+        if (teUpdateWait(tsd, accumbytes, allow, waits[te_dalloc_tcache_gc], wait, TeHandler::TcacheGC, opt.tcache_gc_incr_bytes))
+            to_trigger[nto_trigger++] = TeHandler::TcacheGC;
     }
     if constexpr (config::stats)
     {

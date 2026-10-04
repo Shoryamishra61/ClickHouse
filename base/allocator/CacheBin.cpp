@@ -19,9 +19,9 @@ void CacheBinInfo::init(cache_bin_sz_t ncached_max_)
 /// The downside of allocating the stacks from the base allocator is that it never purges freed memory, and may cache
 /// a fair amount of memory after many threads are terminated and not reused.
 /// jemalloc: cache_bin_stack_use_thp
-bool cacheBinStackUseThp()
+bool cacheBinStackUseTHP()
 {
-    return metadataThpEnabled();
+    return metadataTHPEnabled();
 }
 
 /// jemalloc: cache_bin_info_compute_alloc
@@ -36,7 +36,7 @@ void cacheBinInfoComputeAlloc(const CacheBinInfo * infos, szind_t ninfos, size_t
 
     /// When not using THP, align to at least PAGE, to minimize the # of TLBs needed by the smaller sizes; also helps
     /// if the larger sizes don't get used at all.
-    alignment = cacheBinStackUseThp() ? QUANTUM : PAGE;
+    alignment = cacheBinStackUseTHP() ? QUANTUM : PAGE;
 }
 
 /// jemalloc: cache_bin_preincrement

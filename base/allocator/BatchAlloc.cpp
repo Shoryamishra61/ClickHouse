@@ -1,4 +1,4 @@
-/// `experimental.batch_alloc` (jemalloc: `batch_alloc` in `src/jemalloc.c`). In the core library (not Api.cpp)
+/// `experimental.batch_alloc` (jemalloc: `batch_alloc` in `src/jemalloc.c`). In the core library (not API.cpp)
 /// because the mallctl tree references it.
 
 #include <allocator/Imalloc.h>

@@ -70,7 +70,7 @@ void bootArenas()
 }
 
 /// `arenaNew` enters and leaves reentrancy for `ind != 0`, which needs a tsd in a nominal state.
-ThreadState & arenaTsd()
+ThreadState & arenaTSD()
 {
     static ThreadState tsd;
     tsd.state.store(tsd_state_nominal_slow, std::memory_order_relaxed);
@@ -82,7 +82,7 @@ void setUpArenaTable()
     bootArenas();
     for (unsigned i = 0; i < ref_narenas; ++i)
         if (ref_initialized[i])
-            REQUIRE(arenaNew(&arenaTsd(), i, &arena_config_default) != nullptr);
+            REQUIRE(arenaNew(&arenaTSD(), i, &arena_config_default) != nullptr);
     narenasTotalSet(ref_narenas);
 }
 
@@ -134,7 +134,7 @@ void compareName(const char * name, const size_t * expected, size_t expected_len
     size_t ref_len = CTL_MAX_DEPTH;
     size_t our_len = CTL_MAX_DEPTH;
     int ref_ret = je_mallctlnametomib(name, ref_mib, &ref_len);
-    int our_ret = ctlNameToMib(test_tsd, name, our_mib, &our_len);
+    int our_ret = ctlNameToMIB(test_tsd, name, our_mib, &our_len);
 
     bool ok = ref_ret == our_ret;
     if (ok && our_ret == 0)
@@ -171,13 +171,13 @@ void compareName(const char * name, const size_t * expected, size_t expected_len
         size_t ref_len2 = capacity;
         size_t our_len2 = capacity;
         int ref_ret2 = je_mallctlnametomib(name, ref_mib2, &ref_len2);
-        int our_ret2 = ctlNameToMib(test_tsd, name, our_mib2, &our_len2);
+        int our_ret2 = ctlNameToMIB(test_tsd, name, our_mib2, &our_len2);
         CHECK_EQ(our_ret2, ref_ret2);
         CHECK_EQ(our_len2, ref_len2);
         CHECK(std::memcmp(ref_mib2, our_mib2, sizeof(ref_mib2)) == 0);
     }
 
-    /// `ctlMibNameToMib` resolves the rest of the name relative to every prefix.
+    /// `ctlMIBNameToMIB` resolves the rest of the name relative to every prefix.
     for (const char * dot = std::strchr(name, '.'); dot != nullptr; dot = std::strchr(dot + 1, '.'))
     {
         char prefix[256];
@@ -186,10 +186,10 @@ void compareName(const char * name, const size_t * expected, size_t expected_len
         prefix[prefix_len] = '\0';
         size_t mib[CTL_MAX_DEPTH] = {};
         size_t miblen = CTL_MAX_DEPTH;
-        if (ctlNameToMib(test_tsd, prefix, mib, &miblen) != 0)
+        if (ctlNameToMIB(test_tsd, prefix, mib, &miblen) != 0)
             continue;
         size_t total_len = CTL_MAX_DEPTH;
-        CHECK_EQ(ctlMibNameToMib(test_tsd, mib, miblen, dot + 1, &total_len), 0);
+        CHECK_EQ(ctlMIBNameToMIB(test_tsd, mib, miblen, dot + 1, &total_len), 0);
         CHECK_EQ(total_len, our_len);
         CHECK(std::memcmp(mib, our_mib, our_len * sizeof(size_t)) == 0);
     }
@@ -252,7 +252,7 @@ void walk(const CtlNode & node, char * name, size_t name_len, size_t * mib, size
             /// Only valid indices are walked further (the comparison of the node itself covers invalid ones).
             size_t probe_mib[CTL_MAX_DEPTH];
             size_t probe_len = CTL_MAX_DEPTH;
-            bool valid = ctlNameToMib(test_tsd, name, probe_mib, &probe_len) == 0;
+            bool valid = ctlNameToMIB(test_tsd, name, probe_mib, &probe_len) == 0;
             compareName(name, mib, depth + 1, valid);
             if (!valid)
                 continue;
@@ -296,7 +296,7 @@ void walk(const CtlNode & node, char * name, size_t name_len, size_t * mib, size
     {
         mib[depth] = node.nchildren;
         CHECK_EQ(je_mallctlbymib(mib, depth + 1, nullptr, nullptr, nullptr, 0), ENOENT);
-        CHECK_EQ(ctlByMib(test_tsd, mib, depth + 1, nullptr, nullptr, nullptr, 0), ENOENT);
+        CHECK_EQ(ctlByMIB(test_tsd, mib, depth + 1, nullptr, nullptr, nullptr, 0), ENOENT);
     }
 }
 

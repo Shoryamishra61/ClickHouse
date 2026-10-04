@@ -18,7 +18,7 @@ namespace
 {
 
 /// A TSD that is not in TLS, in the nominal state (as after `tsd_fetch`).
-std::unique_ptr<ThreadState> makeNominalTsd(uint64_t prng_seed, uint64_t allocated = 0, uint64_t deallocated = 0)
+std::unique_ptr<ThreadState> makeNominalTSD(uint64_t prng_seed, uint64_t allocated = 0, uint64_t deallocated = 0)
 {
     auto tsd = std::make_unique<ThreadState>();
     tsd->state.store(tsd_state_nominal, std::memory_order_relaxed);
@@ -191,7 +191,7 @@ struct Rng
 void runStream(uint64_t seed, size_t nsteps, uint64_t start_allocated, uint64_t start_deallocated)
 {
     thread_test::takeLog();
-    auto tsd = makeNominalTsd(seed, start_allocated, start_deallocated);
+    auto tsd = makeNominalTSD(seed, start_allocated, start_deallocated);
     Model model;
     model.prng = seed;
     model.init(start_allocated, start_deallocated);
@@ -270,7 +270,7 @@ TEST(ThreadEvent, DefaultSequence)
 {
     OptionsGuard guard;
     thread_test::takeLog();
-    auto tsd = makeNominalTsd(12345);
+    auto tsd = makeNominalTSD(12345);
     CHECK_EQ(tsd->thread_allocated_last_event, 0u);
     CHECK_EQ(tsd->thread_allocated_next_event, 65536u);
     CHECK_EQ(tsd->thread_allocated_next_event_fast, 65536u);
@@ -317,7 +317,7 @@ TEST(ThreadEvent, MaxInterval)
 {
     OptionsGuard guard;
     opt.tcache_gc_incr_bytes = 100 << 20;
-    auto tsd = makeNominalTsd(1);
+    auto tsd = makeNominalTSD(1);
     CHECK_EQ(tsd->te_data.alloc_wait[te_alloc_tcache_gc], uint64_t(100) << 20);
     CHECK_EQ(tsd->thread_allocated_next_event, PEAK_EVENT_WAIT);
     /// Peak triggers every 64 KiB, so the GC wait is decremented by the accumulated bytes.
@@ -331,7 +331,7 @@ TEST(ThreadEvent, Postponed)
 {
     OptionsGuard guard;
     thread_test::takeLog();
-    auto tsd = makeNominalTsd(7);
+    auto tsd = makeNominalTSD(7);
     preReentrancy(*tsd, nullptr);
     CHECK_EQ(tsd->thread_allocated_next_event_fast, 0u);
     CHECK_EQ(tsd->thread_deallocated_next_event_fast, 0u);
@@ -359,7 +359,7 @@ TEST(ThreadEvent, HandlerOrder)
     stats_interval_accum_batch = 1;
     thread_test::lg_prof_sample = 0; /// Wait 1: prof triggers on every event.
     thread_test::takeLog();
-    auto tsd = makeNominalTsd(99);
+    auto tsd = makeNominalTSD(99);
     CHECK_EQ(tsd->te_data.alloc_wait[te_alloc_prof_sample], 1u);
     CHECK_EQ(tsd->te_data.alloc_wait[te_alloc_stats_interval], 1u);
     CHECK_EQ(tsd->thread_allocated_next_event, 1u);
@@ -379,7 +379,7 @@ TEST(ThreadEvent, ProfWaits)
     opt.prof = true;
     thread_test::lg_prof_sample = 19;
     uint64_t seed = 0x123456789;
-    auto tsd = makeNominalTsd(seed);
+    auto tsd = makeNominalTSD(seed);
     uint64_t expected_prng = seed;
     uint64_t expected_wait = thread_test::profGeometricWait(expected_prng, 19);
     CHECK_EQ(tsd->te_data.alloc_wait[te_alloc_prof_sample], expected_wait);
@@ -421,7 +421,7 @@ TEST(ThreadEvent, RandomStreamsStatsInterval)
 TEST(ThreadEvent, Wraparound)
 {
     OptionsGuard guard;
-    auto tsd = makeNominalTsd(5, UINT64_MAX - 67000, UINT64_MAX - 10);
+    auto tsd = makeNominalTSD(5, UINT64_MAX - 67000, UINT64_MAX - 10);
     CHECK_EQ(tsd->thread_allocated_next_event, UINT64_MAX - 67000 + 65536);
     CHECK_EQ(tsd->thread_allocated_next_event_fast, 0u);
     CHECK_EQ(tsd->thread_deallocated_next_event, uint64_t(65536 - 11));
@@ -433,7 +433,7 @@ TEST(ThreadEvent, Wraparound)
 TEST(ThreadEvent, Peak)
 {
     OptionsGuard guard;
-    auto tsd = makeNominalTsd(3);
+    auto tsd = makeNominalTSD(3);
     tsd->thread_allocated = 1000;
     tsd->thread_deallocated = 200;
     peakEventUpdate(*tsd);

@@ -23,7 +23,7 @@ namespace jemalloc
 
 /// Values of the `thp` option (`opt_thp`).
 /// jemalloc: thp_mode_t
-enum class ThpMode : unsigned
+enum class THPMode : unsigned
 {
     /// Respect kernel THP settings. jemalloc: thp_mode_do_nothing
     DoNothing = 0,
@@ -40,7 +40,7 @@ inline constexpr unsigned thp_mode_names_limit = 3;
 
 /// The kernel THP setting detected at boot (`init_system_thp_mode`).
 /// jemalloc: system_thp_mode_t
-enum class SystemThpMode : unsigned
+enum class SystemTHPMode : unsigned
 {
     Madvise = 0,
     Always = 1,
@@ -49,7 +49,7 @@ enum class SystemThpMode : unsigned
 };
 
 /// jemalloc: THP_MODE_DEFAULT
-inline constexpr ThpMode THP_MODE_DEFAULT = ThpMode::DoNothing;
+inline constexpr THPMode THP_MODE_DEFAULT = THPMode::DoNothing;
 
 /// jemalloc: thp_mode_names
 extern const char * const thp_mode_names[];
@@ -58,7 +58,7 @@ extern const char * const system_thp_mode_names[];
 
 /// Values of the `metadata_thp` option.
 /// jemalloc: metadata_thp_mode_t (`base.h`)
-enum class MetadataThpMode : unsigned
+enum class MetadataTHPMode : unsigned
 {
     Disabled = 0,
     /// Lazily enable hugepage for metadata. To avoid high RSS caused by THP + low usage arena (i.e. THP becomes a
@@ -73,20 +73,20 @@ enum class MetadataThpMode : unsigned
 inline constexpr unsigned metadata_thp_mode_limit = 3;
 
 /// jemalloc: METADATA_THP_DEFAULT
-inline constexpr MetadataThpMode METADATA_THP_DEFAULT = MetadataThpMode::Disabled;
+inline constexpr MetadataTHPMode METADATA_THP_DEFAULT = MetadataTHPMode::Disabled;
 
 /// jemalloc: metadata_thp_mode_names (`src/base.c`)
 extern const char * const metadata_thp_mode_names[];
 
 /// jemalloc: metadata_thp_enabled
-inline bool metadataThpEnabled()
+inline bool metadataTHPEnabled()
 {
-    return opt.metadata_thp != MetadataThpMode::Disabled;
+    return opt.metadata_thp != MetadataTHPMode::Disabled;
 }
 
 /// Initial system-wide THP state.
 /// jemalloc: init_system_thp_mode
-extern SystemThpMode init_system_thp_mode;
+extern SystemTHPMode init_system_thp_mode;
 
 /// Actual operating system page size, detected during bootstrap, <= PAGE.
 /// jemalloc: os_page
@@ -149,7 +149,7 @@ bool doDump(void * addr, size_t size);
 
 /// Apply `opt.thp` to a new mapping (no-op with the default `thp` option).
 /// jemalloc: pages_set_thp_state
-void setThpState(void * ptr, size_t size);
+void setTHPState(void * ptr, size_t size);
 
 /// Make the guard pages at `head` and/or `tail` (either may be null) inaccessible.
 /// jemalloc: pages_mark_guards

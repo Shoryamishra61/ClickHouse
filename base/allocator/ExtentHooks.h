@@ -9,7 +9,7 @@
 /// the default implementations directly (no function pointers on the hot path).
 ///
 /// DSS (`sbrk`) is dropped too: allocation always uses mmap, so the DSS branches of the default hooks reduce to the
-/// non-DSS case; `DssPrec` remains only for reporting through mallctl (and for the side effects of a failed DSS
+/// non-DSS case; `DSSPrec` remains only for reporting through mallctl (and for the side effects of a failed DSS
 /// attempt, reproduced by `extentAllocWrapper`).
 
 #include <allocator/Common.h>
@@ -32,7 +32,7 @@ class ThreadState;
 
 /// The `dss` option / `arena.<i>.dss` (reporting only: sbrk is never used).
 /// jemalloc: dss_prec_t (`extent_dss.h`)
-enum class DssPrec : unsigned
+enum class DSSPrec : unsigned
 {
     Disabled = 0,
     Primary = 1,
@@ -41,7 +41,7 @@ enum class DssPrec : unsigned
 };
 
 /// jemalloc: DSS_PREC_DEFAULT
-inline constexpr DssPrec DSS_PREC_DEFAULT = DssPrec::Secondary;
+inline constexpr DSSPrec DSS_PREC_DEFAULT = DSSPrec::Secondary;
 /// jemalloc: DSS_DEFAULT
 inline constexpr const char * DSS_DEFAULT = "secondary";
 /// jemalloc: dss_prec_names

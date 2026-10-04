@@ -145,12 +145,12 @@ TEST(Extent, Accessors)
     CHECK(!e->isHead());
 
     /// Size and esn share a word.
-    e->setEsn(PAGE + 5);
+    e->setESN(PAGE + 5);
     CHECK_EQ(e->esn(), 5u);
     e->setSize(10 * PAGE);
     CHECK_EQ(e->size(), 10 * PAGE);
     CHECK_EQ(e->esn(), 5u);
-    e->setEsn(PAGE - 1);
+    e->setESN(PAGE - 1);
     CHECK_EQ(e->size(), 10 * PAGE);
     CHECK_EQ(e->esn(), PAGE - 1);
     CHECK_EQ(e->e_size_esn, 11 * PAGE - 1);
@@ -168,7 +168,7 @@ TEST(Extent, Accessors)
     CHECK_EQ(e->last(), static_cast<void *>(addr + 3 * PAGE));
     CHECK_EQ(e->past(), static_cast<void *>(addr + 4 * PAGE));
 
-    e->setSn(42);
+    e->setSN(42);
     CHECK_EQ(e->sn(), 42u);
 
     std::free(e);
@@ -212,7 +212,7 @@ TEST(Extent, Prof)
 TEST(Extent, Init)
 {
     Extent * e = allocExtents(1);
-    e->setEsn(17);
+    e->setESN(17);
     e->setProfTctx(reinterpret_cast<ProfThreadContext *>(uintptr_t(0x1000)));
     e->setGuarded(true);
     auto * addr = reinterpret_cast<void *>(uintptr_t(1) << 40);
@@ -257,13 +257,13 @@ TEST(Extent, Comparators)
 {
     Extent * e = allocExtents(4);
     auto * base = reinterpret_cast<std::byte *>(uintptr_t(1) << 40);
-    e[0].setSn(1);
+    e[0].setSN(1);
     e[0].setAddr(base + PAGE);
-    e[1].setSn(1);
+    e[1].setSN(1);
     e[1].setAddr(base);
-    e[2].setSn(0);
+    e[2].setSN(0);
     e[2].setAddr(base + 10 * PAGE);
-    e[3].setSn(1);
+    e[3].setSN(1);
     e[3].setAddr(base + PAGE);
 
     CHECK_EQ(Extent::compareSnad(&e[0], &e[1]), 1);
@@ -276,10 +276,10 @@ TEST(Extent, Comparators)
     CHECK_EQ(Extent::compareSnad(&e[2], &e[0]), -3);
     CHECK_EQ(Extent::compareSnad(&e[0], &e[2]), 3);
 
-    e[0].setEsn(3);
-    e[1].setEsn(3);
-    e[2].setEsn(1);
-    CHECK_EQ(Extent::compareEsn(&e[0], &e[1]), 0);
+    e[0].setESN(3);
+    e[1].setESN(3);
+    e[2].setESN(1);
+    CHECK_EQ(Extent::compareESN(&e[0], &e[1]), 0);
     CHECK_EQ(Extent::compareEad(&e[0], &e[1]), -1);
     CHECK_EQ(Extent::compareEsnead(&e[0], &e[1]), -1);
     CHECK_EQ(Extent::compareEsnead(&e[1], &e[0]), 1);
@@ -304,7 +304,7 @@ TEST(Extent, Heaps)
     for (size_t i = 0; i < n; ++i)
     {
         size_t j = (i * 37) % n;
-        e[j].setSn(j % 4);
+        e[j].setSN(j % 4);
         e[j].setAddr(base + j * PAGE);
         heap.insert(&e[j]);
     }
@@ -326,7 +326,7 @@ TEST(Extent, Heaps)
     avail.init();
     for (size_t i = n; i-- > 0;)
     {
-        e[i].setEsn(i % 3);
+        e[i].setESN(i % 3);
         avail.insert(&e[i]);
     }
     for (size_t i = 0; i < n; ++i)

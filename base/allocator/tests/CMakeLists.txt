@@ -1,6 +1,6 @@
 # Each `*.cpp` file here (except TestMain.cpp) is a separate test executable linked with the allocator internals.
 #
-# Tests named `*_api.cpp` are end-to-end tests of the public API: they also link Api.cpp, whose constructor initializes
+# Tests named `*_api.cpp` are end-to-end tests of the public API: they also link API.cpp, whose constructor initializes
 # the allocator (with `MALLOC_CONF` from the environment). They are registered twice: without heap profiling and with
 # frequent sampling (`<name>_prof`).
 #

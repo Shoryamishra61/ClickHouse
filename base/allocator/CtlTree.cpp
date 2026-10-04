@@ -108,7 +108,7 @@ constexpr CtlNode mutex_prof_node[] = {
 /// jemalloc: `bin_infos[mib[2]]`. The index function accepts `SC_NBINS` (off by one), where jemalloc reads past the
 /// array; that bin reads as zeros here.
 /// jemalloc compatibility: arenas_bin_i_index accepts i == SC_NBINS.
-const BinInfo & binInfoOfMib(const size_t * mib)
+const BinInfo & binInfoOfMIB(const size_t * mib)
 {
     static constexpr BinInfo past_the_end{};
     return mib[2] < SC_NBINS ? bin_infos[mib[2]] : past_the_end;
@@ -117,7 +117,7 @@ const BinInfo & binInfoOfMib(const size_t * mib)
 /// jemalloc: `sz_index2size_unsafe(SC_NBINS + mib[2])`. The index function accepts `SC_NSIZES - SC_NBINS` (off by
 /// one), where jemalloc reads past `sz_index2size_tab`; that size reads as 0 here.
 /// jemalloc compatibility: arenas_lextent_i_index accepts i == SC_NSIZES - SC_NBINS.
-size_t lextentSizeOfMib(const size_t * mib)
+size_t lextentSizeOfMIB(const size_t * mib)
 {
     return mib[2] < SC_NSIZES - SC_NBINS ? sz::indexToSizeUnsafe(SC_NBINS + static_cast<szind_t>(mib[2])) : 0;
 }
@@ -169,7 +169,7 @@ bool statsArenasIExtentsJIndex(ThreadState *, const size_t *, size_t, size_t j)
 inline constexpr size_t PSSET_NPSIZES = 64;
 
 /// jemalloc: stats_arenas_i_hpa_shard_nonfull_slabs_j_index
-bool statsArenasIHpaShardNonfullSlabsJIndex(ThreadState *, const size_t *, size_t, size_t j)
+bool statsArenasIHPAShardNonfullSlabsJIndex(ThreadState *, const size_t *, size_t, size_t j)
 {
     return j < PSSET_NPSIZES;
 }
@@ -356,7 +356,7 @@ constexpr CtlNode arena_i_node[] = {
     leaf("purge", ctl::arenaIPurge),
     leaf("reset", ctl::arenaIReset),
     leaf("destroy", ctl::arenaIDestroy),
-    leaf("dss", ctl::arenaIDss),
+    leaf("dss", ctl::arenaIDSS),
     /// Undocumented for now, since we anticipate an arena API in flux after we cut the last 5-series release.
     leaf("oversize_threshold", ctl::arenaIOversizeThreshold),
     leaf("dirty_decay_ms", ctl::arenaIDirtyDecayMs),
@@ -368,15 +368,15 @@ constexpr CtlNode arena_i_node[] = {
 constexpr CtlNode super_arena_i_node[] = {super(arena_i_node)};
 
 constexpr CtlNode arenas_bin_i_node[] = {
-    ro<size_t, [](const size_t * mib) { return binInfoOfMib(mib).reg_size; }>("size"),
-    ro<uint32_t, [](const size_t * mib) { return binInfoOfMib(mib).nregs; }>("nregs"),
-    ro<size_t, [](const size_t * mib) { return binInfoOfMib(mib).slab_size; }>("slab_size"),
-    ro<uint32_t, [](const size_t * mib) { return binInfoOfMib(mib).n_shards; }>("nshards"),
+    ro<size_t, [](const size_t * mib) { return binInfoOfMIB(mib).reg_size; }>("size"),
+    ro<uint32_t, [](const size_t * mib) { return binInfoOfMIB(mib).nregs; }>("nregs"),
+    ro<size_t, [](const size_t * mib) { return binInfoOfMIB(mib).slab_size; }>("slab_size"),
+    ro<uint32_t, [](const size_t * mib) { return binInfoOfMIB(mib).n_shards; }>("nshards"),
 };
 constexpr CtlNode super_arenas_bin_i_node[] = {super(arenas_bin_i_node)};
 
 constexpr CtlNode arenas_lextent_i_node[] = {
-    ro<size_t, [](const size_t * mib) { return lextentSizeOfMib(mib); }>("size"),
+    ro<size_t, [](const size_t * mib) { return lextentSizeOfMIB(mib); }>("size"),
 };
 constexpr CtlNode super_arenas_lextent_i_node[] = {super(arenas_lextent_i_node)};
 
@@ -526,13 +526,13 @@ constexpr CtlNode stats_arenas_i_hpa_shard_node[] = {
 
     named("full_slabs", stats_arenas_i_hpa_shard_slabs_node),
     named("empty_slabs", stats_arenas_i_hpa_shard_slabs_node),
-    indexed("nonfull_slabs", ctl::statsArenasIHpaShardNonfullSlabsJIndex, super_stats_arenas_i_hpa_shard_nonfull_slabs_j_node),
+    indexed("nonfull_slabs", ctl::statsArenasIHPAShardNonfullSlabsJIndex, super_stats_arenas_i_hpa_shard_nonfull_slabs_j_node),
 };
 
 constexpr CtlNode stats_arenas_i_node[] = {
     leaf("nthreads", ctl::statsArenasINthreads),
     leaf("uptime", ctl::statsArenasIUptime),
-    leaf("dss", ctl::statsArenasIDss),
+    leaf("dss", ctl::statsArenasIDSS),
     leaf("dirty_decay_ms", ctl::statsArenasIDirtyDecayMs),
     leaf("muzzy_decay_ms", ctl::statsArenasIMuzzyDecayMs),
     leaf("pactive", ctl::statsArenasIPactive),
@@ -551,7 +551,7 @@ constexpr CtlNode stats_arenas_i_node[] = {
     leaf("internal", ctl::statsArenasIInternal),
     leaf("metadata_edata", ctl::statsArenasIMetadataEdata),
     leaf("metadata_rtree", ctl::statsArenasIMetadataRtree),
-    leaf("metadata_thp", ctl::statsArenasIMetadataThp),
+    leaf("metadata_thp", ctl::statsArenasIMetadataTHP),
     leaf("tcache_bytes", ctl::statsArenasITcacheBytes),
     leaf("tcache_stashed_bytes", ctl::statsArenasITcacheStashedBytes),
     leaf("resident", ctl::statsArenasIResident),
@@ -605,7 +605,7 @@ constexpr CtlNode stats_node[] = {
     leaf("metadata", ctl::statsMetadata),
     leaf("metadata_edata", ctl::statsMetadataEdata),
     leaf("metadata_rtree", ctl::statsMetadataRtree),
-    leaf("metadata_thp", ctl::statsMetadataThp),
+    leaf("metadata_thp", ctl::statsMetadataTHP),
     leaf("resident", ctl::statsResident),
     leaf("mapped", ctl::statsMapped),
     leaf("retained", ctl::statsRetained),

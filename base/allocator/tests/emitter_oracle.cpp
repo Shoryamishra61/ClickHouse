@@ -269,8 +269,8 @@ TEST(EmitterOracle, Random)
         enum Kind
         {
             Dict,
-            JsonObject,
-            JsonArray,
+            JSONObject,
+            JSONArray,
             TableDict,
         };
         std::vector<Kind> stack;
@@ -285,10 +285,10 @@ TEST(EmitterOracle, Random)
             switch (rng() % 20)
             {
                 case 0: ops.push_back(dictBegin(key(), key())); stack.push_back(Dict); break;
-                case 1: ops.push_back(jsonObjectKvBegin(key())); stack.push_back(JsonObject); break;
-                case 2: ops.push_back(jsonObjectBegin()); stack.push_back(JsonObject); break;
-                case 3: ops.push_back(jsonArrayKvBegin(key())); stack.push_back(JsonArray); break;
-                case 4: ops.push_back(jsonArrayBegin()); stack.push_back(JsonArray); break;
+                case 1: ops.push_back(jsonObjectKvBegin(key())); stack.push_back(JSONObject); break;
+                case 2: ops.push_back(jsonObjectBegin()); stack.push_back(JSONObject); break;
+                case 3: ops.push_back(jsonArrayKvBegin(key())); stack.push_back(JSONArray); break;
+                case 4: ops.push_back(jsonArrayBegin()); stack.push_back(JSONArray); break;
                 case 5: ops.push_back(tableDictBegin(key())); stack.push_back(TableDict); break;
                 case 6:
                 case 7:
@@ -297,8 +297,8 @@ TEST(EmitterOracle, Random)
                         switch (stack.back())
                         {
                             case Dict: ops.push_back(dictEnd()); break;
-                            case JsonObject: ops.push_back(jsonObjectEnd()); break;
-                            case JsonArray: ops.push_back(jsonArrayEnd()); break;
+                            case JSONObject: ops.push_back(jsonObjectEnd()); break;
+                            case JSONArray: ops.push_back(jsonArrayEnd()); break;
                             case TableDict: ops.push_back(tableDictEnd()); break;
                         }
                         stack.pop_back();
@@ -335,8 +335,8 @@ TEST(EmitterOracle, Random)
             switch (stack.back())
             {
                 case Dict: ops.push_back(dictEnd()); break;
-                case JsonObject: ops.push_back(jsonObjectEnd()); break;
-                case JsonArray: ops.push_back(jsonArrayEnd()); break;
+                case JSONObject: ops.push_back(jsonObjectEnd()); break;
+                case JSONArray: ops.push_back(jsonArrayEnd()); break;
                 case TableDict: ops.push_back(tableDictEnd()); break;
             }
             stack.pop_back();

@@ -215,7 +215,7 @@ JE_ALWAYS_INLINE void sanJunkPtr(void * ptr, size_t usize)
 }
 
 /// jemalloc: san_uaf_detection_enabled
-JE_ALWAYS_INLINE bool sanUafDetectionEnabled()
+JE_ALWAYS_INLINE bool sanUAFDetectionEnabled()
 {
     bool ret = config::uaf_detection && (opt.lg_san_uaf_align != -1);
     if (config::uaf_detection && ret)

@@ -54,14 +54,14 @@ void bootOnce()
     REQUIRE(!backgroundThreadBoot1(nullptr, b0get()));
 }
 
-std::unique_ptr<ThreadState> makeTsd()
+std::unique_ptr<ThreadState> makeTSD()
 {
     bootOnce();
     auto tsd = std::make_unique<ThreadState>();
     tsd->state.store(tsd_state_nominal, std::memory_order_relaxed);
     tsd->rtree_ctx.init();
     tsd->prng_state = 42;
-    REQUIRE(!tcacheTsdDataInit(*tsd));
+    REQUIRE(!tcacheTSDDataInit(*tsd));
     return tsd;
 }
 
@@ -78,13 +78,13 @@ size_t tcacheListLength(Arena * arena)
 }
 
 /// Makes the next GC event run (the 10 ms gate counts from `last_gc_time`).
-void allowGc(ThreadState & tsd)
+void allowGC(ThreadState & tsd)
 {
     tsd.tcacheSlowGet()->last_gc_time = NsTime::zero();
 }
 
 /// Makes the next GC event a no-op (the clock never goes below the current value).
-void forbidGc(ThreadState & tsd)
+void forbidGC(ThreadState & tsd)
 {
     tsd.tcacheSlowGet()->last_gc_time = NsTime::fromNs(UINT64_MAX / 2);
 }
@@ -93,7 +93,7 @@ void forbidGc(ThreadState & tsd)
 
 TEST(ThreadCacheArena, CreateAndDestroy)
 {
-    auto tsd = makeTsd();
+    auto tsd = makeTSD();
     ThreadCache * tcache = tcacheGet(*tsd);
     REQUIRE(tcache != nullptr);
     ThreadCacheSlow * slow = tsd->tcacheSlowGet();
@@ -138,7 +138,7 @@ TEST(ThreadCacheArena, CreateAndDestroy)
 
 TEST(ThreadCacheArena, FillFlushAndStats)
 {
-    auto tsd = makeTsd();
+    auto tsd = makeTSD();
     ThreadCache * tcache = tcacheGet(*tsd);
     ThreadCacheSlow * slow = tsd->tcacheSlowGet();
     const szind_t ind = 0;
@@ -208,9 +208,9 @@ TEST(ThreadCacheArena, FillFlushAndStats)
     iarenaCleanup(*tsd);
 }
 
-TEST(ThreadCacheArena, Gc)
+TEST(ThreadCacheArena, GC)
 {
-    auto tsd = makeTsd();
+    auto tsd = makeTSD();
     ThreadCache * tcache = tcacheGet(*tsd);
     ThreadCacheSlow * slow = tsd->tcacheSlowGet();
     /// A size class no other test uses: all regions come from one fresh slab.
@@ -233,15 +233,15 @@ TEST(ThreadCacheArena, Gc)
     CHECK_EQ(unsigned(bin->ncachedGetLocal()), 102u);
 
     /// The gate: a GC event within 10 ms of the last one does nothing.
-    forbidGc(*tsd);
-    tcacheGcEvent(*tsd);
+    forbidGC(*tsd);
+    tcacheGCEvent(*tsd);
     CHECK_EQ(unsigned(bin->ncachedGetLocal()), 102u);
 
     /// The first GC: low water is 0 (the bin was emptied before the frees), the bin was refilled => fill count
     /// doubled (base stays at 1), refilled flag cleared, nothing flushed (all items are local), low water := 100.
-    allowGc(*tsd);
+    allowGC(*tsd);
     CHECK(slow->bin_refilled[ind]);
-    tcacheGcEvent(*tsd);
+    tcacheGCEvent(*tsd);
     CHECK(!slow->bin_refilled[ind]);
     CHECK_EQ(unsigned(bin->ncachedGetLocal()), 102u);
     CHECK_EQ(unsigned(bin->lowWaterGet()), 102u);
@@ -257,8 +257,8 @@ TEST(ThreadCacheArena, Gc)
         used.push_back(tcacheAllocSmall(*tsd, nullptr, tcache, size, ind, false, false));
     CHECK_EQ(unsigned(bin->lowWaterGet()), 82u);
     uint64_t nflushes = abin->stats.nflushes;
-    allowGc(*tsd);
-    tcacheGcEvent(*tsd);
+    allowGC(*tsd);
+    tcacheGCEvent(*tsd);
     CHECK_EQ(unsigned(bin->ncachedGetLocal()), 20u);
     CHECK_EQ(abin->stats.nflushes - nflushes, uint64_t(1));
     CHECK_EQ(unsigned(slow->bin_fill_ctl_do_not_access_directly[ind].base), 2u);
@@ -267,8 +267,8 @@ TEST(ThreadCacheArena, Gc)
     CHECK_EQ(slow->next_gc_bin_small, 0u);
 
     /// Untouched for a period: low water 20 => flush 15, base 3.
-    allowGc(*tsd);
-    tcacheGcEvent(*tsd);
+    allowGC(*tsd);
+    tcacheGCEvent(*tsd);
     CHECK_EQ(unsigned(bin->ncachedGetLocal()), 5u);
     CHECK_EQ(unsigned(slow->bin_fill_ctl_do_not_access_directly[ind].base), 3u);
 
@@ -284,8 +284,8 @@ TEST(ThreadCacheArena, Gc)
     while (bin->ncachedGetLocal() > 0)
         used.push_back(tcacheAllocSmall(*tsd, nullptr, tcache, size, ind, false, false));
     /// Refilled with low water 0 => base 2, offset reset.
-    allowGc(*tsd);
-    tcacheGcEvent(*tsd);
+    allowGC(*tsd);
+    tcacheGCEvent(*tsd);
     CHECK_EQ(unsigned(slow->bin_fill_ctl_do_not_access_directly[ind].base), 2u);
     CHECK_EQ(unsigned(slow->bin_fill_ctl_do_not_access_directly[ind].offset), 0u);
 
@@ -296,9 +296,9 @@ TEST(ThreadCacheArena, Gc)
     iarenaCleanup(*tsd);
 }
 
-TEST(ThreadCacheArena, GcRemotePointers)
+TEST(ThreadCacheArena, GCRemotePointers)
 {
-    auto tsd = makeTsd();
+    auto tsd = makeTSD();
     ThreadCache * tcache = tcacheGet(*tsd);
     const szind_t ind = 1;
     CacheBin * bin = &tcache->bins[ind];
@@ -345,8 +345,8 @@ TEST(ThreadCacheArena, GcRemotePointers)
     /// flushes the 4 remote pointers, keeping the local ones in their order.
     Bin * a1bin = bin0(a1, ind);
     uint64_t a1_ndalloc = a1bin->stats.ndalloc;
-    allowGc(*tsd);
-    tcacheGcEvent(*tsd);
+    allowGC(*tsd);
+    tcacheGCEvent(*tsd);
     CHECK_EQ(unsigned(bin->ncachedGetLocal()), ncached - 4);
     CHECK_EQ(a1bin->stats.ndalloc - a1_ndalloc, uint64_t(4));
     for (int i = 0; i < 10; ++i)
@@ -359,7 +359,7 @@ TEST(ThreadCacheArena, GcRemotePointers)
 
 TEST(ThreadCacheArena, LargeBinsAndTcacheMax)
 {
-    auto tsd = makeTsd();
+    auto tsd = makeTSD();
     ThreadCacheSlow * slow = tsd->tcacheSlowGet();
 
     /// Enable all large bins; the per-bin settings carry over.
@@ -399,7 +399,7 @@ TEST(ThreadCacheArena, LargeBinsAndTcacheMax)
     void * kept = tcacheAllocLarge(*tsd, nullptr, tcache, size, ind, false, false);
     CHECK_EQ(unsigned(bin->lowWaterGet()), 19u);
     tsd->tcacheSlowGet()->last_gc_time = NsTime::zero();
-    tcacheGcEvent(*tsd);
+    tcacheGCEvent(*tsd);
     CHECK_EQ(unsigned(bin->ncachedGetLocal()), 4u);
     CHECK_EQ(slow->next_gc_bin_large, SC_NBINS + 1);
     tcacheDallocLarge(*tsd, tcache, kept, ind, false);
@@ -419,7 +419,7 @@ TEST(ThreadCacheArena, LargeBinsAndTcacheMax)
 
 TEST(ThreadCacheArena, EnableDisableAndNcachedMaxWrite)
 {
-    auto tsd = makeTsd();
+    auto tsd = makeTSD();
     ThreadCacheSlow * slow = tsd->tcacheSlowGet();
     const char * settings = "8-8:10|16-16:0";
     CHECK(!tcacheBinsNcachedMaxWrite(*tsd, settings, strlen(settings)));
@@ -459,7 +459,7 @@ TEST(ThreadCacheArena, EnableDisableAndNcachedMaxWrite)
 
 TEST(ThreadCacheArena, ExplicitTcaches)
 {
-    auto tsd = makeTsd();
+    auto tsd = makeTSD();
     unsigned ind0 = 1000;
     unsigned ind1 = 1000;
     REQUIRE(!tcachesCreate(*tsd, b0get(), ind0));

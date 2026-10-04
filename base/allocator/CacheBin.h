@@ -555,6 +555,6 @@ void cacheBinPostincrement(void * alloc, size_t & cur_offset);
 
 /// If `metadata_thp` is enabled, the tcache stacks are allocated from the base allocator.
 /// jemalloc: cache_bin_stack_use_thp
-bool cacheBinStackUseThp();
+bool cacheBinStackUseTHP();
 
 }

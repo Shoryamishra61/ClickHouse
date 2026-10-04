@@ -333,7 +333,7 @@ namespace
 {
 
 /// jemalloc: prof_thr_uid_alloc
-uint64_t profThrUidAlloc(ThreadState * tsdn)
+uint64_t profThrUIDAlloc(ThreadState * tsdn)
 {
     MutexLock lock(tsdn, next_thr_uid_mtx);
     uint64_t thr_uid = next_thr_uid;
@@ -346,7 +346,7 @@ uint64_t profThrUidAlloc(ThreadState * tsdn)
 /// jemalloc: prof_tdata_init
 ProfThreadData * profTdataInit(ThreadState & tsd)
 {
-    return profTdataInitImpl(tsd, profThrUidAlloc(&tsd), 0, nullptr, profThreadActiveInitGet(&tsd));
+    return profTdataInitImpl(tsd, profThrUIDAlloc(&tsd), 0, nullptr, profThreadActiveInitGet(&tsd));
 }
 
 /// jemalloc: prof_tdata_reinit

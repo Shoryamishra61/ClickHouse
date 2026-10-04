@@ -290,7 +290,7 @@ TEST(ThreadCache, FillCountAdaptation)
     {
         unsigned nfill = 200u >> tcacheNfillSmallLgDivGet(&slow, ind);
         CHECK_EQ(nfill == 0 ? 1u : nfill, expected_nfill[step]);
-        tcacheNfillSmallGcUpdate(&slow, ind, 200);
+        tcacheNfillSmallGCUpdate(&slow, ind, 200);
     }
     CHECK_EQ(ctl->base, 7);
 
@@ -316,39 +316,39 @@ TEST(ThreadCache, FillCountAdaptation)
     /// A GC update resets the offset; periods with refills and no unused items double the fill count down to base 1.
     for (unsigned expected_base = 6; expected_base >= 1; --expected_base)
     {
-        tcacheNfillSmallGcUpdate(&slow, ind, 0);
+        tcacheNfillSmallGCUpdate(&slow, ind, 0);
         CHECK_EQ(unsigned(ctl->base), expected_base);
         CHECK_EQ(ctl->offset, 0);
     }
-    tcacheNfillSmallGcUpdate(&slow, ind, 0);
+    tcacheNfillSmallGCUpdate(&slow, ind, 0);
     CHECK_EQ(ctl->base, 1);
 
     /// Small `ncached_max`: 2 >> 1 == 1, so the base never grows.
-    tcacheNfillSmallGcUpdate(&slow, ind, 2);
+    tcacheNfillSmallGCUpdate(&slow, ind, 2);
     CHECK_EQ(ctl->base, 1);
-    tcacheNfillSmallGcUpdate(&slow, ind, 4);
+    tcacheNfillSmallGCUpdate(&slow, ind, 4);
     CHECK_EQ(ctl->base, 2);
-    tcacheNfillSmallGcUpdate(&slow, ind, 4);
+    tcacheNfillSmallGCUpdate(&slow, ind, 4);
     CHECK_EQ(ctl->base, 2);
 }
 
-TEST(ThreadCache, GcItemDelay)
+TEST(ThreadCache, GCItemDelay)
 {
     OptionsGuard guard;
     opt.tcache_gc_delay_bytes = 0;
-    CHECK_EQ(tcacheGcItemDelayCompute(0), 0);
+    CHECK_EQ(tcacheGCItemDelayCompute(0), 0);
     opt.tcache_gc_delay_bytes = 1024;
-    CHECK_EQ(tcacheGcItemDelayCompute(0), 128); /// 8-byte class
-    CHECK_EQ(tcacheGcItemDelayCompute(1), 64);
-    CHECK_EQ(tcacheGcItemDelayCompute(sz::sizeToIndex(1024)), 1);
-    CHECK_EQ(tcacheGcItemDelayCompute(sz::sizeToIndex(2048)), 0);
+    CHECK_EQ(tcacheGCItemDelayCompute(0), 128); /// 8-byte class
+    CHECK_EQ(tcacheGCItemDelayCompute(1), 64);
+    CHECK_EQ(tcacheGCItemDelayCompute(sz::sizeToIndex(1024)), 1);
+    CHECK_EQ(tcacheGCItemDelayCompute(sz::sizeToIndex(2048)), 0);
     opt.tcache_gc_delay_bytes = 1 << 20;
-    CHECK_EQ(tcacheGcItemDelayCompute(0), 255);
-    CHECK_EQ(tcacheGcItemDelayCompute(sz::sizeToIndex(4096)), 255);
-    CHECK_EQ(tcacheGcItemDelayCompute(sz::sizeToIndex(8192)), 128);
+    CHECK_EQ(tcacheGCItemDelayCompute(0), 255);
+    CHECK_EQ(tcacheGCItemDelayCompute(sz::sizeToIndex(4096)), 255);
+    CHECK_EQ(tcacheGCItemDelayCompute(sz::sizeToIndex(8192)), 128);
 }
 
-TEST(ThreadCache, GcShuffle)
+TEST(ThreadCache, GCShuffle)
 {
     /// The hand-computed example: (head -> bottom) [R1, L1, R2, L2, L3, R3] becomes [L1, L2, L3, R1, R2, R3].
     const uintptr_t lo = 0x100000;
@@ -362,14 +362,14 @@ TEST(ThreadCache, GcShuffle)
     {
         SyntheticBin sb(20);
         sb.fillTopFirst({R1, L1, R2, L2, L3, R3});
-        tcacheGcSmallBinShuffle(&sb.bin, 3, lo, hi);
+        tcacheGCSmallBinShuffle(&sb.bin, 3, lo, hi);
         CHECK(sb.contents() == (std::vector<uintptr_t>{L1, L2, L3, R1, R2, R3}));
     }
     {
         /// Remote items only in the top part: the bottom (remote-free) part is swapped up.
         SyntheticBin sb(20);
         sb.fillTopFirst({R1, R2, L1, L2, L3});
-        tcacheGcSmallBinShuffle(&sb.bin, 2, lo, hi);
+        tcacheGCSmallBinShuffle(&sb.bin, 2, lo, hi);
         CHECK(sb.contents() == (std::vector<uintptr_t>{L1, L2, L3, R2, R1}));
     }
     {
@@ -394,7 +394,7 @@ TEST(ThreadCache, GcShuffle)
             }
             SyntheticBin sb(20);
             sb.fillTopFirst(items);
-            tcacheGcSmallBinShuffle(&sb.bin, static_cast<cache_bin_sz_t>(nremote), lo, hi);
+            tcacheGCSmallBinShuffle(&sb.bin, static_cast<cache_bin_sz_t>(nremote), lo, hi);
             auto res = sb.contents();
             CHECK(std::vector<uintptr_t>(res.begin(), res.begin() + long(locals.size())) == locals);
             for (size_t i = locals.size(); i < res.size(); ++i)
@@ -403,7 +403,7 @@ TEST(ThreadCache, GcShuffle)
     }
 }
 
-TEST(ThreadCache, GcNremote)
+TEST(ThreadCache, GCNremote)
 {
     const szind_t szind = 0;
     const size_t slab_size = bin_infos[szind].slab_size;
@@ -420,22 +420,22 @@ TEST(ThreadCache, GcNremote)
     uintptr_t min;
     uintptr_t max;
     /// nflush <= number of far pointers: keep the neighborhood.
-    CHECK_EQ(unsigned(tcacheGcSmallNremoteGet(&sb.bin, reinterpret_cast<void *>(addr), min, max, szind, 4)), 4u);
+    CHECK_EQ(unsigned(tcacheGCSmallNremoteGet(&sb.bin, reinterpret_cast<void *>(addr), min, max, szind, 4)), 4u);
     CHECK_EQ(min, addr - two_mib);
     CHECK_EQ(max, addr + two_mib);
-    CHECK_EQ(unsigned(tcacheGcSmallNremoteGet(&sb.bin, reinterpret_cast<void *>(addr), min, max, szind, 0)), 4u);
+    CHECK_EQ(unsigned(tcacheGCSmallNremoteGet(&sb.bin, reinterpret_cast<void *>(addr), min, max, szind, 0)), 4u);
     /// More to flush than far pointers: keep only the slab.
-    CHECK_EQ(unsigned(tcacheGcSmallNremoteGet(&sb.bin, reinterpret_cast<void *>(addr), min, max, szind, 5)), 6u);
+    CHECK_EQ(unsigned(tcacheGCSmallNremoteGet(&sb.bin, reinterpret_cast<void *>(addr), min, max, szind, 5)), 6u);
     CHECK_EQ(min, addr);
     CHECK_EQ(max, addr + slab_size);
 
     /// Near the bottom of the address space the neighborhood starts at 0.
-    CHECK_EQ(unsigned(tcacheGcSmallNremoteGet(&sb.bin, reinterpret_cast<void *>(uintptr_t(0x100000)), min, max, szind, 0)), 8u);
+    CHECK_EQ(unsigned(tcacheGCSmallNremoteGet(&sb.bin, reinterpret_cast<void *>(uintptr_t(0x100000)), min, max, szind, 0)), 8u);
     CHECK_EQ(min, uintptr_t(0));
     CHECK_EQ(max, uintptr_t(0x100000) + two_mib);
 
     /// Remote checks are half-open intervals.
-    CHECK(!tcacheGcIsAddrRemote(reinterpret_cast<void *>(uintptr_t(10)), 10, 20));
-    CHECK(tcacheGcIsAddrRemote(reinterpret_cast<void *>(uintptr_t(20)), 10, 20));
-    CHECK(tcacheGcIsAddrRemote(reinterpret_cast<void *>(uintptr_t(9)), 10, 20));
+    CHECK(!tcacheGCIsAddrRemote(reinterpret_cast<void *>(uintptr_t(10)), 10, 20));
+    CHECK(tcacheGCIsAddrRemote(reinterpret_cast<void *>(uintptr_t(20)), 10, 20));
+    CHECK(tcacheGCIsAddrRemote(reinterpret_cast<void *>(uintptr_t(9)), 10, 20));
 }

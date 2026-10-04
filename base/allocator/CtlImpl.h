@@ -156,7 +156,7 @@ constexpr int dropped()
 inline constexpr size_t HPA_SHARD_STATS_PLACEHOLDER_SIZE = 3328;
 
 /// jemalloc: hpa_shard_stats_t (always zero)
-struct HpaShardStatsPlaceholder
+struct HPAShardStatsPlaceholder
 {
     alignas(8) unsigned char data[HPA_SHARD_STATS_PLACEHOLDER_SIZE];
 };
@@ -178,7 +178,7 @@ struct CtlArenaStats
     BinStatsData bstats[SC_NBINS];
     ArenaStatsLarge lstats[SC_NSIZES - SC_NBINS];
     PacExtentStats estats[SC_NPSIZES];
-    HpaShardStatsPlaceholder hpastats;
+    HPAShardStatsPlaceholder hpastats;
 };
 
 static_assert(offsetof(CtlArenaStats, allocated_small) == sizeof(ArenaStats));
@@ -431,7 +431,7 @@ CtlLeaf threadArena, threadAllocated, threadAllocatedp, threadDeallocated, threa
 CtlLeaf tcacheCreate, tcacheFlush, tcacheDestroy;
 
 /// `arena.<i>.*` (CtlArenas.cpp); the index function is in Ctl.cpp.
-CtlLeaf arenaIInitialized, arenaIDecay, arenaIPurge, arenaIReset, arenaIDestroy, arenaIDss, arenaIOversizeThreshold,
+CtlLeaf arenaIInitialized, arenaIDecay, arenaIPurge, arenaIReset, arenaIDestroy, arenaIDSS, arenaIOversizeThreshold,
     arenaIDirtyDecayMs, arenaIMuzzyDecayMs, arenaIExtentHooks, arenaIRetainGrowLimit, arenaIName;
 CtlIndex arenaIIndex;
 
@@ -445,16 +445,16 @@ CtlLeaf profThreadActiveInit, profActive, profDump, profGdump, profPrefix, profR
 CtlIndex profStatsBinsIIndex, profStatsLextentsIIndex;
 
 /// `stats.*` (CtlStats.cpp; the mutex leaves are generated in CtlTree.cpp).
-CtlLeaf statsAllocated, statsActive, statsMetadata, statsMetadataEdata, statsMetadataRtree, statsMetadataThp,
+CtlLeaf statsAllocated, statsActive, statsMetadata, statsMetadataEdata, statsMetadataRtree, statsMetadataTHP,
     statsResident, statsMapped, statsRetained, statsBackgroundThreadNumThreads, statsBackgroundThreadNumRuns,
     statsBackgroundThreadRunInterval, statsMutexesReset, statsZeroReallocs;
 
 /// `stats.arenas.<i>.*` (CtlStats.cpp); the index function is in Ctl.cpp.
-CtlLeaf statsArenasINthreads, statsArenasIUptime, statsArenasIDss, statsArenasIDirtyDecayMs, statsArenasIMuzzyDecayMs,
+CtlLeaf statsArenasINthreads, statsArenasIUptime, statsArenasIDSS, statsArenasIDirtyDecayMs, statsArenasIMuzzyDecayMs,
     statsArenasIPactive, statsArenasIPdirty, statsArenasIPmuzzy, statsArenasIMapped, statsArenasIRetained,
     statsArenasIExtentAvail, statsArenasIDirtyNpurge, statsArenasIDirtyNmadvise, statsArenasIDirtyPurged,
     statsArenasIMuzzyNpurge, statsArenasIMuzzyNmadvise, statsArenasIMuzzyPurged, statsArenasIBase, statsArenasIInternal,
-    statsArenasIMetadataEdata, statsArenasIMetadataRtree, statsArenasIMetadataThp, statsArenasITcacheBytes,
+    statsArenasIMetadataEdata, statsArenasIMetadataRtree, statsArenasIMetadataTHP, statsArenasITcacheBytes,
     statsArenasITcacheStashedBytes, statsArenasIResident, statsArenasIAbandonedVm;
 CtlIndex statsArenasIIndex;
 
@@ -473,7 +473,7 @@ CtlLeaf statsArenasILextentsJNmalloc, statsArenasILextentsJNdalloc, statsArenasI
 CtlLeaf statsArenasIExtentsJNdirty, statsArenasIExtentsJNmuzzy, statsArenasIExtentsJNretained,
     statsArenasIExtentsJDirtyBytes, statsArenasIExtentsJMuzzyBytes, statsArenasIExtentsJRetainedBytes;
 CtlIndex statsArenasIBinsJIndex, statsArenasILextentsJIndex, statsArenasIExtentsJIndex,
-    statsArenasIHpaShardNonfullSlabsJIndex;
+    statsArenasIHPAShardNonfullSlabsJIndex;
 
 /// `approximate_stats.*` (CtlStats.cpp).
 CtlLeaf approximateStatsActive;

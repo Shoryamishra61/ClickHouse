@@ -19,9 +19,9 @@ namespace jemalloc
 namespace
 {
 
-/// The thread-local TSD of `TsdTls` and `TsdMallocThreadCleanup` (there is none with `TsdGeneric`: `JEMALLOC_TLS` is
-/// not defined on Darwin). Only accessed by address through `tsd_detail::tlsAddrTsdTls`. `tsd_initialized` exists only
-/// with `TsdMallocThreadCleanup` (FreeBSD), like in jemalloc: the thread-local variables must be exactly those of
+/// The thread-local TSD of `TSDTLS` and `TSDMallocThreadCleanup` (there is none with `TSDGeneric`: `JEMALLOC_TLS` is
+/// not defined on Darwin). Only accessed by address through `tsd_detail::tlsAddrTSDTLS`. `tsd_initialized` exists only
+/// with `TSDMallocThreadCleanup` (FreeBSD), like in jemalloc: the thread-local variables must be exactly those of
 /// jemalloc, because the address of `tsd_tls` (which depends on the size of the TLS segment with variant II TLS, e.g.
 /// x86_64 and s390x) seeds the per-thread PRNG.
 /// jemalloc: tsd_tls, tsd_initialized
@@ -40,14 +40,14 @@ constinit thread_local bool tsd_initialized ALLOCATOR_TSD_TLS_MODEL = false;
 
 }
 
-constinit pthread_key_t TsdTls::key{};
-constinit bool TsdTls::is_booted = false;
+constinit pthread_key_t TSDTLS::key{};
+constinit bool TSDTLS::is_booted = false;
 
-constinit bool TsdMallocThreadCleanup::is_booted = false;
+constinit bool TSDMallocThreadCleanup::is_booted = false;
 
-constinit pthread_key_t TsdGeneric::key{};
-constinit bool TsdGeneric::is_booted = false;
-constinit TsdGeneric::Wrapper TsdGeneric::boot_wrapper{};
+constinit pthread_key_t TSDGeneric::key{};
+constinit bool TSDGeneric::is_booted = false;
+constinit TSDGeneric::Wrapper TSDGeneric::boot_wrapper{};
 
 namespace tsd_detail
 {
@@ -58,7 +58,7 @@ namespace tsd_detail
 constinit std::atomic<intptr_t> tls_offset_tsd_tls{TLS_OFFSET_UNINITIALIZED};
 
 /// jemalloc: jemalloc_tls_offset_init_tsd_tls
-JE_NOINLINE intptr_t tlsOffsetInitTsdTls()
+JE_NOINLINE intptr_t tlsOffsetInitTSDTLS()
 {
     intptr_t tls_offset = reinterpret_cast<char *>(&tsd_tls) - threadPointer();
     tls_offset_tsd_tls.store(tls_offset, std::memory_order_relaxed);
@@ -70,7 +70,7 @@ JE_NOINLINE intptr_t tlsOffsetInitTsdTls()
 constinit std::atomic<intptr_t> tls_offset_tsd_initialized{TLS_OFFSET_UNINITIALIZED};
 
 /// jemalloc: jemalloc_tls_offset_init_tsd_initialized
-JE_NOINLINE intptr_t tlsOffsetInitTsdInitialized()
+JE_NOINLINE intptr_t tlsOffsetInitTSDInitialized()
 {
     intptr_t tls_offset = reinterpret_cast<char *>(&tsd_initialized) - threadPointer();
     tls_offset_tsd_initialized.store(tls_offset, std::memory_order_relaxed);
@@ -82,7 +82,7 @@ JE_NOINLINE intptr_t tlsOffsetInitTsdInitialized()
 
 #    if !defined(__APPLE__)
 /// jemalloc: jemalloc_tls_addr_tsd_tls (noinline variant)
-JE_NOINLINE ThreadState * tlsAddrTsdTls()
+JE_NOINLINE ThreadState * tlsAddrTSDTLS()
 {
     ThreadState * tls_addr = &tsd_tls;
     __asm__ __volatile__("" : "+r"(tls_addr) : : "memory");
@@ -92,7 +92,7 @@ JE_NOINLINE ThreadState * tlsAddrTsdTls()
 
 #    if defined(__FreeBSD__)
 /// jemalloc: jemalloc_tls_addr_tsd_initialized (noinline variant)
-JE_NOINLINE bool * tlsAddrTsdInitialized()
+JE_NOINLINE bool * tlsAddrTSDInitialized()
 {
     bool * tls_addr = &tsd_initialized;
     __asm__ __volatile__("" : "+r"(tls_addr) : : "memory");
@@ -109,8 +109,8 @@ namespace
 
 /// A list of all the TSDs in the nominal state.
 /// jemalloc: tsd_nominal_tsds, tsd_nominal_tsds_lock (WITNESS_RANK_OMIT)
-using TsdList = IntrusiveList<ThreadState, &ThreadState::tsd_link>;
-constinit TsdList tsd_nominal_tsds;
+using TSDList = IntrusiveList<ThreadState, &ThreadState::tsd_link>;
+constinit TSDList tsd_nominal_tsds;
 constinit Mutex tsd_nominal_tsds_lock;
 
 /// How many slow-path-enabling features are turned on.
@@ -140,7 +140,7 @@ void tsdAddNominal(ThreadState * tsd)
 {
     JE_ASSERT(!tsdInNominalList(tsd));
     JE_ASSERT(tsd->stateGet() <= tsd_state_nominal_max);
-    TsdList::elementInit(tsd);
+    TSDList::elementInit(tsd);
     tsd_nominal_tsds_lock.lock(tsd);
     tsd_nominal_tsds.tailInsert(tsd);
     tsd_nominal_tsds_lock.unlock(tsd);
@@ -173,10 +173,10 @@ void tsdForceRecompute(ThreadState * tsdn)
     tsd_nominal_tsds_lock.unlock(tsdn);
 }
 
-/// The registered cleanups of `TsdMallocThreadCleanup`.
+/// The registered cleanups of `TSDMallocThreadCleanup`.
 /// jemalloc: ncleanups, cleanups
 constinit unsigned ncleanups = 0;
-constinit MallocTsdCleanup cleanups[MALLOC_TSD_CLEANUPS_MAX] = {};
+constinit MallocTSDCleanup cleanups[MALLOC_TSD_CLEANUPS_MAX] = {};
 
 /// Copies a TSD (only when the destination differs, which does not happen in practice). jemalloc: `*tsd = *val`
 void tsdCopy(ThreadState * dst, const ThreadState * src)
@@ -295,7 +295,7 @@ bool ThreadState::dataInit()
     prngStateInit();
     tsdTeInit(*this); /// The event init may use the prng state above.
     sanInit();
-    return tcacheTsdDataInit(*this);
+    return tcacheTSDDataInit(*this);
 }
 
 /// jemalloc: assert_tsd_data_cleanup_done
@@ -345,19 +345,19 @@ ThreadState & ThreadState::fetchSlow(bool minimal)
     {
         if (!minimal)
         {
-            if (Tsd::is_booted)
+            if (TSD::is_booted)
             {
                 stateSet(tsd_state_nominal);
                 slowUpdate();
                 /// Trigger cleanup handler registration.
-                Tsd::set(this);
+                TSD::set(this);
                 dataInit();
             }
         }
         else
         {
             stateSet(tsd_state_minimal_initialized);
-            Tsd::set(this);
+            TSD::set(this);
             dataInitNocleanup();
             min_init_state_nfetched = 1;
         }
@@ -387,7 +387,7 @@ ThreadState & ThreadState::fetchSlow(bool minimal)
     else if (stateGet() == tsd_state_purgatory)
     {
         stateSet(tsd_state_reincarnated);
-        Tsd::set(this);
+        TSD::set(this);
         dataInitNocleanup();
     }
     else
@@ -431,7 +431,7 @@ void ThreadState::cleanup(void * arg)
         case tsd_state_nominal_slow:
             tsd->doDataCleanup();
             tsd->stateSet(tsd_state_purgatory);
-            Tsd::set(tsd);
+            TSD::set(tsd);
             break;
         case tsd_state_purgatory:
             /// The previous time this destructor was called, we set the state to purgatory so that other destructors
@@ -444,21 +444,21 @@ void ThreadState::cleanup(void * arg)
 }
 
 /// jemalloc: malloc_tsd_boot0
-ThreadState * ThreadState::mallocTsdBoot0()
+ThreadState * ThreadState::mallocTSDBoot0()
 {
-    if constexpr (config::tsd_impl == TsdImpl::MallocThreadCleanup)
+    if constexpr (config::tsd_impl == TSDImpl::MallocThreadCleanup)
         ncleanups = 0;
     if (tsd_nominal_tsds_lock.init("tsd_nominal_tsds_lock", MutexRank::OMIT, MutexLockOrder::RankExclusive))
         return nullptr;
-    if (Tsd::boot0())
+    if (TSD::boot0())
         return nullptr;
     return &fetch();
 }
 
 /// jemalloc: malloc_tsd_boot1
-void ThreadState::mallocTsdBoot1()
+void ThreadState::mallocTSDBoot1()
 {
-    Tsd::boot1();
+    TSD::boot1();
     ThreadState & tsd = fetch();
     /// `malloc_slow` has been set properly. Update the slow state.
     tsd.slowUpdate();
@@ -486,14 +486,14 @@ void ThreadState::postforkChild()
         tsdAddNominal(this);
 }
 
-/// --- TsdTls ------------------------------------------------------------------------------------------------------
+/// --- TSDTLS ------------------------------------------------------------------------------------------------------
 
 /// The implementations of the TSD flavours that use a thread-local variable are only compiled where that variable
 /// exists (see `tsd_tls` above); elsewhere they are only named in discarded `if constexpr` branches.
 #if !defined(__APPLE__)
 
 /// jemalloc: tsd_boot0 (tsd_tls.h)
-bool TsdTls::boot0()
+bool TSDTLS::boot0()
 {
     if (pthread_key_create(&key, &ThreadState::cleanup) != 0)
         return true;
@@ -502,9 +502,9 @@ bool TsdTls::boot0()
 }
 
 /// jemalloc: tsd_set (tsd_tls.h)
-void TsdTls::set(ThreadState * val)
+void TSDTLS::set(ThreadState * val)
 {
-    ThreadState * tsd = tsd_detail::tlsAddrTsdTls();
+    ThreadState * tsd = tsd_detail::tlsAddrTSDTLS();
 
     JE_ASSERT(is_booted);
     if (JE_LIKELY(tsd != val))
@@ -519,45 +519,45 @@ void TsdTls::set(ThreadState * val)
 
 #endif
 
-/// --- TsdMallocThreadCleanup --------------------------------------------------------------------------------------
+/// --- TSDMallocThreadCleanup --------------------------------------------------------------------------------------
 
 #if defined(__FreeBSD__)
 
 /// jemalloc: tsd_cleanup_wrapper (tsd_malloc_thread_cleanup.h)
-bool TsdMallocThreadCleanup::cleanupWrapper()
+bool TSDMallocThreadCleanup::cleanupWrapper()
 {
-    bool * initialized = tsd_detail::tlsAddrTsdInitialized();
+    bool * initialized = tsd_detail::tlsAddrTSDInitialized();
     if (*initialized)
     {
         *initialized = false;
-        ThreadState::cleanup(tsd_detail::tlsAddrTsdTls());
+        ThreadState::cleanup(tsd_detail::tlsAddrTSDTLS());
     }
     return *initialized;
 }
 
 /// jemalloc: tsd_boot0 (tsd_malloc_thread_cleanup.h)
-bool TsdMallocThreadCleanup::boot0()
+bool TSDMallocThreadCleanup::boot0()
 {
-    mallocTsdCleanupRegister(&cleanupWrapper);
+    mallocTSDCleanupRegister(&cleanupWrapper);
     is_booted = true;
     return false;
 }
 
 /// jemalloc: tsd_set (tsd_malloc_thread_cleanup.h)
-void TsdMallocThreadCleanup::set(ThreadState * val)
+void TSDMallocThreadCleanup::set(ThreadState * val)
 {
-    ThreadState * tsd = tsd_detail::tlsAddrTsdTls();
+    ThreadState * tsd = tsd_detail::tlsAddrTSDTLS();
 
     JE_ASSERT(is_booted);
     if (JE_LIKELY(tsd != val))
         tsdCopy(tsd, val);
-    *tsd_detail::tlsAddrTsdInitialized() = true;
+    *tsd_detail::tlsAddrTSDInitialized() = true;
 }
 
 #endif
 
 /// jemalloc: _malloc_tsd_cleanup_register
-void mallocTsdCleanupRegister(MallocTsdCleanup f)
+void mallocTSDCleanupRegister(MallocTSDCleanup f)
 {
     JE_ASSERT(ncleanups < MALLOC_TSD_CLEANUPS_MAX);
     cleanups[ncleanups] = f;
@@ -588,28 +588,28 @@ void mallocThreadCleanup()
     } while (again);
 }
 
-/// --- TsdGeneric --------------------------------------------------------------------------------------------------
+/// --- TSDGeneric --------------------------------------------------------------------------------------------------
 
 namespace
 {
 
 /// jemalloc: tsd_init_head_t tsd_init_head
-struct TsdInitHead
+struct TSDInitHead
 {
-    IntrusiveList<TsdGeneric::InitBlock, &TsdGeneric::InitBlock::link> blocks;
+    IntrusiveList<TSDGeneric::InitBlock, &TSDGeneric::InitBlock::link> blocks;
     Mutex lock;
 };
 
-constinit TsdInitHead tsd_init_head;
+constinit TSDInitHead tsd_init_head;
 
 /// jemalloc: malloc_tsd_malloc
-void * mallocTsdMalloc(size_t size)
+void * mallocTSDMalloc(size_t size)
 {
     return a0malloc(cachelineCeiling(size));
 }
 
 /// jemalloc: malloc_tsd_dalloc
-void mallocTsdDalloc(void * wrapper)
+void mallocTSDDalloc(void * wrapper)
 {
     a0dalloc(wrapper);
 }
@@ -617,7 +617,7 @@ void mallocTsdDalloc(void * wrapper)
 }
 
 /// jemalloc: tsd_init_check_recursion
-void * TsdGeneric::initCheckRecursion(InitBlock * block)
+void * TSDGeneric::initCheckRecursion(InitBlock * block)
 {
     pthread_t self = pthread_self();
 
@@ -640,7 +640,7 @@ void * TsdGeneric::initCheckRecursion(InitBlock * block)
 }
 
 /// jemalloc: tsd_init_finish
-void TsdGeneric::initFinish(InitBlock * block)
+void TSDGeneric::initFinish(InitBlock * block)
 {
     tsd_init_head.lock.lock(nullptr);
     tsd_init_head.blocks.remove(block);
@@ -648,7 +648,7 @@ void TsdGeneric::initFinish(InitBlock * block)
 }
 
 /// jemalloc: tsd_cleanup_wrapper (tsd_generic.h)
-void TsdGeneric::cleanupWrapper(void * arg)
+void TSDGeneric::cleanupWrapper(void * arg)
 {
     Wrapper * wrapper = static_cast<Wrapper *>(arg);
 
@@ -668,11 +668,11 @@ void TsdGeneric::cleanupWrapper(void * arg)
             return;
         }
     }
-    mallocTsdDalloc(wrapper);
+    mallocTSDDalloc(wrapper);
 }
 
 /// jemalloc: tsd_wrapper_set
-void TsdGeneric::wrapperSet(Wrapper * wrapper)
+void TSDGeneric::wrapperSet(Wrapper * wrapper)
 {
     if (JE_UNLIKELY(!is_booted))
         return;
@@ -685,13 +685,13 @@ void TsdGeneric::wrapperSet(Wrapper * wrapper)
 
 /// The `init && wrapper == NULL` part of `tsd_wrapper_get`.
 /// jemalloc: tsd_wrapper_get
-JE_NOINLINE TsdGeneric::Wrapper * TsdGeneric::wrapperGetSlow()
+JE_NOINLINE TSDGeneric::Wrapper * TSDGeneric::wrapperGetSlow()
 {
     InitBlock block;
     Wrapper * wrapper = static_cast<Wrapper *>(initCheckRecursion(&block));
     if (wrapper)
         return wrapper;
-    wrapper = static_cast<Wrapper *>(mallocTsdMalloc(sizeof(Wrapper)));
+    wrapper = static_cast<Wrapper *>(mallocTSDMalloc(sizeof(Wrapper)));
     block.data = static_cast<void *>(wrapper);
     if (wrapper == nullptr)
     {
@@ -709,7 +709,7 @@ JE_NOINLINE TsdGeneric::Wrapper * TsdGeneric::wrapperGetSlow()
 }
 
 /// jemalloc: tsd_boot0 (tsd_generic.h)
-bool TsdGeneric::boot0()
+bool TSDGeneric::boot0()
 {
     InitBlock block;
 
@@ -728,9 +728,9 @@ bool TsdGeneric::boot0()
 /// Tears down the boot thread's TSD contents (arena bindings, tcache) and restarts it with a fresh uninitialized TSD
 /// in a heap wrapper.
 /// jemalloc: tsd_boot1 (tsd_generic.h)
-void TsdGeneric::boot1()
+void TSDGeneric::boot1()
 {
-    Wrapper * wrapper = static_cast<Wrapper *>(mallocTsdMalloc(sizeof(Wrapper)));
+    Wrapper * wrapper = static_cast<Wrapper *>(mallocTSDMalloc(sizeof(Wrapper)));
     if (wrapper == nullptr)
     {
         writeMessage("<jemalloc>: Error allocating TSD\n");
@@ -744,7 +744,7 @@ void TsdGeneric::boot1()
 }
 
 /// jemalloc: tsd_set (tsd_generic.h)
-void TsdGeneric::set(ThreadState * val)
+void TSDGeneric::set(ThreadState * val)
 {
     JE_ASSERT(is_booted);
     Wrapper * wrapper = wrapperGet(true);
@@ -765,6 +765,6 @@ extern "C" __attribute__((visibility("default"))) void _malloc_thread_cleanup()
 /// Exported by jemalloc on FreeBSD (`JEMALLOC_EXPORT`).
 extern "C" __attribute__((visibility("default"))) void _malloc_tsd_cleanup_register(bool (*f)())
 {
-    jemalloc::mallocTsdCleanupRegister(f);
+    jemalloc::mallocTSDCleanupRegister(f);
 }
 #endif

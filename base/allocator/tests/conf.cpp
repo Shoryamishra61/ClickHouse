@@ -40,7 +40,7 @@ void resetState()
 {
     opt = Options{};
     had_conf_error = false;
-    extentDssPrecSet(DSS_PREC_DEFAULT);
+    extentDSSPrecSet(DSS_PREC_DEFAULT);
     messages_len = 0;
     messages[0] = '\0';
     je_malloc_message = captureMessage;
@@ -367,7 +367,7 @@ TEST(Options, CompiledDefaults)
     CHECK_EQ(o.hpa_opts.min_purge_interval_ms, uint64_t(5000));
     CHECK_EQ(o.hpa_opts.experimental_max_purge_nhp, ssize_t(-1));
     CHECK_EQ(o.hpa_opts.purge_threshold, PAGE);
-    CHECK(o.hpa_opts.hugify_style == HpaHugifyStyle::Lazy);
+    CHECK(o.hpa_opts.hugify_style == HPAHugifyStyle::Lazy);
     CHECK_EQ(o.hpa_sec_opts.nshards, size_t(2));
     CHECK_EQ(o.hpa_sec_opts.max_alloc, PAGE > 32768 ? PAGE : size_t(32768));
     CHECK_EQ(o.hpa_sec_opts.max_bytes, 4 * o.hpa_sec_opts.max_alloc > 262144 ? 4 * o.hpa_sec_opts.max_alloc : size_t(262144));
@@ -378,8 +378,8 @@ TEST(Options, CompiledDefaults)
     CHECK_EQ(o.dirty_decay_ms, ssize_t(10000));
     CHECK_EQ(o.muzzy_decay_ms, ssize_t(0));
     CHECK_EQ(o.oversize_threshold, size_t(8) << 20);
-    CHECK(o.metadata_thp == MetadataThpMode::Disabled);
-    CHECK(o.thp == ThpMode::DoNothing);
+    CHECK(o.metadata_thp == MetadataTHPMode::Disabled);
+    CHECK(o.thp == THPMode::DoNothing);
     CHECK_EQ(o.retain, config::os_linux);
     CHECK_STREQ(o.dss, "secondary");
     CHECK_EQ(o.lg_extent_max_active_fit, size_t(6));
@@ -413,7 +413,7 @@ TEST(Options, CompiledDefaults)
     CHECK_STREQ(percpu_arena_mode_names[unsigned(PercpuArenaMode::Percpu)], "percpu");
     CHECK_STREQ(percpu_arena_mode_names[unsigned(PercpuArenaMode::PerPhycpu)], "phycpu");
     CHECK_STREQ(zero_realloc_mode_names[unsigned(ZeroReallocAction::Abort)], "abort");
-    CHECK_STREQ(hpa_hugify_style_names[unsigned(HpaHugifyStyle::Lazy)], "lazy");
+    CHECK_STREQ(hpa_hugify_style_names[unsigned(HPAHugifyStyle::Lazy)], "lazy");
     CHECK_STREQ(prof_time_res_mode_names[1], "high");
     CHECK_EQ(TCACHE_MAXCLASS_LIMIT, size_t(1) << (LG_PAGE + 3));
     CHECK_EQ(TCACHE_NBINS_MAX, SC_NBINS + 5);
@@ -517,12 +517,12 @@ TEST(Conf, Numbers)
 TEST(Conf, PrefixQuirks)
 {
     parseEnv("m:a");
-    CHECK(opt.metadata_thp == MetadataThpMode::Auto);
+    CHECK(opt.metadata_thp == MetadataTHPMode::Auto);
     parseEnv(":al");
-    CHECK(opt.metadata_thp == MetadataThpMode::Always);
+    CHECK(opt.metadata_thp == MetadataTHPMode::Always);
     parseEnv("d:p");
     CHECK_STREQ(opt.dss, "primary");
-    CHECK(extentDssPrecGet() == (config::have_dss ? DssPrec::Primary : DssPrec::Disabled));
+    CHECK(extentDSSPrecGet() == (config::have_dss ? DSSPrec::Primary : DSSPrec::Disabled));
     parseEnv("dss:");
     CHECK_STREQ(opt.dss, "disabled");
     parseEnv("p:ph");
@@ -530,9 +530,9 @@ TEST(Conf, PrefixQuirks)
     parseEnv("percpu_arena:p");
     CHECK(opt.percpu_arena == PercpuArenaMode::PercpuUninit);
     parseEnv("hpa_:e");
-    CHECK(opt.hpa_opts.hugify_style == HpaHugifyStyle::Eager);
+    CHECK(opt.hpa_opts.hugify_style == HPAHugifyStyle::Eager);
     parseEnv("thp:n");
-    CHECK(opt.thp == ThpMode::Never);
+    CHECK(opt.thp == THPMode::Never);
     /// `thp` is an exact key.
     parseEnv("th:n");
     CHECK_STREQ(messages, "<jemalloc>: Invalid conf pair: th:n\n");
@@ -682,7 +682,7 @@ TEST(Conf, AbortConf)
     resetState();
 }
 
-TEST(Conf, Hpa)
+TEST(Conf, HPA)
 {
     parseEnv("hpa:true,hpa_slab_max_alloc:131072");
     CHECK(opt.hpa);

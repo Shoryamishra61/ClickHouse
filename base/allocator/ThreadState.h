@@ -12,11 +12,11 @@
 ///
 /// The object is constant-initialized (`constexpr` constructor = `TSD_INITIALIZER`) and trivially destructible, so it
 /// can be a `thread_local`. The implementation of the per-thread storage is selected by `config::tsd_impl`:
-///   - `TsdTls` (Linux): an initial-exec `thread_local` + a pthread key whose destructor cleans up;
-///   - `TsdMallocThreadCleanup` (FreeBSD): `thread_local` + libc's `_malloc_thread_cleanup` hook;
-///   - `TsdGeneric` (Darwin): a heap-allocated wrapper found with `pthread_getspecific`.
+///   - `TSDTLS` (Linux): an initial-exec `thread_local` + a pthread key whose destructor cleans up;
+///   - `TSDMallocThreadCleanup` (FreeBSD): `thread_local` + libc's `_malloc_thread_cleanup` hook;
+///   - `TSDGeneric` (Darwin): a heap-allocated wrapper found with `pthread_getspecific`.
 ///
-/// The `thread_local` is never accessed by its address directly: `tlsAddrTsdTls` re-reads the thread pointer with a
+/// The `thread_local` is never accessed by its address directly: `tlsAddrTSDTLS` re-reads the thread pointer with a
 /// volatile asm and adds an offset captured out of line, so that the compiler (especially under LTO) cannot cache the
 /// address across a user-space context switch (fibers migrating between threads; jemalloc issue 2890, ClickHouse fork
 /// patches ddd5390f, 1a1af946). Never cache a `ThreadState *` across a point where a fiber may switch threads.
@@ -72,7 +72,7 @@ inline constexpr int32_t ARENA_DECAY_NTICKS_PER_UPDATE = 1000;
 inline constexpr uint8_t TSD_MIN_INIT_STATE_MAX_FETCHED = 128;
 
 /// jemalloc: tsd_state_* (an anonymous enum of `uint8_t` values)
-enum TsdState : uint8_t
+enum TSDState : uint8_t
 {
     /// Common case --> jnz.
     tsd_state_nominal = 0,
@@ -91,13 +91,13 @@ enum TsdState : uint8_t
     /// States during which we know we're in thread death.
     tsd_state_purgatory = 4,
     tsd_state_reincarnated = 5,
-    /// Tsd that hasn't been initialized. Even when the tsd struct lives in TLS, we need to keep track of things like
+    /// TSD that hasn't been initialized. Even when the tsd struct lives in TLS, we need to keep track of things like
     /// whether or not our pthread destructors have been scheduled, so this is different from the nominal state.
     tsd_state_uninitialized = 6,
 };
 
 /// jemalloc: tsd_binshards_t
-struct TsdBinshards
+struct TSDBinshards
 {
     uint8_t binshard[SC_NBINS];
 };
@@ -114,7 +114,7 @@ public:
 
     /// --- Fetching the current thread's TSD ----------------------------------------------------------------------
 
-    /// Returns null only if `!init` and the implementation allocates (`TsdGeneric`) and there is no TSD yet.
+    /// Returns null only if `!init` and the implementation allocates (`TSDGeneric`) and there is no TSD yet.
     /// jemalloc: tsd_fetch_impl
     static JE_ALWAYS_INLINE ThreadState * fetchImpl(bool init, bool minimal);
 
@@ -222,10 +222,10 @@ public:
     /// Initializes the nominal list lock and the TSD implementation, then fetches (fully initializes) the TSD of the
     /// initializing thread. Returns null on error.
     /// jemalloc: malloc_tsd_boot0
-    static ThreadState * mallocTsdBoot0();
+    static ThreadState * mallocTSDBoot0();
 
     /// jemalloc: malloc_tsd_boot1
-    static void mallocTsdBoot1();
+    static void mallocTSDBoot1();
 
     /// The thread exit destructor.
     /// jemalloc: tsd_cleanup
@@ -286,7 +286,7 @@ public:
     /// jemalloc: uint8_t sec_shard (unused: placeholder for the identical layout).
     uint8_t unused_sec_shard = 0;
     /// jemalloc: TSD_BINSHARDS_ZERO_INITIALIZER = {{UINT8_MAX}}: only the first element is 255, the rest are 0.
-    TsdBinshards binshards = {{UINT8_MAX}};
+    TSDBinshards binshards = {{UINT8_MAX}};
     /// The link in the list of nominal TSDs. jemalloc: tsd_link_t tsd_link
     RingLink<ThreadState> tsd_link{};
     /// jemalloc: bool in_hook (unused: placeholder for the identical layout).
@@ -384,24 +384,24 @@ extern std::atomic<intptr_t> tls_offset_tsd_initialized;
 /// Must be out of line: computed inline as `&var - thread_pointer`, the two terms hoist independently and cancel the
 /// volatile read back to the stale address.
 /// jemalloc: jemalloc_tls_offset_init_tsd_tls, jemalloc_tls_offset_init_tsd_initialized
-JE_NOINLINE intptr_t tlsOffsetInitTsdTls();
-JE_NOINLINE intptr_t tlsOffsetInitTsdInitialized();
+JE_NOINLINE intptr_t tlsOffsetInitTSDTLS();
+JE_NOINLINE intptr_t tlsOffsetInitTSDInitialized();
 
 /// jemalloc: jemalloc_tls_addr_tsd_tls (JEMALLOC_TLS_ADDR(tsd_tls))
-JE_ALWAYS_INLINE ThreadState * tlsAddrTsdTls()
+JE_ALWAYS_INLINE ThreadState * tlsAddrTSDTLS()
 {
     intptr_t tls_offset = tls_offset_tsd_tls.load(std::memory_order_relaxed);
     if (JE_UNLIKELY(tls_offset == TLS_OFFSET_UNINITIALIZED))
-        tls_offset = tlsOffsetInitTsdTls();
+        tls_offset = tlsOffsetInitTSDTLS();
     return reinterpret_cast<ThreadState *>(threadPointer() + tls_offset);
 }
 
 /// jemalloc: jemalloc_tls_addr_tsd_initialized (JEMALLOC_TLS_ADDR(tsd_initialized))
-JE_ALWAYS_INLINE bool * tlsAddrTsdInitialized()
+JE_ALWAYS_INLINE bool * tlsAddrTSDInitialized()
 {
     intptr_t tls_offset = tls_offset_tsd_initialized.load(std::memory_order_relaxed);
     if (JE_UNLIKELY(tls_offset == TLS_OFFSET_UNINITIALIZED))
-        tls_offset = tlsOffsetInitTsdInitialized();
+        tls_offset = tlsOffsetInitTSDInitialized();
     return reinterpret_cast<bool *>(threadPointer() + tls_offset);
 }
 
@@ -409,8 +409,8 @@ JE_ALWAYS_INLINE bool * tlsAddrTsdInitialized()
 
 /// A `noinline` accessor returning the address laundered through an empty asm with a memory clobber: one real call
 /// per access. jemalloc: JEMALLOC_TLS_ADDR (other GNU targets)
-JE_NOINLINE ThreadState * tlsAddrTsdTls();
-JE_NOINLINE bool * tlsAddrTsdInitialized();
+JE_NOINLINE ThreadState * tlsAddrTSDTLS();
+JE_NOINLINE bool * tlsAddrTSDInitialized();
 
 #endif
 
@@ -420,7 +420,7 @@ JE_NOINLINE bool * tlsAddrTsdInitialized();
 
 /// Linux: a `thread_local` + a pthread key whose destructor (`ThreadState::cleanup`) runs at thread exit.
 /// jemalloc: tsd_tls.h
-struct TsdTls
+struct TSDTLS
 {
     /// jemalloc: tsd_tsd
     static pthread_key_t key;
@@ -436,14 +436,14 @@ struct TsdTls
     static void boot1() {}
 
     /// jemalloc: tsd_get
-    static JE_ALWAYS_INLINE ThreadState * get(bool /*init*/) { return tsd_detail::tlsAddrTsdTls(); }
+    static JE_ALWAYS_INLINE ThreadState * get(bool /*init*/) { return tsd_detail::tlsAddrTSDTLS(); }
     /// Arms the destructor. jemalloc: tsd_set
     static void set(ThreadState * val);
 };
 
 /// FreeBSD: `thread_local` + `tsd_initialized`; libthr calls `_malloc_thread_cleanup` at thread exit.
 /// jemalloc: tsd_malloc_thread_cleanup.h
-struct TsdMallocThreadCleanup
+struct TSDMallocThreadCleanup
 {
     static bool is_booted;
     static constexpr bool get_allocates = false;
@@ -454,19 +454,19 @@ struct TsdMallocThreadCleanup
     static bool boot0();
     static void boot1() {}
 
-    static JE_ALWAYS_INLINE ThreadState * get(bool /*init*/) { return tsd_detail::tlsAddrTsdTls(); }
+    static JE_ALWAYS_INLINE ThreadState * get(bool /*init*/) { return tsd_detail::tlsAddrTSDTLS(); }
     static void set(ThreadState * val);
 };
 
-/// The maximum number of cleanup functions registered with `mallocTsdCleanupRegister`.
+/// The maximum number of cleanup functions registered with `mallocTSDCleanupRegister`.
 /// jemalloc: MALLOC_TSD_CLEANUPS_MAX
 inline constexpr unsigned MALLOC_TSD_CLEANUPS_MAX = 4;
 
 /// jemalloc: malloc_tsd_cleanup_t
-using MallocTsdCleanup = bool (*)();
+using MallocTSDCleanup = bool (*)();
 
 /// jemalloc: _malloc_tsd_cleanup_register
-void mallocTsdCleanupRegister(MallocTsdCleanup f);
+void mallocTSDCleanupRegister(MallocTSDCleanup f);
 
 /// Runs the registered cleanups until none of them asks to be run again. Exported as `_malloc_thread_cleanup` on
 /// FreeBSD.
@@ -475,7 +475,7 @@ void mallocThreadCleanup();
 
 /// Darwin: the TSD lives in a heap-allocated wrapper found with `pthread_getspecific`.
 /// jemalloc: tsd_generic.h
-struct TsdGeneric
+struct TSDGeneric
 {
     /// jemalloc: tsd_wrapper_t
     struct Wrapper
@@ -540,21 +540,21 @@ struct TsdGeneric
 };
 
 /// The TSD implementation of this platform.
-using Tsd = std::conditional_t<
-    config::tsd_impl == TsdImpl::Tls,
-    TsdTls,
-    std::conditional_t<config::tsd_impl == TsdImpl::MallocThreadCleanup, TsdMallocThreadCleanup, TsdGeneric>>;
+using TSD = std::conditional_t<
+    config::tsd_impl == TSDImpl::TLS,
+    TSDTLS,
+    std::conditional_t<config::tsd_impl == TSDImpl::MallocThreadCleanup, TSDMallocThreadCleanup, TSDGeneric>>;
 
 JE_ALWAYS_INLINE bool ThreadState::booted()
 {
-    return Tsd::is_booted;
+    return TSD::is_booted;
 }
 
 JE_ALWAYS_INLINE ThreadState * ThreadState::fetchImpl(bool init, bool minimal)
 {
-    ThreadState * tsd = Tsd::get(init);
+    ThreadState * tsd = TSD::get(init);
 
-    if (!init && Tsd::get_allocates && tsd == nullptr)
+    if (!init && TSD::get_allocates && tsd == nullptr)
         return nullptr;
     JE_ASSERT(tsd != nullptr);
 
@@ -592,7 +592,7 @@ JE_ALWAYS_INLINE void postReentrancy(ThreadState & tsd)
 
 /// Sets `tcache_enabled` from `opt.tcache` and initializes the automatic tcache. Returns true on error.
 /// jemalloc: tsd_tcache_enabled_data_init (`tcache.c`)
-bool tcacheTsdDataInit(ThreadState & tsd);
+bool tcacheTSDDataInit(ThreadState & tsd);
 /// jemalloc: tcache_cleanup (`tcache.c`)
 void tcacheCleanup(ThreadState & tsd);
 /// jemalloc: arena_cleanup (`jemalloc.c`; defined in Arenas.cpp)
@@ -601,7 +601,7 @@ void arenaCleanup(ThreadState & tsd);
 void iarenaCleanup(ThreadState & tsd);
 /// jemalloc: prof_tdata_cleanup (`prof_data.c`)
 void profTdataCleanup(ThreadState & tsd);
-/// Internal allocation from arena 0 (used by `TsdGeneric` for the wrappers).
+/// Internal allocation from arena 0 (used by `TSDGeneric` for the wrappers).
 /// jemalloc: a0malloc, a0dalloc (`jemalloc.c`; defined in Arenas.cpp)
 void * a0malloc(size_t size);
 void a0dalloc(void * ptr);

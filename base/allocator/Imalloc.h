@@ -1,7 +1,7 @@
 #pragma once
 
 /// The allocation front-end of the "malloc(3)-compatible functions" and "non-standard functions" (jemalloc: the
-/// `imalloc` machinery of `src/jemalloc.c`). Header-inline so that `je_malloc`, `je_mallocx`, ... in Api.cpp compile
+/// `imalloc` machinery of `src/jemalloc.c`). Header-inline so that `je_malloc`, `je_mallocx`, ... in API.cpp compile
 /// to the same code as before, while `batchAlloc` (in the core library, used by `experimental.batch_alloc`) can call
 /// `mallocx` like jemalloc's `batch_alloc` calls `je_mallocx`.
 
@@ -363,7 +363,7 @@ JE_ALWAYS_INLINE bool imallocInitCheck(StaticOpts & sopts, DynamicOpts & dopts)
 /// jemalloc: imalloc
 JE_ALWAYS_INLINE int imalloc(StaticOpts & sopts, DynamicOpts & dopts)
 {
-    if (Tsd::get_allocates && !imallocInitCheck(sopts, dopts))
+    if (TSD::get_allocates && !imallocInitCheck(sopts, dopts))
         return ENOMEM;
 
     /// We always need the tsd. Let's grab it right away.
@@ -377,7 +377,7 @@ JE_ALWAYS_INLINE int imalloc(StaticOpts & sopts, DynamicOpts & dopts)
     }
     else
     {
-        if (!Tsd::get_allocates && !imallocInitCheck(sopts, dopts))
+        if (!TSD::get_allocates && !imallocInitCheck(sopts, dopts))
             return ENOMEM;
 
         sopts.slow = true;

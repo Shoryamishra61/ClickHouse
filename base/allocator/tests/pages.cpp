@@ -112,20 +112,20 @@ TEST(Pages, BootProbes)
         ::close(fd);
         CHECK_GT(n, 0);
         if (std::strcmp(buf, "always [madvise] never\n") == 0)
-            CHECK_EQ(init_system_thp_mode, SystemThpMode::Madvise);
+            CHECK_EQ(init_system_thp_mode, SystemTHPMode::Madvise);
         else if (std::strcmp(buf, "[always] madvise never\n") == 0)
-            CHECK_EQ(init_system_thp_mode, SystemThpMode::Always);
+            CHECK_EQ(init_system_thp_mode, SystemTHPMode::Always);
         else if (std::strcmp(buf, "always madvise [never]\n") == 0)
-            CHECK_EQ(init_system_thp_mode, SystemThpMode::Never);
+            CHECK_EQ(init_system_thp_mode, SystemTHPMode::Never);
         else
-            CHECK_EQ(init_system_thp_mode, SystemThpMode::NotSupported);
+            CHECK_EQ(init_system_thp_mode, SystemTHPMode::NotSupported);
     }
     else
-        CHECK_EQ(init_system_thp_mode, SystemThpMode::NotSupported);
-    if (init_system_thp_mode != SystemThpMode::NotSupported)
-        CHECK_EQ(opt.thp, ThpMode::DoNothing);
+        CHECK_EQ(init_system_thp_mode, SystemTHPMode::NotSupported);
+    if (init_system_thp_mode != SystemTHPMode::NotSupported)
+        CHECK_EQ(opt.thp, THPMode::DoNothing);
     else
-        CHECK_EQ(opt.thp, ThpMode::NotSupported);
+        CHECK_EQ(opt.thp, THPMode::NotSupported);
 
     CHECK_STREQ(thp_mode_names[0], "default");
     CHECK_STREQ(thp_mode_names[3], "not supported");

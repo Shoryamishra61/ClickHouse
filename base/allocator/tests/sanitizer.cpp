@@ -110,7 +110,7 @@ TEST(Sanitizer, Init)
     CHECK_EQ(san_cache_bin_nonfast_mask, PAGE - 1);
     sanInit(-1);
     CHECK_EQ(san_cache_bin_nonfast_mask, uintptr_t(-1));
-    CHECK(!sanUafDetectionEnabled());
+    CHECK(!sanUAFDetectionEnabled());
 }
 
 TEST(Sanitizer, GuardDecisions)

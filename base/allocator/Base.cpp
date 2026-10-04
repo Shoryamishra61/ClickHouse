@@ -20,9 +20,9 @@ namespace
 constinit Base * b0 = nullptr;
 
 /// jemalloc: metadata_thp_madvise
-JE_ALWAYS_INLINE bool metadataThpMadvise()
+JE_ALWAYS_INLINE bool metadataTHPMadvise()
 {
-    return metadataThpEnabled() && init_system_thp_mode == SystemThpMode::Madvise;
+    return metadataTHPEnabled() && init_system_thp_mode == SystemTHPMode::Madvise;
 }
 
 /// Borrow the guarded bit to indicate if the extent is a recycled one, i.e. the ones returned to base for reuse;
@@ -45,7 +45,7 @@ void baseEdataInit(size_t * extent_sn_next, Extent * edata, void * addr, size_t 
 /// jemalloc: base_block_size_ceil
 size_t baseBlockSizeCeil(size_t block_size)
 {
-    return opt.metadata_thp == MetadataThpMode::Disabled ? alignmentCeiling(block_size, BASE_BLOCK_MIN_ALIGN)
+    return opt.metadata_thp == MetadataTHPMode::Disabled ? alignmentCeiling(block_size, BASE_BLOCK_MIN_ALIGN)
                                                          : hugepageCeiling(block_size);
 }
 
@@ -66,7 +66,7 @@ void * Base::map(ThreadState * /*tsdn*/, ExtentHooks * ehooks, unsigned /*ind*/,
 
     /// Use huge page sizes and alignment when opt.metadata_thp is enabled or auto.
     size_t alignment;
-    if (opt.metadata_thp == MetadataThpMode::Disabled)
+    if (opt.metadata_thp == MetadataTHPMode::Disabled)
         alignment = BASE_BLOCK_MIN_ALIGN;
     else
     {
@@ -107,7 +107,7 @@ void Base::unmap(ThreadState * /*tsdn*/, ExtentHooks * ehooks, unsigned /*ind*/,
     }
 
     /// label_done:
-    if (metadataThpMadvise())
+    if (metadataTHPMadvise())
     {
         /// Set NOHUGEPAGE after unmap to avoid kernel defrag.
         JE_ASSERT((reinterpret_cast<uintptr_t>(addr) & HUGEPAGE_MASK) == 0 && (size & HUGEPAGE_MASK) == 0);
@@ -132,9 +132,9 @@ size_t Base::getNumBlocks(bool with_new_block) const
 }
 
 /// jemalloc: base_auto_thp_switch
-void Base::autoThpSwitch(ThreadState * tsdn)
+void Base::autoTHPSwitch(ThreadState * tsdn)
 {
-    JE_ASSERT(opt.metadata_thp == MetadataThpMode::Auto);
+    JE_ASSERT(opt.metadata_thp == MetadataTHPMode::Auto);
     mtx.assertOwner(tsdn);
     if (auto_thp_switched)
         return;
@@ -230,7 +230,7 @@ void Base::extentBumpAllocPost(ThreadState * tsdn, Extent * edata, size_t gap_si
         resident += pageCeiling(a + size) - pageCeiling(a - gap_size);
         JE_ASSERT(allocated <= resident);
         JE_ASSERT(resident <= mapped);
-        if (metadataThpMadvise() && (opt.metadata_thp == MetadataThpMode::Always || auto_thp_switched))
+        if (metadataTHPMadvise() && (opt.metadata_thp == MetadataTHPMode::Always || auto_thp_switched))
         {
             n_thp += (hugepageCeiling(a + size) - hugepageCeiling(a - gap_size)) >> LG_HUGEPAGE;
             JE_ASSERT(mapped >= n_thp << LG_HUGEPAGE);
@@ -276,17 +276,17 @@ BaseBlock * Base::blockAlloc(
     if (block == nullptr)
         return nullptr;
 
-    if (metadataThpMadvise())
+    if (metadataTHPMadvise())
     {
         void * addr = block;
         JE_ASSERT((reinterpret_cast<uintptr_t>(addr) & HUGEPAGE_MASK) == 0 && (block_size & HUGEPAGE_MASK) == 0);
-        if (opt.metadata_thp == MetadataThpMode::Always)
+        if (opt.metadata_thp == MetadataTHPMode::Always)
             pages::huge(addr, block_size);
-        else if (opt.metadata_thp == MetadataThpMode::Auto && base != nullptr)
+        else if (opt.metadata_thp == MetadataTHPMode::Auto && base != nullptr)
         {
             /// base != nullptr indicates this is not a new base.
             base->mtx.lock(tsdn);
-            base->autoThpSwitch(tsdn);
+            base->autoTHPSwitch(tsdn);
             if (base->auto_thp_switched)
                 pages::huge(addr, block_size);
             base->mtx.unlock(tsdn);
@@ -321,7 +321,7 @@ Extent * Base::extentAlloc(ThreadState * tsdn, size_t size, size_t alignment)
         allocated += sizeof(BaseBlock);
         resident += pageCeiling(sizeof(BaseBlock));
         mapped += block->size;
-        if (metadataThpMadvise() && !(opt.metadata_thp == MetadataThpMode::Auto && !auto_thp_switched))
+        if (metadataTHPMadvise() && !(opt.metadata_thp == MetadataTHPMode::Auto && !auto_thp_switched))
         {
             JE_ASSERT(n_thp > 0);
             n_thp += hugepageCeiling(sizeof(BaseBlock)) >> LG_HUGEPAGE;
@@ -384,7 +384,7 @@ Base * Base::create(ThreadState * tsdn, unsigned ind, const extent_hooks_t * ext
         base->allocated = sizeof(BaseBlock);
         base->resident = pageCeiling(sizeof(BaseBlock));
         base->mapped = block->size;
-        base->n_thp = (opt.metadata_thp == MetadataThpMode::Always) && metadataThpMadvise()
+        base->n_thp = (opt.metadata_thp == MetadataTHPMode::Always) && metadataTHPMadvise()
             ? hugepageCeiling(sizeof(BaseBlock)) >> LG_HUGEPAGE
             : 0;
         JE_ASSERT(base->allocated <= base->resident);
@@ -476,7 +476,7 @@ Extent * Base::allocExtent(ThreadState * tsdn)
         return nullptr;
     if constexpr (config::stats)
         edata_allocated += usize;
-    edata->setEsn(esn);
+    edata->setESN(esn);
     return edata;
 }
 

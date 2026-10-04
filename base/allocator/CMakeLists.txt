@@ -47,7 +47,7 @@ endif ()
 
 # Everything except the C API, so that internal components can be tested together with the reference jemalloc
 # (which exports the same `je_*` symbols).
-set (ALLOCATOR_API_SOURCES "${ALLOCATOR_SOURCES_DIR}/Api.cpp")
+set (ALLOCATOR_API_SOURCES "${ALLOCATOR_SOURCES_DIR}/API.cpp")
 set (ALLOCATOR_CORE_SOURCES ${ALLOCATOR_SOURCES})
 list (REMOVE_ITEM ALLOCATOR_CORE_SOURCES ${ALLOCATOR_API_SOURCES})
 

@@ -160,7 +160,7 @@ void arenaBind(ThreadState & tsd, unsigned ind, bool internal)
         tsd.arena = arena;
         /// While shard acts as a random seed, the cast below should not make much difference.
         uint8_t shard = uint8_t(arena->binshard_next.fetch_add(1, std::memory_order_relaxed));
-        TsdBinshards * bins = &tsd.binshards;
+        TSDBinshards * bins = &tsd.binshards;
         for (unsigned i = 0; i < SC_NBINS; ++i)
         {
             JE_ASSERT(bin_infos[i].n_shards > 0 && bin_infos[i].n_shards <= BIN_SHARDS_MAX);
@@ -309,7 +309,7 @@ Arena * arenaChooseFirstUse(ThreadState & tsd, bool internal)
         ThreadCache * tcache = tsd.tcacheGet();
         if (tcache_slow->arena != nullptr)
         {
-            /// See comments in `tcacheTsdDataInit`.
+            /// See comments in `tcacheTSDDataInit`.
             JE_ASSERT(tcache_slow->arena == arenaGet(&tsd, 0, false));
             if (tcache_slow->arena != ret)
                 tcacheArenaReassociate(&tsd, tcache_slow, tcache, ret);

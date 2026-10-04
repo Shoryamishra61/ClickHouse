@@ -257,7 +257,7 @@ int arenaIDestroy(ThreadState & tsd, const size_t * mib, size_t, void * oldp, si
 /// DSS is dropped, but the precedence settings are stored and reported. Note that the returned "old" value is read
 /// after the set (so it is the new setting).
 /// jemalloc: arena_i_dss_ctl
-int arenaIDss(ThreadState & tsd, const size_t * mib, size_t, void * oldp, size_t * oldlenp, void * newp, size_t newlen)
+int arenaIDSS(ThreadState & tsd, const size_t * mib, size_t, void * oldp, size_t * oldlenp, void * newp, size_t newlen)
 {
     MutexLock lock(&tsd, ctl_mtx);
     const char * dss = nullptr;
@@ -267,15 +267,15 @@ int arenaIDss(ThreadState & tsd, const size_t * mib, size_t, void * oldp, size_t
     if (int ret = mibUnsigned(mib, 1, arena_ind))
         return ret;
 
-    DssPrec dss_prec = DssPrec::Limit;
+    DSSPrec dss_prec = DSSPrec::Limit;
     if (dss != nullptr)
     {
         bool match = false;
-        for (unsigned i = 0; i < unsigned(DssPrec::Limit); ++i)
+        for (unsigned i = 0; i < unsigned(DSSPrec::Limit); ++i)
         {
             if (std::strcmp(dss_prec_names[i], dss) == 0)
             {
-                dss_prec = DssPrec(i);
+                dss_prec = DSSPrec(i);
                 match = true;
                 break;
             }
@@ -285,20 +285,20 @@ int arenaIDss(ThreadState & tsd, const size_t * mib, size_t, void * oldp, size_t
     }
 
     /// Access via index narenas is deprecated, and scheduled for removal in 6.0.0.
-    DssPrec dss_prec_old;
+    DSSPrec dss_prec_old;
     if (arena_ind == MALLCTL_ARENAS_ALL || arena_ind == ctl_arenas->narenas)
     {
-        if (dss_prec != DssPrec::Limit && extentDssPrecSet(dss_prec))
+        if (dss_prec != DSSPrec::Limit && extentDSSPrecSet(dss_prec))
             return EFAULT;
-        dss_prec_old = extentDssPrecGet();
+        dss_prec_old = extentDSSPrecGet();
     }
     else
     {
         /// jemalloc reads `arenas[4097]` (out of bounds) for `MALLCTL_ARENAS_DESTROYED`; here it does not exist.
         Arena * arena = arena_ind < MALLOCX_ARENA_LIMIT ? arenaGet(&tsd, arena_ind, false) : nullptr;
-        if (arena == nullptr || (dss_prec != DssPrec::Limit && arenaDssPrecSet(arena, dss_prec)))
+        if (arena == nullptr || (dss_prec != DSSPrec::Limit && arenaDSSPrecSet(arena, dss_prec)))
             return EFAULT;
-        dss_prec_old = arenaDssPrecGet(arena);
+        dss_prec_old = arenaDSSPrecGet(arena);
     }
 
     dss = dss_prec_names[unsigned(dss_prec_old)];

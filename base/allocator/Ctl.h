@@ -7,7 +7,7 @@
 /// indexed levels) are identical. Leaves are plain functions with the signature of jemalloc's `*_ctl` functions;
 /// they are declared in CtlImpl.h and implemented per subtree (Ctl.cpp, CtlConfigOpt.cpp, CtlArenas.cpp, ...).
 ///
-/// The C ABI (`je_mallctl`, `je_mallctlnametomib`, `je_mallctlbymib`) lives in Api.cpp: it checks `malloc_init`
+/// The C ABI (`je_mallctl`, `je_mallctlnametomib`, `je_mallctlbymib`) lives in API.cpp: it checks `malloc_init`
 /// (`EAGAIN` on failure), fetches the tsd and calls the functions below.
 
 #include <allocator/Common.h>
@@ -65,18 +65,18 @@ int ctlByName(ThreadState & tsd, const char * name, void * oldp, size_t * oldlen
 
 /// Partial names succeed (the MIB of the inner node is returned); a too-small `*miblenp` returns a truncated MIB.
 /// jemalloc: ctl_nametomib
-int ctlNameToMib(ThreadState & tsd, const char * name, size_t * mibp, size_t * miblenp);
+int ctlNameToMIB(ThreadState & tsd, const char * name, size_t * mibp, size_t * miblenp);
 
 /// jemalloc: ctl_bymib
-int ctlByMib(ThreadState & tsd, const size_t * mib, size_t miblen, void * oldp, size_t * oldlenp, void * newp, size_t newlen);
+int ctlByMIB(ThreadState & tsd, const size_t * mib, size_t miblen, void * oldp, size_t * oldlenp, void * newp, size_t newlen);
 
 /// Resolves `name` relative to the inner node `mib[0 .. miblen)`, writing the result to `mib + miblen`;
 /// `*miblenp` is the capacity of `mib` on input and the total length on output.
 /// jemalloc: ctl_mibnametomib
-int ctlMibNameToMib(ThreadState & tsd, size_t * mib, size_t miblen, const char * name, size_t * miblenp);
+int ctlMIBNameToMIB(ThreadState & tsd, size_t * mib, size_t miblen, const char * name, size_t * miblenp);
 
 /// jemalloc: ctl_bymibname
-int ctlByMibName(
+int ctlByMIBName(
     ThreadState & tsd,
     size_t * mib,
     size_t miblen,

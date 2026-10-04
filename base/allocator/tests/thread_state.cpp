@@ -44,18 +44,18 @@ void boot()
     CHECK(!ThreadState::booted());
     CHECK(ThreadState::tsdnFetch() == nullptr);
     thread_test::takeLog();
-    ThreadState * tsd = ThreadState::mallocTsdBoot0();
+    ThreadState * tsd = ThreadState::mallocTSDBoot0();
     REQUIRE(tsd != nullptr);
     CHECK(ThreadState::booted());
     CHECK_EQ(tsd->stateGet(), tsd_state_nominal);
     CHECK(tsd->tcache_enabled);
     CHECK_EQ(tsd, &ThreadState::fetch());
-    ThreadState::mallocTsdBoot1();
+    ThreadState::mallocTSDBoot1();
     CHECK_EQ(tsd->stateGet(), tsd_state_nominal);
     auto log = thread_test::takeLog();
     REQUIRE(log.size() == 1);
     CHECK(log[0].name == "tcacheTsdDataInit");
-    /// `tcacheTsdDataInit` is called on a nominal_slow TSD (`tcache_enabled` is still false).
+    /// `tcacheTSDDataInit` is called on a nominal_slow TSD (`tcache_enabled` is still false).
     CHECK_EQ(log[0].state, tsd_state_nominal_slow);
 }
 
@@ -96,7 +96,7 @@ TEST(ThreadState, BootAndFetch)
     boot();
     ThreadState & tsd = ThreadState::fetch();
     CHECK(tsd.fast());
-    CHECK_EQ(&tsd, tsd_detail::tlsAddrTsdTls());
+    CHECK_EQ(&tsd, tsd_detail::tlsAddrTSDTLS());
     CHECK_EQ(ThreadState::tsdnFetch(), &tsd);
     CHECK_EQ(tsd.prng_state, static_cast<uint64_t>(reinterpret_cast<uintptr_t>(&tsd)));
     CHECK_EQ(tsd.thread_allocated_next_event_fast, tsd.thread_allocated_next_event);
@@ -114,7 +114,7 @@ TEST(ThreadState, NewThreadFullInit)
     std::vector<thread_test::HookCall> init_log;
     runInThread([&]
     {
-        ThreadState * raw = Tsd::get(false);
+        ThreadState * raw = TSD::get(false);
         CHECK_EQ(raw->stateGet(), tsd_state_uninitialized);
         thread_tsd = &ThreadState::fetch();
         CHECK_EQ(raw, thread_tsd);
@@ -224,7 +224,7 @@ std::atomic<uint8_t> late_state_after{0};
 void lateDestructor(void *)
 {
     ++late_destructor_calls;
-    ThreadState * tsd = tsd_detail::tlsAddrTsdTls();
+    ThreadState * tsd = tsd_detail::tlsAddrTSDTLS();
     late_state_before = tsd->stateGet();
     ThreadState & fetched = ThreadState::fetch();
     late_state_after = fetched.stateGet();
@@ -468,8 +468,8 @@ TEST(ThreadState, MallocThreadCleanup)
     /// The FreeBSD cleanup driver: repeats the cleanups that ask for another round.
     static int calls_a = 0;
     static int calls_b = 0;
-    mallocTsdCleanupRegister([] { return ++calls_a < 3; });
-    mallocTsdCleanupRegister([] { return ++calls_b < 1; });
+    mallocTSDCleanupRegister([] { return ++calls_a < 3; });
+    mallocTSDCleanupRegister([] { return ++calls_b < 1; });
     mallocThreadCleanup();
     CHECK_EQ(calls_a, 3);
     CHECK_EQ(calls_b, 1);
@@ -479,19 +479,19 @@ TEST(ThreadState, MallocThreadCleanup)
 /// thread exit.
 TEST(ThreadState, GenericWrapper)
 {
-    REQUIRE(!TsdGeneric::boot0());
-    CHECK(TsdGeneric::is_booted);
+    REQUIRE(!TSDGeneric::boot0());
+    CHECK(TSDGeneric::is_booted);
     runInThread([]
     {
-        CHECK(TsdGeneric::get(false) == nullptr);
-        ThreadState * tsd = TsdGeneric::get(true);
+        CHECK(TSDGeneric::get(false) == nullptr);
+        ThreadState * tsd = TSDGeneric::get(true);
         REQUIRE(tsd != nullptr);
-        CHECK_EQ(TsdGeneric::get(false), tsd);
+        CHECK_EQ(TSDGeneric::get(false), tsd);
         CHECK_EQ(tsd->stateGet(), tsd_state_uninitialized);
-        CHECK_EQ(reinterpret_cast<uintptr_t>(TsdGeneric::wrapperGet(false)) % CACHELINE, 0u);
-        CHECK(!TsdGeneric::wrapperGet(false)->initialized);
-        TsdGeneric::set(tsd);
-        CHECK(TsdGeneric::wrapperGet(false)->initialized);
+        CHECK_EQ(reinterpret_cast<uintptr_t>(TSDGeneric::wrapperGet(false)) % CACHELINE, 0u);
+        CHECK(!TSDGeneric::wrapperGet(false)->initialized);
+        TSDGeneric::set(tsd);
+        CHECK(TSDGeneric::wrapperGet(false)->initialized);
     });
     /// The uninitialized TSD needs no cleanup hooks.
     CHECK(thread_test::takeLog().empty());
@@ -627,26 +627,26 @@ TEST(ThreadState, FiberMigration)
 }
 
 /// The TLS address accessor gives each thread its own TSD, consistent with the offset captured once.
-TEST(ThreadState, TlsAddress)
+TEST(ThreadState, TLSAddress)
 {
     boot();
-    ThreadState * main_tsd = tsd_detail::tlsAddrTsdTls();
+    ThreadState * main_tsd = tsd_detail::tlsAddrTSDTLS();
     CHECK_EQ(main_tsd, &ThreadState::fetch());
     ThreadState * other = nullptr;
     bool * other_initialized = nullptr;
     runInThread([&]
     {
-        other = tsd_detail::tlsAddrTsdTls();
-        /// `tsd_initialized` exists only with `TsdMallocThreadCleanup` (FreeBSD), like in jemalloc.
-        if constexpr (config::tsd_impl == TsdImpl::MallocThreadCleanup)
+        other = tsd_detail::tlsAddrTSDTLS();
+        /// `tsd_initialized` exists only with `TSDMallocThreadCleanup` (FreeBSD), like in jemalloc.
+        if constexpr (config::tsd_impl == TSDImpl::MallocThreadCleanup)
         {
-            other_initialized = tsd_detail::tlsAddrTsdInitialized();
+            other_initialized = tsd_detail::tlsAddrTSDInitialized();
             CHECK(!*other_initialized);
         }
     });
     CHECK_NE(other, main_tsd);
-    if constexpr (config::tsd_impl == TsdImpl::MallocThreadCleanup)
-        CHECK(other_initialized != tsd_detail::tlsAddrTsdInitialized());
+    if constexpr (config::tsd_impl == TSDImpl::MallocThreadCleanup)
+        CHECK(other_initialized != tsd_detail::tlsAddrTSDInitialized());
 #if ALLOCATOR_TLS_ADDR_FAST
     CHECK_NE(tsd_detail::tls_offset_tsd_tls.load(), tsd_detail::TLS_OFFSET_UNINITIALIZED);
     CHECK_EQ(reinterpret_cast<char *>(main_tsd) - tsd_detail::threadPointer(), tsd_detail::tls_offset_tsd_tls.load());

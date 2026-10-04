@@ -53,7 +53,7 @@ void arenaBasicStatsMerge(
     size_t * nmuzzy)
 {
     *nthreads += arenaNthreadsGet(arena, false);
-    *dss = dss_prec_names[unsigned(arenaDssPrecGet(arena))];
+    *dss = dss_prec_names[unsigned(arenaDSSPrecGet(arena))];
     *dirty_decay_ms = arenaDecayMsGet(arena, extent_state_dirty);
     *muzzy_decay_ms = arenaDecayMsGet(arena, extent_state_muzzy);
     arena->pa_shard.basicStatsMerge(nactive, ndirty, nmuzzy);
@@ -1515,16 +1515,16 @@ void * arenaRalloc(
 /// --- Misc ----------------------------------------------------------------------------------------------------------
 
 /// jemalloc: arena_dss_prec_get
-DssPrec arenaDssPrecGet(Arena * arena)
+DSSPrec arenaDSSPrecGet(Arena * arena)
 {
-    return DssPrec(arena->dss_prec.load(std::memory_order_acquire));
+    return DSSPrec(arena->dss_prec.load(std::memory_order_acquire));
 }
 
 /// jemalloc: arena_dss_prec_set
-bool arenaDssPrecSet(Arena * arena, DssPrec dss_prec)
+bool arenaDSSPrecSet(Arena * arena, DSSPrec dss_prec)
 {
     if constexpr (!config::have_dss)
-        return dss_prec != DssPrec::Disabled;
+        return dss_prec != DSSPrec::Disabled;
     arena->dss_prec.store(unsigned(dss_prec), std::memory_order_release);
     return false;
 }
@@ -1625,7 +1625,7 @@ Arena * arenaNew(ThreadState * tsdn, unsigned ind, const ArenaConfig * config)
             goto label_error;
     }
 
-    arena->dss_prec.store(unsigned(extentDssPrecGet()), std::memory_order_relaxed);
+    arena->dss_prec.store(unsigned(extentDSSPrecGet()), std::memory_order_relaxed);
 
     arena->large.init();
     if (arena->large_mtx.init("arena_large", MutexRank::ARENA_LARGE, MutexLockOrder::RankExclusive))
