@@ -6630,31 +6630,39 @@ static void tupleRangeToBoundingBox(const Range & tuple_range, Float64 & x_min, 
 namespace
 {
 
-/// Whether a value of a composite key type - a `Tuple`, an `Array`, a `Map` - may carry a `NULL` or a
-/// `NaN` below its top level. Such a value compares as `NULL` or false at row level, while key order
-/// gives it a definite position, and nothing in a key range reveals it: a granule of
-/// `Tuple(Int32, Nullable(Int32))` values `(2, 1), (2, NULL), (3, 0)` has the ordinary bounds
-/// `[(2, 1), (3, 0)]`. The top level itself is analysed from the range, see below.
+/// Whether a value of a `Tuple` key type may carry a `NULL` or a `NaN` below its top level. Such a value
+/// compares as `NULL` or false at row level, while key order gives it a definite position, and nothing in
+/// a key range reveals it: a granule of `Tuple(Int32, Nullable(Int32))` values `(2, 1), (2, NULL), (3, 0)`
+/// has the ordinary bounds `[(2, 1), (3, 0)]`. The top level itself is analysed from the range, see below.
+/// Only `Tuple` elements are descended: an `Array` or a `Map` comparison is `compareAt`-based, so it
+/// answers a definite value for a nested `NULL` and orders a nested `NaN` exactly where the index does.
 bool keyTypeMayHoldNestedNullOrNaN(const DataTypePtr & key_type)
 {
-    bool result = false;
-    removeNullable(removeLowCardinality(key_type))->forEachChild([&](const IDataType & child)
+    const auto * tuple = typeid_cast<const DataTypeTuple *>(removeNullable(removeLowCardinality(key_type)).get());
+    if (!tuple)
+        return false;
+
+    for (const auto & element : tuple->getElements())
     {
-        if (child.isNullable() || WhichDataType(child).isFloat())
-            result = true;
-    });
-    return result;
+        const auto unwrapped = removeLowCardinality(element);
+        if (unwrapped->isNullable() || WhichDataType(removeNullable(unwrapped)).isFloat()
+            || keyTypeMayHoldNestedNullOrNaN(unwrapped))
+            return true;
+    }
+    return false;
 }
 
 /// Whether a range atom can be wrong about a key value that carries a nested `NULL` or `NaN`. Key order
 /// puts such a value above every value that shares its prefix, and a row whose first differing position
 /// holds one compares greater than the constant at row level too, or is `NULL`, which `WHERE` rejects
 /// as well. So a range bounded above by an ordinary value excludes it on both sides, and only a range
-/// that reaches `+inf` can claim it as matching. The other atoms - a negated range, a set, a polygon -
-/// may claim it either way.
+/// that reaches `+inf` can claim it as matching, while a negated range may claim it either way. A set
+/// atom is not affected: both the set index and the row-level `IN` compare whole tuples by hash, so a
+/// nested `NULL` or `NaN` matches only its identical copy on both sides.
 bool atomMayClaimNestedNullOrNaN(const KeyCondition::RPNElement & element)
 {
-    return element.function != KeyCondition::RPNElement::FUNCTION_IN_RANGE || element.range.right.isPositiveInfinity();
+    return element.function == KeyCondition::RPNElement::FUNCTION_NOT_IN_RANGE
+        || (element.function == KeyCondition::RPNElement::FUNCTION_IN_RANGE && element.range.right.isPositiveInfinity());
 }
 
 /// Whether the analysed range of a key column, read by `element`, may hold a NULL value. A NULL key
