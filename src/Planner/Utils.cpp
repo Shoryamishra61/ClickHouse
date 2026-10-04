@@ -91,6 +91,7 @@ namespace ErrorCodes
 {
     extern const int ACCESS_DENIED;
     extern const int BAD_ARGUMENTS;
+    extern const int LIMIT_EXCEEDED;
     extern const int LOGICAL_ERROR;
     extern const int UNION_ALL_RESULT_STRUCTURES_MISMATCH;
     extern const int INTERSECT_OR_EXCEPT_RESULT_STRUCTURES_MISMATCH;
@@ -870,6 +871,16 @@ void buildPreparedSetsInplace(const PlannerContextPtr & planner_context, const C
         }
 
         subquery->buildSetInplace(context);
+
+        /// The pipeline may stop without an exception and without creating the set, for example on a
+        /// subquery timeout with `timeout_overflow_mode = 'break'`. `build` has consumed the plan, so the
+        /// set can never be built afterwards, and `FunctionIn` would report "Not-ready Set is passed as the
+        /// second argument" later. Report the real reason instead. This is checked here rather than in
+        /// `buildSetInplace`, because its other callers, such as index analysis, tolerate an uncreated set.
+        if (!subquery->get())
+            throw Exception(ErrorCodes::LIMIT_EXCEEDED,
+                "Building a set for subquery stopped before the set was created, "
+                "probably because a limit with the `break` overflow mode was reached");
     }
 }
 

@@ -946,9 +946,16 @@ void TCPHandler::runImpl()
                         /// (building the set of a column default `IN <table>`, for example), the client is
                         /// waiting in `receiveSampleBlock` for the header of the table and accepts neither a
                         /// `Progress` nor a `ProfileEvents` packet there. Keep polling for cancellation, but
-                        /// do not send the updates until the query is prepared.
-                        if (query_state->preparing_query && !query_state->query_context->getInsertionTable().empty())
-                            return false;
+                        /// do not send the updates until the query is prepared. Look at the kind of the query
+                        /// itself rather than at the insertion table of the context: `CREATE ... AS SELECT`
+                        /// sets the insertion table too, and it runs its whole `INSERT` inside `executeQuery`
+                        /// while the client does expect progress.
+                        if (query_state->preparing_query)
+                        {
+                            auto process_list_element = query_state->query_context->getProcessListElement();
+                            if (process_list_element && process_list_element->getQueryKind() == IAST::QueryKind::Insert)
+                                return false;
+                        }
 
                         sendInteractiveUpdates(*query_state);
                         return false;
