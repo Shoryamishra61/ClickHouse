@@ -29,16 +29,16 @@ SELECT count() FROM t_grace_l AS o WHERE EXISTS (SELECT 1 FROM t_grace_l AS i WH
 SELECT count() FROM t_grace_l AS o WHERE NOT EXISTS (SELECT 1 FROM t_grace_l AS i WHERE i.a = o.a AND i.k = 5) SETTINGS join_algorithm = 'grace_hash,partial_merge';
 
 SELECT 'the strictness the plan ends up with';
-SELECT trimLeft(explain) FROM (EXPLAIN keep_logical_steps = 1, description = 1
+SELECT extract(explain, 'Strictness: \\w+') FROM (EXPLAIN keep_logical_steps = 1, description = 1
     SELECT count() FROM t_grace_l ANY LEFT JOIN t_grace_r USING (k) WHERE t_grace_r.v > 0
     SETTINGS join_algorithm = 'full_sorting_merge,grace_hash') WHERE explain LIKE '%Strictness%';
 -- With a spill threshold `grace_hash` can run, so the conversion happens.
-SELECT trimLeft(explain) FROM (EXPLAIN keep_logical_steps = 1, description = 1
+SELECT extract(explain, 'Strictness: \\w+') FROM (EXPLAIN keep_logical_steps = 1, description = 1
     SELECT count() FROM t_grace_l ANY LEFT JOIN t_grace_r USING (k) WHERE t_grace_r.v > 0
     SETTINGS join_algorithm = 'full_sorting_merge,grace_hash', max_bytes_before_external_join = 1000000000) WHERE explain LIKE '%Strictness%';
 
 -- A threshold given only as a ratio does not count: a server without memory limits resolves it to 0.
-SELECT trimLeft(explain) FROM (EXPLAIN keep_logical_steps = 1, description = 1
+SELECT extract(explain, 'Strictness: \\w+') FROM (EXPLAIN keep_logical_steps = 1, description = 1
     SELECT count() FROM t_grace_l ANY LEFT JOIN t_grace_r USING (k) WHERE t_grace_r.v > 0
     SETTINGS join_algorithm = 'full_sorting_merge,grace_hash', max_bytes_ratio_before_external_join = 0.5) WHERE explain LIKE '%Strictness%';
 

@@ -38,17 +38,17 @@ SELECT count() FROM t_semi_anti_algo WHERE a NOT IN (SELECT a FROM t_semi_anti_a
 -- With a hash algorithm enabled the conversion still happens; with a sort-merge one the join keeps
 -- the strictness that algorithm can execute.
 SELECT 'the strictness the plan ends up with';
-SELECT trimLeft(explain) FROM (EXPLAIN keep_logical_steps = 1, description = 1
+SELECT extract(explain, 'Strictness: \\w+') FROM (EXPLAIN keep_logical_steps = 1, description = 1
     SELECT count() FROM t_semi_anti_algo AS o WHERE EXISTS (SELECT 1 FROM t_semi_anti_algo AS i WHERE i.b = o.b AND i.a = 5)
     SETTINGS join_algorithm = 'hash', query_plan_convert_any_join_to_semi_or_anti_join = 1) WHERE explain LIKE '%Strictness%';
-SELECT trimLeft(explain) FROM (EXPLAIN keep_logical_steps = 1, description = 1
+SELECT extract(explain, 'Strictness: \\w+') FROM (EXPLAIN keep_logical_steps = 1, description = 1
     SELECT count() FROM t_semi_anti_algo AS o WHERE EXISTS (SELECT 1 FROM t_semi_anti_algo AS i WHERE i.b = o.b AND i.a = 5)
     SETTINGS join_algorithm = 'full_sorting_merge', query_plan_convert_any_join_to_semi_or_anti_join = 1) WHERE explain LIKE '%Strictness%';
 -- `prefer_partial_merge` is `partial_merge` with a hash fallback, so the conversion must still happen.
-SELECT trimLeft(explain) FROM (EXPLAIN keep_logical_steps = 1, description = 1
+SELECT extract(explain, 'Strictness: \\w+') FROM (EXPLAIN keep_logical_steps = 1, description = 1
     SELECT count() FROM t_semi_anti_algo AS o WHERE EXISTS (SELECT 1 FROM t_semi_anti_algo AS i WHERE i.b = o.b AND i.a = 5)
     SETTINGS join_algorithm = 'prefer_partial_merge', query_plan_convert_any_join_to_semi_or_anti_join = 1) WHERE explain LIKE '%Strictness%';
-SELECT trimLeft(explain) FROM (EXPLAIN keep_logical_steps = 1, description = 1
+SELECT extract(explain, 'Strictness: \\w+') FROM (EXPLAIN keep_logical_steps = 1, description = 1
     SELECT count() FROM t_semi_anti_algo AS o WHERE NOT EXISTS (SELECT 1 FROM t_semi_anti_algo AS i WHERE i.b = o.b AND i.a = 5)
     SETTINGS join_algorithm = 'prefer_partial_merge', query_plan_convert_any_join_to_semi_or_anti_join = 1) WHERE explain LIKE '%Strictness%';
 

@@ -164,10 +164,9 @@ struct JoinSettings
     /// listed alone (and then refused with a message if it has no threshold). A threshold given only by
     /// `max_bytes_ratio_before_external_join` does not count: every server resolves it against its own memory
     /// limits, and one without them resolves it to 0, so the answer here would depend on the node.
-    bool canRunGraceHash() const
-    {
-        return legacy_join_size_limits_trigger_spilling || max_bytes_before_external_join > 0 || join_algorithms.size() == 1;
-    }
+    /// Neither does `grace_hash` on a server without temporary storage (`tmp_path` / `tmp_policy`): there the
+    /// join pickers refuse it instead of passing it over.
+    bool canRunGraceHash() const;
 
     /// Combines the stored raw absolute and ratio settings using local memory limits.
     /// Recomputed on every executor so distributed queries pick up per-node memory.
