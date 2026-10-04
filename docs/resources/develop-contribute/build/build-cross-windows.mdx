@@ -11,9 +11,10 @@ binaries that run on Windows. There is no native Windows build - the Windows bin
 always cross-compiled, as they are for macOS and FreeBSD.
 
 :::note
-The Windows port is **not finished**. CI links `clickhouse.exe` on every pull request and then
-executes it under Wine (see [CI](#ci)) - `clickhouse-local` over a trivial query, which is as
-far as the port has been run. Nothing has been run on a real Windows machine, and no test suite
+The Windows port is **not finished**. CI links `clickhouse.exe` on every pull request to
+`master` (not on backport pull requests to release branches) and then executes it under Wine
+(see [CI](#ci)) - `clickhouse-local` over a trivial query, which is as far as the port has
+been run. Nothing has been run on a real Windows machine, and no test suite
 runs against it. [Remaining work](#remaining-work) is an inventory of what is left, by
 subsystem.
 :::
@@ -193,6 +194,9 @@ defined by `BuildTypes.AMD_WINDOWS` in `ci/defs/defs.py`, its cmake flags in
 `ci/jobs/build_clickhouse.py`, and it runs in the `clickhouse/binary-builder` image, which
 installs `mingw-w64`. The job publishes no artifact: `clickhouse.exe` is not something to hand
 to anyone yet.
+
+The job is part of the `PR` workflow only. The `BackportPR` workflow does not run it, so a
+cherry-pick to a release branch can break the Windows build without a CI signal.
 
 The job then **runs** what it built, under Wine: `clickhouse.exe --version` and
 `clickhouse.exe local --query "SELECT 1"`. That is why this cross-build, alone among the ones
