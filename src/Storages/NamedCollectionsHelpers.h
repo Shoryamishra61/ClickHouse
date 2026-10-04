@@ -46,9 +46,9 @@ std::optional<std::string> tryGetUsedNamedCollectionName(const String & engine_n
 /// persists its table function target, e.g. `remote('addr', url(nc, ...))`, and resolves it only at
 /// read time, so the collection the target uses must be held for as long as the table exists. A table
 /// function references a collection by an identifier as its first argument; as the same identifier can
-/// mean something else for some table functions (a cluster name for `remote`, a database name for
-/// `merge`), the dependency is registered only when a collection with that name exists, which can only
-/// make the drop of a same-named collection stricter.
+/// mean something else for some table functions (a cluster name for `remote` or `cluster`, a database
+/// name for `merge`), the reference is decided by `tryGetUsedNamedCollectionName` for the storage engine
+/// of the table function, independently of whether a collection with that name exists right now.
 void addNestedTableFunctionNamedCollectionDependencies(const ASTPtr & ast, const StorageID & dependent_table_id);
 
 /// Helper function to get named collection for dictionary source.

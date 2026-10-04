@@ -316,9 +316,15 @@ void addNestedTableFunctionNamedCollectionDependencies(const ASTPtr & ast, const
     if (const auto * function = ast->as<ASTFunction>();
         function && function->arguments && TableFunctionFactory::instance().isTableFunctionName(function->name))
     {
-        if (auto collection_name = getCollectionName(function->arguments->children))
-            NamedCollectionFactory::instance().getAndAddDependency(
-                *collection_name, /* throw_unknown_collection = */ false, dependent_table_id);
+        /// Decided from the AST, exactly like the engine arguments of a lazily loaded table, and not from
+        /// whether a collection with that name exists right now: a target persisted while its collection
+        /// was missing (after a drop with `check_named_collection_dependencies = 0`) resolves it at read
+        /// time, so the collection must be protected as soon as it is created again.
+        if (auto table_function = TableFunctionFactory::instance().tryGet(function->name, nullptr))
+        {
+            if (auto collection_name = table_function->getNamedCollectionReferencedByArguments(function->arguments->children))
+                NamedCollectionFactory::instance().addDependency(*collection_name, dependent_table_id);
+        }
     }
 
     for (const auto & child : ast->children)
