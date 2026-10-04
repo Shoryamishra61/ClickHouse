@@ -1323,7 +1323,7 @@ static QueryPlan::Node chooseJoinOrder(QueryGraphBuilder query_graph_builder, Qu
                 .imprecise_estimate = imprecise_estimate,
                 .composite = true};
 
-            join_step->setOptimized(entry->estimated_rows, entry->column_stats, imprecise_estimate, entry->cost, entry->selectivity, cluster_id, entry->max_rows);
+            join_step->setJoinOrderEstimation(entry->estimated_rows, entry->column_stats, imprecise_estimate, entry->cost, entry->selectivity, cluster_id, entry->max_rows);
 
             auto & new_node = nodes.emplace_back();
 

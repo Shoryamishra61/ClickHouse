@@ -67,6 +67,9 @@ private:
     /// Fill per-column average value sizes of the read (storage-derived, hint overrides).
     void fillReadColumnWidths(ExpressionStatistics & statistics, const ReadFromMergeTree & read_step, const String & table_name);
 
+    /// Search value for a source without any estimate or bound: the largest known leaf of the query.
+    std::optional<Float64> largestKnownLeafRowCount() const;
+
     Memo & memo;
     const IOptimizerStatistics & statistics_lookup;
     LoggerPtr log = getLogger("StatisticsDerivation");

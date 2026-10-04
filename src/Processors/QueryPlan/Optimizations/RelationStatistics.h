@@ -52,7 +52,8 @@ namespace QueryPlanOptimizations
 void remapColumnStats(std::unordered_map<String, ColumnStats> & mapped, const ActionsDAG & actions);
 
 /// Tighten equi-join key NDVs to their minimum, respecting which side each join kind preserves.
-/// Anti joins and full joins leave both inputs unchanged.
+/// Anti joins and full joins leave both inputs unchanged. A zero NDV is unknown: it is bounded by
+/// the other side's NDV when the join filters its side, and never narrows the other side.
 void updateJoinKeyDistinctCounts(
     ColumnStats & left_stats,
     ColumnStats & right_stats,

@@ -24,8 +24,9 @@ inline size_t getColumnStats(
         /// Look up NDV from the dp_table entry's column_stats (propagated through joins).
         if (auto it = dp_table.find(rels); it != dp_table.end())
         {
+            /// A zero NDV is an unknown NDV: the entry only carries other column facts.
             auto col_it = it->second->column_stats.find(column_name);
-            if (col_it != it->second->column_stats.end())
+            if (col_it != it->second->column_stats.end() && col_it->second.num_distinct_values > 0)
                 return col_it->second.num_distinct_values;
             return it->second->estimated_rows.value_or(0);
         }
@@ -34,7 +35,7 @@ inline size_t getColumnStats(
 
     const auto & relation_stat = relation_stats.at(rel_id.value());
     const auto & col_stats = relation_stat.column_stats;
-    if (auto it = col_stats.find(column_name); it != col_stats.end())
+    if (auto it = col_stats.find(column_name); it != col_stats.end() && it->second.num_distinct_values > 0)
         return it->second.num_distinct_values;
     return relation_stat.estimated_rows.value_or(0);
 }

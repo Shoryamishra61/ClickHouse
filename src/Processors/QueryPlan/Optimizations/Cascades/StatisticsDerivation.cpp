@@ -15,6 +15,7 @@
 #include <Processors/QueryPlan/Optimizations/Cascades/OptimizerDefaults.h>
 #include <Processors/QueryPlan/Optimizations/Cascades/StatisticsDerivation.h>
 #include <Processors/QueryPlan/Optimizations/RelationStatistics.h>
+#include <Processors/QueryPlan/Optimizations/joinOrderCommon.h>
 #include <Processors/QueryPlan/ReadFromMergeTree.h>
 #include <Processors/QueryPlan/SortingStep.h>
 #include <Storages/IStorage.h>
@@ -154,11 +155,44 @@ void StatisticsDerivation::deriveStatistics(GroupId group_id)
     }
     else
     {
-        group->statistics = ExpressionStatistics();
+        /// A source the estimator does not know: no estimate, and no bound. The search value is
+        /// the largest known leaf of the query, so the unknown source is never costed as empty.
+        ExpressionStatistics unknown;
+        unknown.rows_unknown = true;
+        unknown.estimated_row_count = largestKnownLeafRowCount().value_or(CascadesDefaults::DEFAULT_UNKNOWN_READ_ROWS);
+        group->statistics = std::move(unknown);
     }
+
+    /// A result derived from an input without an estimate has none either, unless an input is proven
+    /// empty, which decides the result on its own.
+    bool input_proven_empty = false;
+    bool input_unknown = false;
+    for (const auto & input : expression->inputs)
+    {
+        const auto & input_stats = *memo.getGroup(input.group_id)->statistics;
+        input_proven_empty |= input_stats.max_row_count == 0;
+        input_unknown |= input_stats.rows_unknown;
+    }
+    if (input_unknown && !input_proven_empty)
+        group->statistics->rows_unknown = true;
 
     LOG_TEST(log, "Derived statistics for group #{}:\n{}",
         group_id, group->statistics->dump());
+}
+
+std::optional<Float64> StatisticsDerivation::largestKnownLeafRowCount() const
+{
+    std::optional<Float64> largest;
+    for (GroupId group_id = 0; group_id < memo.getGroupCount(); ++group_id)
+    {
+        const auto group = memo.getGroup(group_id);
+        if (!group->statistics || group->statistics->rows_unknown || group->logical_expressions.empty()
+            || !group->logical_expressions.front()->inputs.empty())
+            continue;
+        if (!largest || group->statistics->estimated_row_count > *largest)
+            largest = group->statistics->estimated_row_count;
+    }
+    return largest;
 }
 
 Float64 clampJoinRowCount(JoinKind kind, JoinStrictness strictness, Float64 base, Float64 left, Float64 right)
@@ -282,12 +316,23 @@ ExpressionStatistics StatisticsDerivation::deriveJoinStatistics(
         auto left_column_statistics = left_statistics.column_statistics.find(left_column);
         auto right_column_statistics = right_statistics.column_statistics.find(right_column);
 
-        UInt64 left_number_of_distinct_values = 1;
-        UInt64 right_number_of_distinct_values = 1;
-        if (left_column_statistics != left_statistics.column_statistics.end())
-            left_number_of_distinct_values = left_column_statistics->second.num_distinct_values;
-        if (right_column_statistics != right_statistics.column_statistics.end())
-            right_number_of_distinct_values = right_column_statistics->second.num_distinct_values;
+        /// A key without an NDV (no entry, or an entry with a zero NDV that only carries the column's
+        /// width) counts its relation's rows as its NDV for the selectivity, the upper bound, as the
+        /// join order optimizer does in `getColumnStats`; the two planners must give the same join the
+        /// same selectivity. The result keeps such a key without an NDV: the bound written as an NDV
+        /// would make an aggregation above the join estimate one group per row.
+        auto known_distinct_values = [](const auto & found, const auto & end) -> std::optional<UInt64>
+        {
+            if (found != end && found->second.num_distinct_values > 0)
+                return found->second.num_distinct_values;
+            return std::nullopt;
+        };
+        const auto left_known_distinct_values = known_distinct_values(left_column_statistics, left_statistics.column_statistics.end());
+        const auto right_known_distinct_values = known_distinct_values(right_column_statistics, right_statistics.column_statistics.end());
+        const UInt64 left_rows = UInt64(left_statistics.estimated_row_count);
+        const UInt64 right_rows = UInt64(right_statistics.estimated_row_count);
+        const UInt64 left_number_of_distinct_values = std::min(left_known_distinct_values.value_or(left_rows), left_rows);
+        const UInt64 right_number_of_distinct_values = std::min(right_known_distinct_values.value_or(right_rows), right_rows);
 
         /// Estimate `JOIN` equality predicate selectivity as 1 / max(NDV(A), NDV(B)) based on assumption that distinct values have equal probabilities.
         /// An empty relation or a supplied hint can carry NDV = 0; clamp to 1, otherwise the division
@@ -295,18 +340,10 @@ ExpressionStatistics StatisticsDerivation::deriveJoinStatistics(
         UInt64 max_number_of_distinct_values = std::max<UInt64>({left_number_of_distinct_values, right_number_of_distinct_values, 1});
         Float64 predicate_selectivity = 1.0 / Float64(max_number_of_distinct_values);
 
-        /// An input's key NDV is bounded by its own row count. The shared update then narrows only
-        /// sides whose rows can be filtered by this join.
-        statistics.column_statistics[left_column].num_distinct_values = std::min(
-            left_column_statistics != left_statistics.column_statistics.end()
-                ? left_column_statistics->second.num_distinct_values
-                : UInt64(left_statistics.estimated_row_count),
-            UInt64(left_statistics.estimated_row_count));
-        statistics.column_statistics[right_column].num_distinct_values = std::min(
-            right_column_statistics != right_statistics.column_statistics.end()
-                ? right_column_statistics->second.num_distinct_values
-                : UInt64(right_statistics.estimated_row_count),
-            UInt64(right_statistics.estimated_row_count));
+        /// The shared update then narrows only sides whose rows can be filtered by this join; a side
+        /// without an NDV takes the other side's NDV when the join bounds it, else stays without one.
+        statistics.column_statistics[left_column].num_distinct_values = left_known_distinct_values ? left_number_of_distinct_values : 0;
+        statistics.column_statistics[right_column].num_distinct_values = right_known_distinct_values ? right_number_of_distinct_values : 0;
         QueryPlanOptimizations::updateJoinKeyDistinctCounts(
             statistics.column_statistics.at(left_column),
             statistics.column_statistics.at(right_column),
@@ -324,22 +361,37 @@ ExpressionStatistics StatisticsDerivation::deriveJoinStatistics(
         LOG_TEST(log, "Predicate '{} = {}' selectivity: 1 / {}",
             left_column, right_column, 1.0 / predicate_selectivity);
 
-        /// Multiply selectivities of predicates assuming they are independent
-        join_selectivity *= predicate_selectivity;
+        /// The most selective predicate decides, as in the join order optimizer (`computeSelectivity`
+        /// in `joinOrderCommon.h`); both planners must give the same join the same estimate.
+        join_selectivity = std::min(join_selectivity, predicate_selectivity);
     }
 
-    statistics.estimated_row_count = left_statistics.estimated_row_count * right_statistics.estimated_row_count * join_selectivity;
+    /// The multiplicative value is the search value when no estimate exists.
+    const Float64 search_value = left_statistics.estimated_row_count * right_statistics.estimated_row_count * join_selectivity;
+    const bool inputs_known = !left_statistics.rows_unknown && !right_statistics.rows_unknown;
 
-    /// Use the join order optimizer's cardinality as a lower bound - it handles
-    /// correlated predicates (e.g. composite FK joins) better than multiplicative independence.
-    if (auto hint = join_step.getResultRowsEstimation())
+    const auto join_order_estimate = join_step.isEstimatedByJoinOrder() ? join_step.getResultRowsEstimation() : std::nullopt;
+    if (join_order_estimate)
     {
-        if (Float64(*hint) > statistics.estimated_row_count)
-        {
-            LOG_TEST(log, "Using join order optimizer hint: {} rows (multiplicative estimate was {})",
-                *hint, statistics.estimated_row_count);
-            statistics.estimated_row_count = Float64(*hint);
-        }
+        /// The join order optimizer decided this join from the same inputs, and its estimate is the one
+        /// estimate of this result.
+        statistics.estimated_row_count = Float64(*join_order_estimate);
+    }
+    else if (inputs_known)
+    {
+        /// The join order optimizer did not see this join, or could not estimate an input this derivation
+        /// can (its estimator knows fewer operators, `Distinct` for one). The shared formula applies.
+        statistics.estimated_row_count = Float64(estimateJoinCardinality(
+            UInt64(left_statistics.estimated_row_count), UInt64(right_statistics.estimated_row_count),
+            join_selectivity, join_operator.kind, join_operator.strictness).value());
+    }
+    else
+    {
+        /// An input is unknown, so the result is unknown. The join order optimizer's bound is the search
+        /// value when it computed one.
+        statistics.rows_unknown = true;
+        const auto upper_bound = join_step.isEstimatedByJoinOrder() ? join_step.getResultRowsUpperBound() : std::nullopt;
+        statistics.estimated_row_count = upper_bound ? Float64(*upper_bound) : search_value;
     }
 
     /// Constrain the inner-product estimate to the join semantics (outer joins keep the preserved side,
@@ -394,7 +446,14 @@ ExpressionStatistics StatisticsDerivation::deriveReadStatistics(const ReadFromMe
         statistics.max_row_count = Float64(analyzed_result->selected_rows);
     }
     else
-        statistics.estimated_row_count = 1000000;
+    {
+        /// Nothing was analyzed, so there is no estimate. The table size bounds the read when the
+        /// storage knows it; otherwise the largest known leaf of the query is the search value.
+        statistics.rows_unknown = true;
+        statistics.estimated_row_count = statistics.max_row_count < Float64(std::numeric_limits<UInt64>::max())
+            ? statistics.max_row_count
+            : largestKnownLeafRowCount().value_or(CascadesDefaults::DEFAULT_UNKNOWN_READ_ROWS);
+    }
 
     const Float64 physical_selected_rows = analyzed_result ? Float64(analyzed_result->selected_rows) : 0;
 
@@ -438,7 +497,10 @@ ExpressionStatistics StatisticsDerivation::deriveReadStatistics(const ReadFromMe
 
     auto cardinality_hint = statistics_lookup.getCardinality(table_name);
     if (cardinality_hint)
+    {
         statistics.estimated_row_count = std::min<Float64>(statistics.estimated_row_count, Float64(*cardinality_hint));
+        statistics.rows_unknown = false;
+    }
 
     fillReadColumnWidths(statistics, read_step, table_name);
     statistics.estimated_bytes_per_row = estimateReadBytesPerRow(read_step, statistics);
@@ -656,8 +718,9 @@ static constexpr Float64 DEFAULT_DISTINCT_VALUES_RATIO = 0.1;
 /// NDV of a group key in the input; without stats, fall back to `DEFAULT_DISTINCT_VALUES_RATIO`.
 static Float64 keyDistinctValues(const String & column, const ExpressionStatistics & input_statistics)
 {
+    /// An entry with a zero NDV only carries the column's width; its NDV is unknown like a missing entry.
     auto column_stats = input_statistics.column_statistics.find(column);
-    if (column_stats != input_statistics.column_statistics.end())
+    if (column_stats != input_statistics.column_statistics.end() && column_stats->second.num_distinct_values > 0)
         return std::min(Float64(column_stats->second.num_distinct_values), input_statistics.max_row_count);
     return DEFAULT_DISTINCT_VALUES_RATIO * input_statistics.estimated_row_count;
 }

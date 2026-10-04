@@ -150,6 +150,23 @@ public:
     void setRuntimeFilterDeclinedForSmallProbe() { runtime_filter_declined_small_probe = true; }
     std::optional<UInt64> getResultRowsEstimation() const { return result_rows_estimation; }
     std::optional<UInt64> getResultRowsUpperBound() const { return result_rows_upper_bound; }
+    /// The join order optimizer decided this join: the estimate and the upper bound are the ones it
+    /// used. Both are empty for a join it never saw.
+    bool isEstimatedByJoinOrder() const { return estimated_by_join_order; }
+
+    /// Called by the join order optimizer for every join it builds.
+    void setJoinOrderEstimation(
+        std::optional<UInt64> estimated_rows_,
+        std::unordered_map<String, ColumnStats> column_stats_,
+        bool imprecise_estimate_,
+        std::optional<double> estimated_cost_,
+        std::optional<double> estimated_selectivity_,
+        UInt64 cluster_id_,
+        std::optional<UInt64> rows_upper_bound_)
+    {
+        setOptimized(estimated_rows_, std::move(column_stats_), imprecise_estimate_, estimated_cost_, estimated_selectivity_, cluster_id_, rows_upper_bound_);
+        estimated_by_join_order = true;
+    }
     std::optional<double> getEstimatedCost() const { return estimated_cost; }
     std::optional<double> getEstimatedSelectivity() const { return estimated_selectivity; }
     bool hasImpreciseEstimate() const { return imprecise_estimate; }
@@ -255,6 +272,7 @@ protected:
     std::unordered_map<String, ColumnStats> result_column_stats = {};
     /// Rows the join result cannot exceed, from the bounds of its inputs; see `estimateJoinRowsUpperBound`.
     std::optional<UInt64> result_rows_upper_bound = {};
+    bool estimated_by_join_order = false;
 
     /// True when the row count estimation used by join reordering was derived from the primary index
     /// rather than column statistics (because `use_statistics` is enabled but statistics are missing).

@@ -475,12 +475,13 @@ QueryPlanPtr CascadesOptimizer::buildBestPlan(GroupId subtree_root_group_id, Exp
             result->unitePlans(std::move(step), std::move(frame.child_plans));
         }
 
+        const auto & group_statistics = *memo.getGroup(frame.group_id)->statistics;
         result->getRootNode()->cost_estimation = CostEstimationInfo
             {
-                .rows = memo.getGroup(frame.group_id)->statistics->estimated_row_count,
+                .rows = group_statistics.rows_unknown ? std::nullopt : std::optional<Float64>(group_statistics.estimated_row_count),
                 .cost = frame.expression->cost->subtree_cost.total(cost_config),
                 .source = RowEstimateSource::NoSource,
-                .imprecise = false,
+                .imprecise = group_statistics.rows_unknown,
             };
         LOG_TEST(getLogger("buildBestPlan"), "Plan for group #{}:\n{}", frame.group_id, dumpQueryPlanShort(*result));
 

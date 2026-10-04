@@ -25,6 +25,14 @@ TEST(CascadesJoinStats, JoinKeyNdvMinRespectsPreservedSide)
     EXPECT_EQ(update_join_key_ndvs(JoinKind::Left, JoinStrictness::Anti, 100, 40), (std::pair<UInt64, UInt64>{100, 40}));
     EXPECT_EQ(update_join_key_ndvs(JoinKind::Left, JoinStrictness::Semi, 100, 40), (std::pair<UInt64, UInt64>{40, 40}));
     EXPECT_EQ(update_join_key_ndvs(JoinKind::Right, JoinStrictness::Semi, 40, 100), (std::pair<UInt64, UInt64>{40, 40}));
+
+    /// A zero NDV is unknown: the known side bounds it when the join filters its side, and it never
+    /// narrows the known side.
+    EXPECT_EQ(update_join_key_ndvs(JoinKind::Inner, JoinStrictness::All, 0, 40), (std::pair<UInt64, UInt64>{40, 40}));
+    EXPECT_EQ(update_join_key_ndvs(JoinKind::Inner, JoinStrictness::All, 100, 0), (std::pair<UInt64, UInt64>{100, 100}));
+    EXPECT_EQ(update_join_key_ndvs(JoinKind::Left, JoinStrictness::All, 0, 40), (std::pair<UInt64, UInt64>{0, 40}));
+    EXPECT_EQ(update_join_key_ndvs(JoinKind::Left, JoinStrictness::All, 100, 0), (std::pair<UInt64, UInt64>{100, 100}));
+    EXPECT_EQ(update_join_key_ndvs(JoinKind::Full, JoinStrictness::All, 0, 40), (std::pair<UInt64, UInt64>{0, 40}));
 }
 
 /// `clampJoinRowCount` adjusts an inner-join-style estimate to the semantics of the join kind and

@@ -32,7 +32,15 @@ void updateJoinKeyDistinctCounts(
             || kind == JoinKind::Cross || kind == JoinKind::Comma;
     }
 
-    const UInt64 minimum = std::min(left_stats.num_distinct_values, right_stats.num_distinct_values);
+    /// A zero NDV is an unknown NDV: it does not narrow the other side, and a side the join filters
+    /// takes the other side's NDV as its bound.
+    const UInt64 left_distinct_values = left_stats.num_distinct_values;
+    const UInt64 right_distinct_values = right_stats.num_distinct_values;
+    UInt64 minimum = std::min(left_distinct_values, right_distinct_values);
+    if (left_distinct_values == 0)
+        minimum = right_distinct_values;
+    else if (right_distinct_values == 0)
+        minimum = left_distinct_values;
     if (update_left)
         left_stats.num_distinct_values = minimum;
     if (update_right)

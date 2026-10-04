@@ -20,6 +20,11 @@ struct ExpressionStatistics
 {
     /// Number of rows estimated using probabilities, histograms, heuristics, etc.
     Float64 estimated_row_count = 0;
+    /// No estimate exists for this result: `estimated_row_count` is a search value for the cost
+    /// model (the proven upper bound when there is one, else the largest known leaf of the query),
+    /// never reported as an estimate. Set for a read the estimator could not estimate and for
+    /// everything derived from it.
+    bool rows_unknown = false;
     /// Proven minimum number of rows
     Float64 min_row_count = 0;
     /// Proven maximum number of rows. E.g. after a `LIMIT` step
