@@ -39,6 +39,24 @@ SELECT count() > 0 FROM
 )
 SETTINGS allow_experimental_correlated_subqueries = 1;
 
+-- The table alias `__CORRELATED` is legal, so the name under which the shadowed correlated column is passed
+-- through the lambda must not be derived from a fixed prefix: it would coincide with `__CORRELATED.value`.
+SELECT count() > 0 FROM
+(
+    EXPLAIN actions = 1
+    SELECT 1 FROM t_05233 AS t1
+    WHERE EXISTS (SELECT 1 FROM t_05233 AS __CORRELATED PREWHERE arrayMap(value -> __CORRELATED.value + t1.value + value, [toUInt8(1)])[1] = 21)
+)
+SETTINGS allow_experimental_correlated_subqueries = 1;
+
+SELECT count() > 0 FROM
+(
+    EXPLAIN actions = 1
+    SELECT 1 FROM t_05233 AS t1
+    WHERE EXISTS (SELECT 1 FROM t_05233 AS __CORRELATED PREWHERE arrayMap(value -> value + t1.value + __CORRELATED.value, [toUInt8(1)])[1] = 21)
+)
+SETTINGS allow_experimental_correlated_subqueries = 1;
+
 DROP TABLE t_05233;
 
 -- The synthetic column of an `INTERPOLATE` expression has no column identifier at all.

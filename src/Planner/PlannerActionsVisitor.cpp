@@ -766,6 +766,12 @@ private:
 
     NodeNameAndNodeMinLevel visitCorrelatedColumn(const ColumnNodePtr & node);
 
+    /// Whether a lambda scope on the actions stack declares an argument with this name.
+    bool isLambdaArgumentName(const String & name) const;
+
+    /// The name under which a column shadowed by a lambda argument is passed through lambda scopes.
+    String getShadowedColumnName(const QueryTreeNodePtr & node, std::string_view source_kind, const String & column_node_name) const;
+
     NodeNameAndNodeMinLevel visitConstant(const QueryTreeNodePtr & node, const std::string & override_column_name = {});
 
     NodeNameAndNodeMinLevel visitLambda(const QueryTreeNodePtr & node);
@@ -888,21 +894,7 @@ PlannerActionsVisitorImpl::NodeNameAndNodeMinLevel PlannerActionsVisitorImpl::vi
         return {column_node_name, Levels(0)};
     }
 
-    auto is_shadowed_by_lambda_at = [&](Int64 level)
-    {
-        const auto & scope = actions_stack[level].getScopeNode();
-        if (!scope || scope->getNodeType() != QueryTreeNodeType::LAMBDA)
-            return false;
-
-        const auto & arg_names = scope->as<LambdaNode &>().getArguments().getNames();
-        return std::find(arg_names.begin(), arg_names.end(), column_node_name) != arg_names.end();
-    };
-
-    bool shadowed_by_lambda = false;
-    for (Int64 i = actions_stack_size; i >= 0 && !shadowed_by_lambda; --i)
-        shadowed_by_lambda = is_shadowed_by_lambda_at(i);
-
-    if (!shadowed_by_lambda)
+    if (!isLambdaArgumentName(column_node_name))
     {
         for (Int64 i = actions_stack_size; i >= 0; --i)
             actions_stack[i].addInputColumnIfNecessary(column_node_name, column_node.getColumnType());
@@ -925,17 +917,7 @@ PlannerActionsVisitorImpl::NodeNameAndNodeMinLevel PlannerActionsVisitorImpl::vi
     /// capture loop of `visitLambda` resolves scope by scope down to an alias of the real INPUT in
     /// the outermost scope, which is not a lambda.
     ///
-    /// We use the column identifier (e.g. `__table1.x`) as the disambiguated name.
-    /// It is deterministic (same for the same query) and guaranteed to differ from
-    /// any lambda argument name because `createUniqueAliasesIfNecessary` assigns
-    /// a unique alias like `__table1` to every table expression before the planner runs.
-    ///
-    /// The synthetic column of an `INTERPOLATE` expression is not backed by a table expression,
-    /// so it has no column identifier. Derive a name that no lambda argument can have instead.
-    const auto * column_identifier = planner_context->getColumnNodeIdentifierOrNull(node);
-    String disambiguated = column_identifier
-        ? *column_identifier
-        : fmt::format("__{}.{}", column_source ? toString(column_source->getNodeType()) : "COLUMN", column_node_name);
+    String disambiguated = getShadowedColumnName(node, column_source ? toString(column_source->getNodeType()) : "COLUMN", column_node_name);
 
     for (Int64 i = actions_stack_size; i >= 0; --i)
     {
@@ -968,18 +950,7 @@ PlannerActionsVisitorImpl::NodeNameAndNodeMinLevel PlannerActionsVisitorImpl::vi
     /// scope on the stack declares as an argument. In that case pass it through every inner scope under
     /// a disambiguated name, which the capture loop of `visitLambda` resolves down to an alias of the
     /// placeholder in the outermost scope.
-    bool shadowed_by_lambda = false;
-    for (size_t i = 1; i < actions_stack.size() && !shadowed_by_lambda; ++i)
-    {
-        const auto & scope = actions_stack[i].getScopeNode();
-        if (scope && scope->getNodeType() == QueryTreeNodeType::LAMBDA)
-        {
-            const auto & arg_names = scope->as<LambdaNode &>().getArguments().getNames();
-            shadowed_by_lambda = std::find(arg_names.begin(), arg_names.end(), column_node_name) != arg_names.end();
-        }
-    }
-
-    if (!shadowed_by_lambda)
+    if (!isLambdaArgumentName(column_node_name))
     {
         for (size_t i = 1; i < actions_stack.size(); ++i)
             actions_stack[i].addInputColumnIfNecessary(column_node_name, node->getColumnType());
@@ -987,13 +958,53 @@ PlannerActionsVisitorImpl::NodeNameAndNodeMinLevel PlannerActionsVisitorImpl::vi
         return {column_node_name, Levels(0)};
     }
 
-    String disambiguated = fmt::format("__CORRELATED.{}", column_node_name);
+    String disambiguated = getShadowedColumnName(node, "CORRELATED", column_node_name);
     actions_stack[0].addAliasIfNecessary(disambiguated, placeholder_node);
 
     for (size_t i = 1; i < actions_stack.size(); ++i)
         actions_stack[i].addInputColumnIfNecessary(disambiguated, node->getColumnType());
 
     return {disambiguated, Levels(0)};
+}
+
+bool PlannerActionsVisitorImpl::isLambdaArgumentName(const String & name) const
+{
+    for (const auto & scope_node : actions_stack)
+    {
+        const auto & scope = scope_node.getScopeNode();
+        if (!scope || scope->getNodeType() != QueryTreeNodeType::LAMBDA)
+            continue;
+
+        const auto & arg_names = scope->as<LambdaNode &>().getArguments().getNames();
+        if (std::find(arg_names.begin(), arg_names.end(), name) != arg_names.end())
+            return true;
+    }
+
+    return false;
+}
+
+String PlannerActionsVisitorImpl::getShadowedColumnName(
+    const QueryTreeNodePtr & node, std::string_view source_kind, const String & column_node_name) const
+{
+    /// The name must not coincide with a lambda argument, or it would be taken for that argument, and must not
+    /// coincide with the name of another column, or the two columns would share one node.
+    ///
+    /// Prefer the column identifier (e.g. `__table1.x`, or `t1.x` for a correlated column of the outer query).
+    /// It is deterministic (same for the same query), and column identifiers are unique within the query.
+    if (const auto * column_identifier = planner_context->getColumnNodeIdentifierOrNull(node);
+        column_identifier && !isLambdaArgumentName(*column_identifier))
+        return *column_identifier;
+
+    /// The synthetic column of an `INTERPOLATE` expression is not backed by a table expression,
+    /// so it has no column identifier. Derive a name that is neither a column identifier of the query
+    /// (a table expression may have any alias, e.g. `__CORRELATED`) nor a lambda argument.
+    const auto & global_planner_context = planner_context->getGlobalPlannerContext();
+    String base_name = fmt::format("__{}.{}", source_kind, column_node_name);
+    String name = base_name;
+    for (size_t i = 1; global_planner_context->hasColumnIdentifier(name) || isLambdaArgumentName(name); ++i)
+        name = fmt::format("{}_{}", base_name, i);
+
+    return name;
 }
 
 PlannerActionsVisitorImpl::NodeNameAndNodeMinLevel PlannerActionsVisitorImpl::visitConstant(const QueryTreeNodePtr & node, const std::string & override_column_name)
