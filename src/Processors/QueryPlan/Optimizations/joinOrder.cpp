@@ -1,4 +1,5 @@
 #include <Processors/QueryPlan/Optimizations/joinOrder.h>
+#include <Processors/QueryPlan/Optimizations/joinOrderCommon.h>
 #include <Processors/QueryPlan/Optimizations/joinOrderAlgorithms.h>
 #include <Processors/QueryPlan/Optimizations/RelationStatistics.h>
 #include <Common/CurrentThread.h>
@@ -40,11 +41,12 @@ LoggerPtr getJoinOrderOptimizerLogger()
     return log;
 }
 
-DPJoinEntry::DPJoinEntry(size_t id, std::optional<UInt64> rows, std::unordered_map<String, ColumnStats> column_stats_)
+DPJoinEntry::DPJoinEntry(size_t id, const RelationStats & relation_stats)
     : relations()
     , cost(0.0)
-    , estimated_rows(rows)
-    , column_stats(std::move(column_stats_))
+    , estimated_rows(relation_stats.estimated_rows)
+    , max_rows(relation_stats.max_rows)
+    , column_stats(relation_stats.column_stats)
     , relation_id(static_cast<int>(id))
 {
     relations.set(id);
@@ -63,6 +65,8 @@ DPJoinEntry::DPJoinEntry(DPJoinEntryPtr lhs,
     , cost(cost_)
     , selectivity(selectivity_)
     , estimated_rows(cardinality_)
+    , max_rows(estimateJoinRowsUpperBound(left->max_rows, right->max_rows, join_operator_.kind, join_operator_.strictness))
+    , cost_from_unknown_rows(!left->estimated_rows || !right->estimated_rows || left->cost_from_unknown_rows || right->cost_from_unknown_rows)
     , join_operator(std::move(join_operator_))
     , join_method(join_method_)
 {

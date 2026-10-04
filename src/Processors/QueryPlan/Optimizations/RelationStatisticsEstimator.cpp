@@ -96,6 +96,7 @@ RelationStats estimateAggregatingStepStats(const AggregatingStep & aggregating_s
         total_number_of_distinct_values = input_stats.estimated_rows;
 
     aggregation_stats.estimated_rows = total_number_of_distinct_values;
+    aggregation_stats.max_rows = aggregator_params.keys.empty() ? std::optional<UInt64>(1) : input_stats.max_rows;
 
     return aggregation_stats;
 }
@@ -171,6 +172,7 @@ RelationStats estimateReadRowsCount(QueryPlan::Node & node, const ActionsDAG::No
                 auto relation_profile = estimator->estimateRelationProfile(reading->getStorageMetadata(), filter, prewhere_node);
                 RelationStats stats{
                     .estimated_rows = relation_profile.rows,
+                    .max_rows = analyzed_result ? std::optional<UInt64>(analyzed_result->selected_rows) : std::nullopt,
                     .column_stats = relation_profile.column_stats,
                     .table_name = table_display_name,
                     .source = RowEstimateSource::Statistics};
@@ -184,6 +186,7 @@ RelationStats estimateReadRowsCount(QueryPlan::Node & node, const ActionsDAG::No
         if (!analyzed_result)
             return RelationStats{
                 .estimated_rows = {},
+                .max_rows = reading->getStorageSnapshot()->storage.totalRows(reading->getContext()),
                 .table_name = table_display_name,
                 .imprecise_estimate = true,
                 .source = RowEstimateSource::NoStatistics};
@@ -215,12 +218,14 @@ RelationStats estimateReadRowsCount(QueryPlan::Node & node, const ActionsDAG::No
         if (has_filter && !is_filtered_by_index)
             return RelationStats{
                 .estimated_rows = {},
+                .max_rows = analyzed_result->selected_rows,
                 .table_name = table_display_name,
                 .imprecise_estimate = true,
                 .source = RowEstimateSource::NoStatistics};
 
         return RelationStats{
             .estimated_rows = analyzed_result->selected_rows,
+            .max_rows = analyzed_result->selected_rows,
             .table_name = table_display_name,
             .imprecise_estimate = true,
             .source = RowEstimateSource::PrimaryIndex};
@@ -231,9 +236,11 @@ RelationStats estimateReadRowsCount(QueryPlan::Node & node, const ActionsDAG::No
 
     if (const auto * reading = typeid_cast<const ReadFromMemoryStorageStep *>(step))
     {
-        UInt64 estimated_rows = reading->getStorage()->totalRows({}).value_or(0);
+        std::optional<UInt64> total_rows = reading->getStorage()->totalRows({});
         String table_display_name = reading->getStorage()->getName();
-        return RelationStats{.estimated_rows = estimated_rows, .table_name = table_display_name, .source = RowEstimateSource::Statistics};
+        if (!total_rows)
+            return RelationStats{.table_name = table_display_name, .imprecise_estimate = true, .source = RowEstimateSource::NoStatistics};
+        return RelationStats{.estimated_rows = total_rows, .max_rows = total_rows, .table_name = table_display_name, .source = RowEstimateSource::Statistics};
     }
 
     /// We cannot do typeid_cast<const ReadFromSystemOneStep *>(step)
@@ -242,7 +249,7 @@ RelationStats estimateReadRowsCount(QueryPlan::Node & node, const ActionsDAG::No
     if (step->getName() == "ReadFromSystemOne")
     {
         /// system.one always produces exactly one row — used to implement constant SELECTs like `SELECT 1`.
-        return RelationStats{.estimated_rows = 1, .table_name = "system.one"};
+        return RelationStats{.estimated_rows = 1, .max_rows = 1, .table_name = "system.one"};
     }
 
     if (const auto * reading = typeid_cast<const CommonSubplanReferenceStep *>(step))
@@ -259,6 +266,8 @@ RelationStats estimateReadRowsCount(QueryPlan::Node & node, const ActionsDAG::No
         auto limit = limit_step->getLimit();
         if (!estimated.estimated_rows || estimated.estimated_rows > limit)
             estimated.estimated_rows = limit;
+        if (!estimated.max_rows || estimated.max_rows > limit)
+            estimated.max_rows = limit;
         clearColumnValueRanges(estimated.column_stats);
         return estimated;
     }
@@ -293,6 +302,7 @@ RelationStats estimateReadRowsCount(QueryPlan::Node & node, const ActionsDAG::No
         /// re-report its tables as missing statistics; `imprecise_estimate` still records reliability.
         return RelationStats{
             .estimated_rows = join_step->getResultRowsEstimation(),
+            .max_rows = join_step->getResultRowsUpperBound(),
             .column_stats = join_step->getResultColumnStats(),
             .table_name = join_step->getReadableRelationName(),
             .imprecise_estimate = join_step->hasImpreciseEstimate()};
@@ -305,6 +315,8 @@ RelationStats estimateReadRowsCount(QueryPlan::Node & node, const ActionsDAG::No
         {
             if (!stats.estimated_rows || stats.estimated_rows > sorting_step->getLimit())
                 stats.estimated_rows = sorting_step->getLimit();
+            if (!stats.max_rows || stats.max_rows > sorting_step->getLimit())
+                stats.max_rows = sorting_step->getLimit();
             clearColumnValueRanges(stats.column_stats);
         }
         return stats;

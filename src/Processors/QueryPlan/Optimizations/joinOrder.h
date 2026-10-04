@@ -39,6 +39,11 @@ struct DPJoinEntry
     double cost = 0.0;
     double selectivity = 0.0;
     std::optional<UInt64> estimated_rows = {};
+    /// Rows the result cannot exceed; see `RelationStats::max_rows` and `estimateJoinRowsUpperBound`.
+    std::optional<UInt64> max_rows = {};
+    /// The cost of this entry or of a sub-plan used a search value for a missing row estimate
+    /// (`searchRows`), so the plan was ranked on a bound or a placeholder, not on an estimate.
+    bool cost_from_unknown_rows = false;
     std::unordered_map<String, ColumnStats> column_stats = {};
 
     /// For join nodes
@@ -49,7 +54,7 @@ struct DPJoinEntry
     int relation_id = -1;
 
     /// Constructor for a leaf node (base relation)
-    DPJoinEntry(size_t id, std::optional<UInt64> rows, std::unordered_map<String, ColumnStats> column_stats_ = {});
+    DPJoinEntry(size_t id, const RelationStats & relation_stats);
 
     /// Constructor for a join node
     DPJoinEntry(DPJoinEntryPtr lhs,
@@ -88,6 +93,11 @@ struct ConflictJoinOp
 struct QueryGraph
 {
     std::vector<RelationStats> relation_stats;
+
+    /// Search value for a relation whose row estimate and upper bound are both unknown: the
+    /// largest known row count among the relations of this graph. Unset when nothing is known,
+    /// in which case every such relation is costed as one row and they only tie with each other.
+    std::optional<UInt64> unknown_rows_fallback;
 
     std::vector<JoinActionRef> edges;
 

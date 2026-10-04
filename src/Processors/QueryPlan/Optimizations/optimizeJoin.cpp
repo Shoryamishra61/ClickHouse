@@ -45,6 +45,7 @@
 namespace ProfileEvents
 {
     extern const Event JoinOptimizeMicroseconds;
+    extern const Event JoinOrderJoinsCostedWithoutRowEstimate;
 }
 
 namespace DB
@@ -931,6 +932,13 @@ static QueryPlan::Node chooseJoinOrder(QueryGraphBuilder query_graph_builder, Qu
 {
     QueryGraph query_graph;
     query_graph.relation_stats = std::move(query_graph_builder.relation_stats);
+    for (const auto & relation : query_graph.relation_stats)
+    {
+        /// The search value for relations without any estimate; see `QueryGraph::unknown_rows_fallback`.
+        std::optional<UInt64> known = relation.estimated_rows ? relation.estimated_rows : relation.max_rows;
+        if (known && (!query_graph.unknown_rows_fallback || *known > *query_graph.unknown_rows_fallback))
+            query_graph.unknown_rows_fallback = known;
+    }
     query_graph.edges = std::move(query_graph_builder.join_edges);
     query_graph.join_kinds = std::move(query_graph_builder.join_kinds);
     query_graph.outer_join_conditions = std::move(query_graph_builder.outer_join_conditions);
@@ -1299,11 +1307,14 @@ static QueryPlan::Node chooseJoinOrder(QueryGraphBuilder query_graph_builder, Qu
                 join_settings,
                 sorting_settings);
 
-            /// Diagnostic only: a join is imprecise if any of its leaves was (see `leaf_imprecise` above).
-            bool imprecise_estimate = false;
+            /// Diagnostic only: a join is imprecise if any of its leaves was (see `leaf_imprecise` above)
+            /// or if its cost stood on a bound or a placeholder instead of an estimate.
+            bool imprecise_estimate = entry->cost_from_unknown_rows;
             for (size_t i = 0; i < leaf_imprecise.size(); ++i)
                 if (entry->relations.test(i))
                     imprecise_estimate |= leaf_imprecise[i];
+            if (entry->cost_from_unknown_rows)
+                ProfileEvents::increment(ProfileEvents::JoinOrderJoinsCostedWithoutRowEstimate);
 
             join_step->setInputRelations(relation_infos[left_rels], relation_infos[right_rels]);
             relation_infos[entry->relations] = RelationEstimateInfo{
@@ -1312,7 +1323,7 @@ static QueryPlan::Node chooseJoinOrder(QueryGraphBuilder query_graph_builder, Qu
                 .imprecise_estimate = imprecise_estimate,
                 .composite = true};
 
-            join_step->setOptimized(entry->estimated_rows, entry->column_stats, imprecise_estimate, entry->cost, entry->selectivity, cluster_id);
+            join_step->setOptimized(entry->estimated_rows, entry->column_stats, imprecise_estimate, entry->cost, entry->selectivity, cluster_id, entry->max_rows);
 
             auto & new_node = nodes.emplace_back();
 

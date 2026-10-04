@@ -75,9 +75,48 @@ inline double computeSelectivity(
     return selectivity;
 }
 
+/// Rows a join cannot exceed, from the bounds of its inputs: an inner or cross join at most the
+/// product, an outer join at most the product plus the preserved rows that may stay unmatched,
+/// a semi or anti join at most its preserved input. Unknown when a needed input bound is unknown.
+/// The product saturates at the maximum `UInt64` instead of wrapping; a saturated bound is still
+/// a bound.
+inline std::optional<UInt64> estimateJoinRowsUpperBound(
+    std::optional<UInt64> left_max, std::optional<UInt64> right_max, JoinKind join_kind, JoinStrictness strictness)
+{
+    constexpr UInt64 max = std::numeric_limits<UInt64>::max();
+    auto saturating_mul = [](UInt64 a, UInt64 b) { UInt64 r; return __builtin_mul_overflow(a, b, &r) ? max : r; };
+    auto saturating_add = [](UInt64 a, UInt64 b) { UInt64 r; return __builtin_add_overflow(a, b, &r) ? max : r; };
+
+    if (strictness == JoinStrictness::Semi || strictness == JoinStrictness::Anti)
+        return isRight(join_kind) ? right_max : left_max;
+
+    if (!left_max || !right_max)
+        return {};
+
+    UInt64 bound = saturating_mul(*left_max, *right_max);
+    if (join_kind == JoinKind::Left || join_kind == JoinKind::Full)
+        bound = saturating_add(bound, *left_max);
+    if (join_kind == JoinKind::Right || join_kind == JoinKind::Full)
+        bound = saturating_add(bound, *right_max);
+    return bound;
+}
+
+/// Rows the cost of an entry counts: the estimate when there is one, otherwise the upper bound,
+/// otherwise the graph's fallback (the largest known relation). A missing estimate is never
+/// counted as one row, which would make the plan that contains it look cheap.
+inline double searchRows(const DPJoinEntryPtr & entry, const QueryGraph & query_graph)
+{
+    if (entry->estimated_rows)
+        return static_cast<double>(*entry->estimated_rows);
+    if (entry->max_rows)
+        return static_cast<double>(*entry->max_rows);
+    return static_cast<double>(query_graph.unknown_rows_fallback.value_or(1));
+}
+
 /// Single source of truth for join cardinality estimation. For outer joins the result is
 /// floored by the number of rows from the preserved side(s), since those are always emitted
-/// (NULL-padded when there is no match): LEFT keeps all left rows, RIGHT all right rows, FULL both.
+/// (NULL-padded when there is no match): LEFT keeps all left rows, RIGHT all right rows, FULL
+/// at least the larger side.
 ///
 /// Semi/anti joins are filters on their preserved side (LEFT preserves the left input, RIGHT the
 /// right), so they never expand and must NOT be floored at the preserved side's row count. A
@@ -91,6 +130,25 @@ inline std::optional<UInt64> estimateJoinCardinality(
     JoinKind join_kind,
     JoinStrictness strictness = JoinStrictness::All)
 {
+    /// An input known to be empty decides the result without the other input: an inner, cross or
+    /// semi join is empty; an anti join and an outer join keep the preserved side.
+    const bool left_empty = left_rows && *left_rows == 0;
+    const bool right_empty = right_rows && *right_rows == 0;
+    if (left_empty || right_empty)
+    {
+        const bool preserves_left = join_kind == JoinKind::Left || join_kind == JoinKind::Full
+            || (strictness == JoinStrictness::Anti && !isRight(join_kind));
+        const bool preserves_right = join_kind == JoinKind::Right || join_kind == JoinKind::Full
+            || (strictness == JoinStrictness::Anti && isRight(join_kind));
+        if (strictness == JoinStrictness::Anti)
+            return isRight(join_kind) ? (left_empty ? right_rows : std::optional<UInt64>(0)) : (right_empty ? left_rows : std::optional<UInt64>(0));
+        if (left_empty && right_empty)
+            return 0;
+        if (left_empty)
+            return preserves_right ? right_rows : std::optional<UInt64>(0);
+        return preserves_left ? left_rows : std::optional<UInt64>(0);
+    }
+
     if (!left_rows || !right_rows)
         return {};
 
@@ -122,8 +180,10 @@ inline std::optional<UInt64> estimateJoinCardinality(
         joined_rows = std::max(joined_rows, lhs);
     if (join_kind == JoinKind::Right)
         joined_rows = std::max(joined_rows, rhs);
+    /// Every row of both sides appears at least once, matched or padded, so the result is at least
+    /// the larger side. The sum of both sides is not a lower bound: matched rows appear once.
     if (join_kind == JoinKind::Full)
-        joined_rows = std::max(joined_rows, lhs + rhs);
+        joined_rows = std::max(joined_rows, std::max(lhs, rhs));
 
     /// Use >= to avoid undefined behavior when joined_rows is very close to max UInt64
     /// Due to floating point precision, a value slightly less than max when compared
@@ -144,10 +204,9 @@ inline std::optional<UInt64> estimateJoinCardinality(
     return estimateJoinCardinality(left->estimated_rows, right->estimated_rows, selectivity, join_kind);
 }
 
-inline double computeJoinCost(const DPJoinEntryPtr & left, const DPJoinEntryPtr & right, double selectivity)
+inline double computeJoinCost(const QueryGraph & query_graph, const DPJoinEntryPtr & left, const DPJoinEntryPtr & right, double selectivity)
 {
-    return left->cost + right->cost
-        + selectivity * static_cast<double>(left->estimated_rows.value_or(1)) * static_cast<double>(right->estimated_rows.value_or(1));
+    return left->cost + right->cost + selectivity * searchRows(left, query_graph) * searchRows(right, query_graph);
 }
 
 }

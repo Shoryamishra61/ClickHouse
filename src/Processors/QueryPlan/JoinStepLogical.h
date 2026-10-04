@@ -149,6 +149,7 @@ public:
     bool isRuntimeFilterDeclinedForSmallProbe() const { return runtime_filter_declined_small_probe; }
     void setRuntimeFilterDeclinedForSmallProbe() { runtime_filter_declined_small_probe = true; }
     std::optional<UInt64> getResultRowsEstimation() const { return result_rows_estimation; }
+    std::optional<UInt64> getResultRowsUpperBound() const { return result_rows_upper_bound; }
     std::optional<double> getEstimatedCost() const { return estimated_cost; }
     std::optional<double> getEstimatedSelectivity() const { return estimated_selectivity; }
     bool hasImpreciseEstimate() const { return imprecise_estimate; }
@@ -161,10 +162,12 @@ public:
         bool imprecise_estimate_ = false,
         std::optional<double> estimated_cost_ = {},
         std::optional<double> estimated_selectivity_ = {},
-        UInt64 cluster_id_ = 0)
+        UInt64 cluster_id_ = 0,
+        std::optional<UInt64> rows_upper_bound_ = {})
     {
         optimized = true;
         result_rows_estimation = estimated_rows_;
+        result_rows_upper_bound = rows_upper_bound_;
         result_column_stats = std::move(column_stats_);
         imprecise_estimate = imprecise_estimate_;
         estimated_cost = estimated_cost_;
@@ -250,6 +253,8 @@ protected:
     std::optional<double> estimated_selectivity = {};
     UInt64 cluster_id = 0;
     std::unordered_map<String, ColumnStats> result_column_stats = {};
+    /// Rows the join result cannot exceed, from the bounds of its inputs; see `estimateJoinRowsUpperBound`.
+    std::optional<UInt64> result_rows_upper_bound = {};
 
     /// True when the row count estimation used by join reordering was derived from the primary index
     /// rather than column statistics (because `use_statistics` is enabled but statistics are missing).

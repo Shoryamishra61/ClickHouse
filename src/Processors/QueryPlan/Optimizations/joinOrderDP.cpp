@@ -26,7 +26,7 @@ DPJoinEntryPtr evaluateJoin(
     LoggerPtr log)
 {
     auto selectivity = computeSelectivity(query_graph, dp_table, expression_selectivity, predicates, left->relations, right->relations);
-    auto new_cost = computeJoinCost(left, right, selectivity);
+    auto new_cost = computeJoinCost(query_graph, left, right, selectivity);
 
     const BitSet combined_rels = left->relations | right->relations;
     auto current_best = dp_table.find(combined_rels);

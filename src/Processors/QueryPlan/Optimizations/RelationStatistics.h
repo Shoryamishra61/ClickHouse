@@ -17,6 +17,10 @@ class ActionsDAG;
 struct RelationStats
 {
     std::optional<UInt64> estimated_rows = {};
+    /// Rows the relation cannot exceed: the selected rows of a read, carried through the steps above
+    /// it by their semantics (a filter keeps the bound, a limit lowers it). Known for many relations
+    /// whose point estimate is unknown, so a missing point does not have to be costed as one row.
+    std::optional<UInt64> max_rows = {};
     std::optional<Float64> avg_row_bytes = {};
     std::unordered_map<String, ColumnStats> column_stats = {};
 

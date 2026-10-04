@@ -526,7 +526,7 @@ std::shared_ptr<DPJoinEntry> DPSubJoinOrderOptimizer::buildPhysicalPlan(const DP
 {
     auto& entry = dptable[S];
     if (!entry.left && !entry.right)
-        return std::make_shared<DPJoinEntry>(std::countr_zero(S), entry.estimated_rows, entry.column_stats);
+        return std::make_shared<DPJoinEntry>(std::countr_zero(S), query_graph.relation_stats[std::countr_zero(S)]);
 
     /// `entry.strictness` is All for every DP entry except semi/anti joins admitted by the
     /// conflict detector (CD-A/CD-C), which must keep their strictness in the reordered tree.
@@ -588,6 +588,7 @@ std::shared_ptr<DPJoinEntry> DPSubJoinOrderOptimizer::solve()
         Bitvector left{0};
         Bitvector right{0};
         std::optional<UInt64> estimated_rows = {};
+        std::optional<UInt64> max_rows = {};
         std::unordered_map<String, ColumnStats> column_stats = {};
         double cost{.0};
         double sel{.0};
@@ -620,6 +621,7 @@ std::shared_ptr<DPJoinEntry> DPSubJoinOrderOptimizer::solve()
     {
         auto & leaf = checker.getDPTable()[static_cast<Bitvector>(1) << i];
         leaf.estimated_rows = query_graph.relation_stats[i].estimated_rows;
+        leaf.max_rows = query_graph.relation_stats[i].max_rows;
         leaf.column_stats = query_graph.relation_stats[i].column_stats;
     }
     Enumerator enumerator(n, max_nr_ccps, log);

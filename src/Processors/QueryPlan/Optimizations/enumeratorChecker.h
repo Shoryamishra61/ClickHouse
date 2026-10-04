@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Processors/QueryPlan/Optimizations/joinOrderCommon.h>
 #include <Interpreters/JoinExpressionActions.h>
 #include <Common/logger_useful.h>
 
@@ -62,9 +63,16 @@ EnumeratorCheckerWithCosts<TDPTable, TOptimizer>::computeJoinCost(const UInt lhs
                                                                   const UInt rhs,
                                                                   const double selectivity) const
 {
-    return dp_table[lhs].cost + dp_table[rhs].cost
-        + selectivity * static_cast<double>(dp_table[lhs].estimated_rows.value_or(1))
-        * static_cast<double>(dp_table[rhs].estimated_rows.value_or(1));
+    /// The same search value as `searchRows`: estimate, else upper bound, else the graph's fallback.
+    auto search_rows = [&](const auto & entry) -> double
+    {
+        if (entry.estimated_rows)
+            return static_cast<double>(*entry.estimated_rows);
+        if (entry.max_rows)
+            return static_cast<double>(*entry.max_rows);
+        return static_cast<double>(optimizer.query_graph.unknown_rows_fallback.value_or(1));
+    };
+    return dp_table[lhs].cost + dp_table[rhs].cost + selectivity * search_rows(dp_table[lhs]) * search_rows(dp_table[rhs]);
 }
 
 
@@ -130,6 +138,7 @@ EnumeratorCheckerWithCosts<TDPTable, TOptimizer>::accept(const UInt result_subse
         entry.kind = kind;
         entry.strictness = strictness;
         entry.estimated_rows = optimizer.estimateCardinality(dp_table[lhs_subset].estimated_rows, dp_table[rhs_subset].estimated_rows, selectivity, kind, strictness);
+        entry.max_rows = estimateJoinRowsUpperBound(dp_table[lhs_subset].max_rows, dp_table[rhs_subset].max_rows, kind, strictness);
         entry.edges.assign(edge.begin(), edge.end());
     }
 }

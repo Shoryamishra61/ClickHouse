@@ -52,7 +52,7 @@ DPJoinEntryPtr GreedyJoinOrderOptimizer::solve()
     for (size_t i = 0; i < query_graph.relation_stats.size(); ++i)
     {
         const auto & rel = query_graph.relation_stats[i];
-        components.push_back(std::make_shared<DPJoinEntry>(i, rel.estimated_rows, rel.column_stats));
+        components.push_back(std::make_shared<DPJoinEntry>(i, rel));
     }
 
     std::vector<JoinActionRef *> applied_edges;
@@ -82,7 +82,7 @@ DPJoinEntryPtr GreedyJoinOrderOptimizer::solve()
                     continue;
 
                 auto selectivity = computeSelectivity(query_graph, dp_table, expression_selectivity, edges, left->relations, right->relations);
-                auto current_cost = computeJoinCost(left, right, selectivity);
+                auto current_cost = computeJoinCost(query_graph, left, right, selectivity);
                 if (!best_plan || current_cost < best_plan->cost)
                 {
                     if (join_kind == JoinKind::Inner && !connected)
