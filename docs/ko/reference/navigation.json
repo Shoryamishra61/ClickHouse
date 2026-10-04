@@ -427,6 +427,7 @@
             "ko/reference/engines/database-engines/memory",
             "ko/reference/engines/database-engines/mysql",
             "ko/reference/engines/database-engines/ordinary",
+            "ko/reference/engines/database-engines/overlay",
             "ko/reference/engines/database-engines/postgresql",
             "ko/reference/engines/database-engines/remote",
             "ko/reference/engines/database-engines/replicated",

@@ -427,6 +427,7 @@
             "pt-BR/reference/engines/database-engines/memory",
             "pt-BR/reference/engines/database-engines/mysql",
             "pt-BR/reference/engines/database-engines/ordinary",
+            "pt-BR/reference/engines/database-engines/overlay",
             "pt-BR/reference/engines/database-engines/postgresql",
             "pt-BR/reference/engines/database-engines/remote",
             "pt-BR/reference/engines/database-engines/replicated",
