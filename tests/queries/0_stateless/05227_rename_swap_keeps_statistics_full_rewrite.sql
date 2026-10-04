@@ -1,4 +1,6 @@
--- Tags: zookeeper
+-- Tags: zookeeper, no-shared-merge-tree
+-- no-shared-merge-tree: relies on `ReplicatedMergeTree` attaching a detached part with its old metadata version, so that
+-- the rename reaches it only through the rename map of the next mutation
 -- A compact part is always mutated by rewriting every column, and on that path the statistics
 -- collectors are created from the current table metadata, so they already carry the names the
 -- columns have now. Applying the part's pending `RENAME COLUMN` / `DROP COLUMN` commands to them a
