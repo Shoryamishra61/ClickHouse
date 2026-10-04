@@ -636,10 +636,12 @@ void LocalServer::tryInitPath()
 {
     std::string path;
 
-    if (getClientConfiguration().has("path"))
+    if (getClientConfiguration().has("path") && (path_from_command_line || !getClientConfiguration().has("tmp")))
     {
-        /// User-supplied path. It takes precedence over --tmp, so that wrappers can pass --tmp
-        /// as a baseline and still redirect particular invocations to an explicit location.
+        /// User-supplied path. A path from the command line takes precedence over --tmp, so that wrappers
+        /// can pass --tmp as a baseline and still redirect particular invocations to an explicit location.
+        /// A path from a config file does not, so --tmp always gives a unique temporary directory
+        /// and never loads or locks the directory configured in the home or the current directory.
         path = getClientConfiguration().getString("path");
         Poco::trimInPlace(path);
 
@@ -687,6 +689,7 @@ void LocalServer::tryInitPath()
 
         /// The directory can be created lazily during the runtime.
         temporary_directory_to_delete = default_path;
+        use_temporary_path = true;
 
         path = default_path.string();
         LOG_DEBUG(log, "Working directory will be created as needed: {}", path);
@@ -1288,7 +1291,7 @@ void LocalServer::setupUsers()
 
     /// Add a writeable storage for SQL-based access management.
     /// This allows creating users, roles, row policies, etc. via SQL queries.
-    if (getClientConfiguration().has("path"))
+    if (!use_temporary_path)
     {
         /// Use disk storage for persistence when working with a durable directory
         /// (--path or the default designated directory in the home).
@@ -1922,7 +1925,7 @@ void LocalServer::processConfig()
     /// passes `--tmp`, while it used to work in the default mode when that mode had no `path` at all.
     const bool attach_system_tables = !getClientConfiguration().has("no-system-tables");
 
-    if (getClientConfiguration().has("path"))
+    if (!use_temporary_path)
     {
         if (attach_system_tables)
         {
@@ -2299,7 +2302,10 @@ void LocalServer::applyCmdOptions(ContextMutablePtr context)
 void LocalServer::processOptions(const OptionsDescription &, const CommandLineOptions & options, const std::vector<Arguments> &, const std::vector<Arguments> &)
 {
     if (options.contains("path"))
+    {
         getClientConfiguration().setString("path", options["path"].as<std::string>());
+        path_from_command_line = true;
+    }
     if (options.contains("tmp"))
         getClientConfiguration().setBool("tmp", true);
     if (options.contains("table"))

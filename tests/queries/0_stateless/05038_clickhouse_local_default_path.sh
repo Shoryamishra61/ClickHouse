@@ -44,4 +44,11 @@ local_default --tmp --path "$path_dir" --query "SELECT * FROM t2"
 local_default --query "EXISTS TABLE t2"
 local_default --query "SELECT * FROM t"
 
+# A `path` from a config file is used by default, but unlike an explicit --path,
+# it does not take precedence over --tmp.
+mkdir -p "$home_dir/.clickhouse-local"
+echo "<clickhouse><path>$path_dir</path></clickhouse>" > "$home_dir/.clickhouse-local/config.xml"
+local_default --query "EXISTS TABLE t2"
+local_default --tmp --query "EXISTS TABLE t2"
+
 rm -rf "$home_dir" "$path_dir"
