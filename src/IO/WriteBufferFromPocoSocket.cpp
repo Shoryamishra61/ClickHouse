@@ -53,8 +53,8 @@ ssize_t WriteBufferFromPocoSocket::socketSendBytesImpl(const char * ptr, size_t 
         bool secure = socket.secure();
         res = socket.impl()->sendBytes(ptr, static_cast<int>(size));
 
-        /// Check EAGAIN and ERR_SSL_WANT_WRITE/ERR_SSL_WANT_READ for secure socket (writing to secure socket can read too).
-        while (res < 0 && (errno == EAGAIN || (secure && (checkSSLWantRead(res) || checkSSLWantWrite(res)))))
+        /// Check would-block (`EAGAIN` on POSIX, `WSAEWOULDBLOCK` on Windows) and ERR_SSL_WANT_WRITE/ERR_SSL_WANT_READ for secure socket (writing to secure socket can read too).
+        while (res < 0 && (Socket::isWouldBlock(Socket::lastError()) || (secure && (checkSSLWantRead(res) || checkSSLWantWrite(res)))))
         {
             /// In case of ERR_SSL_WANT_READ we should wait for socket to be ready for reading, otherwise - for writing.
             if (secure && checkSSLWantRead(res))
