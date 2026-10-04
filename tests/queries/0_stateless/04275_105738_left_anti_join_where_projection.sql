@@ -7,6 +7,9 @@
 -- WHERE predicate, which previously could pick different plans and expose the
 -- right-key projection inconsistency.
 
+-- `grace_hash` needs a spill threshold, which `max_bytes_ratio_before_external_join` no longer provides by default.
+SET max_bytes_ratio_before_external_join = 0.5;
+
 DROP TABLE IF EXISTS m_105738;
 
 CREATE TABLE m_105738 (c0 Int32, c1 UInt64, c2 UInt64) ENGINE = MergeTree() ORDER BY (-c0);

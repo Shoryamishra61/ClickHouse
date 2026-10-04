@@ -3,6 +3,9 @@
 -- matching row in the right table. The right-table columns (including the join key)
 -- must contain default values for those unmatched rows, not the left key value.
 
+-- `grace_hash` needs a spill threshold, which `max_bytes_ratio_before_external_join` no longer provides by default.
+SET max_bytes_ratio_before_external_join = 0.5;
+
 DROP TABLE IF EXISTS left_99959;
 DROP TABLE IF EXISTS right_99959;
 DROP TABLE IF EXISTS right_99959_multi;

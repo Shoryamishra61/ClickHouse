@@ -3,6 +3,9 @@
 -- The right side is empty only at runtime, and the join runtime filter is switched off, because it stops
 -- the left side on its own and would hide a regression here.
 
+-- `grace_hash` needs a spill threshold, which `max_bytes_ratio_before_external_join` no longer provides by default.
+SET max_bytes_ratio_before_external_join = 0.5;
+
 -- The CI test config caps the rows a query may read, and the left side declares more than that even
 -- though the join never reads it.
 SET max_rows_to_read = 0, max_bytes_to_read = 0;

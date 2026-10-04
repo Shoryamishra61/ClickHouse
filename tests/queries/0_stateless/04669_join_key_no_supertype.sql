@@ -2,6 +2,9 @@
 -- It is enough to convert both keys to the type of the values they have in common.
 -- https://github.com/ClickHouse/ClickHouse/issues/21794
 
+-- `grace_hash` needs a spill threshold, which `max_bytes_ratio_before_external_join` no longer provides by default.
+SET max_bytes_ratio_before_external_join = 0.5;
+
 -- It is implemented only in the analyzer; with `enable_analyzer = 0` such a query is still rejected.
 SET enable_analyzer = 1;
 

@@ -1,5 +1,8 @@
 -- Expressions over the right join key must keep its timezone (issue #111033).
 
+-- `grace_hash` needs a spill threshold, which `max_bytes_ratio_before_external_join` no longer provides by default.
+SET max_bytes_ratio_before_external_join = 0.5;
+
 SELECT 'hash';
 SELECT toString(r.k), r.k, toTypeName(r.k)
 FROM (SELECT toDateTime(number, 'UTC') AS k FROM numbers(2)) AS l

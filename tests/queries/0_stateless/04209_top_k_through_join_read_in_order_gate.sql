@@ -31,7 +31,7 @@ INSERT INTO t_r SELECT number, repeat('b', 8) FROM numbers(1000);
 -- step that breaks the deferral's storage-step lookup.
 -- `max_bytes_*_before_external_join = 0` pins automatic spilling off so the
 -- deferral does not bail out on `SpillingHashJoin::hasDelayedBlocks()` (the
--- default `max_bytes_ratio_before_external_join = 0.5` wraps every hash join,
+-- non-zero `max_bytes_ratio_before_external_join`, as it was by default, wraps every hash join,
 -- which `optimizeReadInOrder`'s join traversal rejects).
 SELECT 'both_on' AS label, countIf(explain LIKE '%Sorting%') AS sort_count, countIf(explain LIKE '%Limit%') AS limit_count
 FROM ( EXPLAIN actions = 0

@@ -1,3 +1,6 @@
+-- `grace_hash` needs a spill threshold, which `max_bytes_ratio_before_external_join` no longer provides by default.
+SET max_bytes_ratio_before_external_join = 0.5;
+
 SET allow_suspicious_low_cardinality_types = 1;
 
 -- A single `LowCardinality` key wider than 8 bytes must match by value, not collapse to one bucket.

@@ -5,6 +5,9 @@
 -- `UNKNOWN_ELEMENT_OF_ENUM` (`Unexpected value 0 in enum`), while `toString`, `=` and `IN` on the
 -- same rows worked. Those slots now hold the enum's default before a function sees them.
 
+-- `grace_hash` needs a spill threshold, which `max_bytes_ratio_before_external_join` no longer provides by default.
+SET max_bytes_ratio_before_external_join = 0.5;
+
 DROP TABLE IF EXISTS t_05207;
 CREATE TABLE t_05207 (e Nullable(Enum8('a' = 1, 'b' = 2))) ENGINE = MergeTree ORDER BY tuple();
 INSERT INTO t_05207 VALUES (NULL), ('a'), ('b');

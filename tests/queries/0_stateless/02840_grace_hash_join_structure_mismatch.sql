@@ -1,3 +1,6 @@
+-- `grace_hash` needs a spill threshold, which `max_bytes_ratio_before_external_join` no longer provides by default.
+SET max_bytes_ratio_before_external_join = 0.5;
+
 set allow_suspicious_low_cardinality_types = 1;
 SET optimize_trivial_insert_select = 0;
 CREATE TABLE t1__fuzz_17 (`a` LowCardinality(UInt8), `b` Nullable(UInt256)) ENGINE = Memory;

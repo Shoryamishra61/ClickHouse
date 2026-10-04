@@ -3,6 +3,9 @@
 -- ones, so the row count of a join depended on `join_algorithm`. The null maps of the tuple's elements
 -- were folded into the key's null map; only the top level says whether the key of a row is NULL.
 
+-- `grace_hash` needs a spill threshold, which `max_bytes_ratio_before_external_join` no longer provides by default.
+SET max_bytes_ratio_before_external_join = 0.5;
+
 SET enable_nullable_tuple_type = 1;
 
 DROP TABLE IF EXISTS t_null_tuple_key;

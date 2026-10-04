@@ -1,3 +1,6 @@
+-- `grace_hash` needs a spill threshold, which `max_bytes_ratio_before_external_join` no longer provides by default.
+SET max_bytes_ratio_before_external_join = 0.5;
+
 SET enable_analyzer = 1;
 
 DROP TABLE IF EXISTS t1;

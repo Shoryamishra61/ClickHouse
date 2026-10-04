@@ -1,5 +1,8 @@
 -- Session SET (not per-statement SETTINGS) so it also covers the oracle subqueries
 -- and is not overridden by `compatibility` randomization.
+-- `grace_hash` needs a spill threshold, which `max_bytes_ratio_before_external_join` no longer provides by default.
+SET max_bytes_ratio_before_external_join = 0.5;
+
 SET enable_analyzer = 1;
 SET allow_experimental_join_condition = 1;
 
@@ -46,7 +49,7 @@ SETTINGS join_algorithm = 'full_sorting_merge,grace_hash';
 -- so the same query silently changed its answer as the right table grew.
 -- Both external-join settings are pinned because the spilling branch of the AUTO arm is
 -- evaluated before the JoinSwitcher one and delegates to a HashJoin, which honours the
--- mixed condition; the ratio defaults to 0.5 and yields a non-zero threshold on any server
+-- mixed condition; the ratio is set to 0.5 for this session above and yields a non-zero threshold on any server
 -- with a memory limit, so pinning only the absolute setting would leave that branch live.
 SELECT 'auto,hash max_rows_in_join=1', count(), sum(t2.a) FROM t1 LEFT JOIN t2 ON (t1.key = t2.key) AND (t1.a * 10 < t2.a)
 SETTINGS join_algorithm = 'auto,hash', max_rows_in_join = 1,

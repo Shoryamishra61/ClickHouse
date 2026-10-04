@@ -1,5 +1,8 @@
 -- Tags: no-old-analyzer
 
+-- `grace_hash` needs a spill threshold, which `max_bytes_ratio_before_external_join` no longer provides by default.
+SET max_bytes_ratio_before_external_join = 0.5;
+
 -- `spilled_to_disk` names the operators that wrote data to temporary files, so an operator that only
 -- created the files without ever writing to them is not one of them. `GraceHashJoin` allocates the
 -- temporary buffers of every bucket as soon as it starts, and with a single bucket it then joins

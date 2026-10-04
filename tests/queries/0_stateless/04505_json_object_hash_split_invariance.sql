@@ -8,6 +8,9 @@
 -- spill could re-hash a key backward into an already-joined bucket, raising a FileBucket
 -- "Invalid state transition" logical error.
 
+-- `grace_hash` needs a spill threshold, which `max_bytes_ratio_before_external_join` no longer provides by default.
+SET max_bytes_ratio_before_external_join = 0.5;
+
 SET allow_experimental_json_type = 1;
 SET allow_suspicious_types_in_group_by = 1;
 SET allow_suspicious_types_in_order_by = 1;

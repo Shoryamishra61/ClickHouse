@@ -1,3 +1,6 @@
+-- `grace_hash` needs a spill threshold, which `max_bytes_ratio_before_external_join` no longer provides by default.
+SET max_bytes_ratio_before_external_join = 0.5;
+
 create table adaptive_spill_03277_1 (`k` String, `x` String ) Engine=Memory;
 create table adaptive_spill_03277_2 (`k` String, `x` String ) Engine=Memory;
 create table adaptive_spill_03277_3 (`k` String, `x` String ) Engine=Memory;

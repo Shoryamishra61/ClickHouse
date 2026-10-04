@@ -1,5 +1,8 @@
 -- Tags: no-old-analyzer
 
+-- `grace_hash` needs a spill threshold, which `max_bytes_ratio_before_external_join` no longer provides by default.
+SET max_bytes_ratio_before_external_join = 0.5;
+
 -- `used_number_of_joins` counts the physical joins of the executed pipeline, `used_join_algorithms`,
 -- `used_join_kinds` and `used_join_strictness` describe them, and `spilled_to_disk` lists the
 -- operators that wrote temporary data, which is not limited to joins.

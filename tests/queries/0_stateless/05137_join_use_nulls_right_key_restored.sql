@@ -1,6 +1,9 @@
 -- Tags: no-parallel-replicas
 -- The EXPLAIN queries filter plan headers by column name, and parallel replicas add extra plan steps that print the same header.
 
+-- `grace_hash` needs a spill threshold, which `max_bytes_ratio_before_external_join` no longer provides by default.
+SET max_bytes_ratio_before_external_join = 0.5;
+
 -- https://github.com/ClickHouse/ClickHouse/issues/118738
 -- With join_use_nulls, a selected right join key is joined on as its Nullable output column, so the right
 -- side carries one column that the join restores from the left key, instead of the plain key plus the

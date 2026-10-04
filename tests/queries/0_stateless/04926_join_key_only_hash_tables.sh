@@ -63,7 +63,7 @@ SELECT '-- dense small range, converted to a flat array';
 SELECT count() FROM l_num AS l ANTI LEFT JOIN r_num AS r ON l.k = r.k SETTINGS enable_join_fixed_hash_table_conversion = 1;
 SELECT '-- other join algorithms';
 SELECT k FROM l_num ANTI LEFT JOIN r_num USING (k) ORDER BY k SETTINGS join_algorithm = 'parallel_hash';
-SELECT k FROM l_num ANTI LEFT JOIN r_num USING (k) ORDER BY k SETTINGS join_algorithm = 'grace_hash';
+SELECT k FROM l_num ANTI LEFT JOIN r_num USING (k) ORDER BY k SETTINGS join_algorithm = 'grace_hash', max_bytes_ratio_before_external_join = 0.5;
 SELECT k FROM l_num SEMI LEFT JOIN r_num USING (k) ORDER BY k SETTINGS join_algorithm = 'parallel_hash';
 SELECT '-- another algorithm may reclaim the right blocks, so they are kept';
 SELECT k FROM l_num ANTI LEFT JOIN r_num USING (k) ORDER BY k SETTINGS max_bytes_before_external_join = 1000000;

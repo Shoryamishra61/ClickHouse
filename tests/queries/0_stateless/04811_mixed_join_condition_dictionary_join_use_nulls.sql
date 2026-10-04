@@ -8,6 +8,9 @@
 -- resolves those by name, so it read a `Nullable` column through the non-`Nullable` interface the
 -- condition declared: an aborted assertion in a debug build, and arbitrary matching in a release one.
 
+-- `grace_hash` needs a spill threshold, which `max_bytes_ratio_before_external_join` no longer provides by default.
+SET max_bytes_ratio_before_external_join = 0.5;
+
 SET enable_analyzer = 1;
 SET allow_experimental_join_condition = 1;
 

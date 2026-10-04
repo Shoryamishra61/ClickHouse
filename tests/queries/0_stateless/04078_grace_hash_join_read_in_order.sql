@@ -3,6 +3,9 @@
 -- property through grace hash join, which scatters rows into buckets by hash
 -- and destroys the input order.
 
+-- `grace_hash` needs a spill threshold, which `max_bytes_ratio_before_external_join` no longer provides by default.
+SET max_bytes_ratio_before_external_join = 0.5;
+
 DROP TABLE IF EXISTS t1;
 DROP TABLE IF EXISTS t2;
 
