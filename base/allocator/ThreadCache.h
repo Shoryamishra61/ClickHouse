@@ -3,9 +3,9 @@
 /// The thread cache (jemalloc: `tcache.c`, `tcache_inlines.h`, `tcache_externs.h`, `tcache_types.h`, and the tcache
 /// accessors of `jemalloc_internal_inlines_a.h`). The data layout is in ThreadCacheData.h.
 ///
-/// The automatic tcache of a thread is embedded in its `ThreadState` (`ThreadState::tcache` is the last field of the
-/// fast data, `ThreadState::tcache_slow` lives in the slow data). Explicit tcaches (`tcache.create`, `MALLOCX_TCACHE`)
-/// are one internal allocation `[stacks][ThreadCache][ThreadCacheSlow]` registered in the `tcaches` array.
+/// The automatic tcache of a thread is embedded in its `ThreadState` (`ThreadState::thread_cache` is the last field of the
+/// fast data, `ThreadState::thread_cache_slow` lives in the slow data). Explicit tcaches (`tcache.create`, `MALLOCX_TCACHE`)
+/// are one internal allocation `[stacks][ThreadCache][ThreadCacheSlow]` registered in the `explicit_thread_caches` array.
 ///
 /// The fill/flush code (`arena_ptr_array_fill_small`, `arena_ptr_array_flush`) is owned by the arena module.
 ///
@@ -32,38 +32,38 @@ namespace jemalloc
 
 class Base;
 
-/// Number of tcache bins: `SC_NBINS` small-object bins, plus 0 or more large-object bins. This is only used during
+/// Number of tcache bins: `SIZE_CLASS_NUM_BINS` small-object bins, plus 0 or more large-object bins. This is only used during
 /// thread initialization; changing it does not affect initialized threads. To change the number of tcache bins in
-/// use, refer to `tcache_nbins` of each tcache.
+/// use, refer to `thread_cache_num_bins` of each tcache.
 /// jemalloc: global_do_not_change_tcache_nbins (`arenas.nhbins`)
-extern constinit unsigned global_do_not_change_tcache_nbins;
+extern constinit unsigned global_do_not_change_thread_cache_num_bins;
 
 /// Maximum cached size class. Same as above: only used during thread initialization.
 /// jemalloc: global_do_not_change_tcache_maxclass (`arenas.tcache_max`)
-extern constinit size_t global_do_not_change_tcache_maxclass;
+extern constinit size_t global_do_not_change_thread_cache_max_class;
 
-/// Explicit tcaches, managed via the `tcache.{create,flush,destroy}` mallctls and usable via the `MALLOCX_TCACHE()`
-/// flag. Allocated (`MALLOCX_TCACHE_MAX + 1` slots from the base) the first time an explicit tcache is created.
+/// Explicit tcaches, managed via the `thread_cache.{create,flush,destroy}` mallctls and usable via the `MALLOCX_TCACHE()`
+/// flag. Allocated (`MALLOCX_THREAD_CACHE_MAX + 1` slots from the base) the first time an explicit tcache is created.
 /// jemalloc: tcaches
-extern constinit ThreadCaches * tcaches;
+extern constinit ThreadCaches * explicit_thread_caches;
 
 /// --- Accessors (jemalloc_internal_inlines_a.h, tcache_inlines.h) --------------------------------------------------
 
 /// jemalloc: tcache_assert_initialized
-void tcacheAssertInitialized(ThreadCache * tcache);
+void threadCacheAssertInitialized(ThreadCache * thread_cache);
 
 /// The thread specific auto tcache might be unavailable if: 1) during tcache initialization, or 2) disabled through
 /// `thread.tcache.enabled` or the options. This check covers all cases.
 /// jemalloc: tcache_available
-JE_ALWAYS_INLINE bool tcacheAvailable(ThreadState & tsd)
+ALLOCATOR_ALWAYS_INLINE bool threadCacheAvailable(ThreadState & thread_state)
 {
-    if (JE_LIKELY(tsd.tcache_enabled))
+    if (ALLOCATOR_LIKELY(thread_state.thread_cache_enabled))
     {
         /// Associated arena == null implies tcache init in progress.
         if constexpr (config::debug)
         {
-            if (tsd.tcacheSlowGet()->arena != nullptr)
-                tcacheAssertInitialized(tsd.tcacheGet());
+            if (thread_state.threadCacheSlowGet()->arena != nullptr)
+                threadCacheAssertInitialized(thread_state.threadCacheGet());
         }
         return true;
     }
@@ -71,85 +71,86 @@ JE_ALWAYS_INLINE bool tcacheAvailable(ThreadState & tsd)
 }
 
 /// jemalloc: tcache_get
-JE_ALWAYS_INLINE ThreadCache * tcacheGet(ThreadState & tsd)
+ALLOCATOR_ALWAYS_INLINE ThreadCache * threadCacheGet(ThreadState & thread_state)
 {
-    if (!tcacheAvailable(tsd))
+    if (!threadCacheAvailable(thread_state))
         return nullptr;
-    return tsd.tcacheGet();
+    return thread_state.threadCacheGet();
 }
 
 /// jemalloc: tcache_slow_get
-JE_ALWAYS_INLINE ThreadCacheSlow * tcacheSlowGet(ThreadState & tsd)
+ALLOCATOR_ALWAYS_INLINE ThreadCacheSlow * threadCacheSlowGet(ThreadState & thread_state)
 {
-    if (!tcacheAvailable(tsd))
+    if (!threadCacheAvailable(thread_state))
         return nullptr;
-    return tsd.tcacheSlowGet();
+    return thread_state.threadCacheSlowGet();
 }
 
 /// jemalloc: tcache_enabled_get
-JE_ALWAYS_INLINE bool tcacheEnabledGet(ThreadState & tsd)
+ALLOCATOR_ALWAYS_INLINE bool threadCacheEnabledGet(ThreadState & thread_state)
 {
-    return tsd.tcache_enabled;
+    return thread_state.thread_cache_enabled;
 }
 
 /// jemalloc: tcache_nbins_get
-JE_ALWAYS_INLINE unsigned tcacheNbinsGet(const ThreadCacheSlow * tcache_slow)
+ALLOCATOR_ALWAYS_INLINE unsigned threadCacheNumBinsGet(const ThreadCacheSlow * thread_cache_slow)
 {
-    JE_ASSERT(tcache_slow != nullptr);
-    unsigned nbins = tcache_slow->tcache_nbins;
-    JE_ASSERT(nbins <= TCACHE_NBINS_MAX);
-    return nbins;
+    ALLOCATOR_ASSERT(thread_cache_slow != nullptr);
+    unsigned num_bins = thread_cache_slow->thread_cache_num_bins;
+    ALLOCATOR_ASSERT(num_bins <= THREAD_CACHE_NUM_BINS_MAX);
+    return num_bins;
 }
 
 /// jemalloc: tcache_max_get
-JE_ALWAYS_INLINE size_t tcacheMaxGet(const ThreadCacheSlow * tcache_slow)
+ALLOCATOR_ALWAYS_INLINE size_t threadCacheMaxGet(const ThreadCacheSlow * thread_cache_slow)
 {
-    JE_ASSERT(tcache_slow != nullptr);
-    size_t tcache_max = sz::indexToSize(tcacheNbinsGet(tcache_slow) - 1);
-    JE_ASSERT(tcache_max <= TCACHE_MAXCLASS_LIMIT);
-    return tcache_max;
+    ALLOCATOR_ASSERT(thread_cache_slow != nullptr);
+    size_t thread_cache_max = size_classes::indexToSize(threadCacheNumBinsGet(thread_cache_slow) - 1);
+    ALLOCATOR_ASSERT(thread_cache_max <= THREAD_CACHE_MAX_CLASS_LIMIT);
+    return thread_cache_max;
 }
 
 /// jemalloc: tcache_max_set
-JE_ALWAYS_INLINE void tcacheMaxSet(ThreadCacheSlow * tcache_slow, size_t tcache_max)
+ALLOCATOR_ALWAYS_INLINE void threadCacheMaxSet(ThreadCacheSlow * thread_cache_slow, size_t thread_cache_max)
 {
-    JE_ASSERT(tcache_slow != nullptr);
-    JE_ASSERT(tcache_max <= TCACHE_MAXCLASS_LIMIT);
-    tcache_slow->tcache_nbins = sz::sizeToIndex(tcache_max) + 1;
+    ALLOCATOR_ASSERT(thread_cache_slow != nullptr);
+    ALLOCATOR_ASSERT(thread_cache_max <= THREAD_CACHE_MAX_CLASS_LIMIT);
+    thread_cache_slow->thread_cache_num_bins = size_classes::sizeToIndex(thread_cache_max) + 1;
 }
 
 /// jemalloc: tcache_bin_settings_backup
-JE_ALWAYS_INLINE void tcacheBinSettingsBackup(const ThreadCache * tcache, CacheBinInfo * tcache_bin_info)
+ALLOCATOR_ALWAYS_INLINE void threadCacheBinSettingsBackup(const ThreadCache * thread_cache, CacheBinInfo * thread_cache_bin_info)
 {
-    for (unsigned i = 0; i < TCACHE_NBINS_MAX; ++i)
-        tcache_bin_info[i].init(tcache->bins[i].ncachedMaxGetUnsafe());
+    for (unsigned i = 0; i < THREAD_CACHE_NUM_BINS_MAX; ++i)
+        thread_cache_bin_info[i].init(thread_cache->bins[i].numCachedMaxGetUnsafe());
 }
 
 /// If a bin's ind >= nbins or ncached_max == 0, it must be disabled. If a bin is enabled, it has ind < nbins and
 /// ncached_max > 0. In release builds this is just the `stack_head` compare.
 /// jemalloc: tcache_bin_disabled
-JE_ALWAYS_INLINE bool tcacheBinDisabled(szind_t ind, const CacheBin * bin, [[maybe_unused]] const ThreadCacheSlow * tcache_slow)
+ALLOCATOR_ALWAYS_INLINE bool
+threadCacheBinDisabled(SizeClassIdx idx, const CacheBin * bin, [[maybe_unused]] const ThreadCacheSlow * thread_cache_slow)
 {
-    JE_ASSERT(bin != nullptr);
-    JE_ASSERT(ind < TCACHE_NBINS_MAX);
+    ALLOCATOR_ASSERT(bin != nullptr);
+    ALLOCATOR_ASSERT(idx < THREAD_CACHE_NUM_BINS_MAX);
     bool disabled = bin->disabled();
 
     if constexpr (config::debug)
     {
-        unsigned nbins = tcacheNbinsGet(tcache_slow);
-        cache_bin_sz_t ncached_max = bin->ncachedMaxGetUnsafe();
-        if (ind >= nbins)
-            JE_ASSERT(disabled);
+        unsigned num_bins = threadCacheNumBinsGet(thread_cache_slow);
+        CacheBinSize num_cached_max = bin->numCachedMaxGetUnsafe();
+        if (idx >= num_bins)
+            ALLOCATOR_ASSERT(disabled);
         else
-            JE_ASSERT(!disabled || ncached_max == 0);
-        if (ncached_max == 0)
-            JE_ASSERT(disabled);
+            ALLOCATOR_ASSERT(!disabled || num_cached_max == 0);
+        if (num_cached_max == 0)
+            ALLOCATOR_ASSERT(disabled);
         else
-            JE_ASSERT(!disabled || ind >= nbins);
+            ALLOCATOR_ASSERT(!disabled || idx >= num_bins);
         if (disabled)
-            JE_ASSERT(ind >= nbins || ncached_max == 0);
+            ALLOCATOR_ASSERT(idx >= num_bins || num_cached_max == 0);
         else
-            JE_ASSERT(ind < nbins && ncached_max > 0);
+            ALLOCATOR_ASSERT(idx < num_bins && num_cached_max > 0);
     }
 
     return disabled;
@@ -158,275 +159,287 @@ JE_ALWAYS_INLINE bool tcacheBinDisabled(szind_t ind, const CacheBin * bin, [[may
 /// --- Slow paths (ThreadCache.cpp) ----------------------------------------------------------------------------------
 
 /// jemalloc: tcache_salloc
-size_t tcacheSalloc(ThreadState * tsdn, const void * ptr);
+size_t threadCacheAllocationSize(ThreadState * thread_state, const void * ptr);
 
 /// Fills the (empty) bin from the arena and allocates from it.
 /// jemalloc: tcache_alloc_small_hard
-void * tcacheAllocSmallHard(ThreadState * tsdn, Arena * arena, ThreadCache * tcache, CacheBin * cache_bin, szind_t binind, bool & tcache_success);
+void * threadCacheAllocSmallHard(
+    ThreadState * thread_state,
+    Arena * arena,
+    ThreadCache * thread_cache,
+    CacheBin * cache_bin,
+    SizeClassIdx bin_idx,
+    bool & thread_cache_success);
 
-/// Flushes the bin down to `rem` cached items (the bottom items are flushed).
+/// Flushes the bin down to `remainder` cached items (the bottom items are flushed).
 /// jemalloc: tcache_bin_flush_small, tcache_bin_flush_large
-void tcacheBinFlushSmall(ThreadState & tsd, ThreadCache * tcache, CacheBin * cache_bin, szind_t binind, unsigned rem);
-void tcacheBinFlushLarge(ThreadState & tsd, ThreadCache * tcache, CacheBin * cache_bin, szind_t binind, unsigned rem);
+void threadCacheBinFlushSmall(
+    ThreadState & thread_state, ThreadCache * thread_cache, CacheBin * cache_bin, SizeClassIdx bin_idx, unsigned remainder);
+void threadCacheBinFlushLarge(
+    ThreadState & thread_state, ThreadCache * thread_cache, CacheBin * cache_bin, SizeClassIdx bin_idx, unsigned remainder);
 
 /// Flushes the stashed (UAF detection) items, after checking their junk. A no-op when nothing is stashed.
 /// jemalloc: tcache_bin_flush_stashed
-void tcacheBinFlushStashed(ThreadState & tsd, ThreadCache * tcache, CacheBin * cache_bin, szind_t binind, bool is_small);
+void threadCacheBinFlushStashed(
+    ThreadState & thread_state, ThreadCache * thread_cache, CacheBin * cache_bin, SizeClassIdx bin_idx, bool is_small);
 
 /// --- Fast paths (tcache_inlines.h) ---------------------------------------------------------------------------------
 
 /// jemalloc: tcache_alloc_small
-JE_ALWAYS_INLINE void * tcacheAllocSmall(
-    ThreadState & tsd, Arena * arena, ThreadCache * tcache, size_t size, szind_t binind, bool zero, bool /*slow_path*/)
+ALLOCATOR_ALWAYS_INLINE void * threadCacheAllocSmall(
+    ThreadState & thread_state, Arena * arena, ThreadCache * thread_cache, size_t size, SizeClassIdx bin_idx, bool zero, bool /*slow_path*/)
 {
-    void * ret;
-    bool tcache_success;
+    void * result;
+    bool thread_cache_success;
 
-    JE_ASSERT(binind < SC_NBINS);
-    CacheBin * bin = &tcache->bins[binind];
-    ret = bin->alloc(tcache_success);
-    JE_ASSERT(tcache_success == (ret != nullptr));
-    if (JE_UNLIKELY(!tcache_success))
+    ALLOCATOR_ASSERT(bin_idx < SIZE_CLASS_NUM_BINS);
+    CacheBin * bin = &thread_cache->bins[bin_idx];
+    result = bin->alloc(thread_cache_success);
+    ALLOCATOR_ASSERT(thread_cache_success == (result != nullptr));
+    if (ALLOCATOR_UNLIKELY(!thread_cache_success))
     {
-        bool tcache_hard_success;
-        arena = arenaChoose(tsd, arena);
-        if (JE_UNLIKELY(arena == nullptr))
+        bool thread_cache_hard_success;
+        arena = arenaChoose(thread_state, arena);
+        if (ALLOCATOR_UNLIKELY(arena == nullptr))
             return nullptr;
-        if (JE_UNLIKELY(tcacheBinDisabled(binind, bin, tcache->tcache_slow)))
+        if (ALLOCATOR_UNLIKELY(threadCacheBinDisabled(bin_idx, bin, thread_cache->thread_cache_slow)))
         {
             /// Stats and zero are handled directly by the arena.
-            return arenaMallocHard(&tsd, arena, size, binind, zero, /* slab */ true);
+            return arenaMallocHard(&thread_state, arena, size, bin_idx, zero, /* slab */ true);
         }
-        tcacheBinFlushStashed(tsd, tcache, bin, binind, /* is_small */ true);
+        threadCacheBinFlushStashed(thread_state, thread_cache, bin, bin_idx, /* is_small */ true);
 
-        ret = tcacheAllocSmallHard(&tsd, arena, tcache, bin, binind, tcache_hard_success);
-        if (!tcache_hard_success)
+        result = threadCacheAllocSmallHard(&thread_state, arena, thread_cache, bin, bin_idx, thread_cache_hard_success);
+        if (!thread_cache_hard_success)
             return nullptr;
     }
 
-    JE_ASSERT(ret);
-    if (JE_UNLIKELY(zero))
+    ALLOCATOR_ASSERT(result);
+    if (ALLOCATOR_UNLIKELY(zero))
     {
-        size_t usize = sz::indexToSize(binind);
-        JE_ASSERT(tcacheSalloc(&tsd, ret) == usize);
-        memset(ret, 0, usize);
+        size_t usable_size = size_classes::indexToSize(bin_idx);
+        ALLOCATOR_ASSERT(threadCacheAllocationSize(&thread_state, result) == usable_size);
+        memset(result, 0, usable_size);
     }
     if constexpr (config::stats)
-        ++bin->tstats.nrequests;
-    return ret;
+        ++bin->thread_cache_stats.num_requests;
+    return result;
 }
 
 /// jemalloc: tcache_alloc_large
-JE_ALWAYS_INLINE void * tcacheAllocLarge(
-    ThreadState & tsd, Arena * arena, ThreadCache * tcache, size_t size, szind_t binind, bool zero, bool /*slow_path*/)
+ALLOCATOR_ALWAYS_INLINE void * threadCacheAllocLarge(
+    ThreadState & thread_state, Arena * arena, ThreadCache * thread_cache, size_t size, SizeClassIdx bin_idx, bool zero, bool /*slow_path*/)
 {
-    void * ret;
-    bool tcache_success;
+    void * result;
+    bool thread_cache_success;
 
-    CacheBin * bin = &tcache->bins[binind];
-    JE_ASSERT(binind >= SC_NBINS && !tcacheBinDisabled(binind, bin, tcache->tcache_slow));
-    ret = bin->alloc(tcache_success);
-    JE_ASSERT(tcache_success == (ret != nullptr));
-    if (JE_UNLIKELY(!tcache_success))
+    CacheBin * bin = &thread_cache->bins[bin_idx];
+    ALLOCATOR_ASSERT(bin_idx >= SIZE_CLASS_NUM_BINS && !threadCacheBinDisabled(bin_idx, bin, thread_cache->thread_cache_slow));
+    result = bin->alloc(thread_cache_success);
+    ALLOCATOR_ASSERT(thread_cache_success == (result != nullptr));
+    if (ALLOCATOR_UNLIKELY(!thread_cache_success))
     {
         /// Only allocate one large object at a time, because it's quite expensive to create one and not use it.
-        arena = arenaChoose(tsd, arena);
-        if (JE_UNLIKELY(arena == nullptr))
+        arena = arenaChoose(thread_state, arena);
+        if (ALLOCATOR_UNLIKELY(arena == nullptr))
             return nullptr;
-        tcacheBinFlushStashed(tsd, tcache, bin, binind, /* is_small */ false);
+        threadCacheBinFlushStashed(thread_state, thread_cache, bin, bin_idx, /* is_small */ false);
 
-        ret = largeMalloc(&tsd, arena, sz::s2u(size), zero);
-        if (ret == nullptr)
+        result = largeMalloc(&thread_state, arena, size_classes::sizeToUsableSize(size), zero);
+        if (result == nullptr)
             return nullptr;
     }
     else
     {
-        if (JE_UNLIKELY(zero))
+        if (ALLOCATOR_UNLIKELY(zero))
         {
-            size_t usize = sz::indexToSize(binind);
-            JE_ASSERT(usize <= tcacheMaxGet(tcache->tcache_slow));
-            memset(ret, 0, usize);
+            size_t usable_size = size_classes::indexToSize(bin_idx);
+            ALLOCATOR_ASSERT(usable_size <= threadCacheMaxGet(thread_cache->thread_cache_slow));
+            memset(result, 0, usable_size);
         }
 
         if constexpr (config::stats)
-            ++bin->tstats.nrequests;
+            ++bin->thread_cache_stats.num_requests;
     }
 
-    return ret;
+    return result;
 }
 
 /// jemalloc: tcache_dalloc_small
-JE_ALWAYS_INLINE void tcacheDallocSmall(ThreadState & tsd, ThreadCache * tcache, void * ptr, szind_t binind, bool /*slow_path*/)
+ALLOCATOR_ALWAYS_INLINE void
+threadCacheDeallocateSmall(ThreadState & thread_state, ThreadCache * thread_cache, void * ptr, SizeClassIdx bin_idx, bool /*slow_path*/)
 {
-    JE_ASSERT(tcacheSalloc(&tsd, ptr) <= SC_SMALL_MAXCLASS);
+    ALLOCATOR_ASSERT(threadCacheAllocationSize(&thread_state, ptr) <= SIZE_CLASS_SMALL_MAX_CLASS);
 
-    CacheBin * bin = &tcache->bins[binind];
+    CacheBin * bin = &thread_cache->bins[bin_idx];
     /// Not marking the branch unlikely because this is past the free fast path (which handles the most common cases),
     /// i.e. at this point it's often uncommon cases.
-    if (cacheBinNonfastAligned(ptr))
+    if (cacheBinNonFastAligned(ptr))
     {
         /// Junk unconditionally, even if bin is full.
-        sanJunkPtr(ptr, sz::indexToSize(binind));
+        sanitizerJunkPtr(ptr, size_classes::indexToSize(bin_idx));
         if (bin->stash(ptr))
             return;
-        JE_ASSERT(bin->full());
+        ALLOCATOR_ASSERT(bin->full());
         /// Bin full; fall through into the flush branch.
     }
 
-    if (JE_UNLIKELY(!bin->dallocEasy(ptr)))
+    if (ALLOCATOR_UNLIKELY(!bin->deallocateEasy(ptr)))
     {
-        if (JE_UNLIKELY(tcacheBinDisabled(binind, bin, tcache->tcache_slow)))
+        if (ALLOCATOR_UNLIKELY(threadCacheBinDisabled(bin_idx, bin, thread_cache->thread_cache_slow)))
         {
-            arenaDallocSmall(&tsd, ptr);
+            arenaDeallocateSmall(&thread_state, ptr);
             return;
         }
-        cache_bin_sz_t max = bin->ncachedMaxGet();
-        unsigned remain = max >> opt.lg_tcache_flush_small_div;
-        tcacheBinFlushSmall(tsd, tcache, bin, binind, remain);
-        [[maybe_unused]] bool ret = bin->dallocEasy(ptr);
-        JE_ASSERT(ret);
+        CacheBinSize max = bin->numCachedMaxGet();
+        unsigned remain = max >> options.log2_thread_cache_flush_small_division;
+        threadCacheBinFlushSmall(thread_state, thread_cache, bin, bin_idx, remain);
+        [[maybe_unused]] bool result = bin->deallocateEasy(ptr);
+        ALLOCATOR_ASSERT(result);
     }
 }
 
 /// jemalloc: tcache_dalloc_large
-JE_ALWAYS_INLINE void tcacheDallocLarge(ThreadState & tsd, ThreadCache * tcache, void * ptr, szind_t binind, bool /*slow_path*/)
+ALLOCATOR_ALWAYS_INLINE void
+threadCacheDeallocateLarge(ThreadState & thread_state, ThreadCache * thread_cache, void * ptr, SizeClassIdx bin_idx, bool /*slow_path*/)
 {
-    JE_ASSERT(tcacheSalloc(&tsd, ptr) > SC_SMALL_MAXCLASS);
-    JE_ASSERT(tcacheSalloc(&tsd, ptr) <= tcacheMaxGet(tcache->tcache_slow));
-    JE_ASSERT(!tcacheBinDisabled(binind, &tcache->bins[binind], tcache->tcache_slow));
+    ALLOCATOR_ASSERT(threadCacheAllocationSize(&thread_state, ptr) > SIZE_CLASS_SMALL_MAX_CLASS);
+    ALLOCATOR_ASSERT(threadCacheAllocationSize(&thread_state, ptr) <= threadCacheMaxGet(thread_cache->thread_cache_slow));
+    ALLOCATOR_ASSERT(!threadCacheBinDisabled(bin_idx, &thread_cache->bins[bin_idx], thread_cache->thread_cache_slow));
 
-    CacheBin * bin = &tcache->bins[binind];
-    if (JE_UNLIKELY(!bin->dallocEasy(ptr)))
+    CacheBin * bin = &thread_cache->bins[bin_idx];
+    if (ALLOCATOR_UNLIKELY(!bin->deallocateEasy(ptr)))
     {
-        unsigned remain = bin->ncachedMaxGet() >> opt.lg_tcache_flush_large_div;
-        tcacheBinFlushLarge(tsd, tcache, bin, binind, remain);
-        [[maybe_unused]] bool ret = bin->dallocEasy(ptr);
-        JE_ASSERT(ret);
+        unsigned remain = bin->numCachedMaxGet() >> options.log2_thread_cache_flush_large_division;
+        threadCacheBinFlushLarge(thread_state, thread_cache, bin, bin_idx, remain);
+        [[maybe_unused]] bool result = bin->deallocateEasy(ptr);
+        ALLOCATOR_ASSERT(result);
     }
 }
 
 /// Creates an explicit tcache (for `tcache.create`, and the re-creation of a flushed one). Returns null on OOM.
 /// jemalloc: tcache_create_explicit
-ThreadCache * tcacheCreateExplicit(ThreadState & tsd);
+ThreadCache * threadCacheCreateExplicit(ThreadState & thread_state);
 
 /// jemalloc: tcaches_get
-JE_ALWAYS_INLINE ThreadCache * tcachesGet(ThreadState & tsd, unsigned ind)
+ALLOCATOR_ALWAYS_INLINE ThreadCache * explicitThreadCachesGet(ThreadState & thread_state, unsigned idx)
 {
-    ThreadCaches * elm = &tcaches[ind];
-    if (JE_UNLIKELY(elm->tcache == nullptr))
+    ThreadCaches * element = &explicit_thread_caches[idx];
+    if (ALLOCATOR_UNLIKELY(element->thread_cache == nullptr))
     {
-        printMessage("<jemalloc>: invalid tcache id (%u).\n", ind);
+        printMessage("<jemalloc>: invalid tcache id (%u).\n", idx);
         abort();
     }
-    else if (JE_UNLIKELY(elm->tcache == TCACHES_ELM_NEED_REINIT))
+    else if (ALLOCATOR_UNLIKELY(element->thread_cache == EXPLICIT_THREAD_CACHES_ELEMENT_NEED_REINIT))
     {
-        elm->tcache = tcacheCreateExplicit(tsd);
+        element->thread_cache = threadCacheCreateExplicit(thread_state);
     }
-    return elm->tcache;
+    return element->thread_cache;
 }
 
 /// --- Settings, life cycle (ThreadCache.cpp) ------------------------------------------------------------------------
 
-/// The default `ncached_max` of every bin: computed by `tcacheBoot` (from `opt.tcache_ncached_max` where set,
-/// `tcacheNcachedMaxCompute` otherwise); not modified afterwards.
+/// The default `num_cached_max` of every bin: computed by `threadCacheBoot` (from `opt.tcache_ncached_max` where set,
+/// `threadCacheNumCachedMaxCompute` otherwise); not modified afterwards.
 /// jemalloc: tcache_get_default_ncached_max (`opt_tcache_ncached_max` after `tcache_boot`)
-const CacheBinInfo * tcacheGetDefaultNcachedMax();
+const CacheBinInfo * threadCacheGetDefaultNumCachedMax();
 
-/// Whether `tcache_ncached_max` (malloc_conf) set the bin.
+/// Whether `thread_cache_num_cached_max` (malloc_conf) set the bin.
 /// jemalloc: tcache_get_default_ncached_max_set
-bool tcacheGetDefaultNcachedMaxSet(szind_t ind);
+bool threadCacheGetDefaultNumCachedMaxSet(SizeClassIdx idx);
 
-/// The default `ncached_max` of a bin computed from the slab size and the `tcache_nslots_*` options.
+/// The default `num_cached_max` of a bin computed from the slab size and the `tcache_nslots_*` options.
 /// jemalloc: tcache_ncached_max_compute
-unsigned tcacheNcachedMaxCompute(szind_t szind);
+unsigned threadCacheNumCachedMaxCompute(SizeClassIdx size_class_idx);
 
 /// Computes the values for each bin (bins with indices >= tcache_nbins cache nothing, but get a value too).
 /// jemalloc: tcache_bin_info_compute
-void tcacheBinInfoCompute(CacheBinInfo * tcache_bin_info);
+void threadCacheBinInfoCompute(CacheBinInfo * thread_cache_bin_info);
 
-/// `thread.tcache.ncached_max.read_sizeclass`. Returns true on error (size > `TCACHE_MAXCLASS_LIMIT`).
+/// `thread.tcache.ncached_max.read_sizeclass`. Returns true on error (size > `THREAD_CACHE_MAX_CLASS_LIMIT`).
 /// jemalloc: tcache_bin_ncached_max_read
-bool tcacheBinNcachedMaxRead(ThreadState & tsd, size_t bin_size, cache_bin_sz_t & ncached_max);
+bool threadCacheBinNumCachedMaxRead(ThreadState & thread_state, size_t bin_size, CacheBinSize & num_cached_max);
 
 /// `thread.tcache.ncached_max.write`: parses the settings over the current ones and reboots the tcache.
 /// Returns true on error. The tcache must be available.
 /// jemalloc: tcache_bins_ncached_max_write
-bool tcacheBinsNcachedMaxWrite(ThreadState & tsd, const char * settings, size_t len);
+bool threadCacheBinsNumCachedMaxWrite(ThreadState & thread_state, const char * settings, size_t len);
 
 /// jemalloc: tcache_arena_associate, tcache_arena_reassociate
-void tcacheArenaAssociate(ThreadState * tsdn, ThreadCacheSlow * tcache_slow, ThreadCache * tcache, Arena * arena);
-void tcacheArenaReassociate(ThreadState * tsdn, ThreadCacheSlow * tcache_slow, ThreadCache * tcache, Arena * arena);
+void threadCacheArenaAssociate(ThreadState * thread_state, ThreadCacheSlow * thread_cache_slow, ThreadCache * thread_cache, Arena * arena);
+void threadCacheArenaReassociate(
+    ThreadState * thread_state, ThreadCacheSlow * thread_cache_slow, ThreadCache * thread_cache, Arena * arena);
 
 /// `thread.tcache.max`. Returns true on error.
 /// jemalloc: thread_tcache_max_set
-bool threadTcacheMaxSet(ThreadState & tsd, size_t tcache_max);
+bool threadThreadCacheMaxSet(ThreadState & thread_state, size_t thread_cache_max);
 
 /// Destroys the automatic tcache of the thread (if available) and resets its bins to the zero state.
 /// jemalloc: tcache_cleanup
-void tcacheCleanup(ThreadState & tsd);
+void threadCacheCleanup(ThreadState & thread_state);
 
 /// Merges and resets the tcache request counters into the arena stats.
 /// jemalloc: tcache_stats_merge
-void tcacheStatsMerge(ThreadState * tsdn, ThreadCache * tcache, Arena * arena);
+void threadCacheStatsMerge(ThreadState * thread_state, ThreadCache * thread_cache, Arena * arena);
 
 /// jemalloc: tcaches_create (returns true on error), tcaches_flush, tcaches_destroy
-bool tcachesCreate(ThreadState & tsd, Base * base, unsigned & r_ind);
-void tcachesFlush(ThreadState & tsd, unsigned ind);
-void tcachesDestroy(ThreadState & tsd, unsigned ind);
+bool explicitThreadCachesCreate(ThreadState & thread_state, Base * base, unsigned & r_idx);
+void explicitThreadCachesFlush(ThreadState & thread_state, unsigned idx);
+void explicitThreadCachesDestroy(ThreadState & thread_state, unsigned idx);
 
 /// Returns true on error.
 /// jemalloc: tcache_boot
-bool tcacheBoot(ThreadState * tsdn, Base * base);
+bool threadCacheBoot(ThreadState * thread_state, Base * base);
 
 /// jemalloc: tcache_prefork, tcache_postfork_parent, tcache_postfork_child
-void tcachePrefork(ThreadState * tsdn);
-void tcachePostforkParent(ThreadState * tsdn);
-void tcachePostforkChild(ThreadState * tsdn);
+void threadCachePrefork(ThreadState * thread_state);
+void threadCachePostforkParent(ThreadState * thread_state);
+void threadCachePostforkChild(ThreadState * thread_state);
 
 /// Flushes every enabled bin of the automatic tcache (`thread.tcache.flush`, `thread.idle`). The tcache must be
 /// available.
 /// jemalloc: tcache_flush
-void tcacheFlush(ThreadState & tsd);
+void threadCacheFlush(ThreadState & thread_state);
 
-/// `tcacheTSDDataInit` (ThreadState.h) is jemalloc's `tsd_tcache_enabled_data_init`.
+/// `threadCacheThreadStateDataInit` (ThreadState.h) is jemalloc's `tsd_tcache_enabled_data_init`.
 
 /// `thread.tcache.enabled`.
 /// jemalloc: tcache_enabled_set
-void tcacheEnabledSet(ThreadState & tsd, bool enabled);
+void threadCacheEnabledSet(ThreadState & thread_state, bool enabled);
 
 /// The allocation of the cache bin stacks of the automatic tcache. A function pointer (as in jemalloc) so that tests
 /// can inject failures.
 /// jemalloc: tcache_stack_alloc
-extern constinit void * (*tcache_stack_alloc)(ThreadState * tsdn, size_t size, size_t alignment);
+extern constinit void * (*thread_cache_stack_alloc)(ThreadState * thread_state, size_t size, size_t alignment);
 
 /// --- Internals exposed for the tests ------------------------------------------------------------------------------
 
-namespace tcache_detail
+namespace thread_cache_detail
 {
 
 /// jemalloc: tcache_bin_fill_ctl_init, tcache_bin_fill_ctl_get
-void tcacheBinFillCtlInit(ThreadCacheSlow * tcache_slow, szind_t szind);
-CacheBinFillCtl * tcacheBinFillCtlGet(ThreadCacheSlow * tcache_slow, szind_t szind);
+void threadCacheBinFillControlInit(ThreadCacheSlow * thread_cache_slow, SizeClassIdx size_class_idx);
+CacheBinFillControl * threadCacheBinFillControlGet(ThreadCacheSlow * thread_cache_slow, SizeClassIdx size_class_idx);
 /// jemalloc: tcache_nfill_small_lg_div_get
-uint8_t tcacheNfillSmallLgDivGet(ThreadCacheSlow * tcache_slow, szind_t szind);
+uint8_t threadCacheNumFillSmallLog2DivisionGet(ThreadCacheSlow * thread_cache_slow, SizeClassIdx size_class_idx);
 /// jemalloc: tcache_nfill_small_burst_prepare, tcache_nfill_small_burst_reset
-void tcacheNfillSmallBurstPrepare(ThreadCacheSlow * tcache_slow, szind_t szind);
-void tcacheNfillSmallBurstReset(ThreadCacheSlow * tcache_slow, szind_t szind);
+void threadCacheNumFillSmallBurstPrepare(ThreadCacheSlow * thread_cache_slow, SizeClassIdx size_class_idx);
+void threadCacheNumFillSmallBurstReset(ThreadCacheSlow * thread_cache_slow, SizeClassIdx size_class_idx);
 /// jemalloc: tcache_nfill_small_gc_update
-void tcacheNfillSmallGCUpdate(ThreadCacheSlow * tcache_slow, szind_t szind, cache_bin_sz_t limit);
+void threadCacheNumFillSmallGCUpdate(ThreadCacheSlow * thread_cache_slow, SizeClassIdx size_class_idx, CacheBinSize limit);
 /// jemalloc: tcache_gc_item_delay_compute
-uint8_t tcacheGCItemDelayCompute(szind_t szind);
+uint8_t threadCacheGCItemDelayCompute(SizeClassIdx size_class_idx);
 /// jemalloc: tcache_gc_is_addr_remote
-bool tcacheGCIsAddrRemote(void * addr, uintptr_t min, uintptr_t max);
+bool threadCacheGCIsAddrRemote(void * addr, uintptr_t min, uintptr_t max);
 /// jemalloc: tcache_gc_small_nremote_get
-cache_bin_sz_t tcacheGCSmallNremoteGet(
-    CacheBin * cache_bin, void * addr, uintptr_t & addr_min, uintptr_t & addr_max, szind_t szind, size_t nflush);
+CacheBinSize threadCacheGCSmallNumRemoteGet(
+    CacheBin * cache_bin, void * addr, uintptr_t & addr_min, uintptr_t & addr_max, SizeClassIdx size_class_idx, size_t num_flush);
 /// jemalloc: tcache_gc_small_bin_shuffle
-void tcacheGCSmallBinShuffle(CacheBin * cache_bin, cache_bin_sz_t nremote, uintptr_t addr_min, uintptr_t addr_max);
+void threadCacheGCSmallBinShuffle(CacheBin * cache_bin, CacheBinSize num_remote, uintptr_t addr_min, uintptr_t addr_max);
 
 }
 
-/// The GC event handler entry points (ThreadEvent.h): `tcacheGCNewEventWait`, `tcacheGCPostponedEventWait`,
-/// `tcacheGCEvent`.
+/// The GC event handler entry points (ThreadEvent.h): `threadCacheGCNewEventWait`, `threadCacheGCPostponedEventWait`,
+/// `threadCacheGCEvent`.
 
 }

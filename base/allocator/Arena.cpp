@@ -24,17 +24,17 @@ namespace jemalloc
 static constinit std::atomic<ssize_t> dirty_decay_ms_default{0};
 static constinit std::atomic<ssize_t> muzzy_decay_ms_default{0};
 
-constinit DivInfo arena_binind_div_info[SC_NBINS] = {};
+constinit DivisionInfo arena_bin_idx_division_info[SIZE_CLASS_NUM_BINS] = {};
 
 constinit size_t oversize_threshold = OVERSIZE_THRESHOLD_DEFAULT;
 
-constinit uint32_t arena_bin_offsets[SC_NBINS] = {};
-constinit unsigned arena_nbins_total = 0;
+constinit uint32_t arena_bin_offsets[SIZE_CLASS_NUM_BINS] = {};
+constinit unsigned arena_num_bins_total = 0;
 
-constinit unsigned huge_arena_ind = 0;
+constinit unsigned huge_arena_idx = 0;
 
 const ArenaConfig arena_config_default = {
-    /* .extent_hooks = */ &ehooks_default_extent_hooks,
+    /* .extent_hooks = */ &extent_hooks_default_extent_hooks,
     /* .metadata_use_hooks = */ true,
 };
 
@@ -44,297 +44,329 @@ const ArenaConfig arena_config_default = {
 void arenaBasicStatsMerge(
     ThreadState * /*tsdn*/,
     Arena * arena,
-    unsigned * nthreads,
-    const char ** dss,
+    unsigned * num_threads,
+    const char ** sbrk,
     ssize_t * dirty_decay_ms,
     ssize_t * muzzy_decay_ms,
-    size_t * nactive,
-    size_t * ndirty,
-    size_t * nmuzzy)
+    size_t * num_active,
+    size_t * num_dirty,
+    size_t * num_muzzy)
 {
-    *nthreads += arenaNthreadsGet(arena, false);
-    *dss = dss_prec_names[unsigned(arenaDSSPrecGet(arena))];
+    *num_threads += arenaNumThreadsGet(arena, false);
+    *sbrk = sbrk_precedence_names[unsigned(arenaSbrkPrecedenceGet(arena))];
     *dirty_decay_ms = arenaDecayMsGet(arena, extent_state_dirty);
     *muzzy_decay_ms = arenaDecayMsGet(arena, extent_state_muzzy);
-    arena->pa_shard.basicStatsMerge(nactive, ndirty, nmuzzy);
+    arena->page_allocator_shard.basicStatsMerge(num_active, num_dirty, num_muzzy);
 }
 
 /// jemalloc: arena_stats_merge
 void arenaStatsMerge(
-    ThreadState * tsdn,
+    ThreadState * thread_state,
     Arena * arena,
-    unsigned * nthreads,
-    const char ** dss,
+    unsigned * num_threads,
+    const char ** sbrk,
     ssize_t * dirty_decay_ms,
     ssize_t * muzzy_decay_ms,
-    size_t * nactive,
-    size_t * ndirty,
-    size_t * nmuzzy,
-    ArenaStats * astats,
-    BinStatsData * bstats,
-    ArenaStatsLarge * lstats,
-    PacExtentStats * estats)
+    size_t * num_active,
+    size_t * num_dirty,
+    size_t * num_muzzy,
+    ArenaStats * arena_stats,
+    BinStatsData * bin_stats,
+    ArenaStatsLarge * large_stats,
+    PageAllocatorExtentStats * extent_stats)
 {
     static_assert(config::stats);
 
-    arenaBasicStatsMerge(tsdn, arena, nthreads, dss, dirty_decay_ms, muzzy_decay_ms, nactive, ndirty, nmuzzy);
+    arenaBasicStatsMerge(thread_state, arena, num_threads, sbrk, dirty_decay_ms, muzzy_decay_ms, num_active, num_dirty, num_muzzy);
 
     size_t base_allocated;
-    size_t base_edata_allocated;
-    size_t base_rtree_allocated;
+    size_t base_extent_allocated;
+    size_t base_radix_tree_allocated;
     size_t base_resident;
     size_t base_mapped;
-    size_t metadata_thp;
+    size_t metadata_transparent_huge_pages;
     arena->base->statsGet(
-        tsdn, &base_allocated, &base_edata_allocated, &base_rtree_allocated, &base_resident, &base_mapped, &metadata_thp);
-    size_t pac_mapped_sz = arena->pa_shard.pac.mapped();
-    astats->mapped += base_mapped + pac_mapped_sz;
-    astats->resident += base_resident;
+        thread_state,
+        &base_allocated,
+        &base_extent_allocated,
+        &base_radix_tree_allocated,
+        &base_resident,
+        &base_mapped,
+        &metadata_transparent_huge_pages);
+    size_t page_allocator_mapped_size = arena->page_allocator_shard.page_allocator.mapped();
+    arena_stats->mapped += base_mapped + page_allocator_mapped_size;
+    arena_stats->resident += base_resident;
 
     /// LOCKEDINT_MTX_LOCK: no stats mutex.
 
-    astats->base += base_allocated;
-    astats->metadata_edata += base_edata_allocated;
-    astats->metadata_rtree += base_rtree_allocated;
+    arena_stats->base += base_allocated;
+    arena_stats->metadata_extent += base_extent_allocated;
+    arena_stats->metadata_radix_tree += base_radix_tree_allocated;
     /// atomic_load_add_store_zu
-    astats->internal.store(astats->internal.load(std::memory_order_relaxed) + arenaInternalGet(arena), std::memory_order_relaxed);
-    astats->metadata_thp += metadata_thp;
+    arena_stats->internal.store(arena_stats->internal.load(std::memory_order_relaxed) + arenaInternalGet(arena), std::memory_order_relaxed);
+    arena_stats->metadata_transparent_huge_pages += metadata_transparent_huge_pages;
 
-    for (szind_t i = 0; i < SC_NSIZES - SC_NBINS; ++i)
+    for (SizeClassIdx i = 0; i < SIZE_CLASS_NUM_SIZES - SIZE_CLASS_NUM_BINS; ++i)
     {
         /// ndalloc should be read before nmalloc, since otherwise it is possible for ndalloc to be incremented, and the
         /// following can become true: ndalloc > nmalloc.
-        uint64_t ndalloc = arena->stats.lstats[i].ndalloc.read();
-        lstats[i].ndalloc.incUnsynchronized(ndalloc);
-        astats->ndalloc_large += ndalloc;
+        uint64_t num_deallocations = arena->stats.large_stats[i].num_deallocations.read();
+        large_stats[i].num_deallocations.incrementUnsynchronized(num_deallocations);
+        arena_stats->num_deallocations_large += num_deallocations;
 
-        uint64_t nmalloc = arena->stats.lstats[i].nmalloc.read();
-        lstats[i].nmalloc.incUnsynchronized(nmalloc);
-        astats->nmalloc_large += nmalloc;
+        uint64_t num_allocations = arena->stats.large_stats[i].num_allocations.read();
+        large_stats[i].num_allocations.incrementUnsynchronized(num_allocations);
+        arena_stats->num_allocations_large += num_allocations;
 
-        uint64_t nrequests = arena->stats.lstats[i].nrequests.read();
-        lstats[i].nrequests.incUnsynchronized(nmalloc + nrequests);
-        astats->nrequests_large += nmalloc + nrequests;
+        uint64_t num_requests = arena->stats.large_stats[i].num_requests.read();
+        large_stats[i].num_requests.incrementUnsynchronized(num_allocations + num_requests);
+        arena_stats->num_requests_large += num_allocations + num_requests;
 
         /// nfill == nmalloc for large currently.
-        lstats[i].nfills.incUnsynchronized(nmalloc);
-        astats->nfills_large += nmalloc;
+        large_stats[i].num_fills.incrementUnsynchronized(num_allocations);
+        arena_stats->num_fills_large += num_allocations;
 
-        uint64_t nflush = arena->stats.lstats[i].nflushes.read();
-        lstats[i].nflushes.incUnsynchronized(nflush);
-        astats->nflushes_large += nflush;
+        uint64_t num_flush = arena->stats.large_stats[i].num_flushes.read();
+        large_stats[i].num_flushes.incrementUnsynchronized(num_flush);
+        arena_stats->num_flushes_large += num_flush;
 
-        JE_ASSERT(nmalloc >= ndalloc);
-        JE_ASSERT(nmalloc - ndalloc <= SIZE_MAX);
-        size_t curlextents = size_t(nmalloc - ndalloc);
-        lstats[i].curlextents += curlextents;
+        ALLOCATOR_ASSERT(num_allocations >= num_deallocations);
+        ALLOCATOR_ASSERT(num_allocations - num_deallocations <= SIZE_MAX);
+        size_t current_large_extents = size_t(num_allocations - num_deallocations);
+        large_stats[i].current_large_extents += current_large_extents;
 
-        uint64_t active_bytes = arena->stats.lstats[i].active_bytes.read();
-        lstats[i].active_bytes.incUnsynchronized(active_bytes);
-        astats->allocated_large += active_bytes;
+        uint64_t active_bytes = arena->stats.large_stats[i].active_bytes.read();
+        large_stats[i].active_bytes.incrementUnsynchronized(active_bytes);
+        arena_stats->allocated_large += active_bytes;
     }
 
-    arena->pa_shard.statsMerge(tsdn, &astats->pa_shard_stats, estats, &astats->resident);
+    arena->page_allocator_shard.statsMerge(thread_state, &arena_stats->page_allocator_shard_stats, extent_stats, &arena_stats->resident);
 
     /// LOCKEDINT_MTX_UNLOCK: no stats mutex.
 
     /// Currently cached bytes and sanitizer-stashed bytes in tcache.
-    astats->tcache_bytes = 0;
-    astats->tcache_stashed_bytes = 0;
-    arena->tcache_ql_mtx.lock(tsdn);
-    arena->cache_bin_array_descriptor_ql.forEach(
+    arena_stats->thread_cache_bytes = 0;
+    arena_stats->thread_cache_stashed_bytes = 0;
+    arena->thread_cache_list_mutex.lock(thread_state);
+    arena->cache_bin_array_descriptor_list.forEach(
         [&](CacheBinArrayDescriptor * descriptor)
         {
-            for (szind_t i = 0; i < TCACHE_NBINS_MAX; ++i)
+            for (SizeClassIdx i = 0; i < THREAD_CACHE_NUM_BINS_MAX; ++i)
             {
                 CacheBin * cache_bin = &descriptor->bins[i];
                 if (cache_bin->disabled())
                     continue;
 
-                cache_bin_sz_t ncached;
-                cache_bin_sz_t nstashed;
-                cache_bin->nitemsGetRemote(ncached, nstashed);
-                astats->tcache_bytes += ncached * sz::indexToSize(i);
-                astats->tcache_stashed_bytes += nstashed * sz::indexToSize(i);
+                CacheBinSize num_cached;
+                CacheBinSize num_stashed;
+                cache_bin->numItemsGetRemote(num_cached, num_stashed);
+                arena_stats->thread_cache_bytes += num_cached * size_classes::indexToSize(i);
+                arena_stats->thread_cache_stashed_bytes += num_stashed * size_classes::indexToSize(i);
             }
         });
-    arena->tcache_ql_mtx.profRead(tsdn, astats->mutex_prof_data[arena_prof_mutex_tcache_list]);
-    arena->tcache_ql_mtx.unlock(tsdn);
+    arena->thread_cache_list_mutex.profilingRead(thread_state, arena_stats->mutex_profiling_data[arena_profiling_mutex_thread_cache_list]);
+    arena->thread_cache_list_mutex.unlock(thread_state);
 
     /// Gather per arena mutex profiling data.
-    arena->large_mtx.lock(tsdn);
-    arena->large_mtx.profRead(tsdn, astats->mutex_prof_data[arena_prof_mutex_large]);
-    arena->large_mtx.unlock(tsdn);
-    Mutex & base_mtx = arena->base->mutex();
-    base_mtx.lock(tsdn);
-    base_mtx.profRead(tsdn, astats->mutex_prof_data[arena_prof_mutex_base]);
-    base_mtx.unlock(tsdn);
-    arena->pa_shard.mtxStatsRead(tsdn, astats->mutex_prof_data);
+    arena->large_mutex.lock(thread_state);
+    arena->large_mutex.profilingRead(thread_state, arena_stats->mutex_profiling_data[arena_profiling_mutex_large]);
+    arena->large_mutex.unlock(thread_state);
+    Mutex & base_mutex = arena->base->getMutex();
+    base_mutex.lock(thread_state);
+    base_mutex.profilingRead(thread_state, arena_stats->mutex_profiling_data[arena_profiling_mutex_base]);
+    base_mutex.unlock(thread_state);
+    arena->page_allocator_shard.mutexStatsRead(thread_state, arena_stats->mutex_profiling_data);
 
-    astats->uptime.copy(arena->create_time);
-    astats->uptime.update();
-    astats->uptime.subtract(arena->create_time);
+    arena_stats->uptime.copy(arena->create_time);
+    arena_stats->uptime.update();
+    arena_stats->uptime.subtract(arena->create_time);
 
-    for (szind_t i = 0; i < SC_NBINS; ++i)
+    for (SizeClassIdx i = 0; i < SIZE_CLASS_NUM_BINS; ++i)
     {
-        for (unsigned j = 0; j < bin_infos[i].n_shards; ++j)
-            arenaGetBin(arena, i, j)->statsMerge(tsdn, bstats[i]);
+        for (unsigned j = 0; j < bin_infos[i].num_shards; ++j)
+            arenaGetBin(arena, i, j)->statsMerge(thread_state, bin_stats[i]);
     }
 }
 
 /// --- Decay wiring --------------------------------------------------------------------------------------------------
 
-static void arenaMaybeDoDeferredWork(ThreadState * tsdn, Arena * arena, Decay * decay, size_t npages_new);
-static bool arenaDecayDirty(ThreadState * tsdn, Arena * arena, bool is_background_thread, bool all);
+static void arenaMaybeDoDeferredWork(ThreadState * thread_state, Arena * arena, Decay * decay, size_t num_pages_new);
+static bool arenaDecayDirty(ThreadState * thread_state, Arena * arena, bool is_background_thread, bool all);
 
 /// jemalloc: arena_background_thread_inactivity_check
-static void arenaBackgroundThreadInactivityCheck(ThreadState * tsdn, Arena * arena, bool is_background_thread)
+static void arenaBackgroundThreadInactivityCheck(ThreadState * thread_state, Arena * arena, bool is_background_thread)
 {
     if (!backgroundThreadEnabled() || is_background_thread)
         return;
     BackgroundThreadInfo * info = arenaBackgroundThreadInfoGet(arena);
     if (backgroundThreadIndefiniteSleep(info))
-        arenaMaybeDoDeferredWork(tsdn, arena, &arena->pa_shard.pac.decay_dirty, 0);
+        arenaMaybeDoDeferredWork(thread_state, arena, &arena->page_allocator_shard.page_allocator.decay_dirty, 0);
 }
 
 /// jemalloc: arena_handle_deferred_work
-void arenaHandleDeferredWork(ThreadState * tsdn, Arena * arena)
+void arenaHandleDeferredWork(ThreadState * thread_state, Arena * arena)
 {
-    if (arena->pa_shard.pac.decay_dirty.immediately())
-        arenaDecayDirty(tsdn, arena, false, true);
-    arenaBackgroundThreadInactivityCheck(tsdn, arena, false);
+    if (arena->page_allocator_shard.page_allocator.decay_dirty.immediately())
+        arenaDecayDirty(thread_state, arena, false, true);
+    arenaBackgroundThreadInactivityCheck(thread_state, arena, false);
 }
 
 /// In situations where we're not forcing a decay (i.e. because the user specifically requested it), should we purge
 /// ourselves, or wait for the background thread to get to it.
 /// jemalloc: arena_decide_unforced_purge_eagerness
-static PacPurgeEagerness arenaDecideUnforcedPurgeEagerness(bool is_background_thread)
+static PageAllocatorPurgeEagerness arenaDecideUnforcedPurgeEagerness(bool is_background_thread)
 {
     if (is_background_thread)
-        return PAC_PURGE_ALWAYS;
+        return PAGE_ALLOCATOR_PURGE_ALWAYS;
     else if (!is_background_thread && backgroundThreadEnabled())
-        return PAC_PURGE_NEVER;
+        return PAGE_ALLOCATOR_PURGE_NEVER;
     else
-        return PAC_PURGE_ON_EPOCH_ADVANCE;
+        return PAGE_ALLOCATOR_PURGE_ON_EPOCH_ADVANCE;
 }
 
 /// jemalloc: arena_decay_ms_set
-bool arenaDecayMsSet(ThreadState * tsdn, Arena * arena, ExtentState state, ssize_t decay_ms)
+bool arenaDecayMsSet(ThreadState * thread_state, Arena * arena, ExtentState state, ssize_t decay_ms)
 {
-    PacPurgeEagerness eagerness = arenaDecideUnforcedPurgeEagerness(/* is_background_thread */ false);
-    return arena->pa_shard.decayMsSet(tsdn, state, decay_ms, eagerness);
+    PageAllocatorPurgeEagerness eagerness = arenaDecideUnforcedPurgeEagerness(/* is_background_thread */ false);
+    return arena->page_allocator_shard.decayMsSet(thread_state, state, decay_ms, eagerness);
 }
 
 /// jemalloc: arena_decay_ms_get
 ssize_t arenaDecayMsGet(Arena * arena, ExtentState state)
 {
-    return arena->pa_shard.decayMsGet(state);
+    return arena->page_allocator_shard.decayMsGet(state);
 }
 
 /// Returns true if another thread is decaying (the decay mutex is busy).
 /// jemalloc: arena_decay_impl
 static bool arenaDecayImpl(
-    ThreadState * tsdn, Arena * arena, Decay * decay, DecayStats * decay_stats, ExtentCache * ecache, bool is_background_thread, bool all)
+    ThreadState * thread_state,
+    Arena * arena,
+    Decay * decay,
+    DecayStats * decay_stats,
+    ExtentCache * extent_cache,
+    bool is_background_thread,
+    bool all)
 {
     if (all)
     {
-        decay->mtx.lock(tsdn);
-        arena->pa_shard.pac.decayAll(tsdn, decay, decay_stats, ecache, /* fully_decay */ all);
-        decay->mtx.unlock(tsdn);
+        decay->mutex.lock(thread_state);
+        arena->page_allocator_shard.page_allocator.decayAll(thread_state, decay, decay_stats, extent_cache, /* fully_decay */ all);
+        decay->mutex.unlock(thread_state);
         return false;
     }
 
-    if (!decay->mtx.tryLock(tsdn))
+    if (!decay->mutex.tryLock(thread_state))
     {
         /// No need to wait if another thread is in progress.
         return true;
     }
-    PacPurgeEagerness eagerness = arenaDecideUnforcedPurgeEagerness(is_background_thread);
-    bool epoch_advanced = arena->pa_shard.pac.maybeDecayPurge(tsdn, decay, decay_stats, ecache, eagerness);
-    size_t npages_new = 0;
+    PageAllocatorPurgeEagerness eagerness = arenaDecideUnforcedPurgeEagerness(is_background_thread);
+    bool epoch_advanced
+        = arena->page_allocator_shard.page_allocator.maybeDecayPurge(thread_state, decay, decay_stats, extent_cache, eagerness);
+    size_t num_pages_new = 0;
     if (epoch_advanced)
     {
         /// Backlog is updated on epoch advance.
-        npages_new = decay->epochNpagesDelta();
+        num_pages_new = decay->epochNumPagesDelta();
     }
-    decay->mtx.unlock(tsdn);
+    decay->mutex.unlock(thread_state);
 
     if (config::background_thread && backgroundThreadEnabled() && epoch_advanced && !is_background_thread)
-        arenaMaybeDoDeferredWork(tsdn, arena, decay, npages_new);
+        arenaMaybeDoDeferredWork(thread_state, arena, decay, num_pages_new);
 
     return false;
 }
 
 /// jemalloc: arena_decay_dirty
-static bool arenaDecayDirty(ThreadState * tsdn, Arena * arena, bool is_background_thread, bool all)
+static bool arenaDecayDirty(ThreadState * thread_state, Arena * arena, bool is_background_thread, bool all)
 {
-    PageAllocator & pac = arena->pa_shard.pac;
-    return arenaDecayImpl(tsdn, arena, &pac.decay_dirty, &pac.stats->decay_dirty, &pac.ecache_dirty, is_background_thread, all);
+    PageAllocator & page_allocator = arena->page_allocator_shard.page_allocator;
+    return arenaDecayImpl(
+        thread_state,
+        arena,
+        &page_allocator.decay_dirty,
+        &page_allocator.stats->decay_dirty,
+        &page_allocator.extent_cache_dirty,
+        is_background_thread,
+        all);
 }
 
 /// jemalloc: arena_decay_muzzy
-static bool arenaDecayMuzzy(ThreadState * tsdn, Arena * arena, bool is_background_thread, bool all)
+static bool arenaDecayMuzzy(ThreadState * thread_state, Arena * arena, bool is_background_thread, bool all)
 {
-    if (arena->pa_shard.dontDecayMuzzy())
+    if (arena->page_allocator_shard.dontDecayMuzzy())
         return false;
-    PageAllocator & pac = arena->pa_shard.pac;
-    return arenaDecayImpl(tsdn, arena, &pac.decay_muzzy, &pac.stats->decay_muzzy, &pac.ecache_muzzy, is_background_thread, all);
+    PageAllocator & page_allocator = arena->page_allocator_shard.page_allocator;
+    return arenaDecayImpl(
+        thread_state,
+        arena,
+        &page_allocator.decay_muzzy,
+        &page_allocator.stats->decay_muzzy,
+        &page_allocator.extent_cache_muzzy,
+        is_background_thread,
+        all);
 }
 
 /// jemalloc: arena_decay
-void arenaDecay(ThreadState * tsdn, Arena * arena, bool is_background_thread, bool all)
+void arenaDecay(ThreadState * thread_state, Arena * arena, bool is_background_thread, bool all)
 {
     if (all)
     {
         /// We should take a purge of "all" to mean "save as much memory as possible", including flushing any caches
         /// (for situations like thread death, or manual purge calls).
-        arena->pa_shard.flush(tsdn);
+        arena->page_allocator_shard.flush(thread_state);
     }
-    if (arenaDecayDirty(tsdn, arena, is_background_thread, all))
+    if (arenaDecayDirty(thread_state, arena, is_background_thread, all))
         return;
-    arenaDecayMuzzy(tsdn, arena, is_background_thread, all);
+    arenaDecayMuzzy(thread_state, arena, is_background_thread, all);
 }
 
 /// jemalloc: arena_should_decay_early
 static bool arenaShouldDecayEarly(
-    ThreadState * tsdn, Arena * /*arena*/, Decay * decay, BackgroundThreadInfo * info, NsTime * remaining_sleep, size_t npages_new)
+    ThreadState * thread_state,
+    Arena * /*arena*/,
+    Decay * decay,
+    BackgroundThreadInfo * info,
+    Nanoseconds * remaining_sleep,
+    size_t num_pages_new)
 {
-    backgroundThreadInfoMutex(info).assertOwner(tsdn);
+    backgroundThreadInfoMutex(info).assertOwner(thread_state);
 
-    if (!decay->mtx.tryLock(tsdn))
+    if (!decay->mutex.tryLock(thread_state))
         return false;
 
     if (!decay->gradually())
     {
-        decay->mtx.unlock(tsdn);
+        decay->mutex.unlock(thread_state);
         return false;
     }
 
     remaining_sleep->init(backgroundThreadWakeupTimeGet(info));
     if (remaining_sleep->compare(decay->epoch) <= 0)
     {
-        decay->mtx.unlock(tsdn);
+        decay->mutex.unlock(thread_state);
         return false;
     }
     remaining_sleep->subtract(decay->epoch);
-    if (npages_new > 0)
+    if (num_pages_new > 0)
     {
-        uint64_t npurge_new = decay->npagesPurgeIn(*remaining_sleep, npages_new);
-        backgroundThreadNpagesToPurgeNew(info) += npurge_new;
+        uint64_t num_purge_new = decay->numPagesPurgeIn(*remaining_sleep, num_pages_new);
+        backgroundThreadNumPagesToPurgeNew(info) += num_purge_new;
     }
-    decay->mtx.unlock(tsdn);
-    return backgroundThreadNpagesToPurgeNew(info) > ARENA_DEFERRED_PURGE_NPAGES_THRESHOLD;
+    decay->mutex.unlock(thread_state);
+    return backgroundThreadNumPagesToPurgeNew(info) > ARENA_DEFERRED_PURGE_NUM_PAGES_THRESHOLD;
 }
 
 /// Check if deferred work needs to be done sooner than planned. For decay we might want to wake up earlier because of
 /// an influx of dirty pages. Rather than waiting for previously estimated time, we proactively purge those pages. If
 /// background thread sleeps indefinitely, always wake up because some deferred work has been generated.
 /// jemalloc: arena_maybe_do_deferred_work
-static void arenaMaybeDoDeferredWork(ThreadState * tsdn, Arena * arena, Decay * decay, size_t npages_new)
+static void arenaMaybeDoDeferredWork(ThreadState * thread_state, Arena * arena, Decay * decay, size_t num_pages_new)
 {
     BackgroundThreadInfo * info = arenaBackgroundThreadInfoGet(arena);
-    Mutex & info_mtx = backgroundThreadInfoMutex(info);
-    if (!info_mtx.tryLock(tsdn))
+    Mutex & info_mutex = backgroundThreadInfoMutex(info);
+    if (!info_mutex.tryLock(thread_state))
     {
         /// Background thread may hold the mutex for a long period of time. We'd like to avoid the variance on
         /// application threads. So keep this non-blocking, and leave the work to a future epoch.
@@ -342,299 +374,301 @@ static void arenaMaybeDoDeferredWork(ThreadState * tsdn, Arena * arena, Decay * 
     }
     if (backgroundThreadIsStarted(info))
     {
-        NsTime remaining_sleep = NsTime::zero();
+        Nanoseconds remaining_sleep = Nanoseconds::zero();
         if (backgroundThreadIndefiniteSleep(info))
         {
             backgroundThreadWakeupEarly(info, nullptr);
         }
-        else if (arenaShouldDecayEarly(tsdn, arena, decay, info, &remaining_sleep, npages_new))
+        else if (arenaShouldDecayEarly(thread_state, arena, decay, info, &remaining_sleep, num_pages_new))
         {
-            backgroundThreadNpagesToPurgeNew(info) = 0;
+            backgroundThreadNumPagesToPurgeNew(info) = 0;
             backgroundThreadWakeupEarly(info, &remaining_sleep);
         }
     }
-    info_mtx.unlock(tsdn);
+    info_mutex.unlock(thread_state);
 }
 
 /// jemalloc: arena_do_deferred_work
-void arenaDoDeferredWork(ThreadState * tsdn, Arena * arena)
+void arenaDoDeferredWork(ThreadState * thread_state, Arena * arena)
 {
-    arenaDecay(tsdn, arena, true, false);
-    arena->pa_shard.doDeferredWork(tsdn);
+    arenaDecay(thread_state, arena, true, false);
+    arena->page_allocator_shard.doDeferredWork(thread_state);
 }
 
 /// --- Large extent helpers ------------------------------------------------------------------------------------------
 
 /// jemalloc: arena_large_malloc_stats_update
-static void arenaLargeMallocStatsUpdate(ThreadState * tsdn, Arena * arena, size_t usize)
+static void arenaLargeMallocStatsUpdate(ThreadState * thread_state, Arena * arena, size_t usable_size)
 {
     static_assert(config::stats);
 
-    szind_t index = sz::sizeToIndex(usize);
+    SizeClassIdx index = size_classes::sizeToIndex(usable_size);
     /// This only occurs when we have a sampled small allocation.
-    if (usize < SC_LARGE_MINCLASS)
+    if (usable_size < SIZE_CLASS_LARGE_MIN_CLASS)
     {
-        JE_ASSERT(index < SC_NBINS);
-        JE_ASSERT(usize >= PAGE && usize % PAGE == 0);
+        ALLOCATOR_ASSERT(index < SIZE_CLASS_NUM_BINS);
+        ALLOCATOR_ASSERT(usable_size >= PAGE && usable_size % PAGE == 0);
         Bin * bin = arenaGetBin(arena, index, /* binshard */ 0);
-        bin->lock.lock(tsdn);
-        ++bin->stats.nmalloc;
-        bin->lock.unlock(tsdn);
+        bin->lock.lock(thread_state);
+        ++bin->stats.num_allocations;
+        bin->lock.unlock(thread_state);
     }
     else
     {
-        JE_ASSERT(index >= SC_NBINS);
-        szind_t hindex = index - SC_NBINS;
-        arena->stats.lstats[hindex].nmalloc.inc(1);
-        arena->stats.lstats[hindex].active_bytes.inc(usize);
+        ALLOCATOR_ASSERT(index >= SIZE_CLASS_NUM_BINS);
+        SizeClassIdx hash_index = index - SIZE_CLASS_NUM_BINS;
+        arena->stats.large_stats[hash_index].num_allocations.increment(1);
+        arena->stats.large_stats[hash_index].active_bytes.increment(usable_size);
     }
 }
 
 /// jemalloc: arena_large_dalloc_stats_update
-static void arenaLargeDallocStatsUpdate(ThreadState * tsdn, Arena * arena, size_t usize)
+static void arenaLargeDeallocateStatsUpdate(ThreadState * thread_state, Arena * arena, size_t usable_size)
 {
     static_assert(config::stats);
 
-    szind_t index = sz::sizeToIndex(usize);
+    SizeClassIdx index = size_classes::sizeToIndex(usable_size);
     /// This only occurs when we have a sampled small allocation.
-    if (usize < SC_LARGE_MINCLASS)
+    if (usable_size < SIZE_CLASS_LARGE_MIN_CLASS)
     {
-        JE_ASSERT(index < SC_NBINS);
-        JE_ASSERT(usize >= PAGE && usize % PAGE == 0);
+        ALLOCATOR_ASSERT(index < SIZE_CLASS_NUM_BINS);
+        ALLOCATOR_ASSERT(usable_size >= PAGE && usable_size % PAGE == 0);
         Bin * bin = arenaGetBin(arena, index, /* binshard */ 0);
-        bin->lock.lock(tsdn);
-        ++bin->stats.ndalloc;
-        bin->lock.unlock(tsdn);
+        bin->lock.lock(thread_state);
+        ++bin->stats.num_deallocations;
+        bin->lock.unlock(thread_state);
     }
     else
     {
-        JE_ASSERT(index >= SC_NBINS);
-        szind_t hindex = index - SC_NBINS;
-        arena->stats.lstats[hindex].ndalloc.inc(1);
-        arena->stats.lstats[hindex].active_bytes.dec(usize);
+        ALLOCATOR_ASSERT(index >= SIZE_CLASS_NUM_BINS);
+        SizeClassIdx hash_index = index - SIZE_CLASS_NUM_BINS;
+        arena->stats.large_stats[hash_index].num_deallocations.increment(1);
+        arena->stats.large_stats[hash_index].active_bytes.decrement(usable_size);
     }
 }
 
 /// jemalloc: arena_large_ralloc_stats_update
-static void arenaLargeRallocStatsUpdate(ThreadState * tsdn, Arena * arena, size_t oldusize, size_t usize)
+static void arenaLargeReallocateStatsUpdate(ThreadState * thread_state, Arena * arena, size_t old_usable_size, size_t usable_size)
 {
-    arenaLargeMallocStatsUpdate(tsdn, arena, usize);
-    arenaLargeDallocStatsUpdate(tsdn, arena, oldusize);
+    arenaLargeMallocStatsUpdate(thread_state, arena, usable_size);
+    arenaLargeDeallocateStatsUpdate(thread_state, arena, old_usable_size);
 }
 
 /// jemalloc: arena_extent_alloc_large
-Extent * arenaExtentAllocLarge(ThreadState * tsdn, Arena * arena, size_t usize, size_t alignment, bool zero)
+Extent * arenaExtentAllocLarge(ThreadState * thread_state, Arena * arena, size_t usable_size, size_t alignment, bool zero)
 {
     bool deferred_work_generated = false;
-    szind_t szind = sz::sizeToIndex(usize);
-    size_t esize = usize + sz_large_pad;
+    SizeClassIdx size_class_idx = size_classes::sizeToIndex(usable_size);
+    size_t extent_size = usable_size + large_pad;
 
-    bool guarded = sanLargeExtentDecideGuard(tsdn, arenaGetEhooks(arena), esize, alignment);
+    bool guarded = sanitizerLargeExtentDecideGuard(thread_state, arenaGetExtentHooks(arena), extent_size, alignment);
 
     /// - if usize >= opt.calloc_madvise_threshold,
     ///     - pa_alloc(..., zero_override = zero, ...)
     /// - otherwise,
     ///     - pa_alloc(..., zero_override = false, ...)
     ///     - use memset() to zero out memory if zero == true.
-    bool zero_override = zero && (usize >= opt.calloc_madvise_threshold);
-    Extent * edata = arena->pa_shard.alloc(
-        tsdn, esize, alignment, /* slab */ false, szind, zero_override, guarded, &deferred_work_generated);
+    bool zero_override = zero && (usable_size >= options.calloc_madvise_threshold);
+    Extent * extent = arena->page_allocator_shard.alloc(
+        thread_state, extent_size, alignment, /* slab */ false, size_class_idx, zero_override, guarded, &deferred_work_generated);
 
-    if (edata == nullptr)
+    if (extent == nullptr)
         return nullptr;
 
     if constexpr (config::stats)
-        arenaLargeMallocStatsUpdate(tsdn, arena, usize);
-    if (sz_large_pad != 0)
-        arenaCacheObliviousRandomize(tsdn, arena, edata, alignment);
+        arenaLargeMallocStatsUpdate(thread_state, arena, usable_size);
+    if (large_pad != 0)
+        arenaCacheObliviousRandomize(thread_state, arena, extent, alignment);
     /// This branch should be put after the randomization so that the addr returned by `addr()` has already be
     /// randomized, if cache_oblivious is enabled.
-    if (zero && !zero_override && !edata->zeroed())
+    if (zero && !zero_override && !extent->zeroed())
     {
-        void * addr = edata->addr();
-        size_t edata_usize = edata->usize();
-        memset(addr, 0, edata_usize);
+        void * addr = extent->addr();
+        size_t extent_usable_size = extent->usableSize();
+        memset(addr, 0, extent_usable_size);
     }
 
-    return edata;
+    return extent;
 }
 
 /// jemalloc: arena_extent_dalloc_large_prep
-void arenaExtentDallocLargePrep(ThreadState * tsdn, Arena * arena, Extent * edata)
+void arenaExtentDeallocateLargePrepare(ThreadState * thread_state, Arena * arena, Extent * extent)
 {
     if constexpr (config::stats)
-        arenaLargeDallocStatsUpdate(tsdn, arena, edata->usize());
+        arenaLargeDeallocateStatsUpdate(thread_state, arena, extent->usableSize());
 }
 
 /// jemalloc: arena_extent_ralloc_large_shrink
-void arenaExtentRallocLargeShrink(ThreadState * tsdn, Arena * arena, Extent * edata, size_t oldusize)
+void arenaExtentReallocateLargeShrink(ThreadState * thread_state, Arena * arena, Extent * extent, size_t old_usable_size)
 {
-    size_t usize = edata->usize();
+    size_t usable_size = extent->usableSize();
 
     if constexpr (config::stats)
-        arenaLargeRallocStatsUpdate(tsdn, arena, oldusize, usize);
+        arenaLargeReallocateStatsUpdate(thread_state, arena, old_usable_size, usable_size);
 }
 
 /// jemalloc: arena_extent_ralloc_large_expand
-void arenaExtentRallocLargeExpand(ThreadState * tsdn, Arena * arena, Extent * edata, size_t oldusize)
+void arenaExtentReallocateLargeExpand(ThreadState * thread_state, Arena * arena, Extent * extent, size_t old_usable_size)
 {
-    size_t usize = edata->usize();
+    size_t usable_size = extent->usableSize();
 
     if constexpr (config::stats)
-        arenaLargeRallocStatsUpdate(tsdn, arena, oldusize, usize);
+        arenaLargeReallocateStatsUpdate(thread_state, arena, old_usable_size, usable_size);
 }
 
 /// --- Slabs ---------------------------------------------------------------------------------------------------------
 
 /// jemalloc: arena_slab_dalloc
-void arenaSlabDalloc(ThreadState * tsdn, Arena * arena, Extent * slab)
+void arenaSlabDeallocate(ThreadState * thread_state, Arena * arena, Extent * slab)
 {
     bool deferred_work_generated = false;
-    arena->pa_shard.dalloc(tsdn, slab, &deferred_work_generated);
+    arena->page_allocator_shard.deallocate(thread_state, slab, &deferred_work_generated);
     if (deferred_work_generated)
-        arenaHandleDeferredWork(tsdn, arena);
+        arenaHandleDeferredWork(thread_state, arena);
 }
 
 /// jemalloc: arena_slab_alloc
-static Extent * arenaSlabAlloc(ThreadState * tsdn, Arena * arena, szind_t binind, unsigned binshard, const BinInfo & bin_info)
+static Extent *
+arenaSlabAlloc(ThreadState * thread_state, Arena * arena, SizeClassIdx bin_idx, unsigned bin_shard, const BinInfo & bin_info)
 {
     bool deferred_work_generated = false;
 
-    bool guarded = sanSlabExtentDecideGuard(tsdn, arenaGetEhooks(arena));
-    Extent * slab = arena->pa_shard.alloc(
-        tsdn,
+    bool guarded = sanitizerSlabExtentDecideGuard(thread_state, arenaGetExtentHooks(arena));
+    Extent * slab = arena->page_allocator_shard.alloc(
+        thread_state,
         bin_info.slab_size,
         /* alignment */ PAGE,
         /* slab */ true,
-        /* szind */ binind,
+        /* szind */ bin_idx,
         /* zero */ false,
         guarded,
         &deferred_work_generated);
 
     if (deferred_work_generated)
-        arenaHandleDeferredWork(tsdn, arena);
+        arenaHandleDeferredWork(thread_state, arena);
 
     if (slab == nullptr)
         return nullptr;
-    JE_ASSERT(slab->slab());
+    ALLOCATOR_ASSERT(slab->slab());
 
     /// Initialize slab internals.
     SlabData * slab_data = slab->slabData();
-    slab->setNfreeBinshard(bin_info.nregs, binshard);
+    slab->setNumFreeBinShard(bin_info.num_regions, bin_shard);
     bitmapInit(slab_data->bitmap, bin_info.bitmap_info, false);
 
     return slab;
 }
 
 /// jemalloc: arena_bin_reset
-static void arenaBinReset(ThreadState & tsd, Arena * arena, Bin * bin)
+static void arenaBinReset(ThreadState & thread_state, Arena * arena, Bin * bin)
 {
-    ThreadState * tsdn = &tsd;
+    ThreadState * thread_state_ptr = &thread_state;
     Extent * slab;
 
-    bin->lock.lock(tsdn);
+    bin->lock.lock(thread_state_ptr);
 
-    if (bin->slabcur != nullptr)
+    if (bin->current_slab != nullptr)
     {
-        slab = bin->slabcur;
-        bin->slabcur = nullptr;
-        bin->lock.unlock(tsdn);
-        arenaSlabDalloc(tsdn, arena, slab);
-        bin->lock.lock(tsdn);
+        slab = bin->current_slab;
+        bin->current_slab = nullptr;
+        bin->lock.unlock(thread_state_ptr);
+        arenaSlabDeallocate(thread_state_ptr, arena, slab);
+        bin->lock.lock(thread_state_ptr);
     }
-    while ((slab = bin->slabs_nonfull.removeFirst()) != nullptr)
+    while ((slab = bin->slabs_non_full.removeFirst()) != nullptr)
     {
-        bin->lock.unlock(tsdn);
-        arenaSlabDalloc(tsdn, arena, slab);
-        bin->lock.lock(tsdn);
+        bin->lock.unlock(thread_state_ptr);
+        arenaSlabDeallocate(thread_state_ptr, arena, slab);
+        bin->lock.lock(thread_state_ptr);
     }
     for (slab = bin->slabs_full.first(); slab != nullptr; slab = bin->slabs_full.first())
     {
         bin->slabsFullRemove(false, slab);
-        bin->lock.unlock(tsdn);
-        arenaSlabDalloc(tsdn, arena, slab);
-        bin->lock.lock(tsdn);
+        bin->lock.unlock(thread_state_ptr);
+        arenaSlabDeallocate(thread_state_ptr, arena, slab);
+        bin->lock.lock(thread_state_ptr);
     }
     if constexpr (config::stats)
     {
-        bin->stats.curregs = 0;
-        bin->stats.curslabs = 0;
+        bin->stats.current_regions = 0;
+        bin->stats.current_slabs = 0;
     }
-    bin->lock.unlock(tsdn);
+    bin->lock.unlock(thread_state_ptr);
 }
 
 /// --- Profiling -----------------------------------------------------------------------------------------------------
 
 /// jemalloc: arena_prof_promote
-void arenaProfPromote(ThreadState * tsdn, void * ptr, [[maybe_unused]] size_t usize, [[maybe_unused]] size_t bumped_usize)
+void arenaProfilingPromote(
+    ThreadState * thread_state, void * ptr, [[maybe_unused]] size_t usable_size, [[maybe_unused]] size_t bumped_usable_size)
 {
-    static_assert(config::prof);
-    JE_ASSERT(ptr != nullptr);
-    JE_ASSERT(arenaSalloc(tsdn, ptr) == bumped_usize);
-    JE_ASSERT(sz::canUseSlab(usize));
+    static_assert(config::profiling);
+    ALLOCATOR_ASSERT(ptr != nullptr);
+    ALLOCATOR_ASSERT(arenaAllocationSize(thread_state, ptr) == bumped_usable_size);
+    ALLOCATOR_ASSERT(size_classes::canUseSlab(usable_size));
 
     /// `config_opt_safety_checks` (redzones) is off.
 
-    Extent * edata = arena_emap_global.edataLookup(tsdn, ptr);
+    Extent * extent = arena_extent_map_global.extentLookup(thread_state, ptr);
 
-    szind_t szind = sz::sizeToIndex(usize);
-    edata->setSzind(szind);
-    arena_emap_global.remap(tsdn, edata, szind, /* slab */ false);
+    SizeClassIdx size_class_idx = size_classes::sizeToIndex(usable_size);
+    extent->setSizeClassIdx(size_class_idx);
+    arena_extent_map_global.remap(thread_state, extent, size_class_idx, /* slab */ false);
 
-    JE_ASSERT(arenaSalloc(tsdn, ptr) == usize);
+    ALLOCATOR_ASSERT(arenaAllocationSize(thread_state, ptr) == usable_size);
 }
 
 /// jemalloc: arena_prof_demote
-static size_t arenaProfDemote(ThreadState * tsdn, Extent * edata, const void * ptr)
+static size_t arenaProfilingDemote(ThreadState * thread_state, Extent * extent, const void * ptr)
 {
-    static_assert(config::prof);
-    JE_ASSERT(ptr != nullptr);
-    size_t usize = arenaSalloc(tsdn, ptr);
-    size_t bumped_usize = sz::sa2u(usize, PROF_SAMPLE_ALIGNMENT);
-    JE_ASSERT(bumped_usize <= SC_LARGE_MINCLASS && pageCeiling(bumped_usize) == bumped_usize);
-    JE_ASSERT(edata->size() - bumped_usize <= sz_large_pad);
-    szind_t szind = sz::sizeToIndex(bumped_usize);
+    static_assert(config::profiling);
+    ALLOCATOR_ASSERT(ptr != nullptr);
+    size_t usable_size = arenaAllocationSize(thread_state, ptr);
+    size_t bumped_usable_size = size_classes::alignedSizeToUsableSize(usable_size, PROFILING_SAMPLE_ALIGNMENT);
+    ALLOCATOR_ASSERT(bumped_usable_size <= SIZE_CLASS_LARGE_MIN_CLASS && pageCeiling(bumped_usable_size) == bumped_usable_size);
+    ALLOCATOR_ASSERT(extent->size() - bumped_usable_size <= large_pad);
+    SizeClassIdx size_class_idx = size_classes::sizeToIndex(bumped_usable_size);
 
-    edata->setSzind(szind);
-    arena_emap_global.remap(tsdn, edata, szind, /* slab */ false);
+    extent->setSizeClassIdx(size_class_idx);
+    arena_extent_map_global.remap(thread_state, extent, size_class_idx, /* slab */ false);
 
-    JE_ASSERT(arenaSalloc(tsdn, ptr) == bumped_usize);
+    ALLOCATOR_ASSERT(arenaAllocationSize(thread_state, ptr) == bumped_usable_size);
 
-    return bumped_usize;
+    return bumped_usable_size;
 }
 
 /// jemalloc: arena_dalloc_promoted_impl
-static void arenaDallocPromotedImpl(ThreadState * tsdn, void * ptr, ThreadCache * tcache, bool slow_path, Extent * edata)
+static void arenaDeallocatePromotedImpl(ThreadState * thread_state, void * ptr, ThreadCache * thread_cache, bool slow_path, Extent * extent)
 {
-    static_assert(config::prof);
-    JE_ASSERT(opt.prof);
+    static_assert(config::profiling);
+    ALLOCATOR_ASSERT(options.profiling);
 
-    [[maybe_unused]] size_t usize = edata->usize();
-    size_t bumped_usize = arenaProfDemote(tsdn, edata, ptr);
+    [[maybe_unused]] size_t usable_size = extent->usableSize();
+    size_t bumped_usable_size = arenaProfilingDemote(thread_state, extent, ptr);
     /// `config_opt_safety_checks` (redzone verification) is off.
-    szind_t bumped_ind = sz::sizeToIndex(bumped_usize);
-    if (bumped_usize >= SC_LARGE_MINCLASS && tcache != nullptr && bumped_ind < TCACHE_NBINS_MAX
-        && !tcacheBinDisabled(bumped_ind, &tcache->bins[bumped_ind], tcache->tcache_slow))
+    SizeClassIdx bumped_idx = size_classes::sizeToIndex(bumped_usable_size);
+    if (bumped_usable_size >= SIZE_CLASS_LARGE_MIN_CLASS && thread_cache != nullptr && bumped_idx < THREAD_CACHE_NUM_BINS_MAX
+        && !threadCacheBinDisabled(bumped_idx, &thread_cache->bins[bumped_idx], thread_cache->thread_cache_slow))
     {
-        tcacheDallocLarge(*tsdn, tcache, ptr, bumped_ind, slow_path);
+        threadCacheDeallocateLarge(*thread_state, thread_cache, ptr, bumped_idx, slow_path);
     }
     else
     {
-        largeDalloc(tsdn, edata);
+        largeDeallocate(thread_state, extent);
     }
 }
 
 /// jemalloc: arena_dalloc_promoted
-void arenaDallocPromoted(ThreadState * tsdn, void * ptr, ThreadCache * tcache, bool slow_path)
+void arenaDeallocatePromoted(ThreadState * thread_state, void * ptr, ThreadCache * thread_cache, bool slow_path)
 {
-    Extent * edata = arena_emap_global.edataLookup(tsdn, ptr);
-    arenaDallocPromotedImpl(tsdn, ptr, tcache, slow_path, edata);
+    Extent * extent = arena_extent_map_global.extentLookup(thread_state, ptr);
+    arenaDeallocatePromotedImpl(thread_state, ptr, thread_cache, slow_path, extent);
 }
 
 /// --- Reset / destroy -----------------------------------------------------------------------------------------------
 
 /// jemalloc: arena_reset
-void arenaReset(ThreadState & tsd, Arena * arena)
+void arenaReset(ThreadState & thread_state, Arena * arena)
 {
     /// Locking in this function is unintuitive. The caller guarantees that no concurrent operations are happening in
     /// this arena, but there are still reasons that some locking is necessary:
@@ -642,88 +676,88 @@ void arenaReset(ThreadState & tsd, Arena * arena)
     ///   these locks are temporarily dropped to avoid lock order reversal or deadlock due to reentry.
     /// - mallctl("epoch", ...) may concurrently refresh stats. While strictly speaking this is a "concurrent
     ///   operation", disallowing stats refreshes would impose an inconvenient burden.
-    ThreadState * tsdn = &tsd;
+    ThreadState * thread_state_ptr = &thread_state;
 
     /// Large allocations.
-    arena->large_mtx.lock(tsdn);
+    arena->large_mutex.lock(thread_state_ptr);
 
-    for (Extent * edata = arena->large.first(); edata != nullptr; edata = arena->large.first())
+    for (Extent * extent = arena->large.first(); extent != nullptr; extent = arena->large.first())
     {
-        void * ptr = edata->base();
-        size_t usize = 0;
+        void * ptr = extent->base();
+        size_t usable_size = 0;
 
-        arena->large_mtx.unlock(tsdn);
-        AllocContext alloc_ctx;
-        arena_emap_global.allocCtxLookup(tsdn, ptr, &alloc_ctx);
-        JE_ASSERT(alloc_ctx.szind != SC_NSIZES);
+        arena->large_mutex.unlock(thread_state_ptr);
+        AllocContext alloc_context;
+        arena_extent_map_global.allocContextLookup(thread_state_ptr, ptr, &alloc_context);
+        ALLOCATOR_ASSERT(alloc_context.size_class_idx != SIZE_CLASS_NUM_SIZES);
 
-        if (config::stats || (config::prof && opt.prof))
+        if (config::stats || (config::profiling && options.profiling))
         {
-            usize = alloc_ctx.usizeGet();
-            JE_ASSERT(usize == arenaSalloc(tsdn, ptr));
+            usable_size = alloc_context.usableSizeGet();
+            ALLOCATOR_ASSERT(usable_size == arenaAllocationSize(thread_state_ptr, ptr));
         }
         /// Remove large allocation from prof sample set.
-        if (config::prof && opt.prof)
+        if (config::profiling && options.profiling)
         {
             /// jemalloc: prof_free
-            ProfInfo prof_info;
-            arenaProfInfoGet(tsd, ptr, &alloc_ctx, &prof_info, /* reset_recent */ true);
-            if (JE_UNLIKELY(profTctxIsValid(prof_info.alloc_tctx)))
-                profFreeSampledObject(tsd, ptr, usize, &prof_info);
+            ProfilingInfo profiling_info;
+            arenaProfilingInfoGet(thread_state, ptr, &alloc_context, &profiling_info, /* reset_recent */ true);
+            if (ALLOCATOR_UNLIKELY(profilingThreadContextIsValid(profiling_info.alloc_thread_context)))
+                profilingFreeSampledObject(thread_state, ptr, usable_size, &profiling_info);
         }
-        if (config::prof && opt.prof && alloc_ctx.szind < SC_NBINS)
-            arenaDallocPromotedImpl(tsdn, ptr, /* tcache */ nullptr, /* slow_path */ true, edata);
+        if (config::profiling && options.profiling && alloc_context.size_class_idx < SIZE_CLASS_NUM_BINS)
+            arenaDeallocatePromotedImpl(thread_state_ptr, ptr, /* tcache */ nullptr, /* slow_path */ true, extent);
         else
-            largeDalloc(tsdn, edata);
-        arena->large_mtx.lock(tsdn);
+            largeDeallocate(thread_state_ptr, extent);
+        arena->large_mutex.lock(thread_state_ptr);
     }
-    arena->large_mtx.unlock(tsdn);
+    arena->large_mutex.unlock(thread_state_ptr);
 
     /// Bins.
-    for (unsigned i = 0; i < SC_NBINS; ++i)
+    for (unsigned i = 0; i < SIZE_CLASS_NUM_BINS; ++i)
     {
-        for (unsigned j = 0; j < bin_infos[i].n_shards; ++j)
-            arenaBinReset(tsd, arena, arenaGetBin(arena, i, j));
+        for (unsigned j = 0; j < bin_infos[i].num_shards; ++j)
+            arenaBinReset(thread_state, arena, arenaGetBin(arena, i, j));
     }
-    arena->pa_shard.reset(tsdn);
+    arena->page_allocator_shard.reset(thread_state_ptr);
 }
 
 /// jemalloc: arena_prepare_base_deletion_sync_finish
-static void arenaPrepareBaseDeletionSyncFinish(ThreadState & tsd, Mutex ** mutexes, unsigned n_mtx)
+static void arenaPrepareBaseDeletionSyncFinish(ThreadState & thread_state, Mutex ** mutexes, unsigned num_mutex)
 {
-    for (unsigned i = 0; i < n_mtx; ++i)
+    for (unsigned i = 0; i < num_mutex; ++i)
     {
-        mutexes[i]->lock(&tsd);
-        mutexes[i]->unlock(&tsd);
+        mutexes[i]->lock(&thread_state);
+        mutexes[i]->unlock(&thread_state);
     }
 }
 
 /// jemalloc: ARENA_DESTROY_MAX_DELAYED_MTX
-static constexpr unsigned ARENA_DESTROY_MAX_DELAYED_MTX = 32;
+static constexpr unsigned ARENA_DESTROY_MAX_DELAYED_MUTEX = 32;
 
 /// jemalloc: arena_prepare_base_deletion_sync
-static void arenaPrepareBaseDeletionSync(ThreadState & tsd, Mutex * mtx, Mutex ** delayed_mtx, unsigned * n_delayed)
+static void arenaPrepareBaseDeletionSync(ThreadState & thread_state, Mutex * mutex, Mutex ** delayed_mutex, unsigned * num_delayed)
 {
-    if (mtx->tryLock(&tsd))
+    if (mutex->tryLock(&thread_state))
     {
         /// No contention.
-        mtx->unlock(&tsd);
+        mutex->unlock(&thread_state);
         return;
     }
-    unsigned n = *n_delayed;
-    JE_ASSERT(n < ARENA_DESTROY_MAX_DELAYED_MTX);
+    unsigned n = *num_delayed;
+    ALLOCATOR_ASSERT(n < ARENA_DESTROY_MAX_DELAYED_MUTEX);
     /// Add another to the batch.
-    delayed_mtx[n++] = mtx;
+    delayed_mutex[n++] = mutex;
 
-    if (n == ARENA_DESTROY_MAX_DELAYED_MTX)
+    if (n == ARENA_DESTROY_MAX_DELAYED_MUTEX)
     {
-        arenaPrepareBaseDeletionSyncFinish(tsd, delayed_mtx, n);
+        arenaPrepareBaseDeletionSyncFinish(thread_state, delayed_mutex, n);
         n = 0;
     }
-    *n_delayed = n;
+    *num_delayed = n;
 }
 
-/// In order to coalesce, `tryAcquireEdataNeighbor` will attempt to check neighbor extent's state to determine
+/// In order to coalesce, `tryAcquireExtentNeighbor` will attempt to check neighbor extent's state to determine
 /// eligibility. This means under certain conditions, the metadata from an arena can be accessed without holding any
 /// locks from that arena. In order to guarantee safe memory access, the metadata and the underlying base allocator
 /// needs to be kept alive, until all pending accesses are done.
@@ -738,72 +772,72 @@ static void arenaPrepareBaseDeletionSync(ThreadState & tsd, Mutex * mtx, Mutex *
 /// all the relevant ecache locks, it's safe to say that a) pending accesses are all finished, and b) no new access will
 /// be generated.
 /// jemalloc: arena_prepare_base_deletion
-static void arenaPrepareBaseDeletion(ThreadState & tsd, Base * base_to_destroy)
+static void arenaPrepareBaseDeletion(ThreadState & thread_state, Base * base_to_destroy)
 {
-    if (opt.retain)
+    if (options.retain)
         return;
-    unsigned destroy_ind = base_to_destroy->indGet();
-    JE_ASSERT(destroy_ind >= manual_arena_base);
+    unsigned destroy_idx = base_to_destroy->idxGet();
+    ALLOCATOR_ASSERT(destroy_idx >= manual_arena_base);
 
-    ThreadState * tsdn = &tsd;
-    Mutex * delayed_mtx[ARENA_DESTROY_MAX_DELAYED_MTX];
-    unsigned n_delayed = 0;
-    unsigned total = narenasTotalGet();
+    ThreadState * thread_state_ptr = &thread_state;
+    Mutex * delayed_mutex[ARENA_DESTROY_MAX_DELAYED_MUTEX];
+    unsigned num_delayed = 0;
+    unsigned total = numArenasTotalGet();
     for (unsigned i = 0; i < total; ++i)
     {
-        if (i == destroy_ind)
+        if (i == destroy_idx)
             continue;
-        Arena * arena = arenaGet(tsdn, i, false);
+        Arena * arena = arenaGet(thread_state_ptr, i, false);
         if (arena == nullptr)
             continue;
-        PageAllocator & pac = arena->pa_shard.pac;
-        arenaPrepareBaseDeletionSync(tsd, &pac.ecache_dirty.mtx, delayed_mtx, &n_delayed);
-        arenaPrepareBaseDeletionSync(tsd, &pac.ecache_muzzy.mtx, delayed_mtx, &n_delayed);
-        arenaPrepareBaseDeletionSync(tsd, &pac.ecache_retained.mtx, delayed_mtx, &n_delayed);
+        PageAllocator & page_allocator = arena->page_allocator_shard.page_allocator;
+        arenaPrepareBaseDeletionSync(thread_state, &page_allocator.extent_cache_dirty.mutex, delayed_mutex, &num_delayed);
+        arenaPrepareBaseDeletionSync(thread_state, &page_allocator.extent_cache_muzzy.mutex, delayed_mutex, &num_delayed);
+        arenaPrepareBaseDeletionSync(thread_state, &page_allocator.extent_cache_retained.mutex, delayed_mutex, &num_delayed);
     }
-    arenaPrepareBaseDeletionSyncFinish(tsd, delayed_mtx, n_delayed);
+    arenaPrepareBaseDeletionSyncFinish(thread_state, delayed_mutex, num_delayed);
 }
 
 /// jemalloc: arena_destroy
-void arenaDestroy(ThreadState & tsd, Arena * arena)
+void arenaDestroy(ThreadState & thread_state, Arena * arena)
 {
-    JE_ASSERT(arena->base->indGet() >= narenas_auto);
-    JE_ASSERT(arenaNthreadsGet(arena, false) == 0);
-    JE_ASSERT(arenaNthreadsGet(arena, true) == 0);
+    ALLOCATOR_ASSERT(arena->base->idxGet() >= num_arenas_auto);
+    ALLOCATOR_ASSERT(arenaNumThreadsGet(arena, false) == 0);
+    ALLOCATOR_ASSERT(arenaNumThreadsGet(arena, true) == 0);
 
     /// No allocations have occurred since `arenaReset` was called. Furthermore, the caller (`arena.<i>.destroy`)
     /// purged all cached extents, so only retained extents may remain and it's safe to destroy them.
-    arena->pa_shard.destroy(&tsd);
+    arena->page_allocator_shard.destroy(&thread_state);
 
     /// Remove the arena pointer from the arenas array. We rely on the fact that there is no way for the application
     /// to get a dirty read from the arenas array unless there is an inherent race in the application involving access
     /// of an arena being concurrently destroyed. The application must synchronize knowledge of the arena's validity,
     /// so as long as we use an atomic write to update the arenas array, the application will get a clean read any
     /// time after it synchronizes knowledge that the arena is no longer valid.
-    arenaSet(arena->base->indGet(), nullptr);
+    arenaSet(arena->base->idxGet(), nullptr);
 
     /// Destroy the base allocator, which manages all metadata ever mapped by this arena. The prepare function will
     /// make sure no pending access to the metadata in this base anymore.
     Base * base = arena->base;
-    arenaPrepareBaseDeletion(tsd, base);
-    base->destroy(&tsd);
+    arenaPrepareBaseDeletion(thread_state, base);
+    base->destroy(&thread_state);
 }
 
 /// --- Small allocation ----------------------------------------------------------------------------------------------
 
 /// jemalloc: arena_ptr_array_fill_small
-cache_bin_sz_t arenaPtrArrayFillSmall(
-    ThreadState * tsdn,
+CacheBinSize arenaPtrArrayFillSmall(
+    ThreadState * thread_state,
     Arena * arena,
-    szind_t binind,
-    CacheBinPtrArray * arr,
-    const cache_bin_sz_t nfill_min,
-    const cache_bin_sz_t nfill_max,
+    SizeClassIdx bin_idx,
+    CacheBinPtrArray * array,
+    const CacheBinSize num_fill_min,
+    const CacheBinSize num_fill_max,
     CacheBinStats merge_stats)
 {
-    JE_ASSERT(nfill_min > 0 && nfill_min <= nfill_max);
+    ALLOCATOR_ASSERT(num_fill_min > 0 && num_fill_min <= num_fill_max);
 
-    const BinInfo & bin_info = bin_infos[binind];
+    const BinInfo & bin_info = bin_infos[bin_idx];
     /// Bin-local resources are used first: 1) bin->slabcur, and 2) nonfull slabs. After both are exhausted, new slabs
     /// will be allocated through `arenaSlabAlloc`.
     ///
@@ -825,43 +859,43 @@ cache_bin_sz_t arenaPtrArrayFillSmall(
     Extent * fresh_slab = nullptr;
     bool alloc_and_retry = false;
     bool is_auto = arenaIsAuto(arena);
-    cache_bin_sz_t filled = 0;
-    unsigned binshard;
-    Bin * bin = binChoose(tsdn, arena, binind, &binshard);
+    CacheBinSize filled = 0;
+    unsigned bin_shard;
+    Bin * bin = binChoose(thread_state, arena, bin_idx, &bin_shard);
 
     while (true) /// label_refill
     {
-        bin->lock.lock(tsdn);
+        bin->lock.lock(thread_state);
 
-        while (filled < nfill_min)
+        while (filled < num_fill_min)
         {
             /// Try batch-fill from slabcur first.
-            Extent * slabcur = bin->slabcur;
-            if (slabcur != nullptr && slabcur->nfree() > 0)
+            Extent * current_slab = bin->current_slab;
+            if (current_slab != nullptr && current_slab->numFree() > 0)
             {
                 /// Use up the free slots if the total filled <= nfill_max. Otherwise, fallback to nfill_min for a more
                 /// conservative memory usage.
-                unsigned cnt = slabcur->nfree();
-                if (cnt + filled > nfill_max)
-                    cnt = nfill_min - filled;
+                unsigned count = current_slab->numFree();
+                if (count + filled > num_fill_max)
+                    count = num_fill_min - filled;
 
-                Bin::slabRegAllocBatch(slabcur, bin_info, cnt, &arr->ptr[filled]);
+                Bin::slabRegionAllocBatch(current_slab, bin_info, count, &array->ptr[filled]);
                 made_progress = true;
-                filled = cache_bin_sz_t(filled + cnt);
+                filled = CacheBinSize(filled + count);
                 continue;
             }
             /// Next try refilling slabcur from nonfull slabs.
-            if (!bin->refillSlabcurNoFreshSlab(tsdn, is_auto))
+            if (!bin->refillCurrentSlabNoFreshSlab(thread_state, is_auto))
             {
-                JE_ASSERT(bin->slabcur != nullptr);
+                ALLOCATOR_ASSERT(bin->current_slab != nullptr);
                 continue;
             }
 
             /// Then see if a new slab was reserved already.
             if (fresh_slab != nullptr)
             {
-                bin->refillSlabcurWithFreshSlab(tsdn, binind, fresh_slab);
-                JE_ASSERT(bin->slabcur != nullptr);
+                bin->refillCurrentSlabWithFreshSlab(thread_state, bin_idx, fresh_slab);
+                ALLOCATOR_ASSERT(bin->current_slab != nullptr);
                 fresh_slab = nullptr;
                 continue;
             }
@@ -869,36 +903,36 @@ cache_bin_sz_t arenaPtrArrayFillSmall(
             /// Try slab_alloc if made progress (or never did slab_alloc).
             if (made_progress)
             {
-                JE_ASSERT(bin->slabcur == nullptr);
-                JE_ASSERT(fresh_slab == nullptr);
+                ALLOCATOR_ASSERT(bin->current_slab == nullptr);
+                ALLOCATOR_ASSERT(fresh_slab == nullptr);
                 alloc_and_retry = true;
                 /// Alloc a new slab then come back.
                 break;
             }
 
             /// OOM.
-            JE_ASSERT(fresh_slab == nullptr);
-            JE_ASSERT(!alloc_and_retry);
+            ALLOCATOR_ASSERT(fresh_slab == nullptr);
+            ALLOCATOR_ASSERT(!alloc_and_retry);
             break;
         }
 
         if (config::stats && !alloc_and_retry)
         {
-            bin->stats.nmalloc += filled;
-            bin->stats.nrequests += merge_stats.nrequests;
-            bin->stats.curregs += filled;
-            ++bin->stats.nfills;
+            bin->stats.num_allocations += filled;
+            bin->stats.num_requests += merge_stats.num_requests;
+            bin->stats.current_regions += filled;
+            ++bin->stats.num_fills;
         }
 
-        bin->lock.unlock(tsdn);
+        bin->lock.unlock(thread_state);
 
         if (alloc_and_retry)
         {
-            JE_ASSERT(fresh_slab == nullptr);
-            JE_ASSERT(filled < nfill_min);
-            JE_ASSERT(made_progress);
+            ALLOCATOR_ASSERT(fresh_slab == nullptr);
+            ALLOCATOR_ASSERT(filled < num_fill_min);
+            ALLOCATOR_ASSERT(made_progress);
 
-            fresh_slab = arenaSlabAlloc(tsdn, arena, binind, binshard, bin_info);
+            fresh_slab = arenaSlabAlloc(thread_state, arena, bin_idx, bin_shard, bin_info);
             /// fresh_slab null case handled in the loop.
 
             alloc_and_retry = false;
@@ -907,222 +941,223 @@ cache_bin_sz_t arenaPtrArrayFillSmall(
         }
         break;
     }
-    JE_ASSERT((filled >= nfill_min && filled <= nfill_max) || (fresh_slab == nullptr && !made_progress));
+    ALLOCATOR_ASSERT((filled >= num_fill_min && filled <= num_fill_max) || (fresh_slab == nullptr && !made_progress));
 
     /// Release if allocated but not used.
     if (fresh_slab != nullptr)
     {
-        JE_ASSERT(fresh_slab->nfree() == bin_info.nregs);
-        arenaSlabDalloc(tsdn, arena, fresh_slab);
+        ALLOCATOR_ASSERT(fresh_slab->numFree() == bin_info.num_regions);
+        arenaSlabDeallocate(thread_state, arena, fresh_slab);
         fresh_slab = nullptr;
     }
 
-    arenaDecayTick(tsdn, arena);
+    arenaDecayTick(thread_state, arena);
     return filled;
 }
 
 /// jemalloc: arena_fill_small_fresh
-size_t arenaFillSmallFresh(ThreadState * tsdn, Arena * arena, szind_t binind, void ** ptrs, size_t nfill, bool zero)
+size_t arenaFillSmallFresh(ThreadState * thread_state, Arena * arena, SizeClassIdx bin_idx, void ** ptrs, size_t num_fill, bool zero)
 {
-    JE_ASSERT(binind < SC_NBINS);
-    const BinInfo & bin_info = bin_infos[binind];
-    const size_t nregs = bin_info.nregs;
-    JE_ASSERT(nregs > 0);
-    const size_t usize = bin_info.reg_size;
+    ALLOCATOR_ASSERT(bin_idx < SIZE_CLASS_NUM_BINS);
+    const BinInfo & bin_info = bin_infos[bin_idx];
+    const size_t num_regions = bin_info.num_regions;
+    ALLOCATOR_ASSERT(num_regions > 0);
+    const size_t usable_size = bin_info.region_size;
 
     const bool manual_arena = !arenaIsAuto(arena);
-    unsigned binshard;
-    Bin * bin = binChoose(tsdn, arena, binind, &binshard);
+    unsigned bin_shard;
+    Bin * bin = binChoose(thread_state, arena, bin_idx, &bin_shard);
 
-    size_t nslab = 0;
+    size_t num_slab = 0;
     size_t filled = 0;
     Extent * slab = nullptr;
-    ExtentListActive fulls;
-    fulls.init();
+    ExtentListActive full_slabs;
+    full_slabs.init();
 
-    while (filled < nfill && (slab = arenaSlabAlloc(tsdn, arena, binind, binshard, bin_info)) != nullptr)
+    while (filled < num_fill && (slab = arenaSlabAlloc(thread_state, arena, bin_idx, bin_shard, bin_info)) != nullptr)
     {
-        JE_ASSERT(size_t(slab->nfree()) == nregs);
-        ++nslab;
-        size_t batch = nfill - filled;
-        if (batch > nregs)
-            batch = nregs;
-        JE_ASSERT(batch > 0);
-        Bin::slabRegAllocBatch(slab, bin_info, unsigned(batch), &ptrs[filled]);
-        JE_ASSERT(slab->addr() == ptrs[filled]);
+        ALLOCATOR_ASSERT(size_t(slab->numFree()) == num_regions);
+        ++num_slab;
+        size_t batch = num_fill - filled;
+        if (batch > num_regions)
+            batch = num_regions;
+        ALLOCATOR_ASSERT(batch > 0);
+        Bin::slabRegionAllocBatch(slab, bin_info, unsigned(batch), &ptrs[filled]);
+        ALLOCATOR_ASSERT(slab->addr() == ptrs[filled]);
         if (zero)
-            memset(ptrs[filled], 0, batch * usize);
+            memset(ptrs[filled], 0, batch * usable_size);
         filled += batch;
-        if (batch == nregs)
+        if (batch == num_regions)
         {
             if (manual_arena)
-                fulls.append(slab);
+                full_slabs.append(slab);
             slab = nullptr;
         }
     }
 
-    bin->lock.lock(tsdn);
+    bin->lock.lock(thread_state);
     /// Only the last slab can be non-empty, and the last slab is non-empty iff slab != null.
     if (slab != nullptr)
-        bin->lowerSlab(tsdn, !manual_arena, slab);
+        bin->lowerSlab(thread_state, !manual_arena, slab);
     if (manual_arena)
-        bin->slabs_full.concat(fulls);
-    JE_ASSERT(fulls.empty());
+        bin->slabs_full.concat(full_slabs);
+    ALLOCATOR_ASSERT(full_slabs.empty());
     if constexpr (config::stats)
     {
-        bin->stats.nslabs += nslab;
-        bin->stats.curslabs += nslab;
-        bin->stats.nmalloc += filled;
-        bin->stats.nrequests += filled;
-        bin->stats.curregs += filled;
+        bin->stats.num_slabs += num_slab;
+        bin->stats.current_slabs += num_slab;
+        bin->stats.num_allocations += filled;
+        bin->stats.num_requests += filled;
+        bin->stats.current_regions += filled;
     }
-    bin->lock.unlock(tsdn);
+    bin->lock.unlock(thread_state);
 
-    arenaDecayTick(tsdn, arena);
+    arenaDecayTick(thread_state, arena);
     return filled;
 }
 
 /// jemalloc: arena_malloc_small
-static void * arenaMallocSmall(ThreadState * tsdn, Arena * arena, szind_t binind, bool zero)
+static void * arenaMallocSmall(ThreadState * thread_state, Arena * arena, SizeClassIdx bin_idx, bool zero)
 {
-    JE_ASSERT(binind < SC_NBINS);
-    const BinInfo & bin_info = bin_infos[binind];
-    size_t usize = sz::indexToSize(binind);
+    ALLOCATOR_ASSERT(bin_idx < SIZE_CLASS_NUM_BINS);
+    const BinInfo & bin_info = bin_infos[bin_idx];
+    size_t usable_size = size_classes::indexToSize(bin_idx);
     bool is_auto = arenaIsAuto(arena);
-    unsigned binshard;
-    Bin * bin = binChoose(tsdn, arena, binind, &binshard);
+    unsigned bin_shard;
+    Bin * bin = binChoose(thread_state, arena, bin_idx, &bin_shard);
 
-    bin->lock.lock(tsdn);
+    bin->lock.lock(thread_state);
     Extent * fresh_slab = nullptr;
-    void * ret = bin->mallocNoFreshSlab(tsdn, is_auto, binind);
-    if (ret == nullptr)
+    void * result = bin->mallocNoFreshSlab(thread_state, is_auto, bin_idx);
+    if (result == nullptr)
     {
-        bin->lock.unlock(tsdn);
-        fresh_slab = arenaSlabAlloc(tsdn, arena, binind, binshard, bin_info);
-        bin->lock.lock(tsdn);
+        bin->lock.unlock(thread_state);
+        fresh_slab = arenaSlabAlloc(thread_state, arena, bin_idx, bin_shard, bin_info);
+        bin->lock.lock(thread_state);
         /// Retry since the lock was dropped.
-        ret = bin->mallocNoFreshSlab(tsdn, is_auto, binind);
-        if (ret == nullptr)
+        result = bin->mallocNoFreshSlab(thread_state, is_auto, bin_idx);
+        if (result == nullptr)
         {
             if (fresh_slab == nullptr)
             {
                 /// OOM.
-                bin->lock.unlock(tsdn);
+                bin->lock.unlock(thread_state);
                 return nullptr;
             }
-            ret = bin->mallocWithFreshSlab(tsdn, binind, fresh_slab);
+            result = bin->mallocWithFreshSlab(thread_state, bin_idx, fresh_slab);
             fresh_slab = nullptr;
         }
     }
     if constexpr (config::stats)
     {
-        ++bin->stats.nmalloc;
-        ++bin->stats.nrequests;
-        ++bin->stats.curregs;
+        ++bin->stats.num_allocations;
+        ++bin->stats.num_requests;
+        ++bin->stats.current_regions;
     }
-    bin->lock.unlock(tsdn);
+    bin->lock.unlock(thread_state);
 
     if (fresh_slab != nullptr)
-        arenaSlabDalloc(tsdn, arena, fresh_slab);
+        arenaSlabDeallocate(thread_state, arena, fresh_slab);
     if (zero)
-        memset(ret, 0, usize);
-    arenaDecayTick(tsdn, arena);
+        memset(result, 0, usable_size);
+    arenaDecayTick(thread_state, arena);
 
-    return ret;
+    return result;
 }
 
 /// jemalloc: arena_malloc_hard
-void * arenaMallocHard(ThreadState * tsdn, Arena * arena, size_t size, szind_t ind, bool zero, bool slab)
+void * arenaMallocHard(ThreadState * thread_state, Arena * arena, size_t size, SizeClassIdx idx, bool zero, bool slab)
 {
-    JE_ASSERT(tsdn != nullptr || arena != nullptr);
+    ALLOCATOR_ASSERT(thread_state != nullptr || arena != nullptr);
 
-    if (JE_LIKELY(tsdn != nullptr))
-        arena = arenaChooseMaybeHuge(*tsdn, arena, size);
-    if (JE_UNLIKELY(arena == nullptr))
+    if (ALLOCATOR_LIKELY(thread_state != nullptr))
+        arena = arenaChooseMaybeHuge(*thread_state, arena, size);
+    if (ALLOCATOR_UNLIKELY(arena == nullptr))
         return nullptr;
 
-    if (JE_LIKELY(slab))
+    if (ALLOCATOR_LIKELY(slab))
     {
-        JE_ASSERT(sz::canUseSlab(size));
-        return arenaMallocSmall(tsdn, arena, ind, zero);
+        ALLOCATOR_ASSERT(size_classes::canUseSlab(size));
+        return arenaMallocSmall(thread_state, arena, idx, zero);
     }
     else
     {
-        return largeMalloc(tsdn, arena, sz::s2u(size), zero);
+        return largeMalloc(thread_state, arena, size_classes::sizeToUsableSize(size), zero);
     }
 }
 
 /// jemalloc: arena_palloc
-void * arenaPalloc(ThreadState * tsdn, Arena * arena, size_t usize, size_t alignment, bool zero, bool slab, ThreadCache * tcache)
+void * arenaAllocateAligned(
+    ThreadState * thread_state, Arena * arena, size_t usable_size, size_t alignment, bool zero, bool slab, ThreadCache * thread_cache)
 {
     if (slab)
     {
-        JE_ASSERT(sz::canUseSlab(usize));
+        ALLOCATOR_ASSERT(size_classes::canUseSlab(usable_size));
         /// Small; alignment doesn't require special slab placement.
 
-        /// usize should be a result of `sz::sa2u`.
-        JE_ASSERT((usize & (alignment - 1)) == 0);
+        /// usize should be a result of `size_classes::alignedSizeToUsableSize`.
+        ALLOCATOR_ASSERT((usable_size & (alignment - 1)) == 0);
 
         /// Small usize can't come from an alignment larger than a page.
-        JE_ASSERT(alignment <= PAGE);
+        ALLOCATOR_ASSERT(alignment <= PAGE);
 
-        return arenaMalloc(tsdn, arena, usize, sz::sizeToIndex(usize), zero, slab, tcache, true);
+        return arenaMalloc(thread_state, arena, usable_size, size_classes::sizeToIndex(usable_size), zero, slab, thread_cache, true);
     }
     else
     {
-        if (JE_LIKELY(alignment <= CACHELINE))
-            return largeMalloc(tsdn, arena, usize, zero);
+        if (ALLOCATOR_LIKELY(alignment <= CACHE_LINE))
+            return largeMalloc(thread_state, arena, usable_size, zero);
         else
-            return largePalloc(tsdn, arena, usize, alignment, zero);
+            return largeAllocateAligned(thread_state, arena, usable_size, alignment, zero);
     }
 }
 
 /// --- Small deallocation --------------------------------------------------------------------------------------------
 
 /// jemalloc: arena_dalloc_bin
-static void arenaDallocBin(ThreadState * tsdn, Arena * arena, Extent * edata, void * ptr)
+static void arenaDeallocateBin(ThreadState * thread_state, Arena * arena, Extent * extent, void * ptr)
 {
-    szind_t binind = edata->szind();
-    unsigned binshard = edata->binshard();
-    Bin * bin = arenaGetBin(arena, binind, binshard);
+    SizeClassIdx bin_idx = extent->sizeClassIdx();
+    unsigned bin_shard = extent->binShard();
+    Bin * bin = arenaGetBin(arena, bin_idx, bin_shard);
 
-    bin->lock.lock(tsdn);
-    BinDallocLockedInfo info;
-    Bin::dallocLockedBegin(info, binind);
-    bool ret = bin->dallocLockedStep(tsdn, arenaIsAuto(arena), info, binind, edata, ptr);
-    bin->dallocLockedFinish(tsdn, info);
-    bin->lock.unlock(tsdn);
+    bin->lock.lock(thread_state);
+    BinDeallocateLockedInfo info;
+    Bin::deallocateLockedBegin(info, bin_idx);
+    bool result = bin->deallocateLockedStep(thread_state, arenaIsAuto(arena), info, bin_idx, extent, ptr);
+    bin->deallocateLockedFinish(thread_state, info);
+    bin->lock.unlock(thread_state);
 
-    if (ret)
-        arenaSlabDalloc(tsdn, arena, edata);
+    if (result)
+        arenaSlabDeallocate(thread_state, arena, extent);
 }
 
 /// jemalloc: arena_dalloc_small
-void arenaDallocSmall(ThreadState * tsdn, void * ptr)
+void arenaDeallocateSmall(ThreadState * thread_state, void * ptr)
 {
-    Extent * edata = arena_emap_global.edataLookup(tsdn, ptr);
-    Arena * arena = arenaGetFromEdata(edata);
+    Extent * extent = arena_extent_map_global.extentLookup(thread_state, ptr);
+    Arena * arena = arenaGetFromExtent(extent);
 
-    arenaDallocBin(tsdn, arena, edata, ptr);
-    arenaDecayTick(tsdn, arena);
+    arenaDeallocateBin(thread_state, arena, extent, ptr);
+    arenaDecayTick(thread_state, arena);
 }
 
 /// jemalloc: arena_ptr_array_flush_ptr_getter
-static const void * arenaPtrArrayFlushPtrGetter(void * arr_ctx, size_t ind)
+static const void * arenaPtrArrayFlushPtrGetter(void * array_context, size_t idx)
 {
-    CacheBinPtrArray * arr = static_cast<CacheBinPtrArray *>(arr_ctx);
-    return arr->ptr[ind];
+    CacheBinPtrArray * array = static_cast<CacheBinPtrArray *>(array_context);
+    return array->ptr[idx];
 }
 
 /// jemalloc: arena_ptr_array_flush_metadata_visitor
-static void arenaPtrArrayFlushMetadataVisitor(void * szind_sum_ctx, FullAllocContext * alloc_ctx)
+static void arenaPtrArrayFlushMetadataVisitor(void * size_class_idx_sum_context, FullAllocContext * alloc_context)
 {
-    size_t * szind_sum = static_cast<size_t *>(szind_sum_ctx);
-    *szind_sum -= alloc_ctx->szind;
+    size_t * size_class_idx_sum = static_cast<size_t *>(size_class_idx_sum_context);
+    *size_class_idx_sum -= alloc_context->size_class_idx;
     /// util_prefetch_write_range(alloc_ctx->edata, sizeof(edata_t))
-    for (size_t i = 0; i < sizeof(Extent); i += CACHELINE)
+    for (size_t i = 0; i < sizeof(Extent); i += CACHE_LINE)
     {
-        std::byte * p = reinterpret_cast<std::byte *>(alloc_ctx->edata) + i;
+        std::byte * p = reinterpret_cast<std::byte *>(alloc_context->extent) + i;
         if constexpr (config::debug)
             *reinterpret_cast<volatile char *>(p);
         __builtin_prefetch(p, 1, 3);
@@ -1130,41 +1165,41 @@ static void arenaPtrArrayFlushMetadataVisitor(void * szind_sum_ctx, FullAllocCon
 }
 
 /// jemalloc: arena_ptr_array_flush_size_check_fail
-[[maybe_unused]] JE_NOINLINE static void
-arenaPtrArrayFlushSizeCheckFail(CacheBinPtrArray * arr, szind_t szind, size_t nptrs, ExtentMapBatchLookupResult * edatas)
+[[maybe_unused]] ALLOCATOR_NOINLINE static void arenaPtrArrayFlushSizeCheckFail(
+    CacheBinPtrArray * array, SizeClassIdx size_class_idx, size_t num_ptrs, ExtentMapBatchLookupResult * extents)
 {
     [[maybe_unused]] bool found_mismatch = false;
-    for (size_t i = 0; i < nptrs; ++i)
+    for (size_t i = 0; i < num_ptrs; ++i)
     {
-        szind_t true_szind = edatas[i].edata->szind();
-        if (true_szind != szind)
+        SizeClassIdx true_size_class_idx = extents[i].extent->sizeClassIdx();
+        if (true_size_class_idx != size_class_idx)
         {
             found_mismatch = true;
             safetyCheckFailSizedDealloc(
                 /* current_dealloc */ false,
-                /* ptr */ arenaPtrArrayFlushPtrGetter(arr, i),
-                /* true_size */ sz::indexToSize(true_szind),
-                /* input_size */ sz::indexToSize(szind));
+                /* ptr */ arenaPtrArrayFlushPtrGetter(array, i),
+                /* true_size */ size_classes::indexToSize(true_size_class_idx),
+                /* input_size */ size_classes::indexToSize(size_class_idx));
         }
     }
-    JE_ASSERT(found_mismatch);
+    ALLOCATOR_ASSERT(found_mismatch);
 }
 
 /// jemalloc: arena_ptr_array_flush_impl_small
-JE_ALWAYS_INLINE static void arenaPtrArrayFlushImplSmall(
-    ThreadState * tsdn,
-    szind_t binind,
-    CacheBinPtrArray * arr,
-    ExtentMapBatchLookupResult * item_edata,
-    cache_bin_sz_t nflush,
+ALLOCATOR_ALWAYS_INLINE static void arenaPtrArrayFlushImplSmall(
+    ThreadState * thread_state,
+    SizeClassIdx bin_idx,
+    CacheBinPtrArray * array,
+    ExtentMapBatchLookupResult * item_extent,
+    CacheBinSize num_flush,
     Arena * stats_arena,
     CacheBinStats ** merge_stats)
 {
     /// The slabs where we freed the last remaining object in the slab (and so need to free the slab itself).
-    unsigned dalloc_count = 0;
-    /// VARIABLE_ARRAY(edata_t *, dalloc_slabs, nflush + 1); nflush <= CACHE_BIN_NFLUSH_BATCH_MAX.
-    Extent * dalloc_slabs[CACHE_BIN_NFLUSH_BATCH_MAX + 1];
-    JE_ASSERT(nflush <= CACHE_BIN_NFLUSH_BATCH_MAX);
+    unsigned deallocation_count = 0;
+    /// VARIABLE_ARRAY(edata_t *, dalloc_slabs, nflush + 1); nflush <= CACHE_BIN_NUM_FLUSH_BATCH_MAX.
+    Extent * slabs_to_deallocate[CACHE_BIN_NUM_FLUSH_BATCH_MAX + 1];
+    ALLOCATOR_ASSERT(num_flush <= CACHE_BIN_NUM_FLUSH_BATCH_MAX);
 
     /// We're about to grab a bunch of locks. If one of them happens to be the one guarding the arena-level stats
     /// counters we flush our thread-local ones to, we do so under one critical section.
@@ -1173,38 +1208,38 @@ JE_ALWAYS_INLINE static void arenaPtrArrayFlushImplSmall(
     /// [flush_start, flush_end). We'll repeatedly partition the array so that the unflushed items are at the end.
     unsigned flush_start = 0;
 
-    while (flush_start < nflush)
+    while (flush_start < num_flush)
     {
         /// After our partitioning step, all objects to flush will be in the half-open range
         /// [prev_flush_start, flush_start), and flush_start will be updated to correspond to the next loop iteration.
         unsigned prev_flush_start = flush_start;
 
-        Extent * cur_edata = item_edata[flush_start].edata;
-        unsigned cur_arena_ind = cur_edata->arenaInd();
-        Arena * cur_arena = arenaGet(tsdn, cur_arena_ind, false);
+        Extent * current_extent = item_extent[flush_start].extent;
+        unsigned current_arena_idx = current_extent->arenaIdx();
+        Arena * current_arena = arenaGet(thread_state, current_arena_idx, false);
 
-        unsigned cur_binshard = cur_edata->binshard();
-        Bin * cur_bin = arenaGetBin(cur_arena, binind, cur_binshard);
-        JE_ASSERT(cur_binshard < bin_infos[binind].n_shards);
+        unsigned current_bin_shard = current_extent->binShard();
+        Bin * current_bin = arenaGetBin(current_arena, bin_idx, current_bin_shard);
+        ALLOCATOR_ASSERT(current_bin_shard < bin_infos[bin_idx].num_shards);
         /// Start off the partition; item_edata[i] always matches itself of course.
         ++flush_start;
-        for (unsigned i = flush_start; i < nflush; ++i)
+        for (unsigned i = flush_start; i < num_flush; ++i)
         {
-            [[maybe_unused]] void * ptr = arr->ptr[i];
-            Extent * edata = item_edata[i].edata;
-            JE_ASSERT(ptr != nullptr && edata != nullptr);
-            JE_ASSERT(reinterpret_cast<uintptr_t>(ptr) >= reinterpret_cast<uintptr_t>(edata->addr()));
-            JE_ASSERT(reinterpret_cast<uintptr_t>(ptr) < reinterpret_cast<uintptr_t>(edata->past()));
-            if (edata->arenaInd() == cur_arena_ind && edata->binshard() == cur_binshard)
+            [[maybe_unused]] void * ptr = array->ptr[i];
+            Extent * extent = item_extent[i].extent;
+            ALLOCATOR_ASSERT(ptr != nullptr && extent != nullptr);
+            ALLOCATOR_ASSERT(reinterpret_cast<uintptr_t>(ptr) >= reinterpret_cast<uintptr_t>(extent->addr()));
+            ALLOCATOR_ASSERT(reinterpret_cast<uintptr_t>(ptr) < reinterpret_cast<uintptr_t>(extent->past()));
+            if (extent->arenaIdx() == current_arena_idx && extent->binShard() == current_bin_shard)
             {
                 /// Swap the edatas.
-                ExtentMapBatchLookupResult temp_edata = item_edata[flush_start];
-                item_edata[flush_start] = item_edata[i];
-                item_edata[i] = temp_edata;
+                ExtentMapBatchLookupResult temp_extent = item_extent[flush_start];
+                item_extent[flush_start] = item_extent[i];
+                item_extent[i] = temp_extent;
                 /// Swap the pointers.
-                void * temp_ptr = arr->ptr[flush_start];
-                arr->ptr[flush_start] = arr->ptr[i];
-                arr->ptr[i] = temp_ptr;
+                void * temp_ptr = array->ptr[flush_start];
+                array->ptr[flush_start] = array->ptr[i];
+                array->ptr[i] = temp_ptr;
                 ++flush_start;
             }
         }
@@ -1213,161 +1248,167 @@ JE_ALWAYS_INLINE static void arenaPtrArrayFlushImplSmall(
         {
             for (unsigned i = prev_flush_start; i < flush_start; ++i)
             {
-                Extent * edata = item_edata[i].edata;
-                JE_ASSERT(edata->arenaInd() == cur_arena_ind);
-                JE_ASSERT(edata->binshard() == cur_binshard);
+                Extent * extent = item_extent[i].extent;
+                ALLOCATOR_ASSERT(extent->arenaIdx() == current_arena_idx);
+                ALLOCATOR_ASSERT(extent->binShard() == current_bin_shard);
             }
-            for (unsigned i = flush_start; i < nflush; ++i)
+            for (unsigned i = flush_start; i < num_flush; ++i)
             {
-                Extent * edata = item_edata[i].edata;
-                JE_ASSERT(edata->arenaInd() != cur_arena_ind || edata->binshard() != cur_binshard);
+                Extent * extent = item_extent[i].extent;
+                ALLOCATOR_ASSERT(extent->arenaIdx() != current_arena_idx || extent->binShard() != current_bin_shard);
             }
         }
 
         /// Actually do the flushing.
-        cur_bin->lock.lock(tsdn);
+        current_bin->lock.lock(thread_state);
 
         /// Flush stats first, if that was the right lock. Note that we don't actually have to flush stats into the
         /// current thread's binshard. Flushing into any binshard in the same arena is enough; we don't expose stats
         /// on per-binshard basis (just per-bin).
-        if (config::stats && stats_arena == cur_arena && *merge_stats != nullptr)
+        if (config::stats && stats_arena == current_arena && *merge_stats != nullptr)
         {
-            ++cur_bin->stats.nflushes;
-            cur_bin->stats.nrequests += (*merge_stats)->nrequests;
+            ++current_bin->stats.num_flushes;
+            current_bin->stats.num_requests += (*merge_stats)->num_requests;
             *merge_stats = nullptr;
         }
 
         /// Next flush objects.
-        BinDallocLockedInfo dalloc_bin_info = {};
-        Bin::dallocLockedBegin(dalloc_bin_info, binind);
+        BinDeallocateLockedInfo deallocate_bin_info = {};
+        Bin::deallocateLockedBegin(deallocate_bin_info, bin_idx);
         for (unsigned i = prev_flush_start; i < flush_start; ++i)
         {
-            void * ptr = arr->ptr[i];
-            Extent * edata = item_edata[i].edata;
-            if (cur_bin->dallocLockedStep(tsdn, arenaIsAuto(cur_arena), dalloc_bin_info, binind, edata, ptr))
+            void * ptr = array->ptr[i];
+            Extent * extent = item_extent[i].extent;
+            if (current_bin->deallocateLockedStep(thread_state, arenaIsAuto(current_arena), deallocate_bin_info, bin_idx, extent, ptr))
             {
-                dalloc_slabs[dalloc_count] = edata;
-                ++dalloc_count;
+                slabs_to_deallocate[deallocation_count] = extent;
+                ++deallocation_count;
             }
         }
 
-        cur_bin->dallocLockedFinish(tsdn, dalloc_bin_info);
-        cur_bin->lock.unlock(tsdn);
+        current_bin->deallocateLockedFinish(thread_state, deallocate_bin_info);
+        current_bin->lock.unlock(thread_state);
 
-        arenaDecayTicks(tsdn, cur_arena, flush_start - prev_flush_start);
+        arenaDecayTicks(thread_state, current_arena, flush_start - prev_flush_start);
     }
 
     /// Handle all deferred slab dalloc.
-    for (unsigned i = 0; i < dalloc_count; ++i)
+    for (unsigned i = 0; i < deallocation_count; ++i)
     {
-        Extent * slab = dalloc_slabs[i];
-        arenaSlabDalloc(tsdn, arenaGetFromEdata(slab), slab);
+        Extent * slab = slabs_to_deallocate[i];
+        arenaSlabDeallocate(thread_state, arenaGetFromExtent(slab), slab);
     }
 
     if (config::stats && *merge_stats != nullptr)
     {
         /// The flush loop didn't happen to flush to this thread's arena, so the stats didn't get merged. Manually do
         /// so now.
-        Bin * bin = binChoose(tsdn, stats_arena, binind, nullptr);
-        bin->lock.lock(tsdn);
-        ++bin->stats.nflushes;
-        bin->stats.nrequests += (*merge_stats)->nrequests;
+        Bin * bin = binChoose(thread_state, stats_arena, bin_idx, nullptr);
+        bin->lock.lock(thread_state);
+        ++bin->stats.num_flushes;
+        bin->stats.num_requests += (*merge_stats)->num_requests;
         *merge_stats = nullptr;
-        bin->lock.unlock(tsdn);
+        bin->lock.unlock(thread_state);
     }
 }
 
 /// jemalloc: arena_ptr_array_flush_impl_large
-JE_ALWAYS_INLINE static void arenaPtrArrayFlushImplLarge(
-    ThreadState * tsdn,
-    szind_t binind,
-    CacheBinPtrArray * arr,
-    ExtentMapBatchLookupResult * item_edata,
-    cache_bin_sz_t nflush,
+ALLOCATOR_ALWAYS_INLINE static void arenaPtrArrayFlushImplLarge(
+    ThreadState * thread_state,
+    SizeClassIdx bin_idx,
+    CacheBinPtrArray * array,
+    ExtentMapBatchLookupResult * item_extent,
+    CacheBinSize num_flush,
     Arena * stats_arena,
     CacheBinStats ** merge_stats)
 {
     /// We're about to grab a bunch of locks. If one of them happens to be the one guarding the arena-level stats
     /// counters we flush our thread-local ones to, we do so under one critical section.
-    while (nflush > 0)
+    while (num_flush > 0)
     {
         /// Lock the arena, or bin, associated with the first object.
-        Extent * edata = item_edata[0].edata;
-        unsigned cur_arena_ind = edata->arenaInd();
-        Arena * cur_arena = arenaGet(tsdn, cur_arena_ind, false);
+        Extent * extent = item_extent[0].extent;
+        unsigned current_arena_idx = extent->arenaIdx();
+        Arena * current_arena = arenaGet(thread_state, current_arena_idx, false);
 
-        if (!arenaIsAuto(cur_arena))
-            cur_arena->large_mtx.lock(tsdn);
+        if (!arenaIsAuto(current_arena))
+            current_arena->large_mutex.lock(thread_state);
 
         /// If we acquired the right lock and have some stats to flush, flush them.
-        if (config::stats && stats_arena == cur_arena && *merge_stats != nullptr)
+        if (config::stats && stats_arena == current_arena && *merge_stats != nullptr)
         {
-            arenaStatsLargeFlushNrequestsAdd(tsdn, &stats_arena->stats, binind, (*merge_stats)->nrequests);
+            arenaStatsLargeFlushNumRequestsAdd(thread_state, &stats_arena->stats, bin_idx, (*merge_stats)->num_requests);
             *merge_stats = nullptr;
         }
 
         /// Large allocations need special prep done. Afterwards, we can drop the large lock.
-        for (unsigned i = 0; i < nflush; ++i)
+        for (unsigned i = 0; i < num_flush; ++i)
         {
-            [[maybe_unused]] void * ptr = arr->ptr[i];
-            edata = item_edata[i].edata;
-            JE_ASSERT(ptr != nullptr && edata != nullptr);
+            [[maybe_unused]] void * ptr = array->ptr[i];
+            extent = item_extent[i].extent;
+            ALLOCATOR_ASSERT(ptr != nullptr && extent != nullptr);
 
-            if (edata->arenaInd() == cur_arena_ind)
-                largeDallocPrepLocked(tsdn, edata);
+            if (extent->arenaIdx() == current_arena_idx)
+                largeDeallocatePrepareLocked(thread_state, extent);
         }
-        if (!arenaIsAuto(cur_arena))
-            cur_arena->large_mtx.unlock(tsdn);
+        if (!arenaIsAuto(current_arena))
+            current_arena->large_mutex.unlock(thread_state);
 
         /// Deallocate whatever we can.
-        unsigned ndeferred = 0;
-        for (unsigned i = 0; i < nflush; ++i)
+        unsigned num_deferred = 0;
+        for (unsigned i = 0; i < num_flush; ++i)
         {
-            void * ptr = arr->ptr[i];
-            edata = item_edata[i].edata;
-            JE_ASSERT(ptr != nullptr && edata != nullptr);
-            if (edata->arenaInd() != cur_arena_ind)
+            void * ptr = array->ptr[i];
+            extent = item_extent[i].extent;
+            ALLOCATOR_ASSERT(ptr != nullptr && extent != nullptr);
+            if (extent->arenaIdx() != current_arena_idx)
             {
                 /// The object was allocated either via a different arena, or a different bin in this arena. Either
                 /// way, stash the object so that it can be handled in a future pass.
-                arr->ptr[ndeferred] = ptr;
-                item_edata[ndeferred].edata = edata;
-                ++ndeferred;
+                array->ptr[num_deferred] = ptr;
+                item_extent[num_deferred].extent = extent;
+                ++num_deferred;
                 continue;
             }
-            if (largeDallocSafetyChecks(edata, ptr, sz::indexToSize(binind)))
+            if (largeDeallocateSafetyChecks(extent, ptr, size_classes::indexToSize(bin_idx)))
             {
                 /// See the comment in isfree.
                 continue;
             }
-            largeDallocFinish(tsdn, edata);
+            largeDeallocateFinish(thread_state, extent);
         }
-        arenaDecayTicks(tsdn, cur_arena, nflush - ndeferred);
-        nflush = cache_bin_sz_t(ndeferred);
+        arenaDecayTicks(thread_state, current_arena, num_flush - num_deferred);
+        num_flush = CacheBinSize(num_deferred);
     }
 
     if (config::stats && *merge_stats != nullptr)
     {
-        arenaStatsLargeFlushNrequestsAdd(tsdn, &stats_arena->stats, binind, (*merge_stats)->nrequests);
+        arenaStatsLargeFlushNumRequestsAdd(thread_state, &stats_arena->stats, bin_idx, (*merge_stats)->num_requests);
         *merge_stats = nullptr;
     }
 }
 
 /// jemalloc: arena_ptr_array_flush_impl
-JE_ALWAYS_INLINE static void arenaPtrArrayFlushImpl(
-    ThreadState & tsd, szind_t binind, CacheBinPtrArray * arr, unsigned nflush, bool small, Arena * stats_arena, CacheBinStats ** merge_stats)
+ALLOCATOR_ALWAYS_INLINE static void arenaPtrArrayFlushImpl(
+    ThreadState & thread_state,
+    SizeClassIdx bin_idx,
+    CacheBinPtrArray * array,
+    unsigned num_flush,
+    bool small,
+    Arena * stats_arena,
+    CacheBinStats ** merge_stats)
 {
-    ThreadState * tsdn = &tsd;
+    ThreadState * thread_state_ptr = &thread_state;
     /// VARIABLE_ARRAY(emap_batch_lookup_result_t, item_edata, nflush + 1): the last element is never touched.
-    ExtentMapBatchLookupResult item_edata[CACHE_BIN_NFLUSH_BATCH_MAX + 1];
-    JE_ASSERT(nflush <= CACHE_BIN_NFLUSH_BATCH_MAX);
+    ExtentMapBatchLookupResult item_extent[CACHE_BIN_NUM_FLUSH_BATCH_MAX + 1];
+    ALLOCATOR_ASSERT(num_flush <= CACHE_BIN_NUM_FLUSH_BATCH_MAX);
     /// This gets compiled away when `config_opt_safety_checks` is false. Checks for sized deallocation bugs, failing
     /// early rather than corrupting metadata.
-    size_t szind_sum = size_t(binind) * nflush;
-    arena_emap_global.edataLookupBatch(
-        tsd, nflush, &arenaPtrArrayFlushPtrGetter, arr, &arenaPtrArrayFlushMetadataVisitor, &szind_sum, item_edata);
-    if (config::opt_safety_checks && JE_UNLIKELY(szind_sum != 0))
-        arenaPtrArrayFlushSizeCheckFail(arr, binind, nflush, item_edata);
+    size_t size_class_idx_sum = size_t(bin_idx) * num_flush;
+    arena_extent_map_global.extentLookupBatch(
+        thread_state, num_flush, &arenaPtrArrayFlushPtrGetter, array, &arenaPtrArrayFlushMetadataVisitor, &size_class_idx_sum, item_extent);
+    if (config::option_safety_checks && ALLOCATOR_UNLIKELY(size_class_idx_sum != 0))
+        arenaPtrArrayFlushSizeCheckFail(array, bin_idx, num_flush, item_extent);
 
     /// The small/large flush logic is very similar; you might conclude that it's a good opportunity to share code.
     /// We've tried this, and by and large found this to obscure more than it helps; there are so many fiddly bits
@@ -1375,157 +1416,173 @@ JE_ALWAYS_INLINE static void arenaPtrArrayFlushImpl(
     /// ends up being gated behind 'if (small) { ... } else { ... }'. Even though the '...' is morally equivalent, the
     /// code itself needs slight tweaks.
     if (small)
-        arenaPtrArrayFlushImplSmall(tsdn, binind, arr, item_edata, cache_bin_sz_t(nflush), stats_arena, merge_stats);
+        arenaPtrArrayFlushImplSmall(thread_state_ptr, bin_idx, array, item_extent, CacheBinSize(num_flush), stats_arena, merge_stats);
     else
-        arenaPtrArrayFlushImplLarge(tsdn, binind, arr, item_edata, cache_bin_sz_t(nflush), stats_arena, merge_stats);
+        arenaPtrArrayFlushImplLarge(thread_state_ptr, bin_idx, array, item_extent, CacheBinSize(num_flush), stats_arena, merge_stats);
 }
 
 /// jemalloc: arena_ptr_array_flush
 void arenaPtrArrayFlush(
-    ThreadState & tsd, szind_t binind, CacheBinPtrArray * arr, unsigned nflush, bool small, Arena * stats_arena, CacheBinStats merge_stats)
+    ThreadState & thread_state,
+    SizeClassIdx bin_idx,
+    CacheBinPtrArray * array,
+    unsigned num_flush,
+    bool small,
+    Arena * stats_arena,
+    CacheBinStats merge_stats)
 {
-    JE_ASSERT(arr != nullptr && arr->ptr != nullptr);
+    ALLOCATOR_ASSERT(array != nullptr && array->ptr != nullptr);
     /// The input cache bin stats represent a snapshot taken when the pointer array is set up, and will be merged into
     /// the next-level bin stats. The original bin stats will be reset by the caller itself. This separation ensures
     /// that each layer operates independently and does not modify another layer's data directly.
     CacheBinStats * stats = &merge_stats;
-    unsigned nflush_batch;
-    unsigned nflushed = 0;
+    unsigned num_flush_batch;
+    unsigned num_flushed = 0;
     CacheBinPtrArray ptrs_batch;
     do
     {
-        nflush_batch = nflush - nflushed;
-        if (nflush_batch > CACHE_BIN_NFLUSH_BATCH_MAX)
-            nflush_batch = CACHE_BIN_NFLUSH_BATCH_MAX;
-        JE_ASSERT(nflush_batch <= CACHE_BIN_NFLUSH_BATCH_MAX);
-        ptrs_batch.n = cache_bin_sz_t(nflush_batch);
-        ptrs_batch.ptr = arr->ptr + nflushed;
-        arenaPtrArrayFlushImpl(tsd, binind, &ptrs_batch, nflush_batch, small, stats_arena, &stats);
-        nflushed += nflush_batch;
-    } while (nflushed < nflush);
-    JE_ASSERT(nflush == nflushed);
-    JE_ASSERT((arr->ptr + nflush) == (ptrs_batch.ptr + nflush_batch));
+        num_flush_batch = num_flush - num_flushed;
+        if (num_flush_batch > CACHE_BIN_NUM_FLUSH_BATCH_MAX)
+            num_flush_batch = CACHE_BIN_NUM_FLUSH_BATCH_MAX;
+        ALLOCATOR_ASSERT(num_flush_batch <= CACHE_BIN_NUM_FLUSH_BATCH_MAX);
+        ptrs_batch.n = CacheBinSize(num_flush_batch);
+        ptrs_batch.ptr = array->ptr + num_flushed;
+        arenaPtrArrayFlushImpl(thread_state, bin_idx, &ptrs_batch, num_flush_batch, small, stats_arena, &stats);
+        num_flushed += num_flush_batch;
+    } while (num_flushed < num_flush);
+    ALLOCATOR_ASSERT(num_flush == num_flushed);
+    ALLOCATOR_ASSERT((array->ptr + num_flush) == (ptrs_batch.ptr + num_flush_batch));
     if constexpr (config::stats)
-        JE_ASSERT(stats == nullptr);
+        ALLOCATOR_ASSERT(stats == nullptr);
 }
 
 /// --- Reallocation --------------------------------------------------------------------------------------------------
 
 /// jemalloc: arena_ralloc_no_move
-bool arenaRallocNoMove(ThreadState * tsdn, void * ptr, size_t oldsize, size_t size, size_t extra, bool zero, size_t * newsize)
+bool arenaReallocateNoMove(ThreadState * thread_state, void * ptr, size_t old_size, size_t size, size_t extra, bool zero, size_t * new_size)
 {
-    bool ret;
+    bool result;
     /// Calls with non-zero extra had to clamp extra.
-    JE_ASSERT(extra == 0 || size + extra <= SC_LARGE_MAXCLASS);
+    ALLOCATOR_ASSERT(extra == 0 || size + extra <= SIZE_CLASS_LARGE_MAX_CLASS);
 
-    Extent * edata = arena_emap_global.edataLookup(tsdn, ptr);
-    if (JE_UNLIKELY(size > SC_LARGE_MAXCLASS))
+    Extent * extent = arena_extent_map_global.extentLookup(thread_state, ptr);
+    if (ALLOCATOR_UNLIKELY(size > SIZE_CLASS_LARGE_MAX_CLASS))
     {
-        ret = true;
+        result = true;
     }
     else
     {
-        size_t usize_min = sz::s2u(size);
-        size_t usize_max = sz::s2u(size + extra);
-        if (JE_LIKELY(oldsize <= SC_SMALL_MAXCLASS && usize_min <= SC_SMALL_MAXCLASS))
+        size_t usable_size_min = size_classes::sizeToUsableSize(size);
+        size_t usable_size_max = size_classes::sizeToUsableSize(size + extra);
+        if (ALLOCATOR_LIKELY(old_size <= SIZE_CLASS_SMALL_MAX_CLASS && usable_size_min <= SIZE_CLASS_SMALL_MAX_CLASS))
         {
             /// Avoid moving the allocation if the size class can be left the same.
-            JE_ASSERT(bin_infos[sz::sizeToIndex(oldsize)].reg_size == oldsize);
-            if ((usize_max > SC_SMALL_MAXCLASS || sz::sizeToIndex(usize_max) != sz::sizeToIndex(oldsize))
-                && (size > oldsize || usize_max < oldsize))
+            ALLOCATOR_ASSERT(bin_infos[size_classes::sizeToIndex(old_size)].region_size == old_size);
+            if ((usable_size_max > SIZE_CLASS_SMALL_MAX_CLASS
+                 || size_classes::sizeToIndex(usable_size_max) != size_classes::sizeToIndex(old_size))
+                && (size > old_size || usable_size_max < old_size))
             {
-                ret = true;
+                result = true;
             }
             else
             {
-                Arena * arena = arenaGetFromEdata(edata);
-                arenaDecayTick(tsdn, arena);
-                ret = false;
+                Arena * arena = arenaGetFromExtent(extent);
+                arenaDecayTick(thread_state, arena);
+                result = false;
             }
         }
-        else if (oldsize >= SC_LARGE_MINCLASS && usize_max >= SC_LARGE_MINCLASS)
+        else if (old_size >= SIZE_CLASS_LARGE_MIN_CLASS && usable_size_max >= SIZE_CLASS_LARGE_MIN_CLASS)
         {
-            ret = largeRallocNoMove(tsdn, edata, usize_min, usize_max, zero);
+            result = largeReallocateNoMove(thread_state, extent, usable_size_min, usable_size_max, zero);
         }
         else
         {
-            ret = true;
+            result = true;
         }
     }
     /// done:
-    JE_ASSERT(edata == arena_emap_global.edataLookup(tsdn, ptr));
-    *newsize = edata->usize();
+    ALLOCATOR_ASSERT(extent == arena_extent_map_global.extentLookup(thread_state, ptr));
+    *new_size = extent->usableSize();
 
-    return ret;
+    return result;
 }
 
 /// jemalloc: arena_ralloc_move_helper
-static void * arenaRallocMoveHelper(ThreadState * tsdn, Arena * arena, size_t usize, size_t alignment, bool zero, bool slab, ThreadCache * tcache)
+static void * arenaReallocateMoveHelper(
+    ThreadState * thread_state, Arena * arena, size_t usable_size, size_t alignment, bool zero, bool slab, ThreadCache * thread_cache)
 {
     if (alignment == 0)
-        return arenaMalloc(tsdn, arena, usize, sz::sizeToIndex(usize), zero, slab, tcache, true);
-    usize = sz::sa2u(usize, alignment);
-    if (JE_UNLIKELY(usize == 0 || usize > SC_LARGE_MAXCLASS))
+        return arenaMalloc(thread_state, arena, usable_size, size_classes::sizeToIndex(usable_size), zero, slab, thread_cache, true);
+    usable_size = size_classes::alignedSizeToUsableSize(usable_size, alignment);
+    if (ALLOCATOR_UNLIKELY(usable_size == 0 || usable_size > SIZE_CLASS_LARGE_MAX_CLASS))
         return nullptr;
     /// ipalloct_explicit_slab -> ipallocztm_explicit_slab(..., is_internal = false, arena) -> arena_palloc.
-    void * ret = arenaPalloc(tsdn, arena, usize, alignment, zero, slab, tcache);
-    JE_ASSERT(alignmentAddrToBase(ret, alignment) == ret);
-    return ret;
+    void * result = arenaAllocateAligned(thread_state, arena, usable_size, alignment, zero, slab, thread_cache);
+    ALLOCATOR_ASSERT(alignmentAddrToBase(result, alignment) == result);
+    return result;
 }
 
 /// jemalloc: arena_ralloc
-void * arenaRalloc(
-    ThreadState * tsdn, Arena * arena, void * ptr, size_t oldsize, size_t size, size_t alignment, bool zero, bool slab, ThreadCache * tcache)
+void * arenaReallocate(
+    ThreadState * thread_state,
+    Arena * arena,
+    void * ptr,
+    size_t old_size,
+    size_t size,
+    size_t alignment,
+    bool zero,
+    bool slab,
+    ThreadCache * thread_cache)
 {
-    size_t usize = alignment == 0 ? sz::s2u(size) : sz::sa2u(size, alignment);
-    if (JE_UNLIKELY(usize == 0 || size > SC_LARGE_MAXCLASS))
+    size_t usable_size = alignment == 0 ? size_classes::sizeToUsableSize(size) : size_classes::alignedSizeToUsableSize(size, alignment);
+    if (ALLOCATOR_UNLIKELY(usable_size == 0 || size > SIZE_CLASS_LARGE_MAX_CLASS))
         return nullptr;
 
-    if (JE_LIKELY(slab))
+    if (ALLOCATOR_LIKELY(slab))
     {
-        JE_ASSERT(sz::canUseSlab(usize));
+        ALLOCATOR_ASSERT(size_classes::canUseSlab(usable_size));
         /// Try to avoid moving the allocation.
-        size_t newsize;
-        if (!arenaRallocNoMove(tsdn, ptr, oldsize, usize, 0, zero, &newsize))
+        size_t new_size;
+        if (!arenaReallocateNoMove(thread_state, ptr, old_size, usable_size, 0, zero, &new_size))
         {
             /// hook_invoke_expand: hooks are dropped.
             return ptr;
         }
     }
 
-    if (oldsize >= SC_LARGE_MINCLASS && usize >= SC_LARGE_MINCLASS)
-        return largeRalloc(tsdn, arena, ptr, usize, alignment, zero, tcache);
+    if (old_size >= SIZE_CLASS_LARGE_MIN_CLASS && usable_size >= SIZE_CLASS_LARGE_MIN_CLASS)
+        return largeReallocate(thread_state, arena, ptr, usable_size, alignment, zero, thread_cache);
 
     /// size and oldsize are different enough that we need to move the object. In that case, fall back to allocating
     /// new space and copying.
-    void * ret = arenaRallocMoveHelper(tsdn, arena, usize, alignment, zero, slab, tcache);
-    if (ret == nullptr)
+    void * result = arenaReallocateMoveHelper(thread_state, arena, usable_size, alignment, zero, slab, thread_cache);
+    if (result == nullptr)
         return nullptr;
 
     /// hook_invoke_alloc, hook_invoke_dalloc: hooks are dropped.
 
     /// Junk/zero-filling were already done by ipalloc()/arena_malloc().
-    size_t copysize = (usize < oldsize) ? usize : oldsize;
-    memcpy(ret, ptr, copysize);
+    size_t copy_size = (usable_size < old_size) ? usable_size : old_size;
+    memcpy(result, ptr, copy_size);
     /// isdalloct(tsdn, ptr, oldsize, tcache, NULL, true)
-    arenaSdalloc(tsdn, ptr, oldsize, tcache, nullptr, true);
-    return ret;
+    arenaSizedDeallocate(thread_state, ptr, old_size, thread_cache, nullptr, true);
+    return result;
 }
 
 /// --- Misc ----------------------------------------------------------------------------------------------------------
 
 /// jemalloc: arena_dss_prec_get
-DSSPrec arenaDSSPrecGet(Arena * arena)
+SbrkPrecedence arenaSbrkPrecedenceGet(Arena * arena)
 {
-    return DSSPrec(arena->dss_prec.load(std::memory_order_acquire));
+    return SbrkPrecedence(arena->sbrk_precedence.load(std::memory_order_acquire));
 }
 
 /// jemalloc: arena_dss_prec_set
-bool arenaDSSPrecSet(Arena * arena, DSSPrec dss_prec)
+bool arenaSbrkPrecedenceSet(Arena * arena, SbrkPrecedence sbrk_precedence)
 {
-    if constexpr (!config::have_dss)
-        return dss_prec != DSSPrec::Disabled;
-    arena->dss_prec.store(unsigned(dss_prec), std::memory_order_release);
+    if constexpr (!config::have_sbrk)
+        return sbrk_precedence != SbrkPrecedence::Disabled;
+    arena->sbrk_precedence.store(unsigned(sbrk_precedence), std::memory_order_release);
     return false;
 }
 
@@ -1533,9 +1590,9 @@ bool arenaDSSPrecSet(Arena * arena, DSSPrec dss_prec)
 void arenaNameGet(Arena * arena, char * name)
 {
     const char * end = static_cast<const char *>(memchr(arena->name, '\0', ARENA_NAME_LEN));
-    JE_ASSERT(end != nullptr);
+    ALLOCATOR_ASSERT(end != nullptr);
     size_t len = size_t(end - arena->name) + 1;
-    JE_ASSERT(len > 0 && len <= ARENA_NAME_LEN);
+    ALLOCATOR_ASSERT(len > 0 && len <= ARENA_NAME_LEN);
 
     strncpy(name, arena->name, len);
 }
@@ -1578,76 +1635,77 @@ bool arenaMuzzyDecayMsDefaultSet(ssize_t decay_ms)
 }
 
 /// jemalloc: arena_retain_grow_limit_get_set
-bool arenaRetainGrowLimitGetSet(ThreadState & tsd, Arena * arena, size_t * old_limit, size_t * new_limit)
+bool arenaRetainGrowLimitGetSet(ThreadState & thread_state, Arena * arena, size_t * old_limit, size_t * new_limit)
 {
-    JE_ASSERT(opt.retain);
-    return arena->pa_shard.pac.retainGrowLimitGetSet(&tsd, old_limit, new_limit);
+    ALLOCATOR_ASSERT(options.retain);
+    return arena->page_allocator_shard.page_allocator.retainGrowLimitGetSet(&thread_state, old_limit, new_limit);
 }
 
 /// --- Creation ------------------------------------------------------------------------------------------------------
 
 /// jemalloc: arena_new
-Arena * arenaNew(ThreadState * tsdn, unsigned ind, const ArenaConfig * config)
+Arena * arenaNew(ThreadState * thread_state, unsigned idx, const ArenaConfig * config)
 {
     Base * base;
-    if (ind == 0)
+    if (idx == 0)
     {
-        base = b0get();
+        base = base0Get();
     }
     else
     {
-        base = Base::create(tsdn, ind, config->extent_hooks, config->metadata_use_hooks);
+        base = Base::create(thread_state, idx, config->extent_hooks_ptr, config->metadata_use_hooks);
         if (base == nullptr)
             return nullptr;
     }
 
     Arena * arena = nullptr;
-    NsTime cur_time = NsTime::zero();
+    Nanoseconds current_time = Nanoseconds::zero();
 
-    size_t arena_size = alignmentCeiling(sizeof(Arena), CACHELINE) + sizeof(Bin) * arena_nbins_total;
-    void * mem = base->alloc(tsdn, arena_size, CACHELINE);
-    if (mem == nullptr)
+    size_t arena_size = alignmentCeiling(sizeof(Arena), CACHE_LINE) + sizeof(Bin) * arena_num_bins_total;
+    void * memory = base->alloc(thread_state, arena_size, CACHE_LINE);
+    if (memory == nullptr)
         goto label_error;
 
     /// The memory is zeroed; the constructors only produce the zero state (plus the static mutex initializers).
-    arena = new (mem) Arena;
-    JE_ASSERT(reinterpret_cast<uintptr_t>(arena->allBins() + arena_nbins_total) <= reinterpret_cast<uintptr_t>(arena) + arena_size);
-    arena->nthreads[0].store(0, std::memory_order_relaxed);
-    arena->nthreads[1].store(0, std::memory_order_relaxed);
-    arena->last_thd = nullptr;
+    arena = new (memory) Arena;
+    ALLOCATOR_ASSERT(
+        reinterpret_cast<uintptr_t>(arena->allBins() + arena_num_bins_total) <= reinterpret_cast<uintptr_t>(arena) + arena_size);
+    arena->num_threads[0].store(0, std::memory_order_relaxed);
+    arena->num_threads[1].store(0, std::memory_order_relaxed);
+    arena->last_thread = nullptr;
 
     if constexpr (config::stats)
     {
         /// arena_stats_init: there is no stats mutex, and the memory is zeroed.
-        arena->tcache_ql.init();
-        arena->cache_bin_array_descriptor_ql.init();
-        if (arena->tcache_ql_mtx.init("tcache_ql", MutexRank::TCACHE_QL, MutexLockOrder::RankExclusive))
+        arena->thread_cache_list.init();
+        arena->cache_bin_array_descriptor_list.init();
+        if (arena->thread_cache_list_mutex.init("tcache_ql", MutexRank::THREAD_CACHE_LIST, MutexLockOrder::RankExclusive))
             goto label_error;
     }
 
-    arena->dss_prec.store(unsigned(extentDSSPrecGet()), std::memory_order_relaxed);
+    arena->sbrk_precedence.store(unsigned(extentSbrkPrecedenceGet()), std::memory_order_relaxed);
 
     arena->large.init();
-    if (arena->large_mtx.init("arena_large", MutexRank::ARENA_LARGE, MutexLockOrder::RankExclusive))
+    if (arena->large_mutex.init("arena_large", MutexRank::ARENA_LARGE, MutexLockOrder::RankExclusive))
         goto label_error;
 
-    cur_time.initUpdate();
-    if (arena->pa_shard.init(
-            tsdn,
-            &arena_emap_global,
+    current_time.initUpdate();
+    if (arena->page_allocator_shard.init(
+            thread_state,
+            &arena_extent_map_global,
             base,
-            ind,
-            &arena->stats.pa_shard_stats,
+            idx,
+            &arena->stats.page_allocator_shard_stats,
             /* stats_mtx */ nullptr,
-            cur_time,
+            current_time,
             oversize_threshold,
             arenaDirtyDecayMsDefaultGet(),
             arenaMuzzyDecayMsDefaultGet()))
         goto label_error;
 
     /// Initialize bins.
-    arena->binshard_next.store(0, std::memory_order_release);
-    for (unsigned i = 0; i < arena_nbins_total; ++i)
+    arena->bin_shard_next.store(0, std::memory_order_release);
+    for (unsigned i = 0; i < arena_num_bins_total; ++i)
     {
         Bin * bin = new (arena->allBins() + i) Bin;
         if (bin->init())
@@ -1656,13 +1714,13 @@ Arena * arenaNew(ThreadState * tsdn, unsigned ind, const ArenaConfig * config)
 
     arena->base = base;
     /// jemalloc stores `ind` right after publishing the arena; it is stored first here (the value is the same as
-    /// `base->indGet()`, so the readers cannot observe a difference other than a race on a not yet written field).
-    arena->ind = ind;
+    /// `base->idxGet()`, so the readers cannot observe a difference other than a race on a not yet written field).
+    arena->idx = idx;
     /// Set arena before creating background threads.
-    arenaSet(ind, arena);
+    arenaSet(idx, arena);
 
     /// Init the name.
-    format(arena->name, sizeof(arena->name), "%s_%u", arenaIsAuto(arena) ? "auto" : "manual", arena->ind);
+    format(arena->name, sizeof(arena->name), "%s_%u", arenaIsAuto(arena) ? "auto" : "manual", arena->idx);
     arena->name[ARENA_NAME_LEN - 1] = '\0';
 
     arena->create_time.initUpdate();
@@ -1670,29 +1728,29 @@ Arena * arenaNew(ThreadState * tsdn, unsigned ind, const ArenaConfig * config)
     /// HPA is dropped (`opt.hpa` is always false).
 
     /// We don't support reentrancy for arena 0 bootstrapping.
-    if (ind != 0)
+    if (idx != 0)
     {
         /// If we're here, then arena 0 already exists, so bootstrapping is done enough that we should have tsd.
-        JE_ASSERT(tsdn != nullptr);
-        preReentrancy(*tsdn, arena);
+        ALLOCATOR_ASSERT(thread_state != nullptr);
+        preReentrancy(*thread_state, arena);
         /// test_hooks_arena_new_hook: test hooks are dropped.
-        postReentrancy(*tsdn);
+        postReentrancy(*thread_state);
     }
 
     return arena;
 
 label_error:
-    if (ind != 0)
-        base->destroy(tsdn);
+    if (idx != 0)
+        base->destroy(thread_state);
     return nullptr;
 }
 
 /// jemalloc: arena_create_huge_arena
-static Arena * arenaCreateHugeArena(ThreadState & tsd, unsigned ind)
+static Arena * arenaCreateHugeArena(ThreadState & thread_state, unsigned idx)
 {
-    JE_ASSERT(ind != 0);
+    ALLOCATOR_ASSERT(idx != 0);
 
-    Arena * huge_arena = arenaGet(&tsd, ind, true);
+    Arena * huge_arena = arenaGet(&thread_state, idx, true);
     if (huge_arena == nullptr)
         return nullptr;
 
@@ -1705,55 +1763,55 @@ static Arena * arenaCreateHugeArena(ThreadState & tsd, unsigned ind)
     ///
     /// However, with background threads enabled, keep normal purging since the purging delay is bounded.
     if (!backgroundThreadEnabled() && arenaDirtyDecayMsDefaultGet() > 0)
-        arenaDecayMsSet(&tsd, huge_arena, extent_state_dirty, 0);
+        arenaDecayMsSet(&thread_state, huge_arena, extent_state_dirty, 0);
     if (!backgroundThreadEnabled() && arenaMuzzyDecayMsDefaultGet() > 0)
-        arenaDecayMsSet(&tsd, huge_arena, extent_state_muzzy, 0);
+        arenaDecayMsSet(&thread_state, huge_arena, extent_state_muzzy, 0);
 
     return huge_arena;
 }
 
 /// jemalloc: arena_choose_huge
-Arena * arenaChooseHuge(ThreadState & tsd)
+Arena * arenaChooseHuge(ThreadState & thread_state)
 {
     /// huge_arena_ind can be 0 during init (will use a0).
 
-    Arena * huge_arena = arenaGet(&tsd, huge_arena_ind, false);
+    Arena * huge_arena = arenaGet(&thread_state, huge_arena_idx, false);
     if (huge_arena == nullptr)
     {
         /// Create the huge arena on demand.
-        huge_arena = arenaCreateHugeArena(tsd, huge_arena_ind);
+        huge_arena = arenaCreateHugeArena(thread_state, huge_arena_idx);
     }
 
     return huge_arena;
 }
 
 /// jemalloc: arena_init_huge
-bool arenaInitHuge(ThreadState * tsdn, Arena * a0_)
+bool arenaInitHuge(ThreadState * thread_state, Arena * arena0_)
 {
     bool huge_enabled;
-    JE_ASSERT(huge_arena_ind == 0);
+    ALLOCATOR_ASSERT(huge_arena_idx == 0);
 
     /// The threshold should be large size class.
-    if (opt.oversize_threshold > SC_LARGE_MAXCLASS || opt.oversize_threshold < SC_LARGE_MINCLASS)
+    if (options.oversize_threshold > SIZE_CLASS_LARGE_MAX_CLASS || options.oversize_threshold < SIZE_CLASS_LARGE_MIN_CLASS)
     {
-        opt.oversize_threshold = 0;
-        oversize_threshold = SC_LARGE_MAXCLASS + PAGE;
+        options.oversize_threshold = 0;
+        oversize_threshold = SIZE_CLASS_LARGE_MAX_CLASS + PAGE;
         huge_enabled = false;
     }
     else
     {
         /// Reserve the index for the huge arena.
-        huge_arena_ind = narenasTotalGet();
-        JE_ASSERT(huge_arena_ind != 0);
-        oversize_threshold = opt.oversize_threshold;
+        huge_arena_idx = numArenasTotalGet();
+        ALLOCATOR_ASSERT(huge_arena_idx != 0);
+        oversize_threshold = options.oversize_threshold;
         /// a0 init happened before the options were parsed.
-        a0_->pa_shard.pac.oversize_threshold.store(oversize_threshold, std::memory_order_relaxed);
-        /// Initialize the `huge_arena_pac_thp` fields under b0's mutex (so that b0's THP auto-switch won't happen
+        arena0_->page_allocator_shard.page_allocator.oversize_threshold.store(oversize_threshold, std::memory_order_relaxed);
+        /// Initialize the `huge_arena_transparent_huge_pages` fields under b0's mutex (so that b0's THP auto-switch won't happen
         /// concurrently). `opt.huge_arena_pac_thp` is not ported (off by default): only the locking is kept, because
         /// it is observable through the mutex stats of the base.
-        Mutex & b0_mtx = a0_->base->mutex();
-        b0_mtx.lock(tsdn);
-        b0_mtx.unlock(tsdn);
+        Mutex & b0_mutex = arena0_->base->getMutex();
+        b0_mutex.lock(thread_state);
+        b0_mutex.unlock(thread_state);
         huge_enabled = true;
     }
 
@@ -1761,23 +1819,23 @@ bool arenaInitHuge(ThreadState * tsdn, Arena * a0_)
 }
 
 /// jemalloc: arena_boot
-bool arenaBoot(const SizeClassData * sc_data, Base * /*base*/, bool /*hpa*/)
+bool arenaBoot(const SizeClassData * size_class_data, Base * /*base*/, bool /*hpa*/)
 {
-    arenaDirtyDecayMsDefaultSet(opt.dirty_decay_ms);
-    arenaMuzzyDecayMsDefaultSet(opt.muzzy_decay_ms);
-    for (unsigned i = 0; i < SC_NBINS; ++i)
+    arenaDirtyDecayMsDefaultSet(options.dirty_decay_ms);
+    arenaMuzzyDecayMsDefaultSet(options.muzzy_decay_ms);
+    for (unsigned i = 0; i < SIZE_CLASS_NUM_BINS; ++i)
     {
-        const SizeClass & sc = sc_data->sc[i];
-        arena_binind_div_info[i].init((size_t(1) << sc.lg_base) + (size_t(sc.ndelta) << sc.lg_delta));
+        const SizeClass & size_class = size_class_data->size_class[i];
+        arena_bin_idx_division_info[i].init((size_t(1) << size_class.log2_base) + (size_t(size_class.num_delta) << size_class.log2_delta));
     }
 
-    uint32_t cur_offset = uint32_t(sizeof(Arena));
-    arena_nbins_total = 0;
-    for (szind_t i = 0; i < SC_NBINS; ++i)
+    uint32_t current_offset = uint32_t(sizeof(Arena));
+    arena_num_bins_total = 0;
+    for (SizeClassIdx i = 0; i < SIZE_CLASS_NUM_BINS; ++i)
     {
-        arena_bin_offsets[i] = cur_offset;
-        arena_nbins_total += bin_infos[i].n_shards;
-        cur_offset += uint32_t(bin_infos[i].n_shards * sizeof(Bin));
+        arena_bin_offsets[i] = current_offset;
+        arena_num_bins_total += bin_infos[i].num_shards;
+        current_offset += uint32_t(bin_infos[i].num_shards * sizeof(Bin));
     }
     /// pa_central_init: HPA only.
     return false;
@@ -1786,107 +1844,107 @@ bool arenaBoot(const SizeClassData * sc_data, Base * /*base*/, bool /*hpa*/)
 /// --- Fork ----------------------------------------------------------------------------------------------------------
 
 /// jemalloc: arena_prefork0
-void arenaPrefork0(ThreadState * tsdn, Arena * arena)
+void arenaPrefork0(ThreadState * thread_state, Arena * arena)
 {
-    arena->pa_shard.prefork0(tsdn);
+    arena->page_allocator_shard.prefork0(thread_state);
 }
 
 /// jemalloc: arena_prefork1
-void arenaPrefork1(ThreadState * tsdn, Arena * arena)
+void arenaPrefork1(ThreadState * thread_state, Arena * arena)
 {
     if constexpr (config::stats)
-        arena->tcache_ql_mtx.prefork(tsdn);
+        arena->thread_cache_list_mutex.prefork(thread_state);
 }
 
 /// jemalloc: arena_prefork2
-void arenaPrefork2(ThreadState * tsdn, Arena * arena)
+void arenaPrefork2(ThreadState * thread_state, Arena * arena)
 {
-    arena->pa_shard.prefork2(tsdn);
+    arena->page_allocator_shard.prefork2(thread_state);
 }
 
 /// jemalloc: arena_prefork3
-void arenaPrefork3(ThreadState * tsdn, Arena * arena)
+void arenaPrefork3(ThreadState * thread_state, Arena * arena)
 {
-    arena->pa_shard.prefork3(tsdn);
+    arena->page_allocator_shard.prefork3(thread_state);
 }
 
 /// jemalloc: arena_prefork4
-void arenaPrefork4(ThreadState * tsdn, Arena * arena)
+void arenaPrefork4(ThreadState * thread_state, Arena * arena)
 {
-    arena->pa_shard.prefork4(tsdn);
+    arena->page_allocator_shard.prefork4(thread_state);
 }
 
 /// jemalloc: arena_prefork5
-void arenaPrefork5(ThreadState * tsdn, Arena * arena)
+void arenaPrefork5(ThreadState * thread_state, Arena * arena)
 {
-    arena->pa_shard.prefork5(tsdn);
+    arena->page_allocator_shard.prefork5(thread_state);
 }
 
 /// jemalloc: arena_prefork6
-void arenaPrefork6(ThreadState * tsdn, Arena * arena)
+void arenaPrefork6(ThreadState * thread_state, Arena * arena)
 {
-    arena->base->prefork(tsdn);
+    arena->base->prefork(thread_state);
 }
 
 /// jemalloc: arena_prefork7
-void arenaPrefork7(ThreadState * tsdn, Arena * arena)
+void arenaPrefork7(ThreadState * thread_state, Arena * arena)
 {
-    arena->large_mtx.prefork(tsdn);
+    arena->large_mutex.prefork(thread_state);
 }
 
 /// jemalloc: arena_prefork8
-void arenaPrefork8(ThreadState * tsdn, Arena * arena)
+void arenaPrefork8(ThreadState * thread_state, Arena * arena)
 {
-    for (unsigned i = 0; i < arena_nbins_total; ++i)
-        arena->allBins()[i].prefork(tsdn);
+    for (unsigned i = 0; i < arena_num_bins_total; ++i)
+        arena->allBins()[i].prefork(thread_state);
 }
 
 /// jemalloc: arena_postfork_parent
-void arenaPostforkParent(ThreadState * tsdn, Arena * arena)
+void arenaPostforkParent(ThreadState * thread_state, Arena * arena)
 {
-    for (unsigned i = 0; i < arena_nbins_total; ++i)
-        arena->allBins()[i].postforkParent(tsdn);
+    for (unsigned i = 0; i < arena_num_bins_total; ++i)
+        arena->allBins()[i].postforkParent(thread_state);
 
-    arena->large_mtx.postforkParent(tsdn);
-    arena->base->postforkParent(tsdn);
-    arena->pa_shard.postforkParent(tsdn);
+    arena->large_mutex.postforkParent(thread_state);
+    arena->base->postforkParent(thread_state);
+    arena->page_allocator_shard.postforkParent(thread_state);
     if constexpr (config::stats)
-        arena->tcache_ql_mtx.postforkParent(tsdn);
+        arena->thread_cache_list_mutex.postforkParent(thread_state);
 }
 
 /// jemalloc: arena_postfork_child
-void arenaPostforkChild(ThreadState * tsdn, Arena * arena)
+void arenaPostforkChild(ThreadState * thread_state_ptr, Arena * arena)
 {
-    ThreadState & tsd = *tsdn;
-    arena->nthreads[0].store(0, std::memory_order_relaxed);
-    arena->nthreads[1].store(0, std::memory_order_relaxed);
-    if (tsd.arena == arena)
-        arenaNthreadsInc(arena, false);
-    if (tsd.iarena == arena)
-        arenaNthreadsInc(arena, true);
+    ThreadState & thread_state = *thread_state_ptr;
+    arena->num_threads[0].store(0, std::memory_order_relaxed);
+    arena->num_threads[1].store(0, std::memory_order_relaxed);
+    if (thread_state.arena == arena)
+        arenaNumThreadsIncrement(arena, false);
+    if (thread_state.internal_arena == arena)
+        arenaNumThreadsIncrement(arena, true);
     if constexpr (config::stats)
     {
-        arena->tcache_ql.init();
-        arena->cache_bin_array_descriptor_ql.init();
-        ThreadCacheSlow * tcache_slow = tcacheSlowGet(tsd);
-        if (tcache_slow != nullptr && tcache_slow->arena == arena)
+        arena->thread_cache_list.init();
+        arena->cache_bin_array_descriptor_list.init();
+        ThreadCacheSlow * thread_cache_slow = threadCacheSlowGet(thread_state);
+        if (thread_cache_slow != nullptr && thread_cache_slow->arena == arena)
         {
-            ThreadCache * tcache = tcache_slow->tcache;
-            arena->tcache_ql.elementInit(tcache_slow);
-            arena->tcache_ql.tailInsert(tcache_slow);
-            tcache_slow->cache_bin_array_descriptor.init(tcache->bins);
-            arena->cache_bin_array_descriptor_ql.tailInsert(&tcache_slow->cache_bin_array_descriptor);
+            ThreadCache * thread_cache = thread_cache_slow->thread_cache;
+            arena->thread_cache_list.elementInit(thread_cache_slow);
+            arena->thread_cache_list.tailInsert(thread_cache_slow);
+            thread_cache_slow->cache_bin_array_descriptor.init(thread_cache->bins);
+            arena->cache_bin_array_descriptor_list.tailInsert(&thread_cache_slow->cache_bin_array_descriptor);
         }
     }
 
-    for (unsigned i = 0; i < arena_nbins_total; ++i)
-        arena->allBins()[i].postforkChild(tsdn);
+    for (unsigned i = 0; i < arena_num_bins_total; ++i)
+        arena->allBins()[i].postforkChild(thread_state_ptr);
 
-    arena->large_mtx.postforkChild(tsdn);
-    arena->base->postforkChild(tsdn);
-    arena->pa_shard.postforkChild(tsdn);
+    arena->large_mutex.postforkChild(thread_state_ptr);
+    arena->base->postforkChild(thread_state_ptr);
+    arena->page_allocator_shard.postforkChild(thread_state_ptr);
     if constexpr (config::stats)
-        arena->tcache_ql_mtx.postforkChild(tsdn);
+        arena->thread_cache_list_mutex.postforkChild(thread_state_ptr);
 }
 
 }

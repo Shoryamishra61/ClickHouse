@@ -6,8 +6,8 @@
 
 #include <atomic>
 #include <thread>
-#include <sys/wait.h>
 #include <unistd.h>
+#include <sys/wait.h>
 
 using namespace jemalloc;
 
@@ -16,7 +16,7 @@ namespace
 
 constinit Mutex global_mutex;
 
-ThreadState * fakeTSD(uintptr_t i)
+ThreadState * fakeThreadState(uintptr_t i)
 {
     return reinterpret_cast<ThreadState *>(0x1000 * (i + 1));
 }
@@ -25,21 +25,21 @@ ThreadState * fakeTSD(uintptr_t i)
 /// releases it.
 void contendOnce(Mutex & mutex)
 {
-    mutex.lock(fakeTSD(0));
+    mutex.lock(fakeThreadState(0));
     std::thread waiter(
         [&]
         {
-            mutex.lock(fakeTSD(1));
-            mutex.unlock(fakeTSD(1));
+            mutex.lock(fakeThreadState(1));
+            mutex.unlock(fakeThreadState(1));
         });
-    while (mutex.profData().n_waiting_thds.load(std::memory_order_relaxed) == 0)
+    while (mutex.profilingData().num_waiting_threads.load(std::memory_order_relaxed) == 0)
         std::this_thread::yield();
-    /// The waiter makes one last `trylock` after incrementing `n_waiting_thds`; give it time to get past it and block
+    /// The waiter makes one last `trylock` after incrementing `num_waiting_threads`; give it time to get past it and block
     /// (if it does not, it acquires the lock through that `trylock`, which the checks allow).
-    NsTime start = NsTime::now();
-    while (start.nsSince() < 20 * NsTime::MILLION)
+    Nanoseconds start = Nanoseconds::now();
+    while (start.nsSince() < 20 * Nanoseconds::MILLION)
         std::this_thread::yield();
-    mutex.unlock(fakeTSD(0));
+    mutex.unlock(fakeThreadState(0));
     waiter.join();
 }
 
@@ -47,9 +47,9 @@ void contendOnce(Mutex & mutex)
 
 TEST(Mutex, Layout)
 {
-    static_assert(sizeof(MutexProfData) == 64);
-    static_assert(offsetof(MutexProfData, n_waiting_thds) == 36);
-    static_assert(offsetof(MutexProfData, prev_owner) == 48);
+    static_assert(sizeof(MutexProfilingData) == 64);
+    static_assert(offsetof(MutexProfilingData, num_waiting_threads) == 36);
+    static_assert(offsetof(MutexProfilingData, prev_owner) == 48);
 #if defined(__linux__) && defined(__GLIBC__) && defined(__aarch64__)
     static_assert(sizeof(Mutex) == 120);
 #endif
@@ -58,29 +58,31 @@ TEST(Mutex, Layout)
 
 TEST(Mutex, Names)
 {
-    CHECK_STREQ(mutex_prof_global_names[global_prof_mutex_ctl], "ctl");
-    CHECK_STREQ(mutex_prof_global_names[mutex_prof_num_global_mutexes - 1], "prof_stats");
-    CHECK_STREQ(mutex_prof_arena_names[arena_prof_mutex_base], "base");
-    CHECK_STREQ(mutex_prof_arena_names[mutex_prof_num_arena_mutexes - 1], "hpa_sec");
-    CHECK_EQ(unsigned(mutex_prof_num_global_mutexes), 9u);
-    CHECK_EQ(unsigned(mutex_prof_num_arena_mutexes), 12u);
-    CHECK_STREQ(mutex_prof_uint64_counters[mutex_counter_total_wait_time].human, "total_wait_ns");
-    CHECK(mutex_prof_uint64_counters[mutex_counter_num_spin_acq_ps].derived);
-    CHECK_EQ(mutex_prof_uint64_counters[mutex_counter_num_spin_acq_ps].base_counter, unsigned(mutex_counter_num_spin_acq));
-    CHECK_STREQ(mutex_prof_uint32_counters[mutex_counter_max_num_thds].human, "max_n_thds");
+    CHECK_STREQ(mutex_profiling_global_names[global_profiling_mutex_mallctl], "ctl");
+    CHECK_STREQ(mutex_profiling_global_names[mutex_profiling_num_global_mutexes - 1], "prof_stats");
+    CHECK_STREQ(mutex_profiling_arena_names[arena_profiling_mutex_base], "base");
+    CHECK_STREQ(mutex_profiling_arena_names[mutex_profiling_num_arena_mutexes - 1], "hpa_sec");
+    CHECK_EQ(unsigned(mutex_profiling_num_global_mutexes), 9u);
+    CHECK_EQ(unsigned(mutex_profiling_num_arena_mutexes), 12u);
+    CHECK_STREQ(mutex_profiling_uint64_counters[mutex_counter_total_wait_time].human, "total_wait_ns");
+    CHECK(mutex_profiling_uint64_counters[mutex_counter_num_spin_acquired_per_second].derived);
+    CHECK_EQ(
+        mutex_profiling_uint64_counters[mutex_counter_num_spin_acquired_per_second].base_counter,
+        unsigned(mutex_counter_num_spin_acquired));
+    CHECK_STREQ(mutex_profiling_uint32_counters[mutex_counter_max_num_threads].human, "max_n_thds");
     CHECK_EQ(unsigned(MutexRank::BACKGROUND_THREAD), 13u);
     CHECK_EQ(unsigned(MutexRank::ARENA_LARGE), 24u);
     CHECK_EQ(unsigned(MutexRank::BIN), 0x1000u);
-    CHECK_EQ(opt.mutex_max_spin, int64_t(600));
+    CHECK_EQ(options.mutex_max_spin, int64_t(600));
 }
 
 TEST(Mutex, StaticInitializer)
 {
-    global_mutex.lock(fakeTSD(0));
+    global_mutex.lock(fakeThreadState(0));
     CHECK(global_mutex.isLocked());
-    global_mutex.unlock(fakeTSD(0));
+    global_mutex.unlock(fakeThreadState(0));
     CHECK(!global_mutex.isLocked());
-    CHECK_EQ(global_mutex.profData().n_lock_ops, 1u);
+    CHECK_EQ(global_mutex.profilingData().num_lock_ops, 1u);
 }
 
 TEST(Mutex, OwnerSwitches)
@@ -89,49 +91,49 @@ TEST(Mutex, OwnerSwitches)
     REQUIRE(!mutex.init("test", MutexRank::LEAF));
     for (uintptr_t i = 0; i < 10; ++i)
     {
-        mutex.lock(fakeTSD(i / 3));
-        mutex.unlock(fakeTSD(i / 3));
+        mutex.lock(fakeThreadState(i / 3));
+        mutex.unlock(fakeThreadState(i / 3));
     }
     mutex.lock(nullptr);
-    MutexProfData data;
-    mutex.profRead(nullptr, data);
+    MutexProfilingData data;
+    mutex.profilingRead(nullptr, data);
     mutex.unlock(nullptr);
     /// 10 + the read lock.
-    CHECK_EQ(data.n_lock_ops, 11u);
+    CHECK_EQ(data.num_lock_ops, 11u);
     /// i / 3 takes 4 distinct values, then nullptr.
-    CHECK_EQ(data.n_owner_switches, 5u);
+    CHECK_EQ(data.num_owner_switches, 5u);
     CHECK(data.prev_owner == nullptr);
-    CHECK_EQ(data.n_wait_times, 0u);
-    CHECK_EQ(data.n_spin_acquired, 0u);
+    CHECK_EQ(data.num_wait_times, 0u);
+    CHECK_EQ(data.num_spin_acquired, 0u);
 }
 
 TEST(Mutex, TryLock)
 {
     Mutex mutex;
     REQUIRE(!mutex.init("test", MutexRank::LEAF));
-    CHECK(mutex.tryLock(fakeTSD(0)));
+    CHECK(mutex.tryLock(fakeThreadState(0)));
     bool other_result = true;
-    std::thread([&] { other_result = mutex.tryLock(fakeTSD(1)); }).join();
+    std::thread([&] { other_result = mutex.tryLock(fakeThreadState(1)); }).join();
     CHECK(!other_result);
-    mutex.unlock(fakeTSD(0));
+    mutex.unlock(fakeThreadState(0));
     std::thread(
         [&]
         {
-            other_result = mutex.tryLock(fakeTSD(1));
+            other_result = mutex.tryLock(fakeThreadState(1));
             if (other_result)
-                mutex.unlock(fakeTSD(1));
+                mutex.unlock(fakeThreadState(1));
         })
         .join();
     CHECK(other_result);
     /// The failed trylock is not counted.
-    CHECK_EQ(mutex.profData().n_lock_ops, 2u);
-    CHECK_EQ(mutex.profData().n_owner_switches, 2u);
+    CHECK_EQ(mutex.profilingData().num_lock_ops, 2u);
+    CHECK_EQ(mutex.profilingData().num_owner_switches, 2u);
 }
 
 TEST(Mutex, Contention)
 {
-    unsigned saved_ncpus = ncpus;
-    ncpus = 8;
+    unsigned saved_num_cpus = num_cpus;
+    num_cpus = 8;
     Mutex mutex;
     REQUIRE(!mutex.init("test", MutexRank::LEAF));
     constexpr int num_threads = 8;
@@ -144,7 +146,7 @@ TEST(Mutex, Contention)
             {
                 for (int i = 0; i < iterations; ++i)
                 {
-                    MutexLock lock(fakeTSD(t), mutex);
+                    MutexLock lock(fakeThreadState(t), mutex);
                     ++counter;
                 }
             });
@@ -152,64 +154,64 @@ TEST(Mutex, Contention)
         thread.join();
 
     CHECK_EQ(counter, uint64_t(num_threads) * iterations);
-    const MutexProfData & data = mutex.profData();
-    CHECK_EQ(data.n_lock_ops, uint64_t(num_threads) * iterations);
-    CHECK_LE(data.n_spin_acquired + data.n_wait_times, data.n_lock_ops);
-    CHECK_LE(data.n_owner_switches, data.n_lock_ops);
-    CHECK_GE(data.n_owner_switches, uint64_t(num_threads));
-    CHECK_LE(data.max_n_thds, uint32_t(num_threads));
-    CHECK_EQ(data.n_waiting_thds.load(), 0u);
-    CHECK_LE(data.max_wait_time.ns(), data.tot_wait_time.ns());
+    const MutexProfilingData & data = mutex.profilingData();
+    CHECK_EQ(data.num_lock_ops, uint64_t(num_threads) * iterations);
+    CHECK_LE(data.num_spin_acquired + data.num_wait_times, data.num_lock_ops);
+    CHECK_LE(data.num_owner_switches, data.num_lock_ops);
+    CHECK_GE(data.num_owner_switches, uint64_t(num_threads));
+    CHECK_LE(data.max_num_threads, uint32_t(num_threads));
+    CHECK_EQ(data.num_waiting_threads.load(), 0u);
+    CHECK_LE(data.max_wait_time.ns(), data.total_wait_time.ns());
     CHECK(!mutex.isLocked());
-    ncpus = saved_ncpus;
+    num_cpus = saved_num_cpus;
 }
 
 TEST(Mutex, BlockingPath)
 {
-    unsigned saved_ncpus = ncpus;
-    int64_t saved_spin = opt.mutex_max_spin;
+    unsigned saved_num_cpus = num_cpus;
+    int64_t saved_spin = options.mutex_max_spin;
 
     for (unsigned cpus : {1u, 4u})
     {
-        ncpus = cpus;
-        opt.mutex_max_spin = 0;
+        num_cpus = cpus;
+        options.mutex_max_spin = 0;
         Mutex mutex;
         REQUIRE(!mutex.init("test", MutexRank::LEAF));
         contendOnce(mutex);
         contendOnce(mutex);
 
-        const MutexProfData & data = mutex.profData();
-        CHECK_EQ(data.n_lock_ops, 4u);
-        CHECK_EQ(data.n_owner_switches, 4u);
+        const MutexProfilingData & data = mutex.profilingData();
+        CHECK_EQ(data.num_lock_ops, 4u);
+        CHECK_EQ(data.num_owner_switches, 4u);
         /// Every contended lock ends either blocking (n_wait_times) or in the last trylock (n_spin_acquired).
-        CHECK_EQ(data.n_wait_times + data.n_spin_acquired, 2u);
-        CHECK_GE(data.n_wait_times, 1u);
-        CHECK_EQ(data.max_n_thds, 1u);
-        CHECK_GT(data.tot_wait_time.ns(), 0u);
-        CHECK_LE(data.max_wait_time.ns(), data.tot_wait_time.ns());
-        CHECK_GE(2 * data.max_wait_time.ns(), data.tot_wait_time.ns());
+        CHECK_EQ(data.num_wait_times + data.num_spin_acquired, 2u);
+        CHECK_GE(data.num_wait_times, 1u);
+        CHECK_EQ(data.max_num_threads, 1u);
+        CHECK_GT(data.total_wait_time.ns(), 0u);
+        CHECK_LE(data.max_wait_time.ns(), data.total_wait_time.ns());
+        CHECK_GE(2 * data.max_wait_time.ns(), data.total_wait_time.ns());
 
         /// Reset.
         mutex.lock(nullptr);
-        mutex.profDataReset(nullptr);
+        mutex.profilingDataReset(nullptr);
         mutex.unlock(nullptr);
         /// The reset happens after the lock was counted.
-        CHECK_EQ(mutex.profData().n_lock_ops, 0u);
-        CHECK_EQ(mutex.profData().n_wait_times, 0u);
-        CHECK(mutex.profData().prev_owner == nullptr);
-        CHECK(mutex.profData().tot_wait_time.equalsZero());
+        CHECK_EQ(mutex.profilingData().num_lock_ops, 0u);
+        CHECK_EQ(mutex.profilingData().num_wait_times, 0u);
+        CHECK(mutex.profilingData().prev_owner == nullptr);
+        CHECK(mutex.profilingData().total_wait_time.equalsZero());
     }
 
-    ncpus = saved_ncpus;
-    opt.mutex_max_spin = saved_spin;
+    num_cpus = saved_num_cpus;
+    options.mutex_max_spin = saved_spin;
 }
 
-TEST(Mutex, ProfAggregation)
+TEST(Mutex, ProfilingAggregation)
 {
-    unsigned saved_ncpus = ncpus;
-    int64_t saved_spin = opt.mutex_max_spin;
-    ncpus = 2;
-    opt.mutex_max_spin = 0;
+    unsigned saved_num_cpus = num_cpus;
+    int64_t saved_spin = options.mutex_max_spin;
+    num_cpus = 2;
+    options.mutex_max_spin = 0;
 
     Mutex a;
     Mutex b;
@@ -218,57 +220,57 @@ TEST(Mutex, ProfAggregation)
     contendOnce(a);
     for (int i = 0; i < 5; ++i)
     {
-        b.lock(fakeTSD(7));
-        b.unlock(fakeTSD(7));
+        b.lock(fakeThreadState(7));
+        b.unlock(fakeThreadState(7));
     }
 
-    MutexProfData accum;
-    a.lock(fakeTSD(0));
-    a.profAccum(fakeTSD(0), accum);
-    a.unlock(fakeTSD(0));
-    b.lock(fakeTSD(7));
-    b.profAccum(fakeTSD(7), accum);
-    b.unlock(fakeTSD(7));
+    MutexProfilingData accumulated;
+    a.lock(fakeThreadState(0));
+    a.profilingAccumulated(fakeThreadState(0), accumulated);
+    a.unlock(fakeThreadState(0));
+    b.lock(fakeThreadState(7));
+    b.profilingAccumulated(fakeThreadState(7), accumulated);
+    b.unlock(fakeThreadState(7));
     /// a: 2 + 1, b: 5 + 1.
-    CHECK_EQ(accum.n_lock_ops, 3u + 6u);
-    CHECK_EQ(accum.n_owner_switches, 3u + 1u);
-    CHECK_EQ(accum.n_wait_times + accum.n_spin_acquired, 1u);
-    CHECK_EQ(accum.max_n_thds, 1u);
-    CHECK(accum.prev_owner == nullptr);
-    CHECK_EQ(accum.max_wait_time.ns(), a.profData().max_wait_time.ns());
+    CHECK_EQ(accumulated.num_lock_ops, 3u + 6u);
+    CHECK_EQ(accumulated.num_owner_switches, 3u + 1u);
+    CHECK_EQ(accumulated.num_wait_times + accumulated.num_spin_acquired, 1u);
+    CHECK_EQ(accumulated.max_num_threads, 1u);
+    CHECK(accumulated.prev_owner == nullptr);
+    CHECK_EQ(accumulated.max_wait_time.ns(), a.profilingData().max_wait_time.ns());
 
-    MutexProfData max;
+    MutexProfilingData max;
     b.lock(nullptr);
-    b.profMaxUpdate(nullptr, max);
+    b.profilingMaxUpdate(nullptr, max);
     b.unlock(nullptr);
     a.lock(nullptr);
-    a.profMaxUpdate(nullptr, max);
+    a.profilingMaxUpdate(nullptr, max);
     a.unlock(nullptr);
-    CHECK_EQ(max.n_lock_ops, 7u);
-    CHECK_EQ(max.n_owner_switches, 4u);
-    CHECK_EQ(max.n_wait_times + max.n_spin_acquired, 1u);
+    CHECK_EQ(max.num_lock_ops, 7u);
+    CHECK_EQ(max.num_owner_switches, 4u);
+    CHECK_EQ(max.num_wait_times + max.num_spin_acquired, 1u);
 
-    MutexProfData sum;
-    MutexProfData read;
+    MutexProfilingData sum;
+    MutexProfilingData read;
     a.lock(nullptr);
-    a.profRead(nullptr, read);
+    a.profilingRead(nullptr, read);
     a.unlock(nullptr);
     CHECK(read.prev_owner == nullptr);
-    read.n_waiting_thds.store(3);
+    read.num_waiting_threads.store(3);
     sum.merge(read);
     sum.merge(read);
-    CHECK_EQ(sum.n_lock_ops, 2 * read.n_lock_ops);
-    CHECK_EQ(sum.n_waiting_thds.load(), 6u);
-    CHECK_EQ(sum.tot_wait_time.ns(), 2 * read.tot_wait_time.ns());
+    CHECK_EQ(sum.num_lock_ops, 2 * read.num_lock_ops);
+    CHECK_EQ(sum.num_waiting_threads.load(), 6u);
+    CHECK_EQ(sum.total_wait_time.ns(), 2 * read.total_wait_time.ns());
     CHECK_EQ(sum.max_wait_time.ns(), read.max_wait_time.ns());
 
-    MutexProfData copy;
+    MutexProfilingData copy;
     copy.copyFrom(read);
-    CHECK_EQ(copy.n_lock_ops, read.n_lock_ops);
-    CHECK_EQ(copy.n_waiting_thds.load(), 0u);
+    CHECK_EQ(copy.num_lock_ops, read.num_lock_ops);
+    CHECK_EQ(copy.num_waiting_threads.load(), 0u);
 
-    ncpus = saved_ncpus;
-    opt.mutex_max_spin = saved_spin;
+    num_cpus = saved_num_cpus;
+    options.mutex_max_spin = saved_spin;
 }
 
 TEST(Mutex, Fork)
@@ -282,7 +284,8 @@ TEST(Mutex, Fork)
     {
         mutex.postforkChild(nullptr);
         /// Like jemalloc, re-initialization resets the counters but not the `locked` hint.
-        bool ok = mutex.isLocked() && mutex.profData().n_lock_ops == 0 && mutex.tryLock(nullptr) && mutex.profData().n_lock_ops == 1;
+        bool ok = mutex.isLocked() && mutex.profilingData().num_lock_ops == 0 && mutex.tryLock(nullptr)
+            && mutex.profilingData().num_lock_ops == 1;
         mutex.unlock(nullptr);
         _exit(ok ? 0 : 1);
     }

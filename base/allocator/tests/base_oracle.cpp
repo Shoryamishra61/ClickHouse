@@ -1,6 +1,6 @@
 /// Compares `Base` with jemalloc's `base.c` (linked from the reference `lib_jemalloc.a`): for a long scripted sequence
 /// of `base_alloc` / `base_alloc_edata` / `base_alloc_rtree` calls (and tcache stack allocations from `b0`), every
-/// returned address must be at the same offset in the same block (counted from the first block), the `esn` of every
+/// returned address must be at the same offset in the same block (counted from the first block), the `struct_serial_number` of every
 /// `Extent` must be the same, and the block sizes and all stats must be identical after every call.
 
 #include <allocator/Base.h>
@@ -12,22 +12,21 @@
 #include <random>
 #include <vector>
 
-extern "C"
-{
+extern "C" {
 int ref_boot(void);
 size_t ref_sizeof_base(void);
 size_t ref_sizeof_base_block(void);
-void * ref_base_new(unsigned ind);
+void * ref_base_new(unsigned idx);
 void ref_base_delete(void * base);
 void * ref_base_alloc(void * base, size_t size, size_t alignment);
-void * ref_base_alloc_edata(void * base, size_t * esn);
-void * ref_base_alloc_rtree(void * base, size_t size);
+void * ref_base_alloc_extent(void * base, size_t * struct_serial_number);
+void * ref_base_alloc_radix_tree(void * base, size_t size);
 void ref_base_stats(void * base, size_t * out);
 int ref_base_blocks(void * base, uintptr_t * addrs, size_t * sizes, int max);
 int ref_base_boot(void);
-void * ref_b0(void);
-void * ref_b0_alloc_tcache_stack(size_t size);
-void ref_b0_dalloc_tcache_stack(void * p);
+void * ref_base0(void);
+void * ref_base0_alloc_thread_cache_stack(size_t size);
+void ref_base0_dealloc_thread_cache_stack(void * p);
 
 /// `base.o` pulls in the rest of the reference jemalloc, including the libunwind-based profiler backtrace, which is
 /// never called here.
@@ -106,19 +105,19 @@ bool compareState(void * ref, Base * our, int step)
             ok = false;
         }
     }
-    Blocks rb = refBlocks(ref);
-    Blocks ob = ourBlocks(our);
-    if (rb.n != ob.n)
+    Blocks ref_blocks = refBlocks(ref);
+    Blocks our_blocks = ourBlocks(our);
+    if (ref_blocks.n != our_blocks.n)
     {
-        std::fprintf(stderr, "step %d: %d blocks vs %d\n", step, rb.n, ob.n);
+        std::fprintf(stderr, "step %d: %d blocks vs %d\n", step, ref_blocks.n, our_blocks.n);
         ok = false;
     }
     else
     {
-        for (int i = 0; i < rb.n; ++i)
-            if (rb.sizes[i] != ob.sizes[i])
+        for (int i = 0; i < ref_blocks.n; ++i)
+            if (ref_blocks.sizes[i] != our_blocks.sizes[i])
             {
-                std::fprintf(stderr, "step %d: block %d size %zu vs %zu\n", step, i, rb.sizes[i], ob.sizes[i]);
+                std::fprintf(stderr, "step %d: block %d size %zu vs %zu\n", step, i, ref_blocks.sizes[i], our_blocks.sizes[i]);
                 ok = false;
             }
     }
@@ -177,11 +176,11 @@ TEST(BaseOracle, ScriptedSequence)
     bootOnce();
     for (unsigned seed = 0; seed < 4; ++seed)
     {
-        unsigned ind = seed + 1;
-        void * ref = ref_base_new(ind);
-        Base * our = Base::create(nullptr, ind, &ehooks_default_extent_hooks, true);
+        unsigned idx = seed + 1;
+        void * ref = ref_base_new(idx);
+        Base * our = Base::create(nullptr, idx, &extent_hooks_default_extent_hooks, true);
         REQUIRE(ref != nullptr && our != nullptr);
-        CHECK_EQ(our->indGet(), ind);
+        CHECK_EQ(our->idxGet(), idx);
         REQUIRE(compareState(ref, our, -1));
         /// The `Base` itself is at the same offset of the first block.
         REQUIRE(comparePointers(ref, ref, our, our, -1));
@@ -204,22 +203,22 @@ TEST(BaseOracle, ScriptedSequence)
             }
             else if (op < 85)
             {
-                size_t ref_esn = 0;
-                void * r = ref_base_alloc_edata(ref, &ref_esn);
+                size_t ref_struct_serial_number = 0;
+                void * r = ref_base_alloc_extent(ref, &ref_struct_serial_number);
                 Extent * o = our->allocExtent(nullptr);
                 ok = comparePointers(ref, r, our, o, step);
                 if (o)
                 {
-                    ok &= o->esn() == ref_esn;
-                    ok &= reinterpret_cast<uintptr_t>(o) % EDATA_ALIGNMENT == 0;
+                    ok &= o->structSerialNumber() == ref_struct_serial_number;
+                    ok &= reinterpret_cast<uintptr_t>(o) % EXTENT_ALIGNMENT == 0;
                 }
             }
             else
             {
-                static const size_t rtree_sizes[] = {64, 192, 4096, 16384, 65536, size_t(1) << 20, 3 << 18};
-                size_t size = rtree_sizes[rng() % (sizeof(rtree_sizes) / sizeof(rtree_sizes[0]))];
-                void * r = ref_base_alloc_rtree(ref, size);
-                void * o = our->allocRtree(nullptr, size);
+                static const size_t radix_tree_sizes[] = {64, 192, 4096, 16384, 65536, size_t(1) << 20, 3 << 18};
+                size_t size = radix_tree_sizes[rng() % (sizeof(radix_tree_sizes) / sizeof(radix_tree_sizes[0]))];
+                void * r = ref_base_alloc_radix_tree(ref, size);
+                void * o = our->allocRadixTree(nullptr, size);
                 ok = comparePointers(ref, r, our, o, step);
             }
             ok &= compareState(ref, our, step);
@@ -242,7 +241,7 @@ TEST(BaseOracle, BlockSizeSeries)
     bootOnce();
     /// Force one new block per allocation (half of the block size) and compare the series of block sizes.
     void * ref = ref_base_new(100);
-    Base * our = Base::create(nullptr, 100, &ehooks_default_extent_hooks, true);
+    Base * our = Base::create(nullptr, 100, &extent_hooks_default_extent_hooks, true);
     REQUIRE(ref != nullptr && our != nullptr);
     for (int i = 0; i < 24; ++i)
     {
@@ -261,15 +260,15 @@ TEST(BaseOracle, BlockSizeSeries)
     our->destroy(nullptr);
 }
 
-TEST(BaseOracle, B0TcacheStacks)
+TEST(BaseOracle, B0ThreadCacheStacks)
 {
     bootOnce();
     REQUIRE(ref_base_boot() == 0);
     REQUIRE(!baseBoot(nullptr));
-    void * ref = ref_b0();
-    Base * our = b0get();
+    void * ref = ref_base0();
+    Base * our = base0Get();
     REQUIRE(ref != nullptr && our != nullptr);
-    CHECK_EQ(our->indGet(), 0u);
+    CHECK_EQ(our->idxGet(), 0u);
     REQUIRE(compareState(ref, our, -1));
 
     std::mt19937_64 rng(42);
@@ -283,8 +282,8 @@ TEST(BaseOracle, B0TcacheStacks)
         {
             static const size_t stack_sizes[] = {8 * 36, 8 * 200, 8 * 1000, 8 * 4000, 30000, 100000};
             size_t size = stack_sizes[rng() % (sizeof(stack_sizes) / sizeof(stack_sizes[0]))];
-            void * r = ref_b0_alloc_tcache_stack(size);
-            void * o = b0AllocTcacheStack(nullptr, size);
+            void * r = ref_base0_alloc_thread_cache_stack(size);
+            void * o = b0AllocThreadCacheStack(nullptr, size);
             ok = comparePointers(ref, r, our, o, step);
             if (r && o)
             {
@@ -296,17 +295,17 @@ TEST(BaseOracle, B0TcacheStacks)
         else if (op < 80)
         {
             size_t i = rng() % live.size();
-            ref_b0_dalloc_tcache_stack(live[i].first);
-            b0DallocTcacheStack(nullptr, live[i].second);
+            ref_base0_dealloc_thread_cache_stack(live[i].first);
+            b0DeallocateThreadCacheStack(nullptr, live[i].second);
             live[i] = live.back();
             live.pop_back();
         }
         else if (op < 90)
         {
-            size_t ref_esn = 0;
-            void * r = ref_base_alloc_edata(ref, &ref_esn);
+            size_t ref_struct_serial_number = 0;
+            void * r = ref_base_alloc_extent(ref, &ref_struct_serial_number);
             Extent * o = our->allocExtent(nullptr);
-            ok = comparePointers(ref, r, our, o, step) && o->esn() == ref_esn;
+            ok = comparePointers(ref, r, our, o, step) && o->structSerialNumber() == ref_struct_serial_number;
         }
         else
         {

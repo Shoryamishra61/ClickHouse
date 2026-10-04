@@ -1,11 +1,11 @@
 /* The reference: jemalloc's `eset.c` (linked from lib_jemalloc.a) on fake extents (addresses are never touched). */
 
 #ifndef _GNU_SOURCE
-#    define _GNU_SOURCE
+#define _GNU_SOURCE
 #endif
 
-#include "jemalloc/internal/jemalloc_preamble.h"
 #include "jemalloc/internal/jemalloc_internal_includes.h"
+#include "jemalloc/internal/jemalloc_preamble.h"
 
 #include "jemalloc/internal/eset.h"
 #include "jemalloc/internal/sc.h"
@@ -14,12 +14,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-static sc_data_t ref_sc_data;
+static sc_data_t ref_size_class_data;
 
 void ref_boot(void)
 {
-    sc_boot(&ref_sc_data);
-    sz_boot(&ref_sc_data, /* cache_oblivious */ true);
+    sc_boot(&ref_size_class_data);
+    sz_boot(&ref_size_class_data, /* cache_oblivious */ true);
 }
 
 void ref_set_disable_large_size_classes(bool value)
@@ -27,111 +27,111 @@ void ref_set_disable_large_size_classes(bool value)
     opt_disable_large_size_classes = value;
 }
 
-size_t ref_sizeof_eset(void)
+size_t ref_sizeof_extent_set(void)
 {
     return sizeof(eset_t);
 }
 
-void * ref_eset_new(unsigned state)
+void * ref_extent_set_new(unsigned state)
 {
-    eset_t * eset = aligned_alloc(64, (sizeof(eset_t) + 63) / 64 * 64);
-    memset(eset, 0, sizeof(eset_t));
-    eset_init(eset, (extent_state_t)state);
-    return eset;
+    eset_t * extent_set = aligned_alloc(64, (sizeof(eset_t) + 63) / 64 * 64);
+    memset(extent_set, 0, sizeof(eset_t));
+    eset_init(extent_set, (extent_state_t)state);
+    return extent_set;
 }
 
-void ref_eset_delete(void * eset)
+void ref_extent_set_delete(void * extent_set)
 {
-    free(eset);
+    free(extent_set);
 }
 
-void * ref_edata_new(void * addr, size_t size, uint64_t sn, unsigned state)
+void * ref_extent_new(void * addr, size_t size, uint64_t serial_number, unsigned state)
 {
-    edata_t * edata = aligned_alloc(EDATA_ALIGNMENT, (sizeof(edata_t) + EDATA_ALIGNMENT - 1) / EDATA_ALIGNMENT * EDATA_ALIGNMENT);
-    memset(edata, 0, sizeof(edata_t));
-    edata_init(edata, 0, addr, size, false, SC_NSIZES, sn, (extent_state_t)state, false, true, EXTENT_PAI_PAC, EXTENT_NOT_HEAD);
-    return edata;
+    edata_t * extent = aligned_alloc(EDATA_ALIGNMENT, (sizeof(edata_t) + EDATA_ALIGNMENT - 1) / EDATA_ALIGNMENT * EDATA_ALIGNMENT);
+    memset(extent, 0, sizeof(edata_t));
+    edata_init(extent, 0, addr, size, false, SC_NSIZES, serial_number, (extent_state_t)state, false, true, EXTENT_PAI_PAC, EXTENT_NOT_HEAD);
+    return extent;
 }
 
-void ref_edata_delete(void * edata)
+void ref_extent_delete(void * extent)
 {
-    free(edata);
+    free(extent);
 }
 
-void ref_edata_set_state(void * edata, unsigned state)
+void ref_extent_set_state(void * extent, unsigned state)
 {
-    edata_state_set((edata_t *)edata, (extent_state_t)state);
+    edata_state_set((edata_t *)extent, (extent_state_t)state);
 }
 
-void ref_eset_insert(void * eset, void * edata)
+void ref_extent_set_insert(void * extent_set, void * extent)
 {
-    eset_insert((eset_t *)eset, (edata_t *)edata);
+    eset_insert((eset_t *)extent_set, (edata_t *)extent);
 }
 
-void ref_eset_remove(void * eset, void * edata)
+void ref_extent_set_remove(void * extent_set, void * extent)
 {
-    eset_remove((eset_t *)eset, (edata_t *)edata);
+    eset_remove((eset_t *)extent_set, (edata_t *)extent);
 }
 
-void * ref_eset_fit(void * eset, size_t esize, size_t alignment, bool exact_only, unsigned lg_max_fit)
+void * ref_extent_set_fit(void * extent_set, size_t extent_size, size_t alignment, bool exact_only, unsigned log2_max_fit)
 {
-    return eset_fit((eset_t *)eset, esize, alignment, exact_only, lg_max_fit);
+    return eset_fit((eset_t *)extent_set, extent_size, alignment, exact_only, log2_max_fit);
 }
 
-size_t ref_eset_npages(void * eset)
+size_t ref_extent_set_num_pages(void * extent_set)
 {
-    return eset_npages_get((eset_t *)eset);
+    return eset_npages_get((eset_t *)extent_set);
 }
 
-size_t ref_eset_nextents(void * eset, unsigned pind)
+size_t ref_extent_set_num_extents(void * extent_set, unsigned page_size_class_idx)
 {
-    return eset_nextents_get((eset_t *)eset, pind);
+    return eset_nextents_get((eset_t *)extent_set, page_size_class_idx);
 }
 
-size_t ref_eset_nbytes(void * eset, unsigned pind)
+size_t ref_extent_set_num_bytes(void * extent_set, unsigned page_size_class_idx)
 {
-    return eset_nbytes_get((eset_t *)eset, pind);
+    return eset_nbytes_get((eset_t *)extent_set, page_size_class_idx);
 }
 
-unsigned ref_eset_npsizes(void)
+unsigned ref_extent_set_num_page_sizes(void)
 {
     return SC_NPSIZES + 1;
 }
 
-void ref_eset_heap_min(void * eset, unsigned pind, uint64_t * sn, uintptr_t * addr)
+void ref_extent_set_heap_min(void * extent_set, unsigned page_size_class_idx, uint64_t * serial_number, uintptr_t * addr)
 {
-    *sn = ((eset_t *)eset)->bins[pind].heap_min.sn;
-    *addr = ((eset_t *)eset)->bins[pind].heap_min.addr;
+    *serial_number = ((eset_t *)extent_set)->bins[page_size_class_idx].heap_min.sn;
+    *addr = ((eset_t *)extent_set)->bins[page_size_class_idx].heap_min.addr;
 }
 
-bool ref_eset_bin_empty(void * eset, unsigned pind)
+bool ref_extent_set_bin_empty(void * extent_set, unsigned page_size_class_idx)
 {
-    return edata_heap_empty(&((eset_t *)eset)->bins[pind].heap);
+    return edata_heap_empty(&((eset_t *)extent_set)->bins[page_size_class_idx].heap);
 }
 
 /* The bitmap words. */
-size_t ref_eset_bitmap(void * eset, unsigned long * out, size_t max)
+size_t ref_extent_set_bitmap(void * extent_set, unsigned long * out, size_t max)
 {
-    size_t n = sizeof(((eset_t *)eset)->bitmap) / sizeof(fb_group_t);
+    size_t n = sizeof(((eset_t *)extent_set)->bitmap) / sizeof(fb_group_t);
     for (size_t i = 0; i < n && i < max; i++)
-        out[i] = ((eset_t *)eset)->bitmap[i];
+        out[i] = ((eset_t *)extent_set)->bitmap[i];
     return n;
 }
 
 /* The LRU list, oldest first. Returns the count. */
-size_t ref_eset_lru(void * eset, void ** out, size_t max)
+size_t ref_extent_set_lru(void * extent_set, void ** out, size_t max)
 {
     size_t n = 0;
-    edata_list_inactive_t * lru = &((eset_t *)eset)->lru;
+    edata_list_inactive_t * lru = &((eset_t *)extent_set)->lru;
     for (edata_t * e = edata_list_inactive_first(lru); e != NULL && n < max; e = edata_list_inactive_next(lru, e))
         out[n++] = e;
     return n;
 }
 
 /* The pairing heap root and aux count of a bin (to compare the heap shapes). */
-void * ref_eset_heap_root(void * eset, unsigned pind, size_t * auxcount)
+void * ref_extent_set_heap_root(void * extent_set, unsigned page_size_class_idx, size_t * auxiliary_count)
 {
-    edata_heap_t * heap = &((eset_t *)eset)->bins[pind].heap;
-    *auxcount = heap->ph.auxcount;
+    edata_heap_t * heap = &((eset_t *)extent_set)->bins[page_size_class_idx].heap;
+    *auxiliary_count = heap->ph.auxcount;
     return heap->ph.root;
 }

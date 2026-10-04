@@ -5,14 +5,14 @@
 /// `background_thread` and `max_background_threads` mallctl leaves, fork handlers (the child has background threads
 /// disabled and can enable them again), and the sleep interval computation.
 
-#include <allocator/ArenaInlines.h>
 #include <allocator/Arena.h>
+#include <allocator/ArenaInlines.h>
 #include <allocator/Arenas.h>
 #include <allocator/BackgroundThread.h>
 #include <allocator/Base.h>
-#include <allocator/CtlImpl.h>
 #include <allocator/ExtentHooks.h>
 #include <allocator/ExtentMap.h>
+#include <allocator/MallctlImpl.h>
 #include <allocator/Options.h>
 #include <allocator/Pages.h>
 #include <allocator/SizeClasses.h>
@@ -23,11 +23,11 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
-#include <dirent.h>
 #include <string>
 #include <thread>
-#include <unistd.h>
 #include <vector>
+#include <dirent.h>
+#include <unistd.h>
 #include <sys/wait.h>
 
 using namespace jemalloc;
@@ -35,7 +35,7 @@ using namespace jemalloc;
 namespace
 {
 
-constinit ThreadState tsd;
+constinit ThreadState thread_state;
 
 bool waitFor(auto && predicate)
 {
@@ -98,26 +98,26 @@ std::string statusField(const std::string & task, const char * field)
     return status.substr(pos + key.size(), end - pos - key.size());
 }
 
-uint64_t totalRuns(unsigned ind)
+uint64_t totalRuns(unsigned idx)
 {
-    BackgroundThreadInfo * info = &background_thread_info[ind];
-    MutexLock lock(&tsd, info->mtx);
-    return info->tot_n_runs;
+    BackgroundThreadInfo * info = &background_thread_info[idx];
+    MutexLock lock(&thread_state, info->mutex);
+    return info->total_num_runs;
 }
 
-BackgroundThreadState threadState(unsigned ind)
+BackgroundThreadState threadState(unsigned idx)
 {
-    BackgroundThreadInfo * info = &background_thread_info[ind];
-    MutexLock lock(&tsd, info->mtx);
+    BackgroundThreadInfo * info = &background_thread_info[idx];
+    MutexLock lock(&thread_state, info->mutex);
     return info->state;
 }
 
 /// The thread is waiting (it holds its mutex while working) with the given kind of sleep.
-bool sleepsIndefinitely(unsigned ind)
+bool sleepsIndefinitely(unsigned idx)
 {
-    BackgroundThreadInfo * info = &background_thread_info[ind];
-    MutexLock lock(&tsd, info->mtx);
-    return info->tot_n_runs > 0 && info->indefiniteSleep();
+    BackgroundThreadInfo * info = &background_thread_info[idx];
+    MutexLock lock(&thread_state, info->mutex);
+    return info->total_num_runs > 0 && info->indefiniteSleep();
 }
 
 void bootOnce()
@@ -127,35 +127,35 @@ void bootOnce()
         return;
     booted = true;
 
-    /// The ClickHouse configuration: `background_thread:true`, `percpu_arena:percpu` (pins the threads to CPUs);
+    /// The ClickHouse configuration: `background_thread:true`, `per_cpu_arena:percpu` (pins the threads to CPUs);
     /// fast decay so that the background threads purge quickly.
-    opt.background_thread = true;
-    opt.percpu_arena = PercpuArenaMode::Percpu;
-    opt.dirty_decay_ms = 100;
-    opt.muzzy_decay_ms = 0;
+    options.background_thread = true;
+    options.per_cpu_arena = PerCPUArenaMode::PerCPU;
+    options.dirty_decay_ms = 100;
+    options.muzzy_decay_ms = 0;
 
     REQUIRE(!pages::boot());
-    szBoot(default_sc_data, opt.cache_oblivious);
+    sizeBoot(default_size_class_data, options.cache_oblivious);
     REQUIRE(!baseBoot(nullptr));
-    REQUIRE(!arena_emap_global.init(b0get(), /* zeroed */ true));
+    REQUIRE(!arena_extent_map_global.init(base0Get(), /* zeroed */ true));
     /// `malloc_init_hard_a0_locked`: `background_thread_boot0` after the options.
     REQUIRE(!backgroundThreadBoot0());
-    REQUIRE(!arenaBoot(&default_sc_data, b0get(), false));
+    REQUIRE(!arenaBoot(&default_size_class_data, base0Get(), false));
     REQUIRE(!arenas_lock.init("arenas", MutexRank::ARENAS, MutexLockOrder::RankExclusive));
     /// The background threads use the TLS TSD (`tsd_internal_fetch`).
-    REQUIRE(!TSD::boot0());
+    REQUIRE(!ThreadStateStorage::boot0());
 
-    narenas_auto = 1;
-    manual_arena_base = narenas_auto + 1;
+    num_arenas_auto = 1;
+    manual_arena_base = num_arenas_auto + 1;
     a0 = arenaInit(nullptr, 0, &arena_config_default);
     REQUIRE(a0 != nullptr);
-    narenasTotalSet(narenas_auto);
+    numArenasTotalSet(num_arenas_auto);
     /// The huge arena (index 1) is created before the background threads are enabled.
     if (arenaInitHuge(nullptr, a0))
-        narenasTotalInc();
-    manual_arena_base = narenasTotalGet();
+        numArenasTotalIncrement();
+    manual_arena_base = numArenasTotalGet();
 
-    tsd.state.store(tsd_state_nominal_slow, std::memory_order_relaxed);
+    thread_state.state.store(thread_state_nominal_slow, std::memory_order_relaxed);
 }
 
 }
@@ -218,33 +218,33 @@ TEST(BackgroundThread, SleepInterval)
 TEST(BackgroundThread, Boot)
 {
     bootOnce();
-    CHECK_EQ(opt.max_background_threads, MAX_BACKGROUND_THREAD_LIMIT + 1);
-    REQUIRE(!backgroundThreadBoot1(nullptr, b0get()));
+    CHECK_EQ(options.max_background_threads, MAX_BACKGROUND_THREAD_LIMIT + 1);
+    REQUIRE(!backgroundThreadBoot1(nullptr, base0Get()));
     /// The default 4096 is replaced by 4 (DEFAULT_NUM_BACKGROUND_THREAD).
-    CHECK_EQ(opt.max_background_threads, size_t(4));
+    CHECK_EQ(options.max_background_threads, size_t(4));
     CHECK_EQ(max_background_threads, size_t(4));
     CHECK(backgroundThreadEnabled());
-    CHECK_EQ(n_background_threads, size_t(0));
+    CHECK_EQ(num_background_threads, size_t(0));
     for (unsigned i = 0; i < 4; ++i)
     {
         CHECK(background_thread_info[i].state == BackgroundThreadState::Stopped);
         CHECK(!background_thread_info[i].indefiniteSleep());
         CHECK_EQ(background_thread_info[i].wakeupTimeGet(), uint64_t(0));
-        CHECK_EQ(reinterpret_cast<uintptr_t>(background_thread_info) % CACHELINE, uintptr_t(0));
+        CHECK_EQ(reinterpret_cast<uintptr_t>(background_thread_info) % CACHE_LINE, uintptr_t(0));
     }
     CHECK(backgroundThreadInfoGet(5) == &background_thread_info[1]);
     CHECK(arenaBackgroundThreadInfoGet(a0) == &background_thread_info[0]);
     CHECK(waitFor([] { return countBackgroundThreadTasks() == 0; }));
 
-    /// Thread `ind % 4` serves arena `ind`, but only arena 0 may create thread 0.
-    CHECK(!backgroundThreadCreate(tsd, 4));
-    CHECK_EQ(n_background_threads, size_t(0));
+    /// Thread `idx % 4` serves arena `idx`, but only arena 0 may create thread 0.
+    CHECK(!backgroundThreadCreate(thread_state, 4));
+    CHECK_EQ(num_background_threads, size_t(0));
     CHECK(threadState(0) == BackgroundThreadState::Stopped);
 
     /// As at the end of `malloc_init_hard`.
-    backgroundThreadCtlInit(&tsd);
-    REQUIRE(!backgroundThreadCreate(tsd, 0));
-    CHECK_EQ(n_background_threads, size_t(1));
+    backgroundThreadMallctlInit(&thread_state);
+    REQUIRE(!backgroundThreadCreate(thread_state, 0));
+    CHECK_EQ(num_background_threads, size_t(1));
     CHECK(threadState(0) == BackgroundThreadState::Started);
     /// The first pass does no work, then nothing is pending: an indefinite sleep.
     REQUIRE(waitFor([] { return sleepsIndefinitely(0); }));
@@ -254,8 +254,8 @@ TEST(BackgroundThread, Boot)
     CHECK_EQ(countBackgroundThreadTasks(), size_t(1));
 
     /// Creating it again is a no-op.
-    REQUIRE(!backgroundThreadCreate(tsd, 0));
-    CHECK_EQ(n_background_threads, size_t(1));
+    REQUIRE(!backgroundThreadCreate(thread_state, 0));
+    CHECK_EQ(num_background_threads, size_t(1));
 }
 
 TEST(BackgroundThread, ThreadProperties)
@@ -267,8 +267,8 @@ TEST(BackgroundThread, ThreadProperties)
     CHECK_STREQ(name, "jemalloc_bg_thd");
     /// All signals are blocked (glibc keeps its internal ones unblockable).
     uint64_t blocked = std::stoull(statusField(tasks[0], "SigBlk"), nullptr, 16);
-    for (int sig : {SIGINT, SIGTERM, SIGHUP, SIGUSR1, SIGUSR2, SIGPIPE, SIGALRM, SIGCHLD, SIGPROF})
-        CHECK((blocked >> (sig - 1)) & 1);
+    for (int signal_number : {SIGINT, SIGTERM, SIGHUP, SIGUSR1, SIGUSR2, SIGPIPE, SIGALRM, SIGCHLD, SIGPROF})
+        CHECK((blocked >> (signal_number - 1)) & 1);
     /// With per-CPU arenas thread `i` is pinned to CPU `i` (if it exists).
     if (std::thread::hardware_concurrency() > 0)
         CHECK_EQ(statusField(tasks[0], "Cpus_allowed_list"), std::string("0"));
@@ -280,19 +280,19 @@ TEST(BackgroundThread, AsynchronousCreation)
     std::vector<Arena *> created;
     for (unsigned i = 0; i < 5; ++i)
     {
-        Arena * arena = arenaInit(&tsd, narenasTotalGet(), &arena_config_default);
+        Arena * arena = arenaInit(&thread_state, numArenasTotalGet(), &arena_config_default);
         REQUIRE(arena != nullptr);
         created.push_back(arena);
     }
-    CHECK_EQ(narenasTotalGet(), 7u);
-    CHECK_EQ(n_background_threads, size_t(4));
+    CHECK_EQ(numArenasTotalGet(), 7u);
+    CHECK_EQ(num_background_threads, size_t(4));
     for (unsigned i = 0; i < 4; ++i)
         CHECK(threadState(i) == BackgroundThreadState::Started);
     REQUIRE(waitFor([] { return countBackgroundThreadTasks() == 4; }));
     for (unsigned i = 0; i < 4; ++i)
         REQUIRE(waitFor([i] { return sleepsIndefinitely(i); }));
 
-    unsigned ncpus_online = std::thread::hardware_concurrency();
+    unsigned num_cpus_online = std::thread::hardware_concurrency();
     for (unsigned i = 1; i < 4; ++i)
     {
         char name[32] = {};
@@ -302,12 +302,12 @@ TEST(BackgroundThread, AsynchronousCreation)
     for (const auto & task : backgroundThreadTasks())
     {
         std::string cpus = statusField(task, "Cpus_allowed_list");
-        if (ncpus_online >= 4)
+        if (num_cpus_online >= 4)
             CHECK(cpus == "0" || cpus == "1" || cpus == "2" || cpus == "3");
     }
 
     BackgroundThreadStats stats;
-    REQUIRE(!backgroundThreadStatsRead(&tsd, &stats));
+    REQUIRE(!backgroundThreadStatsRead(&thread_state, &stats));
     CHECK_EQ(stats.num_threads, size_t(4));
     CHECK_GE(stats.num_runs, uint64_t(4));
 }
@@ -315,40 +315,40 @@ TEST(BackgroundThread, AsynchronousCreation)
 TEST(BackgroundThread, WakeupAndPurge)
 {
     /// Arena 5 is served by thread 1 (which also serves the huge arena 1).
-    Arena * arena = arenaGet(&tsd, 5, false);
+    Arena * arena = arenaGet(&thread_state, 5, false);
     REQUIRE(arena != nullptr);
     CHECK(arenaBackgroundThreadInfoGet(arena) == &background_thread_info[1]);
     REQUIRE(waitFor([] { return sleepsIndefinitely(1); }));
     uint64_t runs_before = totalRuns(1);
 
     size_t size = 4 << 20;
-    void * p = arenaMallocHard(&tsd, arena, size, sz::sizeToIndex(size), false, false);
+    void * p = arenaMallocHard(&thread_state, arena, size, size_classes::sizeToIndex(size), false, false);
     REQUIRE(p != nullptr);
     std::memset(p, 1, size);
-    Extent * edata = arena_emap_global.edataLookup(&tsd, p);
-    REQUIRE(edata != nullptr);
-    largeDalloc(&tsd, edata);
-    CHECK_GT(arena->pa_shard.ndirtyGet(), size_t(0));
+    Extent * extent = arena_extent_map_global.extentLookup(&thread_state, p);
+    REQUIRE(extent != nullptr);
+    largeDeallocate(&thread_state, extent);
+    CHECK_GT(arena->page_allocator_shard.numDirtyGet(), size_t(0));
 
     /// The deallocation signals the indefinitely sleeping thread; it reschedules (a finite wakeup) and then purges.
-    REQUIRE(waitFor([&] { return arena->pa_shard.ndirtyGet() == 0; }));
+    REQUIRE(waitFor([&] { return arena->page_allocator_shard.numDirtyGet() == 0; }));
     CHECK_GT(totalRuns(1), runs_before + 1);
     REQUIRE(waitFor([] { return sleepsIndefinitely(1); }));
     {
-        MutexLock lock(&tsd, background_thread_info[1].mtx);
-        CHECK_EQ(background_thread_info[1].npages_to_purge_new, size_t(0));
+        MutexLock lock(&thread_state, background_thread_info[1].mutex);
+        CHECK_EQ(background_thread_info[1].num_pages_to_purge_new, size_t(0));
     }
 
     /// An early wakeup with less than the minimal interval remaining does nothing; otherwise it signals.
-    NsTime remaining = NsTime::fromNs(BACKGROUND_THREAD_MIN_INTERVAL_NS - 1);
+    Nanoseconds remaining = Nanoseconds::fromNanoseconds(BACKGROUND_THREAD_MIN_INTERVAL_NS - 1);
     backgroundThreadWakeupEarly(&background_thread_info[1], &remaining);
-    remaining = NsTime::fromNs(BACKGROUND_THREAD_MIN_INTERVAL_NS);
+    remaining = Nanoseconds::fromNanoseconds(BACKGROUND_THREAD_MIN_INTERVAL_NS);
     uint64_t runs = totalRuns(1);
     backgroundThreadWakeupEarly(&background_thread_info[1], &remaining);
     REQUIRE(waitFor([&] { return totalRuns(1) > runs; }));
 
     BackgroundThreadStats stats;
-    REQUIRE(!backgroundThreadStatsRead(&tsd, &stats));
+    REQUIRE(!backgroundThreadStatsRead(&thread_state, &stats));
     CHECK_EQ(stats.num_threads, size_t(4));
     CHECK_GT(stats.run_interval.ns(), uint64_t(0));
 }
@@ -356,11 +356,11 @@ TEST(BackgroundThread, WakeupAndPurge)
 TEST(BackgroundThread, DisableEnable)
 {
     {
-        MutexLock lock(&tsd, background_thread_lock);
-        backgroundThreadEnabledSet(&tsd, false);
-        REQUIRE(!backgroundThreadsDisable(tsd));
+        MutexLock lock(&thread_state, background_thread_lock);
+        backgroundThreadEnabledSet(&thread_state, false);
+        REQUIRE(!backgroundThreadsDisable(thread_state));
     }
-    CHECK_EQ(n_background_threads, size_t(0));
+    CHECK_EQ(num_background_threads, size_t(0));
     for (unsigned i = 0; i < 4; ++i)
     {
         CHECK(threadState(i) == BackgroundThreadState::Stopped);
@@ -369,18 +369,18 @@ TEST(BackgroundThread, DisableEnable)
     /// Joined.
     CHECK(waitFor([] { return countBackgroundThreadTasks() == 0; }));
     BackgroundThreadStats stats;
-    CHECK(backgroundThreadStatsRead(&tsd, &stats));
+    CHECK(backgroundThreadStatsRead(&thread_state, &stats));
     /// Arena creation does not start threads while disabled.
-    CHECK(!backgroundThreadCreate(tsd, 2));
-    CHECK_EQ(n_background_threads, size_t(0));
+    CHECK(!backgroundThreadCreate(thread_state, 2));
+    CHECK_EQ(num_background_threads, size_t(0));
 
     {
-        MutexLock lock(&tsd, background_thread_lock);
-        backgroundThreadEnabledSet(&tsd, true);
-        REQUIRE(!backgroundThreadsEnable(tsd));
+        MutexLock lock(&thread_state, background_thread_lock);
+        backgroundThreadEnabledSet(&thread_state, true);
+        REQUIRE(!backgroundThreadsEnable(thread_state));
     }
     /// All threads with an existing arena are marked at once.
-    CHECK_EQ(n_background_threads, size_t(4));
+    CHECK_EQ(num_background_threads, size_t(4));
     REQUIRE(waitFor([] { return countBackgroundThreadTasks() == 4; }));
     for (unsigned i = 0; i < 4; ++i)
         REQUIRE(waitFor([i] { return sleepsIndefinitely(i); }));
@@ -392,67 +392,67 @@ TEST(BackgroundThread, Mallctl)
 {
     bool enabled = false;
     size_t len = sizeof(enabled);
-    CHECK_EQ(ctl::backgroundThread(tsd, nullptr, 0, &enabled, &len, nullptr, 0), 0);
+    CHECK_EQ(mallctl::backgroundThread(thread_state, nullptr, 0, &enabled, &len, nullptr, 0), 0);
     CHECK(enabled);
 
     size_t max = 0;
     len = sizeof(max);
-    CHECK_EQ(ctl::maxBackgroundThreads(tsd, nullptr, 0, &max, &len, nullptr, 0), 0);
+    CHECK_EQ(mallctl::maxBackgroundThreads(thread_state, nullptr, 0, &max, &len, nullptr, 0), 0);
     CHECK_EQ(max, size_t(4));
 
     /// Wrong sizes, out-of-range values.
-    size_t newmax = 2;
-    CHECK_EQ(ctl::maxBackgroundThreads(tsd, nullptr, 0, nullptr, nullptr, &newmax, sizeof(unsigned)), EINVAL);
-    newmax = 0;
-    CHECK_EQ(ctl::maxBackgroundThreads(tsd, nullptr, 0, nullptr, nullptr, &newmax, sizeof(newmax)), EINVAL);
-    newmax = 5;
-    CHECK_EQ(ctl::maxBackgroundThreads(tsd, nullptr, 0, nullptr, nullptr, &newmax, sizeof(newmax)), EINVAL);
-    newmax = 4;
-    CHECK_EQ(ctl::maxBackgroundThreads(tsd, nullptr, 0, nullptr, nullptr, &newmax, sizeof(newmax)), 0);
+    size_t new_max = 2;
+    CHECK_EQ(mallctl::maxBackgroundThreads(thread_state, nullptr, 0, nullptr, nullptr, &new_max, sizeof(unsigned)), EINVAL);
+    new_max = 0;
+    CHECK_EQ(mallctl::maxBackgroundThreads(thread_state, nullptr, 0, nullptr, nullptr, &new_max, sizeof(new_max)), EINVAL);
+    new_max = 5;
+    CHECK_EQ(mallctl::maxBackgroundThreads(thread_state, nullptr, 0, nullptr, nullptr, &new_max, sizeof(new_max)), EINVAL);
+    new_max = 4;
+    CHECK_EQ(mallctl::maxBackgroundThreads(thread_state, nullptr, 0, nullptr, nullptr, &new_max, sizeof(new_max)), 0);
     /// A short old buffer: EINVAL without changing anything.
     unsigned short_old = 0;
     len = sizeof(short_old);
-    newmax = 2;
-    CHECK_EQ(ctl::maxBackgroundThreads(tsd, nullptr, 0, &short_old, &len, &newmax, sizeof(newmax)), EINVAL);
+    new_max = 2;
+    CHECK_EQ(mallctl::maxBackgroundThreads(thread_state, nullptr, 0, &short_old, &len, &new_max, sizeof(new_max)), EINVAL);
     CHECK_EQ(max_background_threads, size_t(4));
     bool b = false;
-    CHECK_EQ(ctl::backgroundThread(tsd, nullptr, 0, nullptr, nullptr, &b, sizeof(int)), EINVAL);
+    CHECK_EQ(mallctl::backgroundThread(thread_state, nullptr, 0, nullptr, nullptr, &b, sizeof(int)), EINVAL);
     CHECK(backgroundThreadEnabled());
 
     /// Restart with 2 threads: arena `i` is now served by thread `i % 2`.
     len = sizeof(max);
-    CHECK_EQ(ctl::maxBackgroundThreads(tsd, nullptr, 0, &max, &len, &newmax, sizeof(newmax)), 0);
+    CHECK_EQ(mallctl::maxBackgroundThreads(thread_state, nullptr, 0, &max, &len, &new_max, sizeof(new_max)), 0);
     CHECK_EQ(max, size_t(4));
     CHECK_EQ(max_background_threads, size_t(2));
-    CHECK_EQ(opt.max_background_threads, size_t(4));
-    CHECK_EQ(n_background_threads, size_t(2));
+    CHECK_EQ(options.max_background_threads, size_t(4));
+    CHECK_EQ(num_background_threads, size_t(2));
     REQUIRE(waitFor([] { return countBackgroundThreadTasks() == 2; }));
-    CHECK(arenaBackgroundThreadInfoGet(arenaGet(&tsd, 5, false)) == &background_thread_info[1]);
-    CHECK(arenaBackgroundThreadInfoGet(arenaGet(&tsd, 6, false)) == &background_thread_info[0]);
+    CHECK(arenaBackgroundThreadInfoGet(arenaGet(&thread_state, 5, false)) == &background_thread_info[1]);
+    CHECK(arenaBackgroundThreadInfoGet(arenaGet(&thread_state, 6, false)) == &background_thread_info[0]);
     CHECK(threadState(2) == BackgroundThreadState::Stopped);
 
     /// Stop and join through the mallctl.
     b = false;
     enabled = true;
     len = sizeof(enabled);
-    CHECK_EQ(ctl::backgroundThread(tsd, nullptr, 0, &enabled, &len, &b, sizeof(b)), 0);
+    CHECK_EQ(mallctl::backgroundThread(thread_state, nullptr, 0, &enabled, &len, &b, sizeof(b)), 0);
     CHECK(enabled);
     CHECK(!backgroundThreadEnabled());
-    CHECK_EQ(n_background_threads, size_t(0));
+    CHECK_EQ(num_background_threads, size_t(0));
     CHECK(waitFor([] { return countBackgroundThreadTasks() == 0; }));
     /// Same value: nothing happens.
-    CHECK_EQ(ctl::backgroundThread(tsd, nullptr, 0, nullptr, nullptr, &b, sizeof(b)), 0);
+    CHECK_EQ(mallctl::backgroundThread(thread_state, nullptr, 0, nullptr, nullptr, &b, sizeof(b)), 0);
 
     /// While disabled, `max_background_threads` is just assigned.
-    newmax = 3;
-    CHECK_EQ(ctl::maxBackgroundThreads(tsd, nullptr, 0, nullptr, nullptr, &newmax, sizeof(newmax)), 0);
+    new_max = 3;
+    CHECK_EQ(mallctl::maxBackgroundThreads(thread_state, nullptr, 0, nullptr, nullptr, &new_max, sizeof(new_max)), 0);
     CHECK_EQ(max_background_threads, size_t(3));
-    CHECK_EQ(n_background_threads, size_t(0));
+    CHECK_EQ(num_background_threads, size_t(0));
 
     b = true;
-    CHECK_EQ(ctl::backgroundThread(tsd, nullptr, 0, nullptr, nullptr, &b, sizeof(b)), 0);
+    CHECK_EQ(mallctl::backgroundThread(thread_state, nullptr, 0, nullptr, nullptr, &b, sizeof(b)), 0);
     CHECK(backgroundThreadEnabled());
-    CHECK_EQ(n_background_threads, size_t(3));
+    CHECK_EQ(num_background_threads, size_t(3));
     REQUIRE(waitFor([] { return countBackgroundThreadTasks() == 3; }));
     for (unsigned i = 0; i < 3; ++i)
         REQUIRE(waitFor([i] { return sleepsIndefinitely(i); }));
@@ -460,17 +460,17 @@ TEST(BackgroundThread, Mallctl)
 
 TEST(BackgroundThread, Fork)
 {
-    backgroundThreadPrefork0(&tsd);
-    backgroundThreadPrefork1(&tsd);
+    backgroundThreadPrefork0(&thread_state);
+    backgroundThreadPrefork1(&thread_state);
     pid_t pid = fork();
     REQUIRE(pid >= 0);
     if (pid == 0)
     {
-        backgroundThreadPostforkChild(&tsd);
+        backgroundThreadPostforkChild(&thread_state);
         int code = 0;
         if (backgroundThreadEnabled())
             code |= 1;
-        if (n_background_threads != 0)
+        if (num_background_threads != 0)
             code |= 2;
         for (unsigned i = 0; i < max_background_threads; ++i)
         {
@@ -483,7 +483,7 @@ TEST(BackgroundThread, Fork)
             code |= 8;
         /// The child can start its own threads (the condition variables were re-created).
         bool b = true;
-        if (ctl::backgroundThread(tsd, nullptr, 0, nullptr, nullptr, &b, sizeof(b)) != 0)
+        if (mallctl::backgroundThread(thread_state, nullptr, 0, nullptr, nullptr, &b, sizeof(b)) != 0)
             code |= 16;
         if (!waitFor([] { return countBackgroundThreadTasks() == 3; }))
             code |= 32;
@@ -492,12 +492,12 @@ TEST(BackgroundThread, Fork)
         b = false;
         /// `pthread_join` returns when the kernel clears the thread id, which may happen slightly before the task
         /// disappears from /proc/self/task, so wait for it.
-        if (ctl::backgroundThread(tsd, nullptr, 0, nullptr, nullptr, &b, sizeof(b)) != 0
+        if (mallctl::backgroundThread(thread_state, nullptr, 0, nullptr, nullptr, &b, sizeof(b)) != 0
             || !waitFor([] { return countBackgroundThreadTasks() == 0; }))
             code |= 64;
         _exit(code);
     }
-    backgroundThreadPostforkParent(&tsd);
+    backgroundThreadPostforkParent(&thread_state);
     int status = 0;
     REQUIRE(waitpid(pid, &status, 0) == pid);
     REQUIRE(WIFEXITED(status));
@@ -505,11 +505,11 @@ TEST(BackgroundThread, Fork)
 
     /// The parent still has its threads.
     CHECK(backgroundThreadEnabled());
-    CHECK_EQ(n_background_threads, size_t(3));
+    CHECK_EQ(num_background_threads, size_t(3));
     CHECK_EQ(countBackgroundThreadTasks(), size_t(3));
 
     /// Leave no threads behind.
     bool b = false;
-    CHECK_EQ(ctl::backgroundThread(tsd, nullptr, 0, nullptr, nullptr, &b, sizeof(b)), 0);
+    CHECK_EQ(mallctl::backgroundThread(thread_state, nullptr, 0, nullptr, nullptr, &b, sizeof(b)), 0);
     CHECK(waitFor([] { return countBackgroundThreadTasks() == 0; }));
 }

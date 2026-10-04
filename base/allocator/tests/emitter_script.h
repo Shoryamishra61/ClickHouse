@@ -9,70 +9,70 @@
 #include <stdint.h>
 #include <sys/types.h>
 
-enum EmOpCode
+enum EmitterOpCode
 {
-    EM_BEGIN,
-    EM_END,
-    EM_JSON_KEY,
-    EM_JSON_VALUE,
-    EM_JSON_KV,
-    EM_JSON_ARRAY_BEGIN,
-    EM_JSON_ARRAY_KV_BEGIN,
-    EM_JSON_ARRAY_END,
-    EM_JSON_OBJECT_BEGIN,
-    EM_JSON_OBJECT_KV_BEGIN,
-    EM_JSON_OBJECT_END,
-    EM_TABLE_DICT_BEGIN,
-    EM_TABLE_DICT_END,
-    EM_TABLE_KV_NOTE,
-    EM_TABLE_KV,
-    EM_TABLE_PRINTF,     /* key is the format, no arguments */
-    EM_TABLE_PRINTF_S,   /* key is the format, key2 the argument */
-    EM_TABLE_PRINTF_U64, /* key is the format, v.u64 the argument */
-    EM_KV_NOTE,
-    EM_KV,
-    EM_DICT_BEGIN,
-    EM_DICT_END,
-    EM_ROW_INIT,  /* row */
-    EM_COL_INIT,  /* row, col, justify, width */
-    EM_COL_SET,   /* col, v */
-    EM_TABLE_ROW, /* row */
+    EMITTER_BEGIN,
+    EMITTER_END,
+    EMITTER_JSON_KEY,
+    EMITTER_JSON_VALUE,
+    EMITTER_JSON_KEY_VALUE,
+    EMITTER_JSON_ARRAY_BEGIN,
+    EMITTER_JSON_ARRAY_KEY_VALUE_BEGIN,
+    EMITTER_JSON_ARRAY_END,
+    EMITTER_JSON_OBJECT_BEGIN,
+    EMITTER_JSON_OBJECT_KEY_VALUE_BEGIN,
+    EMITTER_JSON_OBJECT_END,
+    EMITTER_TABLE_DICT_BEGIN,
+    EMITTER_TABLE_DICT_END,
+    EMITTER_TABLE_KEY_VALUE_NOTE,
+    EMITTER_TABLE_KEY_VALUE,
+    EMITTER_TABLE_PRINTF, /* key is the format, no arguments */
+    EMITTER_TABLE_PRINTF_S, /* key is the format, key2 the argument */
+    EMITTER_TABLE_PRINTF_U64, /* key is the format, v.u64 the argument */
+    EMITTER_KEY_VALUE_NOTE,
+    EMITTER_KEY_VALUE,
+    EMITTER_DICT_BEGIN,
+    EMITTER_DICT_END,
+    EMITTER_ROW_INIT, /* row */
+    EMITTER_COLUMN_INIT, /* row, col, justify, width */
+    EMITTER_COLUMN_SET, /* col, v */
+    EMITTER_TABLE_ROW, /* row */
 };
 
 /* Value types (emitter_type_t). */
 enum
 {
-    EM_T_BOOL,
-    EM_T_INT,
-    EM_T_INT64,
-    EM_T_UNSIGNED,
-    EM_T_UINT32,
-    EM_T_UINT64,
-    EM_T_SIZE,
-    EM_T_SSIZE,
-    EM_T_STRING,
-    EM_T_TITLE,
+    EMITTER_TYPE_BOOL,
+    EMITTER_TYPE_INT,
+    EMITTER_TYPE_INT64,
+    EMITTER_TYPE_UNSIGNED,
+    EMITTER_TYPE_UINT32,
+    EMITTER_TYPE_UINT64,
+    EMITTER_TYPE_SIZE,
+    EMITTER_TYPE_SSIZE,
+    EMITTER_TYPE_STRING,
+    EMITTER_TYPE_TITLE,
 };
 
 /* Justification (emitter_justify_t). */
 enum
 {
-    EM_J_LEFT,
-    EM_J_RIGHT,
+    EMITTER_JUSTIFY_LEFT,
+    EMITTER_JUSTIFY_RIGHT,
 };
 
 /* Output modes (emitter_output_t). */
 enum
 {
-    EM_OUT_JSON,
-    EM_OUT_JSON_COMPACT,
-    EM_OUT_TABLE,
+    EMITTER_OUTPUT_JSON,
+    EMITTER_OUTPUT_JSON_COMPACT,
+    EMITTER_OUTPUT_TABLE,
 };
 
-#define EM_MAX_ROWS 8
-#define EM_MAX_COLS 64
+#define EMITTER_MAX_ROWS 8
+#define EMITTER_MAX_COLUMNS 64
 
-struct EmValue
+struct EmitterValue
 {
     int type;
     union
@@ -86,150 +86,337 @@ struct EmValue
         size_t zu;
         ssize_t zd;
         const char * s;
-    } val;
+    } value;
 };
 
-struct EmOp
+struct EmitterOp
 {
     int op;
     const char * key;
     const char * key2;
-    struct EmValue v;
+    struct EmitterValue v;
     const char * note_key;
-    struct EmValue note;
+    struct EmitterValue note;
     int row;
-    int col;
+    int column;
     int justify;
     int width;
 };
 
-typedef void em_write_cb_t(void * opaque, const char * s);
+typedef void EmitterWriteCallback(void * opaque, const char * s);
 
 #ifdef __cplusplus
-extern "C"
-{
+extern "C" {
 #endif
 
-void ref_emitter_run(int output, const struct EmOp * ops, size_t nops, em_write_cb_t * write_cb, void * opaque);
+void ref_emitter_run(int output, const struct EmitterOp * ops, size_t num_ops, EmitterWriteCallback * write_callback, void * opaque);
 
 #ifdef __cplusplus
 }
 
-#    include <allocator/Emitter.h>
+#include <allocator/Emitter.h>
 
-#    include <cstring>
+#include <cstring>
 
 /// The same interpreter for the C++ `Emitter`.
-inline void newEmitterRun(int output, const EmOp * ops, size_t nops, em_write_cb_t * write_cb, void * opaque)
+inline void newEmitterRun(int output, const EmitterOp * ops, size_t num_ops, EmitterWriteCallback * write_callback, void * opaque)
 {
     using namespace jemalloc;
-    Emitter emitter(static_cast<EmitterOutput>(output), write_cb, opaque);
-    EmitterRow rows[EM_MAX_ROWS];
-    EmitterCol cols[EM_MAX_COLS];
-    auto type = [](const EmValue & v) { return static_cast<EmitterType>(v.type); };
+    Emitter emitter(static_cast<EmitterOutput>(output), write_callback, opaque);
+    EmitterRow rows[EMITTER_MAX_ROWS];
+    EmitterColumn columns[EMITTER_MAX_COLUMNS];
+    auto type = [](const EmitterValue & v) { return static_cast<EmitterType>(v.type); };
 
-    for (size_t i = 0; i < nops; ++i)
+    for (size_t i = 0; i < num_ops; ++i)
     {
-        const EmOp & op = ops[i];
+        const EmitterOp & op = ops[i];
         switch (op.op)
         {
-            case EM_BEGIN: emitter.begin(); break;
-            case EM_END: emitter.end(); break;
-            case EM_JSON_KEY: emitter.jsonKey(op.key); break;
-            case EM_JSON_VALUE: emitter.jsonValue(type(op.v), &op.v.val); break;
-            case EM_JSON_KV: emitter.jsonKv(op.key, type(op.v), &op.v.val); break;
-            case EM_JSON_ARRAY_BEGIN: emitter.jsonArrayBegin(); break;
-            case EM_JSON_ARRAY_KV_BEGIN: emitter.jsonArrayKvBegin(op.key); break;
-            case EM_JSON_ARRAY_END: emitter.jsonArrayEnd(); break;
-            case EM_JSON_OBJECT_BEGIN: emitter.jsonObjectBegin(); break;
-            case EM_JSON_OBJECT_KV_BEGIN: emitter.jsonObjectKvBegin(op.key); break;
-            case EM_JSON_OBJECT_END: emitter.jsonObjectEnd(); break;
-            case EM_TABLE_DICT_BEGIN: emitter.tableDictBegin(op.key); break;
-            case EM_TABLE_DICT_END: emitter.tableDictEnd(); break;
-            case EM_TABLE_KV_NOTE:
-                emitter.tableKvNote(op.key, type(op.v), &op.v.val, op.note_key, type(op.note), &op.note.val);
+            case EMITTER_BEGIN: emitter.begin(); break;
+            case EMITTER_END: emitter.end(); break;
+            case EMITTER_JSON_KEY: emitter.jsonKey(op.key); break;
+            case EMITTER_JSON_VALUE: emitter.jsonValue(type(op.v), &op.v.value); break;
+            case EMITTER_JSON_KEY_VALUE: emitter.jsonKeyValue(op.key, type(op.v), &op.v.value); break;
+            case EMITTER_JSON_ARRAY_BEGIN: emitter.jsonArrayBegin(); break;
+            case EMITTER_JSON_ARRAY_KEY_VALUE_BEGIN: emitter.jsonArrayKeyValueBegin(op.key); break;
+            case EMITTER_JSON_ARRAY_END: emitter.jsonArrayEnd(); break;
+            case EMITTER_JSON_OBJECT_BEGIN: emitter.jsonObjectBegin(); break;
+            case EMITTER_JSON_OBJECT_KEY_VALUE_BEGIN: emitter.jsonObjectKeyValueBegin(op.key); break;
+            case EMITTER_JSON_OBJECT_END: emitter.jsonObjectEnd(); break;
+            case EMITTER_TABLE_DICT_BEGIN: emitter.tableDictBegin(op.key); break;
+            case EMITTER_TABLE_DICT_END: emitter.tableDictEnd(); break;
+            case EMITTER_TABLE_KEY_VALUE_NOTE:
+                emitter.tableKeyValueNote(op.key, type(op.v), &op.v.value, op.note_key, type(op.note), &op.note.value);
                 break;
-            case EM_TABLE_KV: emitter.tableKv(op.key, type(op.v), &op.v.val); break;
-#    pragma clang diagnostic push
-#    pragma clang diagnostic ignored "-Wformat-nonliteral"
-#    pragma clang diagnostic ignored "-Wformat-security"
-            case EM_TABLE_PRINTF: emitter.tablePrintf(op.key); break;
-            case EM_TABLE_PRINTF_S: emitter.tablePrintf(op.key, op.key2); break;
-            case EM_TABLE_PRINTF_U64: emitter.tablePrintf(op.key, op.v.val.u64); break;
-#    pragma clang diagnostic pop
-            case EM_KV_NOTE:
-                emitter.kvNote(op.key, op.key2, type(op.v), &op.v.val, op.note_key, type(op.note), &op.note.val);
+            case EMITTER_TABLE_KEY_VALUE: emitter.tableKeyValue(op.key, type(op.v), &op.v.value); break;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wformat-nonliteral"
+#pragma clang diagnostic ignored "-Wformat-security"
+            case EMITTER_TABLE_PRINTF: emitter.tablePrintf(op.key); break;
+            case EMITTER_TABLE_PRINTF_S: emitter.tablePrintf(op.key, op.key2); break;
+            case EMITTER_TABLE_PRINTF_U64: emitter.tablePrintf(op.key, op.v.value.u64); break;
+#pragma clang diagnostic pop
+            case EMITTER_KEY_VALUE_NOTE:
+                emitter.keyValueNote(op.key, op.key2, type(op.v), &op.v.value, op.note_key, type(op.note), &op.note.value);
                 break;
-            case EM_KV: emitter.kv(op.key, op.key2, type(op.v), &op.v.val); break;
-            case EM_DICT_BEGIN: emitter.dictBegin(op.key, op.key2); break;
-            case EM_DICT_END: emitter.dictEnd(); break;
-            case EM_ROW_INIT: rows[op.row].init(); break;
-            case EM_COL_INIT:
-                cols[op.col].justify = static_cast<EmitterJustify>(op.justify);
-                cols[op.col].width = op.width;
-                cols[op.col].init(rows[op.row]);
+            case EMITTER_KEY_VALUE: emitter.keyValue(op.key, op.key2, type(op.v), &op.v.value); break;
+            case EMITTER_DICT_BEGIN: emitter.dictBegin(op.key, op.key2); break;
+            case EMITTER_DICT_END: emitter.dictEnd(); break;
+            case EMITTER_ROW_INIT: rows[op.row].init(); break;
+            case EMITTER_COLUMN_INIT:
+                columns[op.column].justify = static_cast<EmitterJustify>(op.justify);
+                columns[op.column].width = op.width;
+                columns[op.column].init(rows[op.row]);
                 break;
-            case EM_COL_SET:
-                cols[op.col].type = type(op.v);
-                std::memcpy(&cols[op.col].bool_val, &op.v.val, sizeof(op.v.val));
+            case EMITTER_COLUMN_SET:
+                columns[op.column].type = type(op.v);
+                std::memcpy(&columns[op.column].bool_value, &op.v.value, sizeof(op.v.value));
                 break;
-            case EM_TABLE_ROW: emitter.tableRow(rows[op.row]); break;
+            case EMITTER_TABLE_ROW: emitter.tableRow(rows[op.row]); break;
             default: break;
         }
     }
 }
 
 /// Builders for scripts.
-namespace em
+namespace emitter
 {
 
-inline EmValue vBool(bool x) { EmValue v{}; v.type = EM_T_BOOL; v.val.b = x; return v; }
-inline EmValue vInt(int x) { EmValue v{}; v.type = EM_T_INT; v.val.i = x; return v; }
-inline EmValue vInt64(int64_t x) { EmValue v{}; v.type = EM_T_INT64; v.val.i64 = x; return v; }
-inline EmValue vUnsigned(unsigned x) { EmValue v{}; v.type = EM_T_UNSIGNED; v.val.u = x; return v; }
-inline EmValue vUint32(uint32_t x) { EmValue v{}; v.type = EM_T_UINT32; v.val.u32 = x; return v; }
-inline EmValue vUint64(uint64_t x) { EmValue v{}; v.type = EM_T_UINT64; v.val.u64 = x; return v; }
-inline EmValue vSize(size_t x) { EmValue v{}; v.type = EM_T_SIZE; v.val.zu = x; return v; }
-inline EmValue vSsize(ssize_t x) { EmValue v{}; v.type = EM_T_SSIZE; v.val.zd = x; return v; }
-inline EmValue vString(const char * x) { EmValue v{}; v.type = EM_T_STRING; v.val.s = x; return v; }
-inline EmValue vTitle(const char * x) { EmValue v{}; v.type = EM_T_TITLE; v.val.s = x; return v; }
+inline EmitterValue boolValue(bool x)
+{
+    EmitterValue v{};
+    v.type = EMITTER_TYPE_BOOL;
+    v.value.b = x;
+    return v;
+}
+inline EmitterValue intValue(int x)
+{
+    EmitterValue v{};
+    v.type = EMITTER_TYPE_INT;
+    v.value.i = x;
+    return v;
+}
+inline EmitterValue int64Value(int64_t x)
+{
+    EmitterValue v{};
+    v.type = EMITTER_TYPE_INT64;
+    v.value.i64 = x;
+    return v;
+}
+inline EmitterValue unsignedValue(unsigned x)
+{
+    EmitterValue v{};
+    v.type = EMITTER_TYPE_UNSIGNED;
+    v.value.u = x;
+    return v;
+}
+inline EmitterValue uint32Value(uint32_t x)
+{
+    EmitterValue v{};
+    v.type = EMITTER_TYPE_UINT32;
+    v.value.u32 = x;
+    return v;
+}
+inline EmitterValue uint64Value(uint64_t x)
+{
+    EmitterValue v{};
+    v.type = EMITTER_TYPE_UINT64;
+    v.value.u64 = x;
+    return v;
+}
+inline EmitterValue sizeValue(size_t x)
+{
+    EmitterValue v{};
+    v.type = EMITTER_TYPE_SIZE;
+    v.value.zu = x;
+    return v;
+}
+inline EmitterValue ssizeValue(ssize_t x)
+{
+    EmitterValue v{};
+    v.type = EMITTER_TYPE_SSIZE;
+    v.value.zd = x;
+    return v;
+}
+inline EmitterValue stringValue(const char * x)
+{
+    EmitterValue v{};
+    v.type = EMITTER_TYPE_STRING;
+    v.value.s = x;
+    return v;
+}
+inline EmitterValue titleValue(const char * x)
+{
+    EmitterValue v{};
+    v.type = EMITTER_TYPE_TITLE;
+    v.value.s = x;
+    return v;
+}
 
-inline EmOp op(int code) { EmOp o{}; o.op = code; return o; }
-inline EmOp begin() { return op(EM_BEGIN); }
-inline EmOp end() { return op(EM_END); }
-inline EmOp jsonKey(const char * k) { EmOp o = op(EM_JSON_KEY); o.key = k; return o; }
-inline EmOp jsonValue(EmValue v) { EmOp o = op(EM_JSON_VALUE); o.v = v; return o; }
-inline EmOp jsonKv(const char * k, EmValue v) { EmOp o = op(EM_JSON_KV); o.key = k; o.v = v; return o; }
-inline EmOp jsonArrayBegin() { return op(EM_JSON_ARRAY_BEGIN); }
-inline EmOp jsonArrayKvBegin(const char * k) { EmOp o = op(EM_JSON_ARRAY_KV_BEGIN); o.key = k; return o; }
-inline EmOp jsonArrayEnd() { return op(EM_JSON_ARRAY_END); }
-inline EmOp jsonObjectBegin() { return op(EM_JSON_OBJECT_BEGIN); }
-inline EmOp jsonObjectKvBegin(const char * k) { EmOp o = op(EM_JSON_OBJECT_KV_BEGIN); o.key = k; return o; }
-inline EmOp jsonObjectEnd() { return op(EM_JSON_OBJECT_END); }
-inline EmOp tableDictBegin(const char * k) { EmOp o = op(EM_TABLE_DICT_BEGIN); o.key = k; return o; }
-inline EmOp tableDictEnd() { return op(EM_TABLE_DICT_END); }
-inline EmOp tableKvNote(const char * k, EmValue v, const char * nk, EmValue nv)
+inline EmitterOp op(int code)
 {
-    EmOp o = op(EM_TABLE_KV_NOTE); o.key = k; o.v = v; o.note_key = nk; o.note = nv; return o;
+    EmitterOp o{};
+    o.op = code;
+    return o;
 }
-inline EmOp tableKv(const char * k, EmValue v) { EmOp o = op(EM_TABLE_KV); o.key = k; o.v = v; return o; }
-inline EmOp tablePrintf(const char * fmt) { EmOp o = op(EM_TABLE_PRINTF); o.key = fmt; return o; }
-inline EmOp tablePrintfS(const char * fmt, const char * s) { EmOp o = op(EM_TABLE_PRINTF_S); o.key = fmt; o.key2 = s; return o; }
-inline EmOp tablePrintfU64(const char * fmt, uint64_t x) { EmOp o = op(EM_TABLE_PRINTF_U64); o.key = fmt; o.v = vUint64(x); return o; }
-inline EmOp kvNote(const char * jk, const char * tk, EmValue v, const char * nk, EmValue nv)
+inline EmitterOp begin()
 {
-    EmOp o = op(EM_KV_NOTE); o.key = jk; o.key2 = tk; o.v = v; o.note_key = nk; o.note = nv; return o;
+    return op(EMITTER_BEGIN);
 }
-inline EmOp kv(const char * jk, const char * tk, EmValue v) { EmOp o = op(EM_KV); o.key = jk; o.key2 = tk; o.v = v; return o; }
-inline EmOp dictBegin(const char * jk, const char * th) { EmOp o = op(EM_DICT_BEGIN); o.key = jk; o.key2 = th; return o; }
-inline EmOp dictEnd() { return op(EM_DICT_END); }
-inline EmOp rowInit(int row) { EmOp o = op(EM_ROW_INIT); o.row = row; return o; }
-inline EmOp colInit(int row, int col, int justify, int width)
+inline EmitterOp end()
 {
-    EmOp o = op(EM_COL_INIT); o.row = row; o.col = col; o.justify = justify; o.width = width; return o;
+    return op(EMITTER_END);
 }
-inline EmOp colSet(int col, EmValue v) { EmOp o = op(EM_COL_SET); o.col = col; o.v = v; return o; }
-inline EmOp tableRow(int row) { EmOp o = op(EM_TABLE_ROW); o.row = row; return o; }
+inline EmitterOp jsonKey(const char * k)
+{
+    EmitterOp o = op(EMITTER_JSON_KEY);
+    o.key = k;
+    return o;
+}
+inline EmitterOp jsonValue(EmitterValue v)
+{
+    EmitterOp o = op(EMITTER_JSON_VALUE);
+    o.v = v;
+    return o;
+}
+inline EmitterOp jsonKeyValue(const char * k, EmitterValue v)
+{
+    EmitterOp o = op(EMITTER_JSON_KEY_VALUE);
+    o.key = k;
+    o.v = v;
+    return o;
+}
+inline EmitterOp jsonArrayBegin()
+{
+    return op(EMITTER_JSON_ARRAY_BEGIN);
+}
+inline EmitterOp jsonArrayKeyValueBegin(const char * k)
+{
+    EmitterOp o = op(EMITTER_JSON_ARRAY_KEY_VALUE_BEGIN);
+    o.key = k;
+    return o;
+}
+inline EmitterOp jsonArrayEnd()
+{
+    return op(EMITTER_JSON_ARRAY_END);
+}
+inline EmitterOp jsonObjectBegin()
+{
+    return op(EMITTER_JSON_OBJECT_BEGIN);
+}
+inline EmitterOp jsonObjectKeyValueBegin(const char * k)
+{
+    EmitterOp o = op(EMITTER_JSON_OBJECT_KEY_VALUE_BEGIN);
+    o.key = k;
+    return o;
+}
+inline EmitterOp jsonObjectEnd()
+{
+    return op(EMITTER_JSON_OBJECT_END);
+}
+inline EmitterOp tableDictBegin(const char * k)
+{
+    EmitterOp o = op(EMITTER_TABLE_DICT_BEGIN);
+    o.key = k;
+    return o;
+}
+inline EmitterOp tableDictEnd()
+{
+    return op(EMITTER_TABLE_DICT_END);
+}
+inline EmitterOp tableKeyValueNote(const char * k, EmitterValue v, const char * note_key, EmitterValue note_value)
+{
+    EmitterOp o = op(EMITTER_TABLE_KEY_VALUE_NOTE);
+    o.key = k;
+    o.v = v;
+    o.note_key = note_key;
+    o.note = note_value;
+    return o;
+}
+inline EmitterOp tableKeyValue(const char * k, EmitterValue v)
+{
+    EmitterOp o = op(EMITTER_TABLE_KEY_VALUE);
+    o.key = k;
+    o.v = v;
+    return o;
+}
+inline EmitterOp tablePrintf(const char * format_string)
+{
+    EmitterOp o = op(EMITTER_TABLE_PRINTF);
+    o.key = format_string;
+    return o;
+}
+inline EmitterOp tablePrintfS(const char * format_string, const char * s)
+{
+    EmitterOp o = op(EMITTER_TABLE_PRINTF_S);
+    o.key = format_string;
+    o.key2 = s;
+    return o;
+}
+inline EmitterOp tablePrintfU64(const char * format_string, uint64_t x)
+{
+    EmitterOp o = op(EMITTER_TABLE_PRINTF_U64);
+    o.key = format_string;
+    o.v = uint64Value(x);
+    return o;
+}
+inline EmitterOp keyValueNote(const char * json_key, const char * table_key, EmitterValue v, const char * note_key, EmitterValue note_value)
+{
+    EmitterOp o = op(EMITTER_KEY_VALUE_NOTE);
+    o.key = json_key;
+    o.key2 = table_key;
+    o.v = v;
+    o.note_key = note_key;
+    o.note = note_value;
+    return o;
+}
+inline EmitterOp keyValue(const char * json_key, const char * table_key, EmitterValue v)
+{
+    EmitterOp o = op(EMITTER_KEY_VALUE);
+    o.key = json_key;
+    o.key2 = table_key;
+    o.v = v;
+    return o;
+}
+inline EmitterOp dictBegin(const char * json_key, const char * table_header)
+{
+    EmitterOp o = op(EMITTER_DICT_BEGIN);
+    o.key = json_key;
+    o.key2 = table_header;
+    return o;
+}
+inline EmitterOp dictEnd()
+{
+    return op(EMITTER_DICT_END);
+}
+inline EmitterOp rowInit(int row)
+{
+    EmitterOp o = op(EMITTER_ROW_INIT);
+    o.row = row;
+    return o;
+}
+inline EmitterOp columnInit(int row, int column, int justify, int width)
+{
+    EmitterOp o = op(EMITTER_COLUMN_INIT);
+    o.row = row;
+    o.column = column;
+    o.justify = justify;
+    o.width = width;
+    return o;
+}
+inline EmitterOp columnSet(int column, EmitterValue v)
+{
+    EmitterOp o = op(EMITTER_COLUMN_SET);
+    o.column = column;
+    o.v = v;
+    return o;
+}
+inline EmitterOp tableRow(int row)
+{
+    EmitterOp o = op(EMITTER_TABLE_ROW);
+    o.row = row;
+    return o;
+}
 
 /// The scripts of jemalloc's test/unit/emitter.c.
 inline const char * const long_str = "abcdefghijklmnopqrstuvwxyz "
@@ -243,106 +430,106 @@ inline const char * const long_str = "abcdefghijklmnopqrstuvwxyz "
                                      "abcdefghijklmnopqrstuvwxyz "
                                      "abcdefghijklmnopqrstuvwxyz";
 
-inline const EmOp script_dict[] = {
+inline const EmitterOp script_dict[] = {
     begin(),
     dictBegin("foo", "This is the foo table:"),
-    kv("abc", "ABC", vBool(false)),
-    kv("def", "DEF", vBool(true)),
-    kvNote("ghi", "GHI", vInt(123), "note_key1", vString("a string")),
-    kvNote("jkl", "JKL", vString("a string"), "note_key2", vBool(false)),
+    keyValue("abc", "ABC", boolValue(false)),
+    keyValue("def", "DEF", boolValue(true)),
+    keyValueNote("ghi", "GHI", intValue(123), "note_key1", stringValue("a string")),
+    keyValueNote("jkl", "JKL", stringValue("a string"), "note_key2", boolValue(false)),
     dictEnd(),
     end(),
 };
 
-inline const EmOp script_table_printf[] = {
+inline const EmitterOp script_table_printf[] = {
     begin(),
     tablePrintf("Table note 1\n"),
     tablePrintfS("Table note 2 %s\n", "with format string"),
     end(),
 };
 
-inline const EmOp script_nested_dict[] = {
+inline const EmitterOp script_nested_dict[] = {
     begin(),
     dictBegin("json1", "Dict 1"),
     dictBegin("json2", "Dict 2"),
-    kv("primitive", "A primitive", vInt(123)),
+    keyValue("primitive", "A primitive", intValue(123)),
     dictEnd(),
     dictBegin("json3", "Dict 3"),
     dictEnd(),
     dictEnd(),
     dictBegin("json4", "Dict 4"),
-    kv("primitive", "Another primitive", vInt(123)),
+    keyValue("primitive", "Another primitive", intValue(123)),
     dictEnd(),
     end(),
 };
 
-inline const EmOp script_types[] = {
+inline const EmitterOp script_types[] = {
     begin(),
-    kv("k1", "K1", vBool(false)),
-    kv("k2", "K2", vInt(-123)),
-    kv("k3", "K3", vUnsigned(123)),
-    kv("k4", "K4", vSsize(-456)),
-    kv("k5", "K5", vSize(456)),
-    kv("k6", "K6", vString("string")),
-    kv("k7", "K7", vString(long_str)),
-    kv("k8", "K8", vUint32(789)),
-    kv("k9", "K9", vUint64(10000000000ULL)),
+    keyValue("k1", "K1", boolValue(false)),
+    keyValue("k2", "K2", intValue(-123)),
+    keyValue("k3", "K3", unsignedValue(123)),
+    keyValue("k4", "K4", ssizeValue(-456)),
+    keyValue("k5", "K5", sizeValue(456)),
+    keyValue("k6", "K6", stringValue("string")),
+    keyValue("k7", "K7", stringValue(long_str)),
+    keyValue("k8", "K8", uint32Value(789)),
+    keyValue("k9", "K9", uint64Value(10000000000ULL)),
     end(),
 };
 
-inline const EmOp script_modal[] = {
+inline const EmitterOp script_modal[] = {
     begin(),
     dictBegin("j0", "T0"),
     jsonKey("j1"),
     jsonObjectBegin(),
-    kv("i1", "I1", vInt(123)),
-    jsonKv("i2", vInt(123)),
-    tableKv("I3", vInt(123)),
+    keyValue("i1", "I1", intValue(123)),
+    jsonKeyValue("i2", intValue(123)),
+    tableKeyValue("I3", intValue(123)),
     tableDictBegin("T1"),
-    kv("i4", "I4", vInt(123)),
+    keyValue("i4", "I4", intValue(123)),
     jsonObjectEnd(),
-    kv("i5", "I5", vInt(123)),
+    keyValue("i5", "I5", intValue(123)),
     tableDictEnd(),
-    kv("i6", "I6", vInt(123)),
+    keyValue("i6", "I6", intValue(123)),
     dictEnd(),
     end(),
 };
 
-inline const EmOp script_json_array[] = {
+inline const EmitterOp script_json_array[] = {
     begin(),
     jsonKey("dict"),
     jsonObjectBegin(),
     jsonKey("arr"),
     jsonArrayBegin(),
     jsonObjectBegin(),
-    jsonKv("foo", vInt(123)),
+    jsonKeyValue("foo", intValue(123)),
     jsonObjectEnd(),
-    jsonValue(vInt(123)),
-    jsonValue(vInt(123)),
+    jsonValue(intValue(123)),
+    jsonValue(intValue(123)),
     jsonObjectBegin(),
-    jsonKv("bar", vInt(123)),
-    jsonKv("baz", vInt(123)),
+    jsonKeyValue("bar", intValue(123)),
+    jsonKeyValue("baz", intValue(123)),
     jsonObjectEnd(),
     jsonArrayEnd(),
     jsonObjectEnd(),
     end(),
 };
 
-inline const EmOp script_json_nested_array[] = {
+inline const EmitterOp script_json_nested_array[] = {
     begin(),
     jsonArrayBegin(),
     jsonArrayBegin(),
-    jsonValue(vInt(123)),
-    jsonValue(vString("foo")),
-    jsonValue(vInt(123)),
-    jsonValue(vString("foo")),
+    jsonValue(intValue(123)),
+    jsonValue(stringValue("foo")),
+    jsonValue(intValue(123)),
+    jsonValue(stringValue("foo")),
     jsonArrayEnd(),
     jsonArrayBegin(),
-    jsonValue(vInt(123)),
+    jsonValue(intValue(123)),
     jsonArrayEnd(),
     jsonArrayBegin(),
-    jsonValue(vString("foo")),
-    jsonValue(vInt(123)),
+    jsonValue(stringValue("foo")),
+    jsonValue(intValue(123)),
     jsonArrayEnd(),
     jsonArrayBegin(),
     jsonArrayEnd(),
@@ -350,27 +537,27 @@ inline const EmOp script_json_nested_array[] = {
     end(),
 };
 
-inline const EmOp script_table_row[] = {
+inline const EmitterOp script_table_row[] = {
     begin(),
     rowInit(0),
-    colSet(0, vTitle("ABC title")),
-    colSet(1, vTitle("DEF title")),
-    colSet(2, vTitle("GHI")),
-    colInit(0, 0, EM_J_LEFT, 10),
-    colInit(0, 1, EM_J_RIGHT, 15),
-    colInit(0, 2, EM_J_RIGHT, 5),
+    columnSet(0, titleValue("ABC title")),
+    columnSet(1, titleValue("DEF title")),
+    columnSet(2, titleValue("GHI")),
+    columnInit(0, 0, EMITTER_JUSTIFY_LEFT, 10),
+    columnInit(0, 1, EMITTER_JUSTIFY_RIGHT, 15),
+    columnInit(0, 2, EMITTER_JUSTIFY_RIGHT, 5),
     tableRow(0),
-    colSet(0, vInt(123)),
-    colSet(1, vBool(true)),
-    colSet(2, vInt(456)),
+    columnSet(0, intValue(123)),
+    columnSet(1, boolValue(true)),
+    columnSet(2, intValue(456)),
     tableRow(0),
-    colSet(0, vInt(789)),
-    colSet(1, vBool(false)),
-    colSet(2, vInt(1011)),
+    columnSet(0, intValue(789)),
+    columnSet(1, boolValue(false)),
+    columnSet(2, intValue(1011)),
     tableRow(0),
-    colSet(0, vString("a string")),
-    colSet(1, vBool(false)),
-    colSet(2, vTitle("ghi")),
+    columnSet(0, stringValue("a string")),
+    columnSet(1, boolValue(false)),
+    columnSet(2, titleValue("ghi")),
     tableRow(0),
     end(),
 };

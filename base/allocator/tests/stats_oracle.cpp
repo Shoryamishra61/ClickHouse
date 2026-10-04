@@ -4,21 +4,20 @@
 /// different histories), so numbers are masked; the exact values are checked by the differential driver
 /// (tests/diff, section `stats_print`).
 
-#include <allocator/Ctl.h>
 #include <allocator/Frontend.h>
+#include <allocator/Mallctl.h>
 #include <allocator/Stats.h>
 #include <allocator/ThreadState.h>
 
 #include "Test.h"
 
 #include <cerrno>
-#include <sched.h>
 #include <string>
 #include <vector>
+#include <sched.h>
 
-extern "C"
-{
-void je_malloc_stats_print(void (*write_cb)(void *, const char *), void * cbopaque, const char * opts);
+extern "C" {
+void je_malloc_stats_print(void (*write_callback)(void *, const char *), void * callback_argument, const char * options_string);
 
 /// The reference pulls in the libunwind-based profiler backtrace, which is never called here.
 int unw_backtrace(void **, int)
@@ -115,14 +114,15 @@ std::vector<std::string> normalizeJSON(const std::string & text)
     return tokens;
 }
 
-void compareLines(const std::vector<std::string> & ref, const std::vector<std::string> & ours, const char * opts)
+void compareLines(const std::vector<std::string> & ref, const std::vector<std::string> & ours, const char * options_string)
 {
     size_t n = std::min(ref.size(), ours.size());
     for (size_t i = 0; i < n; ++i)
     {
         if (ref[i] != ours[i])
         {
-            std::fprintf(stderr, "opts \"%s\": difference at item %zu:\n  ref: %s\n  new: %s\n", opts, i, ref[i].c_str(), ours[i].c_str());
+            std::fprintf(
+                stderr, "opts \"%s\": difference at item %zu:\n  ref: %s\n  new: %s\n", options_string, i, ref[i].c_str(), ours[i].c_str());
             CHECK(false);
             return;
         }
@@ -130,24 +130,24 @@ void compareLines(const std::vector<std::string> & ref, const std::vector<std::s
     CHECK_EQ(ref.size(), ours.size());
 }
 
-void compareOutputs(const char * opts)
+void compareOutputs(const char * options_string)
 {
     std::string ref;
-    je_malloc_stats_print(&appendCallback, &ref, opts);
+    je_malloc_stats_print(&appendCallback, &ref, options_string);
     std::string ours;
-    jemalloc::statsPrint(&appendCallback, &ours, opts);
+    jemalloc::statsPrint(&appendCallback, &ours, options_string);
 
     CHECK(!ref.empty());
-    bool json = std::string(opts).find('J') != std::string::npos;
+    bool json = std::string(options_string).find('J') != std::string::npos;
     if (json)
     {
         CHECK(ours.back() == '}');
-        compareLines(normalizeJSON(ref), normalizeJSON(ours), opts);
+        compareLines(normalizeJSON(ref), normalizeJSON(ours), options_string);
     }
     else
     {
         CHECK(ours.ends_with("--- End jemalloc statistics ---\n"));
-        compareLines(normalizeTable(ref), normalizeTable(ours), opts);
+        compareLines(normalizeTable(ref), normalizeTable(ours), options_string);
     }
 }
 
@@ -159,7 +159,7 @@ bool generalLeavesAvailable()
     {
         bool value[8];
         size_t size = sizeof(value);
-        if (jemalloc::ctlByName(jemalloc::ThreadState::fetch(), name, value, &size, nullptr, 0) == ENOENT)
+        if (jemalloc::mallctlByName(jemalloc::ThreadState::fetch(), name, value, &size, nullptr, 0) == ENOENT)
         {
             std::fprintf(stderr, "SKIPPED the general section: the leaf %s does not exist yet\n", name);
             return false;
@@ -187,18 +187,34 @@ TEST(StatsOracle, Structure)
 
     /// Every flag separately and some combinations, in both output modes.
     static const char * const options[] = {
-        "", "g", "m", "d", "a", "b", "l", "x", "e", "h", "gbla", "gmdablxeh", "gmdablxehq", "ga", "gm", "gxbleh", "bbb",
+        "",
+        "g",
+        "m",
+        "d",
+        "a",
+        "b",
+        "l",
+        "x",
+        "e",
+        "h",
+        "gbla",
+        "gmdablxeh",
+        "gmdablxehq",
+        "ga",
+        "gm",
+        "gxbleh",
+        "bbb",
     };
-    for (const char * table_opts : options)
+    for (const char * table_options : options)
     {
-        std::string opts_table = table_opts;
-        std::string opts_json = std::string("J") + table_opts;
-        if (!general && opts_table.find('g') == std::string::npos)
+        std::string options_table = table_options;
+        std::string options_json = std::string("J") + table_options;
+        if (!general && options_table.find('g') == std::string::npos)
             continue;
-        compareOutputs(opts_table.c_str());
-        compareOutputs(opts_json.c_str());
+        compareOutputs(options_table.c_str());
+        compareOutputs(options_json.c_str());
     }
-    /// A null `opts` is the default.
+    /// A null `options_string` is the default.
     if (general)
     {
         std::string ref;

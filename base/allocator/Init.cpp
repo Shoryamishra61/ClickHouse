@@ -4,17 +4,17 @@
 #include <allocator/Arenas.h>
 #include <allocator/BackgroundThread.h>
 #include <allocator/Base.h>
-#include <allocator/Conf.h>
-#include <allocator/Ctl.h>
 #include <allocator/ExtentMap.h>
 #include <allocator/ExtentOps.h>
 #include <allocator/FixedPoint.h>
 #include <allocator/Format.h>
 #include <allocator/Frontend.h>
+#include <allocator/Mallctl.h>
+#include <allocator/MallocConf.h>
 #include <allocator/Mutex.h>
 #include <allocator/Options.h>
 #include <allocator/Pages.h>
-#include <allocator/ProfHooks.h>
+#include <allocator/ProfilingHooks.h>
 #include <allocator/Sanitizer.h>
 #include <allocator/SizeClasses.h>
 #include <allocator/Spin.h>
@@ -30,8 +30,8 @@
 #include <unistd.h>
 
 #if defined(__FreeBSD__)
-#    include <pthread_np.h>
-#    include <sys/cpuset.h>
+#include <pthread_np.h>
+#include <sys/cpuset.h>
 #endif
 
 namespace jemalloc
@@ -43,11 +43,11 @@ namespace
 /// When `malloc_slow` is true, set the corresponding bits for sanity check. jemalloc: flag_opt_* (anonymous enum)
 enum : uint8_t
 {
-    flag_opt_junk_alloc = (1U),
-    flag_opt_junk_free = (1U << 1),
-    flag_opt_zero = (1U << 2),
-    flag_opt_utrace = (1U << 3),
-    flag_opt_xmalloc = (1U << 4),
+    flag_option_junk_alloc = (1U),
+    flag_option_junk_free = (1U << 1),
+    flag_option_zero = (1U << 2),
+    flag_option_utrace = (1U << 3),
+    flag_option_abort_on_out_of_memory = (1U << 4),
 };
 
 /// jemalloc: malloc_slow_flags (static)
@@ -100,23 +100,24 @@ void statsPrintAtexit()
 {
     if constexpr (config::stats)
     {
-        ThreadState * tsdn = ThreadState::tsdnFetch();
+        ThreadState * thread_state = ThreadState::threadStateFetch();
 
         /// Merge stats from extant threads. This is racy, since individual threads do not lock when recording tcache
         /// stats events. As a consequence, the final stats may be slightly out of date by the time they are reported,
         /// if other threads continue to allocate.
-        for (unsigned i = 0, narenas = narenasTotalGet(); i < narenas; ++i)
+        for (unsigned i = 0, num_arenas = numArenasTotalGet(); i < num_arenas; ++i)
         {
-            Arena * arena = arenaGet(tsdn, i, false);
+            Arena * arena = arenaGet(thread_state, i, false);
             if (arena != nullptr)
             {
-                arena->tcache_ql_mtx.lock(tsdn);
-                arena->tcache_ql.forEach([&](ThreadCacheSlow * tcache_slow) { tcacheStatsMerge(tsdn, tcache_slow->tcache, arena); });
-                arena->tcache_ql_mtx.unlock(tsdn);
+                arena->thread_cache_list_mutex.lock(thread_state);
+                arena->thread_cache_list.forEach([&](ThreadCacheSlow * thread_cache_slow)
+                                                 { threadCacheStatsMerge(thread_state, thread_cache_slow->thread_cache, arena); });
+                arena->thread_cache_list_mutex.unlock(thread_state);
             }
         }
     }
-    mallocStatsPrint(nullptr, nullptr, opt.stats_print_opts);
+    mallocStatsPrint(nullptr, nullptr, options.stats_print_options);
 }
 
 /// The affinity mask of the process (the return value of the system call is not checked, like in jemalloc).
@@ -146,7 +147,7 @@ bool mallocIsInitializer()
 }
 
 /// jemalloc: malloc_ncpus
-unsigned mallocNcpus()
+unsigned mallocNumCPUs()
 {
     long result;
 #if defined(__linux__) || defined(__FreeBSD__)
@@ -165,13 +166,13 @@ unsigned mallocNcpus()
 /// jemalloc: malloc_cpu_count_is_deterministic
 bool mallocCPUCountIsDeterministic()
 {
-    long cpu_onln = sysconf(_SC_NPROCESSORS_ONLN);
-    long cpu_conf = sysconf(_SC_NPROCESSORS_CONF);
-    if (cpu_onln != cpu_conf)
+    long cpu_online = sysconf(_SC_NPROCESSORS_ONLN);
+    long cpu_configuration = sysconf(_SC_NPROCESSORS_CONF);
+    if (cpu_online != cpu_configuration)
         return false;
 #if defined(__linux__) || defined(__FreeBSD__)
     long cpu_affinity = affinityCPUCount();
-    if (cpu_affinity != cpu_conf)
+    if (cpu_affinity != cpu_configuration)
         return false;
 #endif
     return true;
@@ -184,8 +185,9 @@ namespace
 /// jemalloc: malloc_slow_flag_init
 void mallocSlowFlagInit()
 {
-    malloc_slow_flags |= (opt.junk_alloc ? flag_opt_junk_alloc : 0) | (opt.junk_free ? flag_opt_junk_free : 0)
-        | (opt.zero ? flag_opt_zero : 0) | (opt.utrace ? flag_opt_utrace : 0) | (opt.xmalloc ? flag_opt_xmalloc : 0);
+    malloc_slow_flags |= (options.junk_alloc ? flag_option_junk_alloc : 0) | (options.junk_free ? flag_option_junk_free : 0)
+        | (options.zero ? flag_option_zero : 0) | (options.utrace ? flag_option_utrace : 0)
+        | (options.abort_on_out_of_memory ? flag_option_abort_on_out_of_memory : 0);
 
     malloc_slow = (malloc_slow_flags != 0);
 }
@@ -222,29 +224,29 @@ bool mallocInitHardA0Locked()
 {
     malloc_initializer = initializerSelf();
 
-    SizeClassData sc_data{};
+    SizeClassData size_class_data{};
 
-    /// Ordering here is somewhat tricky; we need `scBoot` first, since that determines what the size classes will be,
-    /// and then `mallocConfInit`, since any slab size tweaking will need to be done before `szBoot` and `binInfoBoot`,
-    /// which assume that the values they read out of `sc_data` are final.
-    scBoot(sc_data);
-    unsigned bin_shard_sizes[SC_NBINS];
+    /// Ordering here is somewhat tricky; we need `sizeClassBoot` first, since that determines what the size classes will be,
+    /// and then `mallocConfInit`, since any slab size tweaking will need to be done before `sizeBoot` and `binInfoBoot`,
+    /// which assume that the values they read out of `size_class_data` are final.
+    sizeClassBoot(size_class_data);
+    unsigned bin_shard_sizes[SIZE_CLASS_NUM_BINS];
     binShardSizesBoot(bin_shard_sizes);
     /// `prof_boot0` only initializes `opt_prof_prefix` (constant-initialized here) before the options are parsed.
     char readlink_buf[MALLOC_CONF_READLINK_BUF_SIZE];
     readlink_buf[0] = '\0';
-    mallocConfInit(sc_data, bin_shard_sizes, readlink_buf);
-    sanInit(opt.lg_san_uaf_align);
-    szBoot(sc_data, opt.cache_oblivious);
-    binInfoBoot(sc_data, bin_shard_sizes);
+    mallocConfInit(size_class_data, bin_shard_sizes, readlink_buf);
+    sanitizerInit(options.log2_sanitizer_use_after_free_align);
+    sizeBoot(size_class_data, options.cache_oblivious);
+    binInfoBoot(size_class_data, bin_shard_sizes);
 
-    if (opt.stats_print)
+    if (options.stats_print)
     {
         /// Print statistics at exit.
         if (atexit(statsPrintAtexit) != 0)
         {
             writeMessage("<jemalloc>: Error in atexit()\n");
-            if (opt.abort)
+            if (options.abort)
                 abort();
         }
     }
@@ -255,46 +257,46 @@ bool mallocInitHardA0Locked()
         return true;
     if (baseBoot(nullptr))
         return true;
-    /// `arena_emap_global` is static, hence zeroed.
-    if (arena_emap_global.init(b0get(), /* zeroed */ true))
+    /// `arena_extent_map_global` is static, hence zeroed.
+    if (arena_extent_map_global.init(base0Get(), /* zeroed */ true))
         return true;
     if (extentBoot())
         return true;
-    if (ctlBoot())
+    if (mallctlBoot())
         return true;
-    if constexpr (config::prof)
-        profBoot1();
-    hpaDisableUnsupported();
-    if (arenaBoot(&sc_data, b0get(), opt.hpa))
+    if constexpr (config::profiling)
+        profilingBoot1();
+    hugePageAllocatorDisableUnsupported();
+    if (arenaBoot(&size_class_data, base0Get(), options.huge_page_allocator))
         return true;
-    if (tcacheBoot(nullptr, b0get()))
+    if (threadCacheBoot(nullptr, base0Get()))
         return true;
     if (arenas_lock.init("arenas", MutexRank::ARENAS, MutexLockOrder::RankExclusive))
         return true;
     /// `hook_boot` and `experimental_thread_events_boot` (the user thread event registry) are dropped.
 
-    /// Create enough scaffolding to allow recursive allocation in `mallocNcpus`.
-    narenas_auto = 1;
-    manual_arena_base = narenas_auto + 1;
-    for (unsigned i = 0; i < narenas_auto; ++i)
+    /// Create enough scaffolding to allow recursive allocation in `mallocNumCPUs`.
+    num_arenas_auto = 1;
+    manual_arena_base = num_arenas_auto + 1;
+    for (unsigned i = 0; i < num_arenas_auto; ++i)
         arenas[i].store(nullptr, std::memory_order_relaxed);
     /// Initialize one arena here. The rest are lazily created in `arenaChooseHard`.
     if (arenaInit(nullptr, 0, &arena_config_default) == nullptr)
         return true;
     a0 = arenaGet(nullptr, 0, false);
 
-    hpaDisableUnsupported();
+    hugePageAllocatorDisableUnsupported();
 
     malloc_init_state = malloc_init_a0_initialized;
 
     size_t buf_len = strlen(readlink_buf);
     if (buf_len > 0)
     {
-        void * readlink_allocated = a0ialloc(buf_len + 1, false, true);
+        void * readlink_allocated = arena0InternalAllocate(buf_len + 1, false, true);
         if (readlink_allocated != nullptr)
         {
             memcpy(readlink_allocated, readlink_buf, buf_len + 1);
-            opt.malloc_conf_symlink = static_cast<const char *>(readlink_allocated);
+            options.malloc_conf_symlink = static_cast<const char *>(readlink_allocated);
         }
     }
 
@@ -305,9 +307,9 @@ bool mallocInitHardA0Locked()
 bool mallocInitHardA0()
 {
     init_lock.lock(nullptr);
-    bool ret = mallocInitHardA0Locked();
+    bool result = mallocInitHardA0Locked();
     init_lock.unlock(nullptr);
-    return ret;
+    return result;
 }
 
 /// Initialize data structures which may trigger recursive allocation.
@@ -316,33 +318,33 @@ bool mallocInitHardRecursible()
 {
     malloc_init_state = malloc_init_recursible;
 
-    ncpus = mallocNcpus();
-    if (opt.percpu_arena != PercpuArenaMode::Disabled)
+    num_cpus = mallocNumCPUs();
+    if (options.per_cpu_arena != PerCPUArenaMode::Disabled)
     {
         bool cpu_count_is_deterministic = mallocCPUCountIsDeterministic();
         if (!cpu_count_is_deterministic)
         {
             /// If the number of CPUs is not deterministic, and narenas is not specified, disable per CPU arenas since
             /// they may not detect CPU IDs properly.
-            if (opt.narenas == 0)
+            if (options.num_arenas == 0)
             {
-                opt.percpu_arena = PercpuArenaMode::Disabled;
+                options.per_cpu_arena = PerCPUArenaMode::Disabled;
                 writeMessage("<jemalloc>: Number of CPUs detected is not deterministic. Per-CPU arena disabled.\n");
-                if (opt.abort_conf)
-                    mallocAbortInvalidConf();
-                if (opt.abort)
+                if (options.abort_configuration)
+                    mallocAbortInvalidConfiguration();
+                if (options.abort)
                     abort();
             }
         }
     }
 
-    if constexpr (config::have_pthread_atfork && !config::mutex_init_cb && !config::zone)
+    if constexpr (config::have_pthread_atfork && !config::mutex_init_callback && !config::zone)
     {
         /// LinuxThreads' `pthread_atfork` allocates.
         if (pthread_atfork(jemallocPrefork, jemallocPostforkParent, jemallocPostforkChild) != 0)
         {
             writeMessage("<jemalloc>: Error in pthread_atfork()\n");
-            if (opt.abort)
+            if (options.abort)
                 abort();
             return true;
         }
@@ -355,15 +357,15 @@ bool mallocInitHardRecursible()
 }
 
 /// jemalloc: malloc_narenas_default
-unsigned mallocNarenasDefault()
+unsigned mallocNumArenasDefault()
 {
-    JE_ASSERT(ncpus > 0);
+    ALLOCATOR_ASSERT(num_cpus > 0);
     /// For SMP systems, create more than one arena per CPU by default.
-    if (ncpus > 1)
+    if (num_cpus > 1)
     {
-        FixedPoint fxp_ncpus = fxp::initInt(ncpus);
-        FixedPoint goal = fxp::mul(fxp_ncpus, opt.narenas_ratio);
-        uint32_t int_goal = fxp::roundNearest(goal);
+        FixedPoint fixed_point_num_cpus = fixed_point::initInt(num_cpus);
+        FixedPoint goal = fixed_point::multiply(fixed_point_num_cpus, options.num_arenas_ratio);
+        uint32_t int_goal = fixed_point::roundNearest(goal);
         if (int_goal == 0)
             return 1;
         return int_goal;
@@ -372,94 +374,94 @@ unsigned mallocNarenasDefault()
 }
 
 /// jemalloc: percpu_arena_as_initialized
-PercpuArenaMode percpuArenaAsInitialized(PercpuArenaMode mode)
+PerCPUArenaMode perCPUArenaAsInitialized(PerCPUArenaMode mode)
 {
-    JE_ASSERT(!mallocInitialized());
-    JE_ASSERT(unsigned(mode) <= unsigned(PercpuArenaMode::Disabled));
+    ALLOCATOR_ASSERT(!mallocInitialized());
+    ALLOCATOR_ASSERT(unsigned(mode) <= unsigned(PerCPUArenaMode::Disabled));
 
-    if (mode != PercpuArenaMode::Disabled)
-        mode = PercpuArenaMode(unsigned(mode) + percpu_arena_mode_enabled_base);
+    if (mode != PerCPUArenaMode::Disabled)
+        mode = PerCPUArenaMode(unsigned(mode) + per_cpu_arena_mode_enabled_base);
 
     return mode;
 }
 
 /// jemalloc: malloc_init_narenas
-bool mallocInitNarenas(ThreadState * tsdn)
+bool mallocInitNumArenas(ThreadState * thread_state)
 {
-    JE_ASSERT(ncpus > 0);
+    ALLOCATOR_ASSERT(num_cpus > 0);
 
-    if (opt.percpu_arena != PercpuArenaMode::Disabled)
+    if (options.per_cpu_arena != PerCPUArenaMode::Disabled)
     {
         bool getcpu_unavailable;
-        if constexpr (config::have_percpu_arena)
+        if constexpr (config::have_per_cpu_arena)
             getcpu_unavailable = mallocGetcpu() < 0;
         else
             getcpu_unavailable = true;
 
         if (getcpu_unavailable)
         {
-            opt.percpu_arena = PercpuArenaMode::Disabled;
+            options.per_cpu_arena = PerCPUArenaMode::Disabled;
             printMessage(
                 "<jemalloc>: perCPU arena getcpu() not available. Setting narenas to %u.\n",
-                opt.narenas ? opt.narenas : mallocNarenasDefault());
-            if (opt.abort)
+                options.num_arenas ? options.num_arenas : mallocNumArenasDefault());
+            if (options.abort)
                 abort();
         }
         else
         {
-            if (ncpus >= MALLOCX_ARENA_LIMIT)
+            if (num_cpus >= MALLOCX_ARENA_LIMIT)
             {
-                printMessage("<jemalloc>: narenas w/ percpuarena beyond limit (%d)\n", int(ncpus));
-                if (opt.abort)
+                printMessage("<jemalloc>: narenas w/ percpuarena beyond limit (%d)\n", int(num_cpus));
+                if (options.abort)
                     abort();
                 return true;
             }
             /// NB: `opt.percpu_arena` isn't fully initialized yet.
-            if (percpuArenaAsInitialized(opt.percpu_arena) == PercpuArenaMode::PerPhycpu && ncpus % 2 != 0)
+            if (perCPUArenaAsInitialized(options.per_cpu_arena) == PerCPUArenaMode::PerPhysicalCPU && num_cpus % 2 != 0)
             {
                 printMessage(
                     "<jemalloc>: invalid configuration -- per physical CPU arena with odd number (%u) of CPUs (no hyper "
                     "threading?).\n",
-                    ncpus);
-                if (opt.abort)
+                    num_cpus);
+                if (options.abort)
                     abort();
             }
-            unsigned n = percpuArenaIndLimit(percpuArenaAsInitialized(opt.percpu_arena));
-            if (opt.narenas < n)
+            unsigned n = perCPUArenaIdxLimit(perCPUArenaAsInitialized(options.per_cpu_arena));
+            if (options.num_arenas < n)
             {
                 /// If narenas is specified with percpu_arena enabled, actual narenas is set as the greater of the two.
-                /// `percpuArenaChoose` will be free to use any of the arenas based on CPU id. This is conservative (at
+                /// `perCPUArenaChoose` will be free to use any of the arenas based on CPU id. This is conservative (at
                 /// a small cost) but ensures correctness.
                 ///
                 /// If for some reason the ncpus determined at boot is not the actual number (e.g. because of affinity
                 /// setting from numactl), reserving narenas this way provides a workaround for percpu_arena.
-                opt.narenas = n;
+                options.num_arenas = n;
             }
         }
     }
-    if (opt.narenas == 0)
-        opt.narenas = mallocNarenasDefault();
-    JE_ASSERT(opt.narenas > 0);
+    if (options.num_arenas == 0)
+        options.num_arenas = mallocNumArenasDefault();
+    ALLOCATOR_ASSERT(options.num_arenas > 0);
 
-    narenas_auto = opt.narenas;
+    num_arenas_auto = options.num_arenas;
     /// Limit the number of arenas to the indexing range of MALLOCX_ARENA().
-    if (narenas_auto >= MALLOCX_ARENA_LIMIT)
+    if (num_arenas_auto >= MALLOCX_ARENA_LIMIT)
     {
-        narenas_auto = MALLOCX_ARENA_LIMIT - 1;
-        printMessage("<jemalloc>: Reducing narenas to limit (%d)\n", int(narenas_auto));
+        num_arenas_auto = MALLOCX_ARENA_LIMIT - 1;
+        printMessage("<jemalloc>: Reducing narenas to limit (%d)\n", int(num_arenas_auto));
     }
-    narenasTotalSet(narenas_auto);
-    if (arenaInitHuge(tsdn, a0))
-        narenasTotalInc();
-    manual_arena_base = narenasTotalGet();
+    numArenasTotalSet(num_arenas_auto);
+    if (arenaInitHuge(thread_state, a0))
+        numArenasTotalIncrement();
+    manual_arena_base = numArenasTotalGet();
 
     return false;
 }
 
 /// jemalloc: malloc_init_percpu
-void mallocInitPercpu()
+void mallocInitPerCPU()
 {
-    opt.percpu_arena = percpuArenaAsInitialized(opt.percpu_arena);
+    options.per_cpu_arena = perCPUArenaAsInitialized(options.per_cpu_arena);
 }
 
 /// jemalloc: malloc_init_hard_finish
@@ -475,15 +477,15 @@ bool mallocInitHardFinish()
 }
 
 /// jemalloc: malloc_init_hard_cleanup
-void mallocInitHardCleanup(ThreadState * tsdn, bool reentrancy_set)
+void mallocInitHardCleanup(ThreadState * thread_state, bool reentrancy_set)
 {
-    init_lock.assertOwner(tsdn);
-    init_lock.unlock(tsdn);
+    init_lock.assertOwner(thread_state);
+    init_lock.unlock(thread_state);
     if (reentrancy_set)
     {
-        JE_ASSERT(tsdn != nullptr);
-        JE_ASSERT(tsdn->reentrancyLevel() > 0);
-        postReentrancy(*tsdn);
+        ALLOCATOR_ASSERT(thread_state != nullptr);
+        ALLOCATOR_ASSERT(thread_state->reentrancyLevel() > 0);
+        postReentrancy(*thread_state);
     }
 }
 
@@ -492,7 +494,7 @@ void mallocInitHardCleanup(ThreadState * tsdn, bool reentrancy_set)
 /// jemalloc: malloc_init_a0
 bool mallocInitA0()
 {
-    if (JE_UNLIKELY(malloc_init_state == malloc_init_uninitialized))
+    if (ALLOCATOR_UNLIKELY(malloc_init_state == malloc_init_uninitialized))
         return mallocInitHardA0();
     return false;
 }
@@ -500,8 +502,8 @@ bool mallocInitA0()
 /// jemalloc: malloc_init_hard
 bool mallocInitHard()
 {
-    static_assert(TCACHE_MAXCLASS_LIMIT <= USIZE_GROW_SLOW_THRESHOLD);
-    static_assert(SC_LOOKUP_MAXCLASS <= USIZE_GROW_SLOW_THRESHOLD);
+    static_assert(THREAD_CACHE_MAX_CLASS_LIMIT <= USABLE_SIZE_GROW_SLOW_THRESHOLD);
+    static_assert(SIZE_CLASS_LOOKUP_MAX_CLASS <= USABLE_SIZE_GROW_SLOW_THRESHOLD);
 
     init_lock.lock(nullptr);
 
@@ -519,49 +521,49 @@ bool mallocInitHard()
 
     init_lock.unlock(nullptr);
     /// Recursive allocation relies on functional tsd.
-    ThreadState * tsd = ThreadState::mallocTSDBoot0();
-    if (tsd == nullptr)
+    ThreadState * thread_state = ThreadState::mallocThreadStateBoot0();
+    if (thread_state == nullptr)
         return true;
     if (mallocInitHardRecursible())
         return true;
 
-    init_lock.lock(tsd);
+    init_lock.lock(thread_state);
     /// Set reentrancy level to 1 during init.
-    preReentrancy(*tsd, nullptr);
-    /// Initialize narenas before `profBoot2` (for allocation).
-    if (mallocInitNarenas(tsd) || backgroundThreadBoot1(tsd, b0get()))
+    preReentrancy(*thread_state, nullptr);
+    /// Initialize narenas before `profilingBoot2` (for allocation).
+    if (mallocInitNumArenas(thread_state) || backgroundThreadBoot1(thread_state, base0Get()))
     {
-        mallocInitHardCleanup(tsd, true);
+        mallocInitHardCleanup(thread_state, true);
         return true;
     }
-    /// `opt.hpa` (`pa_shard_enable_hpa` of arena 0) is always false here: HPA is dropped (`hpaDisableUnsupported`).
-    JE_ASSERT(!opt.hpa);
-    if (config::prof && profBoot2(*tsd, b0get()))
+    /// `opt.hpa` (`pa_shard_enable_hpa` of arena 0) is always false here: HPA is dropped (`hugePageAllocatorDisableUnsupported`).
+    ALLOCATOR_ASSERT(!options.huge_page_allocator);
+    if (config::profiling && profilingBoot2(*thread_state, base0Get()))
     {
-        mallocInitHardCleanup(tsd, true);
+        mallocInitHardCleanup(thread_state, true);
         return true;
     }
 
-    mallocInitPercpu();
+    mallocInitPerCPU();
 
     if (mallocInitHardFinish())
     {
-        mallocInitHardCleanup(tsd, true);
+        mallocInitHardCleanup(thread_state, true);
         return true;
     }
-    postReentrancy(*tsd);
-    init_lock.unlock(tsd);
+    postReentrancy(*thread_state);
+    init_lock.unlock(thread_state);
 
-    ThreadState::mallocTSDBoot1();
+    ThreadState::mallocThreadStateBoot1();
     /// Update TSD after tsd_boot1.
-    tsd = &ThreadState::fetch();
-    if (opt.background_thread)
+    thread_state = &ThreadState::fetch();
+    if (options.background_thread)
     {
-        JE_ASSERT(config::background_thread);
+        ALLOCATOR_ASSERT(config::background_thread);
         /// Need to finish init & unlock first before creating background threads (`pthread_create` depends on
-        /// malloc). `backgroundThreadCtlInit` (which sets `isthreaded`) needs to be called without holding any lock.
-        backgroundThreadCtlInit(tsd);
-        if (backgroundThreadCreate(*tsd, 0))
+        /// malloc). `backgroundThreadMallctlInit` (which sets `is_threaded`) needs to be called without holding any lock.
+        backgroundThreadMallctlInit(thread_state);
+        if (backgroundThreadCreate(*thread_state, 0))
             return true;
     }
     return false;

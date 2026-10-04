@@ -18,234 +18,247 @@ namespace jemalloc
 {
 
 /// jemalloc: arena_prof_info_get
-JE_ALWAYS_INLINE void arenaProfInfoGet(ThreadState & tsd, const void * ptr, AllocContext * alloc_ctx, ProfInfo * prof_info, bool reset_recent)
+ALLOCATOR_ALWAYS_INLINE void arenaProfilingInfoGet(
+    ThreadState & thread_state, const void * ptr, AllocContext * alloc_context, ProfilingInfo * profiling_info, bool reset_recent)
 {
-    static_assert(config::prof);
-    JE_ASSERT(ptr != nullptr);
-    JE_ASSERT(prof_info != nullptr);
+    static_assert(config::profiling);
+    ALLOCATOR_ASSERT(ptr != nullptr);
+    ALLOCATOR_ASSERT(profiling_info != nullptr);
 
-    Extent * edata = nullptr;
+    Extent * extent = nullptr;
     bool is_slab;
 
     /// Static check.
-    if (alloc_ctx == nullptr)
+    if (alloc_context == nullptr)
     {
-        edata = arena_emap_global.edataLookup(&tsd, ptr);
-        is_slab = edata->slab();
+        extent = arena_extent_map_global.extentLookup(&thread_state, ptr);
+        is_slab = extent->slab();
     }
-    else if (JE_UNLIKELY(!(is_slab = alloc_ctx->slab)))
+    else if (ALLOCATOR_UNLIKELY(!(is_slab = alloc_context->slab)))
     {
-        edata = arena_emap_global.edataLookup(&tsd, ptr);
+        extent = arena_extent_map_global.extentLookup(&thread_state, ptr);
     }
 
-    if (JE_UNLIKELY(!is_slab))
+    if (ALLOCATOR_UNLIKELY(!is_slab))
     {
         /// edata must have been initialized at this point.
-        JE_ASSERT(edata != nullptr);
-        size_t usize = (alloc_ctx == nullptr) ? edata->usize() : alloc_ctx->usizeGet();
-        if (reset_recent && largeDallocSafetyChecks(edata, ptr, usize))
+        ALLOCATOR_ASSERT(extent != nullptr);
+        size_t usable_size = (alloc_context == nullptr) ? extent->usableSize() : alloc_context->usableSizeGet();
+        if (reset_recent && largeDeallocateSafetyChecks(extent, ptr, usable_size))
         {
-            prof_info->alloc_tctx = PROF_TCTX_SENTINEL;
+            profiling_info->alloc_thread_context = PROFILING_THREAD_CONTEXT_SENTINEL;
             return;
         }
-        largeProfInfoGet(tsd, edata, prof_info, reset_recent);
+        largeProfilingInfoGet(thread_state, extent, profiling_info, reset_recent);
     }
     else
     {
-        /// No need to set other fields in prof_info; they will never be accessed if alloc_tctx == PROF_TCTX_SENTINEL.
-        prof_info->alloc_tctx = PROF_TCTX_SENTINEL;
+        /// No need to set other fields in prof_info; they will never be accessed if alloc_tctx == PROFILING_THREAD_CONTEXT_SENTINEL.
+        profiling_info->alloc_thread_context = PROFILING_THREAD_CONTEXT_SENTINEL;
     }
 }
 
 /// jemalloc: arena_prof_tctx_reset
-JE_ALWAYS_INLINE void arenaProfTctxReset(ThreadState & tsd, const void * ptr, AllocContext * alloc_ctx)
+ALLOCATOR_ALWAYS_INLINE void arenaProfilingThreadContextReset(ThreadState & thread_state, const void * ptr, AllocContext * alloc_context)
 {
-    static_assert(config::prof);
-    JE_ASSERT(ptr != nullptr);
+    static_assert(config::profiling);
+    ALLOCATOR_ASSERT(ptr != nullptr);
 
     /// Static check.
-    if (alloc_ctx == nullptr)
+    if (alloc_context == nullptr)
     {
-        Extent * edata = arena_emap_global.edataLookup(&tsd, ptr);
-        if (JE_UNLIKELY(!edata->slab()))
-            largeProfTctxReset(edata);
+        Extent * extent = arena_extent_map_global.extentLookup(&thread_state, ptr);
+        if (ALLOCATOR_UNLIKELY(!extent->slab()))
+            largeProfilingThreadContextReset(extent);
     }
     else
     {
-        if (JE_UNLIKELY(!alloc_ctx->slab))
+        if (ALLOCATOR_UNLIKELY(!alloc_context->slab))
         {
-            Extent * edata = arena_emap_global.edataLookup(&tsd, ptr);
-            largeProfTctxReset(edata);
+            Extent * extent = arena_extent_map_global.extentLookup(&thread_state, ptr);
+            largeProfilingThreadContextReset(extent);
         }
     }
 }
 
 /// jemalloc: arena_prof_tctx_reset_sampled
-JE_ALWAYS_INLINE void arenaProfTctxResetSampled(ThreadState & tsd, const void * ptr)
+ALLOCATOR_ALWAYS_INLINE void arenaProfilingThreadContextResetSampled(ThreadState & thread_state, const void * ptr)
 {
-    static_assert(config::prof);
-    JE_ASSERT(ptr != nullptr);
+    static_assert(config::profiling);
+    ALLOCATOR_ASSERT(ptr != nullptr);
 
-    Extent * edata = arena_emap_global.edataLookup(&tsd, ptr);
-    JE_ASSERT(!edata->slab());
+    Extent * extent = arena_extent_map_global.extentLookup(&thread_state, ptr);
+    ALLOCATOR_ASSERT(!extent->slab());
 
-    largeProfTctxReset(edata);
+    largeProfilingThreadContextReset(extent);
 }
 
 /// jemalloc: arena_prof_info_set
-JE_ALWAYS_INLINE void arenaProfInfoSet(ThreadState & /*tsd*/, Extent * edata, ProfThreadContext * tctx, size_t size)
+ALLOCATOR_ALWAYS_INLINE void
+arenaProfilingInfoSet(ThreadState & /*tsd*/, Extent * extent, ProfilingThreadContext * thread_context, size_t size)
 {
-    static_assert(config::prof);
-    JE_ASSERT(!edata->slab());
-    largeProfInfoSet(edata, tctx, size);
+    static_assert(config::profiling);
+    ALLOCATOR_ASSERT(!extent->slab());
+    largeProfilingInfoSet(extent, thread_context, size);
 }
 
 /// jemalloc: arena_malloc
-JE_ALWAYS_INLINE void * arenaMalloc(
-    ThreadState * tsdn, Arena * arena, size_t size, szind_t ind, bool zero, bool slab, ThreadCache * tcache, bool slow_path)
+ALLOCATOR_ALWAYS_INLINE void * arenaMalloc(
+    ThreadState * thread_state,
+    Arena * arena,
+    size_t size,
+    SizeClassIdx idx,
+    bool zero,
+    bool slab,
+    ThreadCache * thread_cache,
+    bool slow_path)
 {
-    JE_ASSERT(tsdn != nullptr || tcache == nullptr);
+    ALLOCATOR_ASSERT(thread_state != nullptr || thread_cache == nullptr);
 
-    if (JE_LIKELY(tcache != nullptr))
+    if (ALLOCATOR_LIKELY(thread_cache != nullptr))
     {
-        if (JE_LIKELY(slab))
+        if (ALLOCATOR_LIKELY(slab))
         {
-            JE_ASSERT(sz::canUseSlab(size));
-            return tcacheAllocSmall(*tsdn, arena, tcache, size, ind, zero, slow_path);
+            ALLOCATOR_ASSERT(size_classes::canUseSlab(size));
+            return threadCacheAllocSmall(*thread_state, arena, thread_cache, size, idx, zero, slow_path);
         }
-        else if (JE_LIKELY(
-                     ind < tcacheNbinsGet(tcache->tcache_slow) && !tcacheBinDisabled(ind, &tcache->bins[ind], tcache->tcache_slow)))
+        else if (ALLOCATOR_LIKELY(
+                     idx < threadCacheNumBinsGet(thread_cache->thread_cache_slow)
+                     && !threadCacheBinDisabled(idx, &thread_cache->bins[idx], thread_cache->thread_cache_slow)))
         {
-            return tcacheAllocLarge(*tsdn, arena, tcache, size, ind, zero, slow_path);
+            return threadCacheAllocLarge(*thread_state, arena, thread_cache, size, idx, zero, slow_path);
         }
         /// (size > tcache_max) case falls through.
     }
 
-    return arenaMallocHard(tsdn, arena, size, ind, zero, slab);
+    return arenaMallocHard(thread_state, arena, size, idx, zero, slab);
 }
 
 /// jemalloc: arena_aalloc
-JE_ALWAYS_INLINE Arena * arenaAalloc(ThreadState * tsdn, const void * ptr)
+ALLOCATOR_ALWAYS_INLINE Arena * arenaOfPointer(ThreadState * thread_state, const void * ptr)
 {
-    Extent * edata = arena_emap_global.edataLookup(tsdn, ptr);
-    unsigned arena_ind = edata->arenaInd();
-    return arenas[arena_ind].load(std::memory_order_relaxed);
+    Extent * extent = arena_extent_map_global.extentLookup(thread_state, ptr);
+    unsigned arena_idx = extent->arenaIdx();
+    return arenas[arena_idx].load(std::memory_order_relaxed);
 }
 
 /// jemalloc: arena_salloc
-JE_ALWAYS_INLINE size_t arenaSalloc(ThreadState * tsdn, const void * ptr)
+ALLOCATOR_ALWAYS_INLINE size_t arenaAllocationSize(ThreadState * thread_state, const void * ptr)
 {
-    JE_ASSERT(ptr != nullptr);
-    AllocContext alloc_ctx;
-    arena_emap_global.allocCtxLookup(tsdn, ptr, &alloc_ctx);
-    JE_ASSERT(alloc_ctx.szind != SC_NSIZES);
+    ALLOCATOR_ASSERT(ptr != nullptr);
+    AllocContext alloc_context;
+    arena_extent_map_global.allocContextLookup(thread_state, ptr, &alloc_context);
+    ALLOCATOR_ASSERT(alloc_context.size_class_idx != SIZE_CLASS_NUM_SIZES);
 
-    return alloc_ctx.usizeGet();
+    return alloc_context.usableSizeGet();
 }
 
 /// Return 0 if ptr is not within an extent managed by jemalloc. This function has two extra costs relative to
-/// `isalloc`:
+/// `allocationSize`:
 /// - The rtree calls cannot claim to be dependent lookups, which induces rtree lookup load dependencies.
 /// - The lookup may fail, so there is an extra branch to check for failure.
 /// jemalloc: arena_vsalloc
-JE_ALWAYS_INLINE size_t arenaVsalloc(ThreadState * tsdn, const void * ptr)
+ALLOCATOR_ALWAYS_INLINE size_t arenaAllocationSizeIfOwned(ThreadState * thread_state, const void * ptr)
 {
-    FullAllocContext full_alloc_ctx;
-    bool missing = arena_emap_global.fullAllocCtxTryLookup(tsdn, ptr, &full_alloc_ctx);
+    FullAllocContext full_alloc_context;
+    bool missing = arena_extent_map_global.fullAllocContextTryLookup(thread_state, ptr, &full_alloc_context);
     if (missing)
         return 0;
 
-    if (full_alloc_ctx.edata == nullptr)
+    if (full_alloc_context.extent == nullptr)
         return 0;
-    JE_ASSERT(full_alloc_ctx.edata->state() == extent_state_active);
+    ALLOCATOR_ASSERT(full_alloc_context.extent->state() == extent_state_active);
     /// Only slab members should be looked up via interior pointers.
-    JE_ASSERT(full_alloc_ctx.edata->addr() == ptr || full_alloc_ctx.edata->slab());
+    ALLOCATOR_ASSERT(full_alloc_context.extent->addr() == ptr || full_alloc_context.extent->slab());
 
-    JE_ASSERT(full_alloc_ctx.szind != SC_NSIZES);
+    ALLOCATOR_ASSERT(full_alloc_context.size_class_idx != SIZE_CLASS_NUM_SIZES);
 
-    return full_alloc_ctx.edata->usize();
+    return full_alloc_context.extent->usableSize();
 }
 
-/// `szind` is still needed in this function mainly because `szind < SC_NBINS` determines not only if this is a small
-/// alloc, but also if `szind` is valid (an inactive extent would have `szind == SC_NSIZES`).
+/// `size_class_idx` is still needed in this function mainly because `size_class_idx < SIZE_CLASS_NUM_BINS` determines not only if this is a
+/// small
+/// alloc, but also if `size_class_idx` is valid (an inactive extent would have `size_class_idx == SIZE_CLASS_NUM_SIZES`).
 /// jemalloc: arena_dalloc_large_no_tcache
-inline void arenaDallocLargeNoTcache(ThreadState * tsdn, void * ptr, szind_t szind, size_t usize)
+inline void arenaDeallocateLargeNoThreadCache(ThreadState * thread_state, void * ptr, SizeClassIdx size_class_idx, size_t usable_size)
 {
-    if (config::prof && JE_UNLIKELY(szind < SC_NBINS))
+    if (config::profiling && ALLOCATOR_UNLIKELY(size_class_idx < SIZE_CLASS_NUM_BINS))
     {
-        arenaDallocPromoted(tsdn, ptr, nullptr, true);
+        arenaDeallocatePromoted(thread_state, ptr, nullptr, true);
     }
     else
     {
-        Extent * edata = arena_emap_global.edataLookup(tsdn, ptr);
-        if (largeDallocSafetyChecks(edata, ptr, usize))
+        Extent * extent = arena_extent_map_global.extentLookup(thread_state, ptr);
+        if (largeDeallocateSafetyChecks(extent, ptr, usable_size))
         {
             /// See the comment in isfree.
             return;
         }
-        largeDalloc(tsdn, edata);
+        largeDeallocate(thread_state, extent);
     }
 }
 
 /// jemalloc: arena_dalloc_no_tcache
-inline void arenaDallocNoTcache(ThreadState * tsdn, void * ptr)
+inline void arenaDeallocateNoThreadCache(ThreadState * thread_state, void * ptr)
 {
-    JE_ASSERT(ptr != nullptr);
+    ALLOCATOR_ASSERT(ptr != nullptr);
 
-    AllocContext alloc_ctx;
-    arena_emap_global.allocCtxLookup(tsdn, ptr, &alloc_ctx);
+    AllocContext alloc_context;
+    arena_extent_map_global.allocContextLookup(thread_state, ptr, &alloc_context);
 
     if constexpr (config::debug)
     {
-        Extent * edata = arena_emap_global.edataLookup(tsdn, ptr);
-        JE_ASSERT(alloc_ctx.szind == edata->szind());
-        JE_ASSERT(alloc_ctx.szind < SC_NSIZES);
-        JE_ASSERT(alloc_ctx.slab == edata->slab());
-        JE_ASSERT(alloc_ctx.usizeGet() == edata->usize());
+        Extent * extent = arena_extent_map_global.extentLookup(thread_state, ptr);
+        ALLOCATOR_ASSERT(alloc_context.size_class_idx == extent->sizeClassIdx());
+        ALLOCATOR_ASSERT(alloc_context.size_class_idx < SIZE_CLASS_NUM_SIZES);
+        ALLOCATOR_ASSERT(alloc_context.slab == extent->slab());
+        ALLOCATOR_ASSERT(alloc_context.usableSizeGet() == extent->usableSize());
     }
 
-    if (JE_LIKELY(alloc_ctx.slab))
+    if (ALLOCATOR_LIKELY(alloc_context.slab))
     {
         /// Small allocation.
-        arenaDallocSmall(tsdn, ptr);
+        arenaDeallocateSmall(thread_state, ptr);
     }
     else
     {
-        arenaDallocLargeNoTcache(tsdn, ptr, alloc_ctx.szind, alloc_ctx.usizeGet());
+        arenaDeallocateLargeNoThreadCache(thread_state, ptr, alloc_context.size_class_idx, alloc_context.usableSizeGet());
     }
 }
 
 /// jemalloc: arena_dalloc_large
-JE_ALWAYS_INLINE void arenaDallocLarge(ThreadState * tsdn, void * ptr, ThreadCache * tcache, szind_t szind, size_t usize, bool slow_path)
+ALLOCATOR_ALWAYS_INLINE void arenaDeallocateLarge(
+    ThreadState * thread_state, void * ptr, ThreadCache * thread_cache, SizeClassIdx size_class_idx, size_t usable_size, bool slow_path)
 {
-    JE_ASSERT(tsdn != nullptr && tcache != nullptr);
-    bool is_sample_promoted = config::prof && szind < SC_NBINS;
-    if (JE_UNLIKELY(is_sample_promoted))
+    ALLOCATOR_ASSERT(thread_state != nullptr && thread_cache != nullptr);
+    bool is_sample_promoted = config::profiling && size_class_idx < SIZE_CLASS_NUM_BINS;
+    if (ALLOCATOR_UNLIKELY(is_sample_promoted))
     {
-        arenaDallocPromoted(tsdn, ptr, tcache, slow_path);
+        arenaDeallocatePromoted(thread_state, ptr, thread_cache, slow_path);
     }
     else
     {
-        if (szind < tcacheNbinsGet(tcache->tcache_slow) && !tcacheBinDisabled(szind, &tcache->bins[szind], tcache->tcache_slow))
+        if (size_class_idx < threadCacheNumBinsGet(thread_cache->thread_cache_slow)
+            && !threadCacheBinDisabled(size_class_idx, &thread_cache->bins[size_class_idx], thread_cache->thread_cache_slow))
         {
-            tcacheDallocLarge(*tsdn, tcache, ptr, szind, slow_path);
+            threadCacheDeallocateLarge(*thread_state, thread_cache, ptr, size_class_idx, slow_path);
         }
         else
         {
-            Extent * edata = arena_emap_global.edataLookup(tsdn, ptr);
-            if (largeDallocSafetyChecks(edata, ptr, usize))
+            Extent * extent = arena_extent_map_global.extentLookup(thread_state, ptr);
+            if (largeDeallocateSafetyChecks(extent, ptr, usable_size))
             {
                 /// See the comment in isfree.
                 return;
             }
-            largeDalloc(tsdn, edata);
+            largeDeallocate(thread_state, extent);
         }
     }
 }
 
 /// Only in debug builds: detects double frees of small regions. Returns true if the deallocation must be skipped.
 /// jemalloc: arena_tcache_dalloc_small_safety_check
-JE_ALWAYS_INLINE bool arenaTcacheDallocSmallSafetyCheck(ThreadState * tsdn, void * ptr)
+ALLOCATOR_ALWAYS_INLINE bool arenaThreadCacheDeallocateSmallSafetyCheck(ThreadState * thread_state, void * ptr)
 {
     if constexpr (!config::debug)
     {
@@ -253,15 +266,15 @@ JE_ALWAYS_INLINE bool arenaTcacheDallocSmallSafetyCheck(ThreadState * tsdn, void
     }
     else
     {
-        Extent * edata = arena_emap_global.edataLookup(tsdn, ptr);
-        szind_t binind = edata->szind();
-        DivInfo div_info = arena_binind_div_info[binind];
-        /// Calls the internal function `slabRegindImpl` because the safety check does not require a lock.
-        size_t regind = Bin::slabRegindImpl(div_info, binind, edata, ptr);
-        SlabData * slab_data = edata->slabData();
-        const BinInfo & bin_info = bin_infos[binind];
-        JE_ASSERT(edata->nfree() < bin_info.nregs);
-        if (JE_UNLIKELY(!bitmapGet(slab_data->bitmap, bin_info.bitmap_info, regind)))
+        Extent * extent = arena_extent_map_global.extentLookup(thread_state, ptr);
+        SizeClassIdx bin_idx = extent->sizeClassIdx();
+        DivisionInfo division_info = arena_bin_idx_division_info[bin_idx];
+        /// Calls the internal function `slabRegionIdxImpl` because the safety check does not require a lock.
+        size_t region_idx = Bin::slabRegionIdxImpl(division_info, bin_idx, extent, ptr);
+        SlabData * slab_data = extent->slabData();
+        const BinInfo & bin_info = bin_infos[bin_idx];
+        ALLOCATOR_ASSERT(extent->numFree() < bin_info.num_regions);
+        if (ALLOCATOR_UNLIKELY(!bitmapGet(slab_data->bitmap, bin_info.bitmap_info, region_idx)))
         {
             safetyCheckFail(
                 "Invalid deallocation detected: the pointer being freed (%p) not currently active, possibly caused by "
@@ -274,145 +287,148 @@ JE_ALWAYS_INLINE bool arenaTcacheDallocSmallSafetyCheck(ThreadState * tsdn, void
 }
 
 /// jemalloc: arena_dalloc
-JE_ALWAYS_INLINE void arenaDalloc(ThreadState * tsdn, void * ptr, ThreadCache * tcache, AllocContext * caller_alloc_ctx, bool slow_path)
+ALLOCATOR_ALWAYS_INLINE void
+arenaDeallocate(ThreadState * thread_state, void * ptr, ThreadCache * thread_cache, AllocContext * caller_alloc_context, bool slow_path)
 {
-    JE_ASSERT(tsdn != nullptr || tcache == nullptr);
-    JE_ASSERT(ptr != nullptr);
+    ALLOCATOR_ASSERT(thread_state != nullptr || thread_cache == nullptr);
+    ALLOCATOR_ASSERT(ptr != nullptr);
 
-    if (JE_UNLIKELY(tcache == nullptr))
+    if (ALLOCATOR_UNLIKELY(thread_cache == nullptr))
     {
-        arenaDallocNoTcache(tsdn, ptr);
+        arenaDeallocateNoThreadCache(thread_state, ptr);
         return;
     }
 
-    AllocContext alloc_ctx;
-    if (caller_alloc_ctx != nullptr)
+    AllocContext alloc_context;
+    if (caller_alloc_context != nullptr)
     {
-        alloc_ctx = *caller_alloc_ctx;
+        alloc_context = *caller_alloc_context;
     }
     else
     {
-        __builtin_assume(tsdn != nullptr);
-        arena_emap_global.allocCtxLookup(tsdn, ptr, &alloc_ctx);
+        __builtin_assume(thread_state != nullptr);
+        arena_extent_map_global.allocContextLookup(thread_state, ptr, &alloc_context);
     }
 
     if constexpr (config::debug)
     {
-        Extent * edata = arena_emap_global.edataLookup(tsdn, ptr);
-        JE_ASSERT(alloc_ctx.szind == edata->szind());
-        JE_ASSERT(alloc_ctx.szind < SC_NSIZES);
-        JE_ASSERT(alloc_ctx.slab == edata->slab());
-        JE_ASSERT(alloc_ctx.usizeGet() == edata->usize());
+        Extent * extent = arena_extent_map_global.extentLookup(thread_state, ptr);
+        ALLOCATOR_ASSERT(alloc_context.size_class_idx == extent->sizeClassIdx());
+        ALLOCATOR_ASSERT(alloc_context.size_class_idx < SIZE_CLASS_NUM_SIZES);
+        ALLOCATOR_ASSERT(alloc_context.slab == extent->slab());
+        ALLOCATOR_ASSERT(alloc_context.usableSizeGet() == extent->usableSize());
     }
 
-    if (JE_LIKELY(alloc_ctx.slab))
+    if (ALLOCATOR_LIKELY(alloc_context.slab))
     {
         /// Small allocation.
-        if (arenaTcacheDallocSmallSafetyCheck(tsdn, ptr))
+        if (arenaThreadCacheDeallocateSmallSafetyCheck(thread_state, ptr))
             return;
-        tcacheDallocSmall(*tsdn, tcache, ptr, alloc_ctx.szind, slow_path);
+        threadCacheDeallocateSmall(*thread_state, thread_cache, ptr, alloc_context.size_class_idx, slow_path);
     }
     else
     {
-        arenaDallocLarge(tsdn, ptr, tcache, alloc_ctx.szind, alloc_ctx.usizeGet(), slow_path);
+        arenaDeallocateLarge(thread_state, ptr, thread_cache, alloc_context.size_class_idx, alloc_context.usableSizeGet(), slow_path);
     }
 }
 
 /// jemalloc: arena_sdalloc_no_tcache
-inline void arenaSdallocNoTcache(ThreadState * tsdn, void * ptr, size_t size)
+inline void arenaSizedDeallocateNoThreadCache(ThreadState * thread_state, void * ptr, size_t size)
 {
-    JE_ASSERT(ptr != nullptr);
-    JE_ASSERT(size <= SC_LARGE_MAXCLASS);
+    ALLOCATOR_ASSERT(ptr != nullptr);
+    ALLOCATOR_ASSERT(size <= SIZE_CLASS_LARGE_MAX_CLASS);
 
-    AllocContext alloc_ctx;
-    if (!config::prof || !opt.prof)
+    AllocContext alloc_context;
+    if (!config::profiling || !options.profiling)
     {
         /// There is no risk of being confused by a promoted sampled object, so base szind and slab on the given size.
-        szind_t szind = sz::sizeToIndex(size);
-        alloc_ctx.init(szind, (szind < SC_NBINS), size);
+        SizeClassIdx size_class_idx = size_classes::sizeToIndex(size);
+        alloc_context.init(size_class_idx, (size_class_idx < SIZE_CLASS_NUM_BINS), size);
     }
 
-    if ((config::prof && opt.prof) || config::debug)
+    if ((config::profiling && options.profiling) || config::debug)
     {
-        arena_emap_global.allocCtxLookup(tsdn, ptr, &alloc_ctx);
+        arena_extent_map_global.allocContextLookup(thread_state, ptr, &alloc_context);
 
-        JE_ASSERT(alloc_ctx.szind == sz::sizeToIndex(size));
-        JE_ASSERT((config::prof && opt.prof) || alloc_ctx.slab == (alloc_ctx.szind < SC_NBINS));
+        ALLOCATOR_ASSERT(alloc_context.size_class_idx == size_classes::sizeToIndex(size));
+        ALLOCATOR_ASSERT(
+            (config::profiling && options.profiling) || alloc_context.slab == (alloc_context.size_class_idx < SIZE_CLASS_NUM_BINS));
 
         if constexpr (config::debug)
         {
-            Extent * edata = arena_emap_global.edataLookup(tsdn, ptr);
-            JE_ASSERT(alloc_ctx.szind == edata->szind());
-            JE_ASSERT(alloc_ctx.slab == edata->slab());
+            Extent * extent = arena_extent_map_global.extentLookup(thread_state, ptr);
+            ALLOCATOR_ASSERT(alloc_context.size_class_idx == extent->sizeClassIdx());
+            ALLOCATOR_ASSERT(alloc_context.slab == extent->slab());
         }
     }
 
-    if (JE_LIKELY(alloc_ctx.slab))
+    if (ALLOCATOR_LIKELY(alloc_context.slab))
     {
         /// Small allocation.
-        arenaDallocSmall(tsdn, ptr);
+        arenaDeallocateSmall(thread_state, ptr);
     }
     else
     {
-        arenaDallocLargeNoTcache(tsdn, ptr, alloc_ctx.szind, alloc_ctx.usizeGet());
+        arenaDeallocateLargeNoThreadCache(thread_state, ptr, alloc_context.size_class_idx, alloc_context.usableSizeGet());
     }
 }
 
 /// jemalloc: arena_sdalloc
-JE_ALWAYS_INLINE void arenaSdalloc(
-    ThreadState * tsdn, void * ptr, size_t size, ThreadCache * tcache, AllocContext * caller_alloc_ctx, bool slow_path)
+ALLOCATOR_ALWAYS_INLINE void arenaSizedDeallocate(
+    ThreadState * thread_state, void * ptr, size_t size, ThreadCache * thread_cache, AllocContext * caller_alloc_context, bool slow_path)
 {
-    JE_ASSERT(tsdn != nullptr || tcache == nullptr);
-    JE_ASSERT(ptr != nullptr);
-    JE_ASSERT(size <= SC_LARGE_MAXCLASS);
+    ALLOCATOR_ASSERT(thread_state != nullptr || thread_cache == nullptr);
+    ALLOCATOR_ASSERT(ptr != nullptr);
+    ALLOCATOR_ASSERT(size <= SIZE_CLASS_LARGE_MAX_CLASS);
 
-    if (JE_UNLIKELY(tcache == nullptr))
+    if (ALLOCATOR_UNLIKELY(thread_cache == nullptr))
     {
-        arenaSdallocNoTcache(tsdn, ptr, size);
+        arenaSizedDeallocateNoThreadCache(thread_state, ptr, size);
         return;
     }
 
-    AllocContext alloc_ctx;
-    if (config::prof && opt.prof)
+    AllocContext alloc_context;
+    if (config::profiling && options.profiling)
     {
-        if (caller_alloc_ctx == nullptr)
+        if (caller_alloc_context == nullptr)
         {
             /// Uncommon case and should be a static check.
-            arena_emap_global.allocCtxLookup(tsdn, ptr, &alloc_ctx);
-            JE_ASSERT(alloc_ctx.szind == sz::sizeToIndex(size));
-            JE_ASSERT(alloc_ctx.usizeGet() == size);
+            arena_extent_map_global.allocContextLookup(thread_state, ptr, &alloc_context);
+            ALLOCATOR_ASSERT(alloc_context.size_class_idx == size_classes::sizeToIndex(size));
+            ALLOCATOR_ASSERT(alloc_context.usableSizeGet() == size);
         }
         else
         {
-            alloc_ctx = *caller_alloc_ctx;
+            alloc_context = *caller_alloc_context;
         }
     }
     else
     {
         /// There is no risk of being confused by a promoted sampled object, so base szind and slab on the given size.
-        alloc_ctx.szind = sz::sizeToIndex(size);
-        alloc_ctx.slab = (alloc_ctx.szind < SC_NBINS);
+        alloc_context.size_class_idx = size_classes::sizeToIndex(size);
+        alloc_context.slab = (alloc_context.size_class_idx < SIZE_CLASS_NUM_BINS);
     }
 
     if constexpr (config::debug)
     {
-        Extent * edata = arena_emap_global.edataLookup(tsdn, ptr);
-        JE_ASSERT(alloc_ctx.szind == edata->szind());
-        JE_ASSERT(alloc_ctx.slab == edata->slab());
-        alloc_ctx.init(alloc_ctx.szind, alloc_ctx.slab, sz::s2u(size));
-        JE_ASSERT(alloc_ctx.usizeGet() == edata->usize());
+        Extent * extent = arena_extent_map_global.extentLookup(thread_state, ptr);
+        ALLOCATOR_ASSERT(alloc_context.size_class_idx == extent->sizeClassIdx());
+        ALLOCATOR_ASSERT(alloc_context.slab == extent->slab());
+        alloc_context.init(alloc_context.size_class_idx, alloc_context.slab, size_classes::sizeToUsableSize(size));
+        ALLOCATOR_ASSERT(alloc_context.usableSizeGet() == extent->usableSize());
     }
 
-    if (JE_LIKELY(alloc_ctx.slab))
+    if (ALLOCATOR_LIKELY(alloc_context.slab))
     {
         /// Small allocation.
-        if (arenaTcacheDallocSmallSafetyCheck(tsdn, ptr))
+        if (arenaThreadCacheDeallocateSmallSafetyCheck(thread_state, ptr))
             return;
-        tcacheDallocSmall(*tsdn, tcache, ptr, alloc_ctx.szind, slow_path);
+        threadCacheDeallocateSmall(*thread_state, thread_cache, ptr, alloc_context.size_class_idx, slow_path);
     }
     else
     {
-        arenaDallocLarge(tsdn, ptr, tcache, alloc_ctx.szind, sz::s2u(size), slow_path);
+        arenaDeallocateLarge(
+            thread_state, ptr, thread_cache, alloc_context.size_class_idx, size_classes::sizeToUsableSize(size), slow_path);
     }
 }
 

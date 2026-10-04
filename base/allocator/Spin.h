@@ -13,9 +13,9 @@ namespace jemalloc
 
 /// A CPU relaxation hint (`pause` on x86_64; elsewhere a volatile self-assignment, like jemalloc's fallback).
 /// jemalloc: spin_cpu_spinwait
-JE_ALWAYS_INLINE void spinCPUSpinwait()
+ALLOCATOR_ALWAYS_INLINE void spinCPUSpinWait()
 {
-    if constexpr (config::have_cpu_spinwait)
+    if constexpr (config::have_cpu_spin_wait)
     {
 #if defined(__x86_64__)
         __asm__ volatile("pause");
@@ -42,7 +42,7 @@ struct Spin
         if (iteration < 5)
         {
             for (i = 0; i < (1U << iteration); i = i + 1)
-                spinCPUSpinwait();
+                spinCPUSpinWait();
             ++iteration;
         }
         else

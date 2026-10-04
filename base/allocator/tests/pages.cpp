@@ -10,8 +10,8 @@
 #include <cstring>
 #include <initializer_list>
 #include <fcntl.h>
-#include <sys/mman.h>
 #include <unistd.h>
+#include <sys/mman.h>
 
 using namespace jemalloc;
 
@@ -29,7 +29,7 @@ void bootOnce()
 }
 
 /// The permissions ("rw-p") and the name of the mapping containing `addr` from /proc/self/maps.
-bool findMapping(const void * addr, char * perms, char * name, size_t name_size)
+bool findMapping(const void * addr, char * permissions, char * name, size_t name_size)
 {
     FILE * f = std::fopen("/proc/self/maps", "r");
     if (!f)
@@ -47,7 +47,7 @@ bool findMapping(const void * addr, char * perms, char * name, size_t name_size)
         uintptr_t a = reinterpret_cast<uintptr_t>(addr);
         if (a >= begin && a < end)
         {
-            std::strcpy(perms, p);
+            std::strcpy(permissions, p);
             const char * rest = line + consumed;
             while (*rest == ' ')
                 ++rest;
@@ -99,7 +99,7 @@ TEST(Pages, BootProbes)
     CHECK_EQ(pages::mmapFlags(), expected_flags);
 
     /// Real hardware (not QEMU user mode): MADV_DONTNEED zeroes, MADV_FREE is supported.
-    CHECK(!opt.trust_madvise);
+    CHECK(!options.trust_madvise);
     CHECK(!pages::madviseDontNeedZerosIsFaulty());
     CHECK(pages::canPurgeLazyRuntime());
 
@@ -112,26 +112,26 @@ TEST(Pages, BootProbes)
         ::close(fd);
         CHECK_GT(n, 0);
         if (std::strcmp(buf, "always [madvise] never\n") == 0)
-            CHECK_EQ(init_system_thp_mode, SystemTHPMode::Madvise);
+            CHECK_EQ(init_system_transparent_huge_pages_mode, SystemTransparentHugePagesMode::Madvise);
         else if (std::strcmp(buf, "[always] madvise never\n") == 0)
-            CHECK_EQ(init_system_thp_mode, SystemTHPMode::Always);
+            CHECK_EQ(init_system_transparent_huge_pages_mode, SystemTransparentHugePagesMode::Always);
         else if (std::strcmp(buf, "always madvise [never]\n") == 0)
-            CHECK_EQ(init_system_thp_mode, SystemTHPMode::Never);
+            CHECK_EQ(init_system_transparent_huge_pages_mode, SystemTransparentHugePagesMode::Never);
         else
-            CHECK_EQ(init_system_thp_mode, SystemTHPMode::NotSupported);
+            CHECK_EQ(init_system_transparent_huge_pages_mode, SystemTransparentHugePagesMode::NotSupported);
     }
     else
-        CHECK_EQ(init_system_thp_mode, SystemTHPMode::NotSupported);
-    if (init_system_thp_mode != SystemTHPMode::NotSupported)
-        CHECK_EQ(opt.thp, THPMode::DoNothing);
+        CHECK_EQ(init_system_transparent_huge_pages_mode, SystemTransparentHugePagesMode::NotSupported);
+    if (init_system_transparent_huge_pages_mode != SystemTransparentHugePagesMode::NotSupported)
+        CHECK_EQ(options.transparent_huge_pages, TransparentHugePagesMode::DoNothing);
     else
-        CHECK_EQ(opt.thp, THPMode::NotSupported);
+        CHECK_EQ(options.transparent_huge_pages, TransparentHugePagesMode::NotSupported);
 
-    CHECK_STREQ(thp_mode_names[0], "default");
-    CHECK_STREQ(thp_mode_names[3], "not supported");
-    CHECK_STREQ(system_thp_mode_names[0], "madvise");
-    CHECK_STREQ(metadata_thp_mode_names[2], "always");
-    CHECK(opt.retain == config::retain);
+    CHECK_STREQ(transparent_huge_pages_mode_names[0], "default");
+    CHECK_STREQ(transparent_huge_pages_mode_names[3], "not supported");
+    CHECK_STREQ(system_transparent_huge_pages_mode_names[0], "madvise");
+    CHECK_STREQ(metadata_transparent_huge_pages_mode_names[2], "always");
+    CHECK(options.retain == config::retain);
 }
 
 TEST(Pages, MapAlignedAndHint)
@@ -150,10 +150,10 @@ TEST(Pages, MapAlignedAndHint)
             CHECK(allZero(p, size));
             memset(p, 1, size);
 
-            char perms[8];
+            char permissions[8];
             char name[256];
-            REQUIRE(findMapping(p, perms, name, sizeof(name)));
-            CHECK_STREQ(perms, "rw-p");
+            REQUIRE(findMapping(p, permissions, name, sizeof(name)));
+            CHECK_STREQ(permissions, "rw-p");
             /// With `CONFIG_ANON_VMA_NAME` the mapping is named; otherwise prctl fails with EINVAL and it is not.
             if (name[0])
                 CHECK_STREQ(name, pages::osOvercommits() ? "[anon:jemalloc_pg_overcommit]" : "[anon:jemalloc_pg]");
@@ -195,13 +195,13 @@ TEST(Pages, Purge)
 
     /// Default hooks: zeroing a range uses MADV_DONTNEED (not memset).
     memset(p, 'y', size);
-    ehooksDefaultZeroImpl(p, size);
+    extentHooksDefaultZeroImpl(p, size);
     CHECK(allZero(p, size));
     memset(p, 'z', size);
-    CHECK(!ehooksDefaultPurgeForcedImpl(p, PAGE, PAGE));
+    CHECK(!extentHooksDefaultPurgeForcedImpl(p, PAGE, PAGE));
     CHECK(allZero(p + PAGE, PAGE));
     CHECK_EQ(p[0], 'z');
-    CHECK(!ehooksDefaultPurgeLazyImpl(p, 0, PAGE));
+    CHECK(!extentHooksDefaultPurgeLazyImpl(p, 0, PAGE));
 
     CHECK(!pages::dontDump(p, size));
     CHECK(!pages::doDump(p, size));
@@ -217,31 +217,31 @@ TEST(Pages, CommitDecommit)
     bool commit = false;
     char * p = static_cast<char *>(pages::map(nullptr, size, PAGE, &commit));
     REQUIRE(p != nullptr);
-    char perms[8];
+    char permissions[8];
     char name[256];
-    REQUIRE(findMapping(p, perms, name, sizeof(name)));
+    REQUIRE(findMapping(p, permissions, name, sizeof(name)));
 
     if (pages::osOvercommits())
     {
         /// Overcommit: memory is always committed, and commit/decommit are errors (no-ops).
         CHECK(commit);
-        CHECK_STREQ(perms, "rw-p");
+        CHECK_STREQ(permissions, "rw-p");
         memset(p, 1, size);
         CHECK(pages::decommit(p, size));
         CHECK(pages::commit(p, size));
         CHECK_EQ(p[0], 1);
-        CHECK(ehooksDefaultDecommitImpl(p, 0, size));
-        CHECK(ehooksDefaultCommitImpl(p, 0, size));
+        CHECK(extentHooksDefaultDecommitImpl(p, 0, size));
+        CHECK(extentHooksDefaultCommitImpl(p, 0, size));
     }
     else
     {
         CHECK(!commit);
-        CHECK_STREQ(perms, "---p");
+        CHECK_STREQ(permissions, "---p");
         CHECK(!pages::commit(p, size));
         memset(p, 1, size);
         CHECK(!pages::decommit(p, size));
-        REQUIRE(findMapping(p, perms, name, sizeof(name)));
-        CHECK_STREQ(perms, "---p");
+        REQUIRE(findMapping(p, permissions, name, sizeof(name)));
+        CHECK_STREQ(permissions, "---p");
         CHECK(!pages::commit(p, size));
         CHECK(allZero(p, size));
     }
@@ -255,33 +255,33 @@ TEST(Pages, Guards)
     bool commit = true;
     char * p = static_cast<char *>(pages::map(nullptr, size, PAGE, &commit));
     REQUIRE(p != nullptr);
-    char perms[8];
+    char permissions[8];
     char name[256];
 
     char * head = p + PAGE;
     char * tail = p + 4 * PAGE;
     pages::markGuards(head, tail);
-    REQUIRE(findMapping(head, perms, name, sizeof(name)));
-    CHECK_STREQ(perms, "---p");
-    REQUIRE(findMapping(tail, perms, name, sizeof(name)));
-    CHECK_STREQ(perms, "---p");
-    REQUIRE(findMapping(p + 2 * PAGE, perms, name, sizeof(name)));
-    CHECK_STREQ(perms, "rw-p");
+    REQUIRE(findMapping(head, permissions, name, sizeof(name)));
+    CHECK_STREQ(permissions, "---p");
+    REQUIRE(findMapping(tail, permissions, name, sizeof(name)));
+    CHECK_STREQ(permissions, "---p");
+    REQUIRE(findMapping(p + 2 * PAGE, permissions, name, sizeof(name)));
+    CHECK_STREQ(permissions, "rw-p");
 
     pages::unmarkGuards(head, tail);
-    REQUIRE(findMapping(head, perms, name, sizeof(name)));
-    CHECK_STREQ(perms, "rw-p");
-    REQUIRE(findMapping(tail, perms, name, sizeof(name)));
-    CHECK_STREQ(perms, "rw-p");
+    REQUIRE(findMapping(head, permissions, name, sizeof(name)));
+    CHECK_STREQ(permissions, "rw-p");
+    REQUIRE(findMapping(tail, permissions, name, sizeof(name)));
+    CHECK_STREQ(permissions, "rw-p");
     head[0] = 1;
     tail[0] = 1;
 
     pages::markGuards(nullptr, tail);
-    REQUIRE(findMapping(tail, perms, name, sizeof(name)));
-    CHECK_STREQ(perms, "---p");
+    REQUIRE(findMapping(tail, permissions, name, sizeof(name)));
+    CHECK_STREQ(permissions, "---p");
     pages::unmarkGuards(nullptr, tail);
-    REQUIRE(findMapping(tail, perms, name, sizeof(name)));
-    CHECK_STREQ(perms, "rw-p");
+    REQUIRE(findMapping(tail, permissions, name, sizeof(name)));
+    CHECK_STREQ(permissions, "rw-p");
 
     pages::unmap(p, size);
 }
@@ -298,8 +298,8 @@ TEST(Pages, ExtentMmap)
     CHECK_EQ(reinterpret_cast<uintptr_t>(p) % (2 << 20), 0u);
 
     /// With retain (Linux), dalloc fails and the memory stays mapped.
-    CHECK_EQ(extentDallocMmap(p, size), opt.retain);
-    if (opt.retain)
+    CHECK_EQ(extentDeallocateMmap(p, size), options.retain);
+    if (options.retain)
     {
         static_cast<char *>(p)[0] = 1;
         pages::unmap(p, size);
@@ -318,35 +318,36 @@ TEST(Pages, ExtentMmap)
 TEST(ExtentHooks, Default)
 {
     bootOnce();
-    ExtentHooks ehooks;
-    ehooks.init(const_cast<extent_hooks_t *>(&ehooks_default_extent_hooks), 7);
-    CHECK_EQ(ehooks.indGet(), 7u);
-    CHECK(ehooks.areDefault());
-    CHECK_EQ(ehooks.dallocWillFail(), opt.retain);
-    CHECK(!ehooks.splitWillFail());
-    CHECK(!ehooks.mergeWillFail());
-    CHECK(!ehooks.guardWillFail());
+    ExtentHooks extent_hooks;
+    extent_hooks.init(const_cast<extent_hooks_t *>(&extent_hooks_default_extent_hooks), 7);
+    CHECK_EQ(extent_hooks.idxGet(), 7u);
+    CHECK(extent_hooks.areDefault());
+    CHECK_EQ(extent_hooks.deallocateWillFail(), options.retain);
+    CHECK(!extent_hooks.splitWillFail());
+    CHECK(!extent_hooks.mergeWillFail());
+    CHECK(!extent_hooks.guardWillFail());
 
     bool zero = false;
     bool commit = true;
-    char * p = static_cast<char *>(ehooks.alloc(nullptr, nullptr, 8 * PAGE, PAGE, &zero, &commit));
+    char * p = static_cast<char *>(extent_hooks.alloc(nullptr, nullptr, 8 * PAGE, PAGE, &zero, &commit));
     REQUIRE(p != nullptr);
     CHECK(zero);
-    CHECK(!ehooks.split(nullptr, p, 8 * PAGE, 4 * PAGE, 4 * PAGE, true));
-    CHECK(!ehooks.merge(nullptr, p, 4 * PAGE, p + 4 * PAGE, 4 * PAGE, true));
+    CHECK(!extent_hooks.split(nullptr, p, 8 * PAGE, 4 * PAGE, 4 * PAGE, true));
+    CHECK(!extent_hooks.merge(nullptr, p, 4 * PAGE, p + 4 * PAGE, 4 * PAGE, true));
     memset(p, 3, 8 * PAGE);
-    ehooks.zero(nullptr, p, 8 * PAGE);
+    extent_hooks.zero(nullptr, p, 8 * PAGE);
     CHECK(allZero(p, 8 * PAGE));
-    CHECK(!ehooks.guard(nullptr, p, p + 7 * PAGE));
-    CHECK(!ehooks.unguard(nullptr, p, p + 7 * PAGE));
-    CHECK_EQ(ehooks.dalloc(nullptr, p, 8 * PAGE, true), opt.retain);
-    if (opt.retain)
-        ehooks.destroy(nullptr, p, 8 * PAGE, true);
+    CHECK(!extent_hooks.guard(nullptr, p, p + 7 * PAGE));
+    CHECK(!extent_hooks.unguard(nullptr, p, p + 7 * PAGE));
+    CHECK_EQ(extent_hooks.deallocate(nullptr, p, 8 * PAGE, true), options.retain);
+    if (options.retain)
+        extent_hooks.destroy(nullptr, p, 8 * PAGE, true);
 
     /// The public table.
-    const extent_hooks_t & table = ehooks_default_extent_hooks;
-    REQUIRE(table.alloc && table.dalloc && table.destroy && table.commit && table.decommit && table.purge_lazy
-            && table.purge_forced && table.split && table.merge);
+    const extent_hooks_t & table = extent_hooks_default_extent_hooks;
+    REQUIRE(
+        table.alloc && table.dalloc && table.destroy && table.commit && table.decommit && table.purge_lazy && table.purge_forced
+        && table.split && table.merge);
     extent_hooks_t * h = const_cast<extent_hooks_t *>(&table);
     zero = false;
     commit = true;
@@ -358,9 +359,9 @@ TEST(ExtentHooks, Default)
     CHECK(!table.purge_lazy(h, p, 2 * PAGE, 0, PAGE, 0));
     CHECK(!table.split(h, p, 2 * PAGE, PAGE, PAGE, true, 0));
     CHECK(!table.merge(h, p, PAGE, p + PAGE, PAGE, true, 0));
-    CHECK_EQ(table.dalloc(h, p, 2 * PAGE, true, 0), opt.retain);
-    if (opt.retain)
+    CHECK_EQ(table.dalloc(h, p, 2 * PAGE, true, 0), options.retain);
+    if (options.retain)
         table.destroy(h, p, 2 * PAGE, true, 0);
 
-    CHECK_STREQ(dss_prec_names[2], "secondary");
+    CHECK_STREQ(sbrk_precedence_names[2], "secondary");
 }

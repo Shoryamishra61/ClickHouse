@@ -17,9 +17,9 @@
 
 static uint64_t now_ns(void)
 {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
+    struct timespec time_spec;
+    clock_gettime(CLOCK_MONOTONIC, &time_spec);
+    return (uint64_t)time_spec.tv_sec * 1000000000ULL + (uint64_t)time_spec.tv_nsec;
 }
 
 static inline uint64_t xorshift(uint64_t * state)
@@ -55,10 +55,22 @@ enum
     NUM_KINDS
 };
 
-static const char * const kind_names[] = {"pair_16", "pair_100", "pair_1000", "pair_sized_100", "batch_small", "random_small",
-                                          "random_mixed", "realloc_grow", "calloc_small", "large_pair"};
+static const char * const kind_names[]
+    = {"pair_16",
+       "pair_100",
+       "pair_1000",
+       "pair_sized_100",
+       "batch_small",
+       "random_small",
+       "random_mixed",
+       "realloc_grow",
+       "calloc_small",
+       "large_pair"};
 
-enum { BATCH = 1000 };
+enum
+{
+    BATCH = 1000
+};
 
 static void * bench_thread(void * arg)
 {
@@ -164,19 +176,19 @@ static void * bench_thread(void * arg)
     return NULL;
 }
 
-static double run(int kind, int nthreads, size_t iterations)
+static double run(int kind, int num_threads, size_t iterations)
 {
     pthread_t threads[64];
     struct bench_args args[64];
     uint64_t start = now_ns();
-    for (int t = 0; t < nthreads; ++t)
+    for (int t = 0; t < num_threads; ++t)
     {
         args[t].kind = kind;
         args[t].iterations = iterations;
         args[t].seed = 0x9e3779b97f4a7c15ULL * (uint64_t)(t + 1);
         pthread_create(&threads[t], NULL, bench_thread, &args[t]);
     }
-    for (int t = 0; t < nthreads; ++t)
+    for (int t = 0; t < num_threads; ++t)
         pthread_join(threads[t], NULL);
     uint64_t elapsed = now_ns() - start;
     return (double)elapsed / (double)iterations;

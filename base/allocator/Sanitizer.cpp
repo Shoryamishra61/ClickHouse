@@ -11,21 +11,22 @@
 namespace jemalloc
 {
 
-constinit uintptr_t san_cache_bin_nonfast_mask = SAN_CACHE_BIN_NONFAST_MASK_DEFAULT;
+constinit uintptr_t sanitizer_cache_bin_non_fast_mask = SANITIZER_CACHE_BIN_NON_FAST_MASK_DEFAULT;
 
 namespace
 {
 
 /// jemalloc: san_find_guarded_addr
-JE_ALWAYS_INLINE void sanFindGuardedAddr(Extent * edata, void ** guard1, void ** guard2, void ** addr, size_t size, bool left, bool right)
+ALLOCATOR_ALWAYS_INLINE void
+sanitizerFindGuardedAddr(Extent * extent, void ** guard1, void ** guard2, void ** addr, size_t size, bool left, bool right)
 {
-    JE_ASSERT(!edata->guarded());
-    JE_ASSERT(size % PAGE == 0);
-    *addr = edata->base();
+    ALLOCATOR_ASSERT(!extent->guarded());
+    ALLOCATOR_ASSERT(size % PAGE == 0);
+    *addr = extent->base();
     if (left)
     {
         *guard1 = *addr;
-        *addr = static_cast<std::byte *>(*addr) + SAN_PAGE_GUARD;
+        *addr = static_cast<std::byte *>(*addr) + SANITIZER_PAGE_GUARD;
     }
     else
     {
@@ -39,11 +40,12 @@ JE_ALWAYS_INLINE void sanFindGuardedAddr(Extent * edata, void ** guard1, void **
 }
 
 /// jemalloc: san_find_unguarded_addr
-JE_ALWAYS_INLINE void sanFindUnguardedAddr(Extent * edata, void ** guard1, void ** guard2, void ** addr, size_t size, bool left, bool right)
+ALLOCATOR_ALWAYS_INLINE void
+sanitizerFindUnguardedAddr(Extent * extent, void ** guard1, void ** guard2, void ** addr, size_t size, bool left, bool right)
 {
-    JE_ASSERT(edata->guarded());
-    JE_ASSERT(size % PAGE == 0);
-    *addr = edata->base();
+    ALLOCATOR_ASSERT(extent->guarded());
+    ALLOCATOR_ASSERT(size % PAGE == 0);
+    *addr = extent->base();
     if (right)
         *guard2 = static_cast<std::byte *>(*addr) + size;
     else
@@ -51,8 +53,8 @@ JE_ALWAYS_INLINE void sanFindUnguardedAddr(Extent * edata, void ** guard1, void 
 
     if (left)
     {
-        *guard1 = static_cast<std::byte *>(*addr) - SAN_PAGE_GUARD;
-        JE_ASSERT(*guard1 != nullptr);
+        *guard1 = static_cast<std::byte *>(*addr) - SANITIZER_PAGE_GUARD;
+        ALLOCATOR_ASSERT(*guard1 != nullptr);
         *addr = *guard1;
     }
     else
@@ -62,47 +64,48 @@ JE_ALWAYS_INLINE void sanFindUnguardedAddr(Extent * edata, void ** guard1, void 
 }
 
 /// jemalloc: san_unguard_pages_impl
-void sanUnguardPagesImpl(ThreadState * tsdn, ExtentHooks * ehooks, Extent * edata, ExtentMap * emap, bool left, bool right, bool remap)
+void sanitizerUnguardPagesImpl(
+    ThreadState * thread_state, ExtentHooks * extent_hooks, Extent * extent, ExtentMap * extent_map, bool left, bool right, bool remap)
 {
-    JE_ASSERT(left || right);
+    ALLOCATOR_ASSERT(left || right);
     /// Remove the inner boundary which no longer exists.
     if (remap)
     {
-        JE_ASSERT(edata->state() == extent_state_active);
-        emap->deregisterBoundary(tsdn, edata);
+        ALLOCATOR_ASSERT(extent->state() == extent_state_active);
+        extent_map->deregisterBoundary(thread_state, extent);
     }
     else
     {
-        JE_ASSERT(edata->state() == extent_state_retained);
+        ALLOCATOR_ASSERT(extent->state() == extent_state_retained);
     }
 
-    size_t size = edata->size();
-    size_t size_with_guards = (left && right) ? sanTwoSideGuardedSize(size) : sanOneSideGuardedSize(size);
+    size_t size = extent->size();
+    size_t size_with_guards = (left && right) ? sanitizerTwoSideGuardedSize(size) : sanitizerOneSideGuardedSize(size);
 
     void * guard1;
     void * guard2;
     void * addr;
-    sanFindUnguardedAddr(edata, &guard1, &guard2, &addr, size, left, right);
+    sanitizerFindUnguardedAddr(extent, &guard1, &guard2, &addr, size, left, right);
 
-    ehooks->unguard(tsdn, guard1, guard2);
+    extent_hooks->unguard(thread_state, guard1, guard2);
 
     /// Update the true addr and usable size of the extent.
-    edata->setSize(size_with_guards);
-    edata->setAddr(addr);
-    edata->setGuarded(false);
+    extent->setSize(size_with_guards);
+    extent->setAddr(addr);
+    extent->setGuarded(false);
 
     /// Then re-register the outer boundary including the guards, if requested.
     if (remap)
-        emap->registerBoundary(tsdn, edata, SC_NSIZES, /* slab */ false);
+        extent_map->registerBoundary(thread_state, extent, SIZE_CLASS_NUM_SIZES, /* slab */ false);
 }
 
 /// jemalloc: san_stashed_corrupted
-bool sanStashedCorrupted(void * ptr, size_t size)
+bool sanitizerStashedCorrupted(void * ptr, size_t size)
 {
-    if constexpr (sanJunkPtrShouldSlow())
+    if constexpr (sanitizerJunkPtrShouldSlow())
     {
         for (size_t i = 0; i < size; ++i)
-            if (static_cast<char *>(ptr)[i] != char(uaf_detect_junk))
+            if (static_cast<char *>(ptr)[i] != char(use_after_free_detect_junk))
                 return true;
         return false;
     }
@@ -110,9 +113,9 @@ bool sanStashedCorrupted(void * ptr, size_t size)
     void * first;
     void * mid;
     void * last;
-    sanJunkPtrLocations(ptr, size, &first, &mid, &last);
-    if (*static_cast<uintptr_t *>(first) != uaf_detect_junk || *static_cast<uintptr_t *>(mid) != uaf_detect_junk
-        || *static_cast<uintptr_t *>(last) != uaf_detect_junk)
+    sanitizerJunkPtrLocations(ptr, size, &first, &mid, &last);
+    if (*static_cast<uintptr_t *>(first) != use_after_free_detect_junk || *static_cast<uintptr_t *>(mid) != use_after_free_detect_junk
+        || *static_cast<uintptr_t *>(last) != use_after_free_detect_junk)
         return true;
 
     return false;
@@ -120,159 +123,166 @@ bool sanStashedCorrupted(void * ptr, size_t size)
 
 }
 
-void sanGuardPages(ThreadState * tsdn, ExtentHooks * ehooks, Extent * edata, ExtentMap * emap, bool left, bool right, bool remap)
+void sanitizerGuardPages(
+    ThreadState * thread_state, ExtentHooks * extent_hooks, Extent * extent, ExtentMap * extent_map, bool left, bool right, bool remap)
 {
-    JE_ASSERT(left || right);
+    ALLOCATOR_ASSERT(left || right);
     if (remap)
-        emap->deregisterBoundary(tsdn, edata);
+        extent_map->deregisterBoundary(thread_state, extent);
 
-    size_t size_with_guards = edata->size();
-    size_t usize = (left && right) ? sanTwoSideUnguardedSize(size_with_guards) : sanOneSideUnguardedSize(size_with_guards);
+    size_t size_with_guards = extent->size();
+    size_t usable_size
+        = (left && right) ? sanitizerTwoSideUnguardedSize(size_with_guards) : sanitizerOneSideUnguardedSize(size_with_guards);
 
     void * guard1;
     void * guard2;
     void * addr;
-    sanFindGuardedAddr(edata, &guard1, &guard2, &addr, usize, left, right);
+    sanitizerFindGuardedAddr(extent, &guard1, &guard2, &addr, usable_size, left, right);
 
-    JE_ASSERT(edata->state() == extent_state_active);
-    ehooks->guard(tsdn, guard1, guard2);
+    ALLOCATOR_ASSERT(extent->state() == extent_state_active);
+    extent_hooks->guard(thread_state, guard1, guard2);
 
     /// Update the guarded addr and usable size of the extent.
-    edata->setSize(usize);
-    edata->setAddr(addr);
-    edata->setGuarded(true);
+    extent->setSize(usable_size);
+    extent->setAddr(addr);
+    extent->setGuarded(true);
 
     if (remap)
-        emap->registerBoundary(tsdn, edata, SC_NSIZES, /* slab */ false);
+        extent_map->registerBoundary(thread_state, extent, SIZE_CLASS_NUM_SIZES, /* slab */ false);
 }
 
-void sanUnguardPages(ThreadState * tsdn, ExtentHooks * ehooks, Extent * edata, ExtentMap * emap, bool left, bool right)
+void sanitizerUnguardPages(
+    ThreadState * thread_state, ExtentHooks * extent_hooks, Extent * extent, ExtentMap * extent_map, bool left, bool right)
 {
-    sanUnguardPagesImpl(tsdn, ehooks, edata, emap, left, right, /* remap */ true);
+    sanitizerUnguardPagesImpl(thread_state, extent_hooks, extent, extent_map, left, right, /* remap */ true);
 }
 
-void sanUnguardPagesPreDestroy(ThreadState * tsdn, ExtentHooks * ehooks, Extent * edata, ExtentMap * emap)
+void sanitizerUnguardPagesPreDestroy(ThreadState * thread_state, ExtentHooks * extent_hooks, Extent * extent, ExtentMap * extent_map)
 {
-    emap->assertNotMapped(tsdn, edata);
+    extent_map->assertNotMapped(thread_state, extent);
     /// We don't want to touch the emap of about to be destroyed extents, as they have been unmapped upon eviction from
     /// the retained ecache. Also, we unguard the extents to the right, because retained extents only own their right
-    /// guard page per `SanBumpAlloc::alloc`'s logic.
-    sanUnguardPagesImpl(tsdn, ehooks, edata, emap, /* left */ false, /* right */ true, /* remap */ false);
+    /// guard page per `SanitizerBumpAlloc::alloc`'s logic.
+    sanitizerUnguardPagesImpl(thread_state, extent_hooks, extent, extent_map, /* left */ false, /* right */ true, /* remap */ false);
 }
 
-void sanCheckStashedPtrs(void ** ptrs, size_t nstashed, size_t usize)
+void sanitizerCheckStashedPtrs(void ** ptrs, size_t num_stashed, size_t usable_size)
 {
     /// Verify that the junk-filled and stashed pointers remain unchanged, to detect write-after-free.
-    for (size_t n = 0; n < nstashed; ++n)
+    for (size_t n = 0; n < num_stashed; ++n)
     {
         void * stashed = ptrs[n];
-        JE_ASSERT(stashed != nullptr);
-        JE_ASSERT(!config::uaf_detection || (reinterpret_cast<uintptr_t>(stashed) & san_cache_bin_nonfast_mask) == 0);
-        if (JE_UNLIKELY(sanStashedCorrupted(stashed, usize)))
-            safetyCheckFail("<jemalloc>: Write-after-free detected on deallocated pointer %p (size %zu).\n", stashed, usize);
+        ALLOCATOR_ASSERT(stashed != nullptr);
+        ALLOCATOR_ASSERT(
+            !config::use_after_free_detection || (reinterpret_cast<uintptr_t>(stashed) & sanitizer_cache_bin_non_fast_mask) == 0);
+        if (ALLOCATOR_UNLIKELY(sanitizerStashedCorrupted(stashed, usable_size)))
+            safetyCheckFail("<jemalloc>: Write-after-free detected on deallocated pointer %p (size %zu).\n", stashed, usable_size);
     }
 }
 
-void tsdSanInit(ThreadState & tsd)
+void threadStateSanitizerInit(ThreadState & thread_state)
 {
-    tsd.san_extents_until_guard_small = opt.san_guard_small;
-    tsd.san_extents_until_guard_large = opt.san_guard_large;
+    thread_state.sanitizer_extents_until_guard_small = options.sanitizer_guard_small;
+    thread_state.sanitizer_extents_until_guard_large = options.sanitizer_guard_large;
 }
 
-void sanInit(ssize_t lg_san_uaf_align)
+void sanitizerInit(ssize_t log2_sanitizer_use_after_free_align)
 {
-    JE_ASSERT(lg_san_uaf_align == -1 || lg_san_uaf_align >= ssize_t(LG_PAGE));
-    if (lg_san_uaf_align == -1)
+    ALLOCATOR_ASSERT(log2_sanitizer_use_after_free_align == -1 || log2_sanitizer_use_after_free_align >= ssize_t(LOG2_PAGE));
+    if (log2_sanitizer_use_after_free_align == -1)
     {
-        san_cache_bin_nonfast_mask = uintptr_t(-1);
+        sanitizer_cache_bin_non_fast_mask = uintptr_t(-1);
         return;
     }
 
-    san_cache_bin_nonfast_mask = (uintptr_t(1) << lg_san_uaf_align) - 1;
+    sanitizer_cache_bin_non_fast_mask = (uintptr_t(1) << log2_sanitizer_use_after_free_align) - 1;
 }
 
-/// --- SanBumpAlloc --------------------------------------------------------------------------------------------------
+/// --- SanitizerBumpAlloc --------------------------------------------------------------------------------------------------
 
-Extent * SanBumpAlloc::alloc(ThreadState * tsdn, PageAllocator * pac, ExtentHooks * ehooks, size_t size, bool zero)
+Extent *
+SanitizerBumpAlloc::alloc(ThreadState * thread_state, PageAllocator * page_allocator, ExtentHooks * extent_hooks, size_t size, bool zero)
 {
-    JE_ASSERT(sanBumpEnabled());
+    ALLOCATOR_ASSERT(sanitizerBumpEnabled());
 
     Extent * to_destroy;
-    size_t guarded_size = sanOneSideGuardedSize(size);
-    Extent * edata;
+    size_t guarded_size = sanitizerOneSideGuardedSize(size);
+    Extent * extent;
 
-    mtx.lock(tsdn);
+    mutex.lock(thread_state);
 
-    if (curr_reg == nullptr || curr_reg->size() < guarded_size)
+    if (current_region == nullptr || current_region->size() < guarded_size)
     {
         /// If the current region can't accommodate the allocation, try replacing it with a larger one and destroy the
         /// current one if the replacement succeeds.
-        to_destroy = curr_reg;
-        bool err = growLocked(tsdn, pac, ehooks, guarded_size);
-        if (err)
-            goto label_err;
+        to_destroy = current_region;
+        bool error = growLocked(thread_state, page_allocator, extent_hooks, guarded_size);
+        if (error)
+            goto label_error;
     }
     else
     {
         to_destroy = nullptr;
     }
-    JE_ASSERT(guarded_size <= curr_reg->size());
+    ALLOCATOR_ASSERT(guarded_size <= current_region->size());
 
     {
-        size_t trail_size = curr_reg->size() - guarded_size;
+        size_t trail_size = current_region->size() - guarded_size;
         if (trail_size != 0)
         {
-            Extent * curr_reg_trail
-                = extentSplitWrapper(tsdn, pac, ehooks, curr_reg, guarded_size, trail_size, /* holding_core_locks */ true);
-            if (curr_reg_trail == nullptr)
-                goto label_err;
-            edata = curr_reg;
-            curr_reg = curr_reg_trail;
+            Extent * current_region_trail = extentSplitWrapper(
+                thread_state, page_allocator, extent_hooks, current_region, guarded_size, trail_size, /* holding_core_locks */ true);
+            if (current_region_trail == nullptr)
+                goto label_error;
+            extent = current_region;
+            current_region = current_region_trail;
         }
         else
         {
-            edata = curr_reg;
-            curr_reg = nullptr;
+            extent = current_region;
+            current_region = nullptr;
         }
     }
 
-    mtx.unlock(tsdn);
+    mutex.unlock(thread_state);
 
-    JE_ASSERT(!edata->guarded());
-    JE_ASSERT(curr_reg == nullptr || !curr_reg->guarded());
-    JE_ASSERT(to_destroy == nullptr || !to_destroy->guarded());
+    ALLOCATOR_ASSERT(!extent->guarded());
+    ALLOCATOR_ASSERT(current_region == nullptr || !current_region->guarded());
+    ALLOCATOR_ASSERT(to_destroy == nullptr || !to_destroy->guarded());
 
     if (to_destroy != nullptr)
-        extentDestroyWrapper(tsdn, pac, ehooks, to_destroy);
+        extentDestroyWrapper(thread_state, page_allocator, extent_hooks, to_destroy);
 
-    sanGuardPages(tsdn, ehooks, edata, pac->emap, /* left */ false, /* right */ true, /* remap */ true);
+    sanitizerGuardPages(
+        thread_state, extent_hooks, extent, page_allocator->extent_map, /* left */ false, /* right */ true, /* remap */ true);
 
-    if (extentCommitZero(tsdn, ehooks, edata, /* commit */ true, zero, /* growing_retained */ false))
+    if (extentCommitZero(thread_state, extent_hooks, extent, /* commit */ true, zero, /* growing_retained */ false))
     {
-        extentRecord(tsdn, pac, ehooks, &pac->ecache_retained, edata);
+        extentRecord(thread_state, page_allocator, extent_hooks, &page_allocator->extent_cache_retained, extent);
         return nullptr;
     }
 
-    if constexpr (config::prof)
-        extentGdumpAdd(tsdn, edata);
+    if constexpr (config::profiling)
+        extentGrowthDumpAdd(thread_state, extent);
 
-    return edata;
+    return extent;
 
-label_err:
-    mtx.unlock(tsdn);
+label_error:
+    mutex.unlock(thread_state);
     return nullptr;
 }
 
-bool SanBumpAlloc::growLocked(ThreadState * tsdn, PageAllocator * pac, ExtentHooks * ehooks, size_t size)
+bool SanitizerBumpAlloc::growLocked(ThreadState * thread_state, PageAllocator * page_allocator, ExtentHooks * extent_hooks, size_t size)
 {
-    mtx.assertOwner(tsdn);
+    mutex.assertOwner(thread_state);
 
     bool committed = false;
     bool zeroed = false;
-    size_t alloc_size = size > SBA_RETAINED_ALLOC_SIZE ? size : SBA_RETAINED_ALLOC_SIZE;
-    JE_ASSERT((alloc_size & PAGE_MASK) == 0);
-    curr_reg = extentAllocWrapper(tsdn, pac, ehooks, nullptr, alloc_size, PAGE, zeroed, &committed, /* growing_retained */ true);
-    if (curr_reg == nullptr)
+    size_t alloc_size = size > SANITIZER_BUMP_ALLOC_RETAINED_ALLOC_SIZE ? size : SANITIZER_BUMP_ALLOC_RETAINED_ALLOC_SIZE;
+    ALLOCATOR_ASSERT((alloc_size & PAGE_MASK) == 0);
+    current_region = extentAllocWrapper(
+        thread_state, page_allocator, extent_hooks, nullptr, alloc_size, PAGE, zeroed, &committed, /* growing_retained */ true);
+    if (current_region == nullptr)
         return true;
     return false;
 }
@@ -303,15 +313,15 @@ void safetyCheckFailSizedDealloc(bool current_dealloc, const void * ptr, size_t 
         suggest_debug_build);
 }
 
-void safetyCheckSetAbort(SafetyCheckAbortHook abort_fn)
+void safetyCheckSetAbort(SafetyCheckAbortHook abort_function)
 {
-    safety_check_abort = abort_fn;
+    safety_check_abort = abort_function;
 }
 
 /// In addition to `writeMessage`, also embed a hint in the abort function name, because there are cases where only
 /// crash stack traces are logged. The name is kept verbatim from jemalloc for that reason.
 /// jemalloc: safety_check_detected_heap_corruption___run_address_sanitizer_build_to_debug
-JE_NOINLINE static void safety_check_detected_heap_corruption___run_address_sanitizer_build_to_debug(const char * buf)
+ALLOCATOR_NOINLINE static void safety_check_detected_heap_corruption___run_address_sanitizer_build_to_debug(const char * buf)
 {
     if (safety_check_abort == nullptr)
     {
@@ -326,12 +336,12 @@ JE_NOINLINE static void safety_check_detected_heap_corruption___run_address_sani
 
 void safetyCheckFail(const char * format, ...)
 {
-    char buf[MALLOC_PRINTF_BUFSIZE];
+    char buf[MALLOC_PRINTF_BUF_SIZE];
 
-    va_list ap;
-    va_start(ap, format);
-    formatV(buf, MALLOC_PRINTF_BUFSIZE, format, ap);
-    va_end(ap);
+    va_list args;
+    va_start(args, format);
+    formatV(buf, MALLOC_PRINTF_BUF_SIZE, format, args);
+    va_end(args);
 
     safety_check_detected_heap_corruption___run_address_sanitizer_build_to_debug(buf);
 }

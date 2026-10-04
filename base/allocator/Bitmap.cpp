@@ -7,10 +7,10 @@ namespace jemalloc
 
 /// jemalloc: bitmap_info_init
 template <bool UseTree>
-void bitmapInfoInit(BitmapInfoImpl<UseTree> & info, size_t nbits)
+void bitmapInfoInit(BitmapInfoImpl<UseTree> & info, size_t num_bits)
 {
-    JE_ASSERT(nbits > 0);
-    JE_ASSERT(nbits <= (size_t(1) << LG_BITMAP_MAXBITS));
+    ALLOCATOR_ASSERT(num_bits > 0);
+    ALLOCATOR_ASSERT(num_bits <= (size_t(1) << LOG2_BITMAP_MAX_BITS));
 
     if constexpr (UseTree)
     {
@@ -18,22 +18,22 @@ void bitmapInfoInit(BitmapInfoImpl<UseTree> & info, size_t nbits)
         /// levels until reaching a level that requires only one group.
         unsigned i;
         info.levels[0].group_offset = 0;
-        size_t group_count = bitmapBitsToGroups(nbits);
+        size_t group_count = bitmapBitsToGroups(num_bits);
         for (i = 1; group_count > 1; ++i)
         {
-            JE_ASSERT(i < BITMAP_MAX_LEVELS);
+            ALLOCATOR_ASSERT(i < BITMAP_MAX_LEVELS);
             info.levels[i].group_offset = info.levels[i - 1].group_offset + group_count;
             group_count = bitmapBitsToGroups(group_count);
         }
         info.levels[i].group_offset = info.levels[i - 1].group_offset + group_count;
-        JE_ASSERT(!BITMAP_USE_TREE || info.levels[i].group_offset <= BITMAP_GROUPS_MAX);
-        info.nlevels = i;
-        info.nbits = nbits;
+        ALLOCATOR_ASSERT(!BITMAP_USE_TREE || info.levels[i].group_offset <= BITMAP_GROUPS_MAX);
+        info.num_levels = i;
+        info.num_bits = num_bits;
     }
     else
     {
-        info.ngroups = bitmapBitsToGroups(nbits);
-        info.nbits = nbits;
+        info.num_groups = bitmapBitsToGroups(num_bits);
+        info.num_bits = num_bits;
     }
 }
 
@@ -54,16 +54,16 @@ void bitmapInit(bitmap_t * bitmap, const BitmapInfoImpl<UseTree> & info, bool fi
     /// 0 to correspond to the first logical bit in the group, so extra bits are the most significant bits of the
     /// last group.
     std::memset(bitmap, 0xffU, bitmapSize(info));
-    size_t extra = (BITMAP_GROUP_NBITS - (info.nbits & BITMAP_GROUP_NBITS_MASK)) & BITMAP_GROUP_NBITS_MASK;
+    size_t extra = (BITMAP_GROUP_NUM_BITS - (info.num_bits & BITMAP_GROUP_NUM_BITS_MASK)) & BITMAP_GROUP_NUM_BITS_MASK;
 
     if constexpr (UseTree)
     {
         if (extra != 0)
             bitmap[info.levels[1].group_offset - 1] >>= extra;
-        for (unsigned i = 1; i < info.nlevels; ++i)
+        for (unsigned i = 1; i < info.num_levels; ++i)
         {
             size_t group_count = info.levels[i].group_offset - info.levels[i - 1].group_offset;
-            extra = (BITMAP_GROUP_NBITS - (group_count & BITMAP_GROUP_NBITS_MASK)) & BITMAP_GROUP_NBITS_MASK;
+            extra = (BITMAP_GROUP_NUM_BITS - (group_count & BITMAP_GROUP_NUM_BITS_MASK)) & BITMAP_GROUP_NUM_BITS_MASK;
             if (extra != 0)
                 bitmap[info.levels[i + 1].group_offset - 1] >>= extra;
         }
@@ -71,7 +71,7 @@ void bitmapInit(bitmap_t * bitmap, const BitmapInfoImpl<UseTree> & info, bool fi
     else
     {
         if (extra != 0)
-            bitmap[info.ngroups - 1] >>= extra;
+            bitmap[info.num_groups - 1] >>= extra;
     }
 }
 

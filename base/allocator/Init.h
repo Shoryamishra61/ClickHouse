@@ -4,7 +4,7 @@
 /// `jemalloc_prefork` / `jemalloc_postfork_*`).
 ///
 /// The initialization state, `mallocInitialized`, `mallocInit` and `mallocInitHard` are declared in Frontend.h (the
-/// fast paths need them), `mallocInitA0` in Arenas.h (the bootstrap allocations need it), `ncpus` in Mutex.h.
+/// fast paths need them), `mallocInitA0` in Arenas.h (the bootstrap allocations need it), `num_cpus` in Mutex.h.
 
 #include <allocator/Common.h>
 
@@ -14,7 +14,7 @@ namespace jemalloc
 /// The number of CPUs in the affinity mask of the process (`sysconf(_SC_NPROCESSORS_ONLN)` on Darwin); 1 if it cannot
 /// be determined. No cgroup quota awareness.
 /// jemalloc: malloc_ncpus
-unsigned mallocNcpus();
+unsigned mallocNumCPUs();
 
 /// Whether the number of CPUs is the same based on the affinity mask, `_SC_NPROCESSORS_ONLN` and
 /// `_SC_NPROCESSORS_CONF` (otherwise per-CPU arenas are disabled).

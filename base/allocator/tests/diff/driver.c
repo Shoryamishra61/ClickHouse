@@ -11,9 +11,9 @@
 
 #define _GNU_SOURCE
 #include <errno.h>
+#include <inttypes.h>
 #include <pthread.h>
 #include <sched.h>
-#include <inttypes.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -23,12 +23,12 @@
 
 #include <jemalloc/jemalloc.h>
 
-#define CHECK_CTL(expr) \
+#define CHECK_MALLCTL(expr) \
     do \
     { \
-        int check_ctl_err_ = (expr); \
-        if (check_ctl_err_) \
-            printf("  %s -> error %d\n", #expr, check_ctl_err_); \
+        int check_mallctl_error_ = (expr); \
+        if (check_mallctl_error_) \
+            printf("  %s -> error %d\n", #expr, check_mallctl_error_); \
     } while (0)
 
 static uint64_t rng_state = 42;
@@ -48,35 +48,38 @@ static size_t random_size(void)
     uint64_t r = next_random();
     switch (r % 16)
     {
-        case 0:
-            return (size_t)(next_random() % (4 << 20)) + 1;
+        case 0: return (size_t)(next_random() % (4 << 20)) + 1;
         case 1:
-        case 2:
-            return (size_t)(next_random() % (256 << 10)) + 1;
-        case 3:
-            return (size_t)(next_random() % 64) * 4096 + (next_random() % 3) * 8;
-        default:
-            return (size_t)(next_random() % 4096) + 1;
+        case 2: return (size_t)(next_random() % (256 << 10)) + 1;
+        case 3: return (size_t)(next_random() % 64) * 4096 + (next_random() % 3) * 8;
+        default: return (size_t)(next_random() % 4096) + 1;
     }
 }
 
 static void print_global_stats(const char * label)
 {
     uint64_t epoch = 1;
-    size_t sz = sizeof(epoch);
-    CHECK_CTL(je_mallctl("epoch", &epoch, &sz, &epoch, sz));
+    size_t size = sizeof(epoch);
+    CHECK_MALLCTL(je_mallctl("epoch", &epoch, &size, &epoch, size));
 
     static const char * const names[]
-        = {"stats.allocated", "stats.active", "stats.metadata", "stats.metadata_edata", "stats.metadata_rtc",
-           "stats.metadata_thp", "stats.resident", "stats.mapped", "stats.retained"};
+        = {"stats.allocated",
+           "stats.active",
+           "stats.metadata",
+           "stats.metadata_edata",
+           "stats.metadata_rtc",
+           "stats.metadata_thp",
+           "stats.resident",
+           "stats.mapped",
+           "stats.retained"};
     printf("stats %s:", label);
     for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); ++i)
     {
         size_t value = 0;
-        sz = sizeof(value);
-        int err = je_mallctl(names[i], &value, &sz, NULL, 0);
-        if (err)
-            printf(" %s=err%d", names[i] + 6, err);
+        size = sizeof(value);
+        int error = je_mallctl(names[i], &value, &size, NULL, 0);
+        if (error)
+            printf(" %s=err%d", names[i] + 6, error);
         else
             printf(" %s=%zu", names[i] + 6, value);
     }
@@ -86,63 +89,84 @@ static void print_global_stats(const char * label)
 static void print_arena_stats(unsigned arena, const char * label)
 {
     uint64_t epoch = 1;
-    size_t sz = sizeof(epoch);
-    CHECK_CTL(je_mallctl("epoch", &epoch, &sz, &epoch, sz));
+    size_t size = sizeof(epoch);
+    CHECK_MALLCTL(je_mallctl("epoch", &epoch, &size, &epoch, size));
 
     char name[128];
-    static const char * const size_names[] = {"pactive", "pdirty", "pmuzzy", "mapped", "retained", "base", "internal",
-                                              "allocated_large", "resident", "metadata_edata", "metadata_rtc", "extent_avail",
-                                              "tcache_bytes", "tcache_stashed_bytes"};
+    static const char * const size_names[]
+        = {"pactive",
+           "pdirty",
+           "pmuzzy",
+           "mapped",
+           "retained",
+           "base",
+           "internal",
+           "allocated_large",
+           "resident",
+           "metadata_edata",
+           "metadata_rtc",
+           "extent_avail",
+           "tcache_bytes",
+           "tcache_stashed_bytes"};
     printf("arena %u stats %s:", arena, label);
     for (size_t i = 0; i < sizeof(size_names) / sizeof(size_names[0]); ++i)
     {
         size_t value = 0;
-        sz = sizeof(value);
+        size = sizeof(value);
         snprintf(name, sizeof(name), "stats.arenas.%u.%s", arena, size_names[i]);
-        int err = je_mallctl(name, &value, &sz, NULL, 0);
-        if (err)
-            printf(" %s=err%d", size_names[i], err);
+        int error = je_mallctl(name, &value, &size, NULL, 0);
+        if (error)
+            printf(" %s=err%d", size_names[i], error);
         else
             printf(" %s=%zu", size_names[i], value);
     }
-    static const char * const u64_names[] = {"dirty_npurge", "dirty_nmadvise", "dirty_purged", "muzzy_npurge", "muzzy_nmadvise",
-                                             "muzzy_purged", "nmalloc_large", "ndalloc_large", "nrequests_large", "nfills_large",
-                                             "nflushes_large"};
+    static const char * const u64_names[]
+        = {"dirty_npurge",
+           "dirty_nmadvise",
+           "dirty_purged",
+           "muzzy_npurge",
+           "muzzy_nmadvise",
+           "muzzy_purged",
+           "nmalloc_large",
+           "ndalloc_large",
+           "nrequests_large",
+           "nfills_large",
+           "nflushes_large"};
     for (size_t i = 0; i < sizeof(u64_names) / sizeof(u64_names[0]); ++i)
     {
         uint64_t value = 0;
-        sz = sizeof(value);
+        size = sizeof(value);
         snprintf(name, sizeof(name), "stats.arenas.%u.%s", arena, u64_names[i]);
-        int err = je_mallctl(name, &value, &sz, NULL, 0);
-        if (err)
-            printf(" %s=err%d", u64_names[i], err);
+        int error = je_mallctl(name, &value, &size, NULL, 0);
+        if (error)
+            printf(" %s=err%d", u64_names[i], error);
         else
             printf(" %s=%" PRIu64, u64_names[i], value);
     }
     printf("\n");
 
-    unsigned nbins = 0;
-    sz = sizeof(nbins);
-    CHECK_CTL(je_mallctl("arenas.nbins", &nbins, &sz, NULL, 0));
-    for (unsigned j = 0; j < nbins; ++j)
+    unsigned num_bins = 0;
+    size = sizeof(num_bins);
+    CHECK_MALLCTL(je_mallctl("arenas.nbins", &num_bins, &size, NULL, 0));
+    for (unsigned j = 0; j < num_bins; ++j)
     {
         static const char * const bin_u64[] = {"nmalloc", "ndalloc", "nrequests", "nfills", "nflushes", "nslabs", "nreslabs"};
-        static const char * const bin_zu[] = {"curregs", "curslabs", "nonfull_slabs"};
+        static const char * const bin_size_t_names[] = {"curregs", "curslabs", "nonfull_slabs"};
         uint64_t values[7];
-        size_t zvalues[3];
+        size_t size_values[3];
         for (size_t i = 0; i < 7; ++i)
         {
-            sz = sizeof(uint64_t);
+            size = sizeof(uint64_t);
             snprintf(name, sizeof(name), "stats.arenas.%u.bins.%u.%s", arena, j, bin_u64[i]);
-            if (je_mallctl(name, &values[i], &sz, NULL, 0))
+            if (je_mallctl(name, &values[i], &size, NULL, 0))
                 values[i] = (uint64_t)-1;
         }
         for (size_t i = 0; i < 3; ++i)
         {
-            sz = sizeof(size_t);
-            snprintf(name, sizeof(name), "stats.arenas.%u.bins.%u.%s", arena, j, bin_zu[i]);
-            if (je_mallctl(name, &zvalues[i], &sz, NULL, 0))
-                zvalues[i] = (size_t)-1;
+            size = sizeof(size_t);
+            snprintf(name, sizeof(name), "stats.arenas.%u.bins.%u.%s", arena, j, bin_size_t_names[i]);
+            if (je_mallctl(name, &size_values[i], &size, NULL, 0))
+                size_values[i] = (size_t)-1;
         }
         if (values[0] == 0 && values[1] == 0 && values[2] == 0)
             continue;
@@ -150,7 +174,7 @@ static void print_arena_stats(unsigned arena, const char * label)
         for (size_t i = 0; i < 7; ++i)
             printf(" %s=%" PRIu64, bin_u64[i], values[i]);
         for (size_t i = 0; i < 3; ++i)
-            printf(" %s=%zu", bin_zu[i], zvalues[i]);
+            printf(" %s=%zu", bin_size_t_names[i], size_values[i]);
         printf("\n");
     }
 }
@@ -168,15 +192,18 @@ static void section_sizes(void)
             size_t size = ((size_t)1 << shift) + (size_t)(ptrdiff_t)delta;
             printf("nallocx %zu -> %zu\n", size, je_nallocx(size, 0));
         }
-    for (int lg_align = 0; lg_align < 24; ++lg_align)
+    for (int log2_align = 0; log2_align < 24; ++log2_align)
         for (size_t size = 1; size < (1 << 22); size = size * 3 + 1)
-            printf("nallocx %zu align %d -> %zu\n", size, lg_align, je_nallocx(size, MALLOCX_LG_ALIGN(lg_align)));
+            printf("nallocx %zu align %d -> %zu\n", size, log2_align, je_nallocx(size, MALLOCX_LG_ALIGN(log2_align)));
 }
 
 static void section_malloc_free(void)
 {
     printf("== malloc_free\n");
-    enum { N = 4000 };
+    enum
+    {
+        N = 4000
+    };
     static void * ptrs[N];
     static size_t sizes[N];
     for (int i = 0; i < N; ++i)
@@ -259,8 +286,8 @@ static void section_aligned(void)
         size_t alignment = (size_t)1 << (next_random() % 22);
         size_t size = random_size();
         void * p = NULL;
-        int err = je_posix_memalign(&p, alignment, size);
-        printf("posix_memalign %zu %zu -> %d %p usable %zu\n", alignment, size, err, p, p ? je_malloc_usable_size(p) : 0);
+        int error = je_posix_memalign(&p, alignment, size);
+        printf("posix_memalign %zu %zu -> %d %p usable %zu\n", alignment, size, error, p, p ? je_malloc_usable_size(p) : 0);
         void * q = je_aligned_alloc(alignment, size);
         printf("aligned_alloc %zu %zu -> %p\n", alignment, size, q);
         void * r = je_calloc(1 + next_random() % 100, size / 64 + 1);
@@ -285,16 +312,19 @@ static void section_mallocx(void)
 {
     printf("== mallocx\n");
     unsigned arena = 0;
-    size_t sz = sizeof(arena);
-    CHECK_CTL(je_mallctl("arenas.create", &arena, &sz, NULL, 0));
+    size_t size_value = sizeof(arena);
+    CHECK_MALLCTL(je_mallctl("arenas.create", &arena, &size_value, NULL, 0));
     printf("arenas.create -> %u\n", arena);
 
-    unsigned tcache = 0;
-    sz = sizeof(tcache);
-    CHECK_CTL(je_mallctl("tcache.create", &tcache, &sz, NULL, 0));
-    printf("tcache.create -> %u\n", tcache);
+    unsigned thread_cache = 0;
+    size_value = sizeof(thread_cache);
+    CHECK_MALLCTL(je_mallctl("tcache.create", &thread_cache, &size_value, NULL, 0));
+    printf("tcache.create -> %u\n", thread_cache);
 
-    enum { N = 2000 };
+    enum
+    {
+        N = 2000
+    };
     static void * ptrs[N];
     static int flags[N];
     for (int i = 0; i < N; ++i)
@@ -304,7 +334,7 @@ static void section_mallocx(void)
         {
             case 0: f = MALLOCX_ARENA(arena); break;
             case 1: f = MALLOCX_ARENA(arena) | MALLOCX_TCACHE_NONE; break;
-            case 2: f = MALLOCX_TCACHE(tcache); break;
+            case 2: f = MALLOCX_TCACHE(thread_cache); break;
             case 3: f = MALLOCX_ZERO | MALLOCX_TCACHE_NONE; break;
             case 4: f = MALLOCX_LG_ALIGN(next_random() % 16); break;
             default: break;
@@ -318,20 +348,20 @@ static void section_mallocx(void)
     for (int i = 0; i < N; ++i)
         je_dallocx(ptrs[i], flags[i] & ~(MALLOCX_ZERO | 0x3f));
 
-    CHECK_CTL(je_mallctl("tcache.flush", NULL, NULL, &tcache, sizeof(tcache)));
-    CHECK_CTL(je_mallctl("tcache.destroy", NULL, NULL, &tcache, sizeof(tcache)));
-    CHECK_CTL(je_mallctl("thread.tcache.flush", NULL, NULL, NULL, 0));
+    CHECK_MALLCTL(je_mallctl("tcache.flush", NULL, NULL, &thread_cache, sizeof(thread_cache)));
+    CHECK_MALLCTL(je_mallctl("tcache.destroy", NULL, NULL, &thread_cache, sizeof(thread_cache)));
+    CHECK_MALLCTL(je_mallctl("thread.tcache.flush", NULL, NULL, NULL, 0));
     print_arena_stats(arena, "after flush");
 
     char name[64];
     snprintf(name, sizeof(name), "arena.%u.purge", arena);
-    CHECK_CTL(je_mallctl(name, NULL, NULL, NULL, 0));
+    CHECK_MALLCTL(je_mallctl(name, NULL, NULL, NULL, 0));
     print_arena_stats(arena, "after purge");
     snprintf(name, sizeof(name), "arena.%u.reset", arena);
-    CHECK_CTL(je_mallctl(name, NULL, NULL, NULL, 0));
+    CHECK_MALLCTL(je_mallctl(name, NULL, NULL, NULL, 0));
     print_arena_stats(arena, "after reset");
     snprintf(name, sizeof(name), "arena.%u.destroy", arena);
-    CHECK_CTL(je_mallctl(name, NULL, NULL, NULL, 0));
+    CHECK_MALLCTL(je_mallctl(name, NULL, NULL, NULL, 0));
     print_arena_stats(MALLCTL_ARENAS_DESTROYED, "destroyed");
     print_global_stats("after mallocx");
 }
@@ -339,23 +369,33 @@ static void section_mallocx(void)
 static void section_purge(void)
 {
     printf("== purge\n");
-    enum { N = 500 };
+    enum
+    {
+        N = 500
+    };
     static void * ptrs[N];
     for (int i = 0; i < N; ++i)
         ptrs[i] = je_malloc((size_t)(next_random() % (1 << 20)) + 1);
     for (int i = 0; i < N; ++i)
         je_free(ptrs[i]);
     print_arena_stats(0, "before purge");
-    CHECK_CTL(je_mallctl("arena." "4096" ".purge", NULL, NULL, NULL, 0));
+    CHECK_MALLCTL(je_mallctl(
+        "arena."
+        "4096"
+        ".purge",
+        NULL,
+        NULL,
+        NULL,
+        0));
     print_arena_stats(0, "after purge");
     print_global_stats("after purge");
 
     ssize_t decay = 0;
-    size_t sz = sizeof(decay);
-    CHECK_CTL(je_mallctl("arena.0.dirty_decay_ms", &decay, &sz, NULL, 0));
+    size_t size = sizeof(decay);
+    CHECK_MALLCTL(je_mallctl("arena.0.dirty_decay_ms", &decay, &size, NULL, 0));
     printf("arena.0.dirty_decay_ms = %zd\n", decay);
     decay = 0;
-    CHECK_CTL(je_mallctl("arena.0.dirty_decay_ms", NULL, NULL, &decay, sizeof(decay)));
+    CHECK_MALLCTL(je_mallctl("arena.0.dirty_decay_ms", NULL, NULL, &decay, sizeof(decay)));
     for (int i = 0; i < N; ++i)
         ptrs[i] = je_malloc((size_t)(next_random() % (1 << 20)) + 1);
     for (int i = 0; i < N; ++i)
@@ -363,7 +403,7 @@ static void section_purge(void)
     print_arena_stats(0, "decay 0");
 }
 
-static void print_stats_cb(void * opaque, const char * s)
+static void print_stats_callback(void * opaque, const char * s)
 {
     (void)opaque;
     fputs(s, stdout);
@@ -372,98 +412,134 @@ static void print_stats_cb(void * opaque, const char * s)
 static void section_stats_print(void)
 {
     printf("== stats_print\n");
-    je_malloc_stats_print(print_stats_cb, NULL, "J");
+    je_malloc_stats_print(print_stats_callback, NULL, "J");
     printf("\n");
-    je_malloc_stats_print(print_stats_cb, NULL, "gblxe");
+    je_malloc_stats_print(print_stats_callback, NULL, "gblxe");
     printf("\n");
 }
 
-static void section_ctl(void)
+static void section_mallctl(void)
 {
     printf("== ctl\n");
-    static const char * const bool_names[] = {"config.debug", "config.fill", "config.prof", "config.stats", "opt.abort",
-                                              "opt.retain", "opt.background_thread", "opt.prof", "opt.prof_active",
-                                              "opt.tcache", "opt.cache_oblivious", "background_thread", "prof.active",
-                                              "thread.tcache.enabled", "thread.prof.active", "prof.thread_active_init"};
+    static const char * const bool_names[]
+        = {"config.debug",
+           "config.fill",
+           "config.prof",
+           "config.stats",
+           "opt.abort",
+           "opt.retain",
+           "opt.background_thread",
+           "opt.prof",
+           "opt.prof_active",
+           "opt.tcache",
+           "opt.cache_oblivious",
+           "background_thread",
+           "prof.active",
+           "thread.tcache.enabled",
+           "thread.prof.active",
+           "prof.thread_active_init"};
     for (size_t i = 0; i < sizeof(bool_names) / sizeof(bool_names[0]); ++i)
     {
         bool value = false;
-        size_t sz = sizeof(value);
-        int err = je_mallctl(bool_names[i], &value, &sz, NULL, 0);
-        printf("%s = %d (err %d)\n", bool_names[i], (int)value, err);
+        size_t size_value = sizeof(value);
+        int error = je_mallctl(bool_names[i], &value, &size_value, NULL, 0);
+        printf("%s = %d (err %d)\n", bool_names[i], (int)value, error);
     }
-    static const char * const str_names[] = {"version", "config.malloc_conf", "opt.dss", "opt.percpu_arena", "opt.metadata_thp",
-                                             "opt.thp", "opt.zero_realloc", "opt.prof_prefix"};
+    static const char * const str_names[]
+        = {"version",
+           "config.malloc_conf",
+           "opt.dss",
+           "opt.percpu_arena",
+           "opt.metadata_thp",
+           "opt.thp",
+           "opt.zero_realloc",
+           "opt.prof_prefix"};
     for (size_t i = 0; i < sizeof(str_names) / sizeof(str_names[0]); ++i)
     {
         const char * value = NULL;
-        size_t sz = sizeof(value);
-        int err = je_mallctl(str_names[i], &value, &sz, NULL, 0);
-        printf("%s = %s (err %d)\n", str_names[i], value ? value : "(null)", err);
+        size_t size_value = sizeof(value);
+        int error = je_mallctl(str_names[i], &value, &size_value, NULL, 0);
+        printf("%s = %s (err %d)\n", str_names[i], value ? value : "(null)", error);
     }
     static const char * const unsigned_names[] = {"opt.narenas", "arenas.narenas", "arenas.nbins", "arenas.nhbins", "arenas.nlextents"};
     for (size_t i = 0; i < sizeof(unsigned_names) / sizeof(unsigned_names[0]); ++i)
     {
         unsigned value = 0;
-        size_t sz = sizeof(value);
-        int err = je_mallctl(unsigned_names[i], &value, &sz, NULL, 0);
-        printf("%s = %u (err %d)\n", unsigned_names[i], value, err);
+        size_t size_value = sizeof(value);
+        int error = je_mallctl(unsigned_names[i], &value, &size_value, NULL, 0);
+        printf("%s = %u (err %d)\n", unsigned_names[i], value, error);
     }
-    static const char * const size_names[] = {"opt.oversize_threshold", "opt.lg_extent_max_active_fit", "opt.tcache_max",
-                                              "opt.lg_prof_sample", "arenas.page", "arenas.quantum", "arenas.tcache_max",
-                                              "prof.lg_sample", "max_background_threads", "opt.max_background_threads"};
+    static const char * const size_names[]
+        = {"opt.oversize_threshold",
+           "opt.lg_extent_max_active_fit",
+           "opt.tcache_max",
+           "opt.lg_prof_sample",
+           "arenas.page",
+           "arenas.quantum",
+           "arenas.tcache_max",
+           "prof.lg_sample",
+           "max_background_threads",
+           "opt.max_background_threads"};
     for (size_t i = 0; i < sizeof(size_names) / sizeof(size_names[0]); ++i)
     {
         size_t value = 0;
-        size_t sz = sizeof(value);
-        int err = je_mallctl(size_names[i], &value, &sz, NULL, 0);
-        printf("%s = %zu (err %d)\n", size_names[i], value, err);
+        size_t size_value = sizeof(value);
+        int error = je_mallctl(size_names[i], &value, &size_value, NULL, 0);
+        printf("%s = %zu (err %d)\n", size_names[i], value, error);
     }
-    static const char * const ssize_names[] = {"opt.dirty_decay_ms", "opt.muzzy_decay_ms", "arenas.dirty_decay_ms", "arenas.muzzy_decay_ms",
-                                               "opt.lg_prof_interval"};
+    static const char * const ssize_names[]
+        = {"opt.dirty_decay_ms", "opt.muzzy_decay_ms", "arenas.dirty_decay_ms", "arenas.muzzy_decay_ms", "opt.lg_prof_interval"};
     for (size_t i = 0; i < sizeof(ssize_names) / sizeof(ssize_names[0]); ++i)
     {
         ssize_t value = 0;
-        size_t sz = sizeof(value);
-        int err = je_mallctl(ssize_names[i], &value, &sz, NULL, 0);
-        printf("%s = %zd (err %d)\n", ssize_names[i], value, err);
+        size_t size_value = sizeof(value);
+        int error = je_mallctl(ssize_names[i], &value, &size_value, NULL, 0);
+        printf("%s = %zd (err %d)\n", ssize_names[i], value, error);
     }
 
     /* Error codes. */
     size_t value = 0;
-    size_t sz = sizeof(value);
-    printf("unknown name -> %d\n", je_mallctl("no.such.name", &value, &sz, NULL, 0));
-    printf("stats.background_thread.run_intervals -> %d\n", je_mallctl("stats.background_thread.run_intervals", &value, &sz, NULL, 0));
+    size_t size_value = sizeof(value);
+    printf("unknown name -> %d\n", je_mallctl("no.such.name", &value, &size_value, NULL, 0));
+    printf(
+        "stats.background_thread.run_intervals -> %d\n", je_mallctl("stats.background_thread.run_intervals", &value, &size_value, NULL, 0));
     uint32_t small = 0;
-    sz = sizeof(small);
-    printf("wrong size read -> %d sz %zu\n", je_mallctl("arenas.page", &small, &sz, NULL, 0), sz);
+    size_value = sizeof(small);
+    printf("wrong size read -> %d sz %zu\n", je_mallctl("arenas.page", &small, &size_value, NULL, 0), size_value);
     uint64_t wide = 0;
-    sz = sizeof(wide);
-    printf("arenas.nbins into u64 -> %d value %" PRIu64 " sz %zu\n", je_mallctl("arenas.nbins", &wide, &sz, NULL, 0), wide, sz);
+    size_value = sizeof(wide);
+    printf(
+        "arenas.nbins into u64 -> %d value %" PRIu64 " sz %zu\n",
+        je_mallctl("arenas.nbins", &wide, &size_value, NULL, 0),
+        wide,
+        size_value);
     printf("write to read-only -> %d\n", je_mallctl("arenas.page", NULL, NULL, &value, sizeof(value)));
 
     size_t mib[8];
-    size_t miblen = 8;
-    printf("nametomib stats.arenas.0.pdirty -> %d len %zu\n", je_mallctlnametomib("stats.arenas.0.pdirty", mib, &miblen), miblen);
-    for (size_t i = 0; i < miblen; ++i)
+    size_t mib_length = 8;
+    printf("nametomib stats.arenas.0.pdirty -> %d len %zu\n", je_mallctlnametomib("stats.arenas.0.pdirty", mib, &mib_length), mib_length);
+    for (size_t i = 0; i < mib_length; ++i)
         printf("  mib[%zu] = %zu\n", i, mib[i]);
-    miblen = 8;
-    printf("nametomib partial stats.arenas -> %d len %zu\n", je_mallctlnametomib("stats.arenas", mib, &miblen), miblen);
+    mib_length = 8;
+    printf("nametomib partial stats.arenas -> %d len %zu\n", je_mallctlnametomib("stats.arenas", mib, &mib_length), mib_length);
 
     unsigned old_arena = 0;
-    sz = sizeof(old_arena);
-    CHECK_CTL(je_mallctl("thread.arena", &old_arena, &sz, NULL, 0));
+    size_value = sizeof(old_arena);
+    CHECK_MALLCTL(je_mallctl("thread.arena", &old_arena, &size_value, NULL, 0));
     printf("thread.arena = %u\n", old_arena);
 }
 
-static void section_prof(void)
+static void section_profiling(void)
 {
     printf("== prof\n");
     bool active = true;
-    CHECK_CTL(je_mallctl("thread.prof.active", NULL, NULL, &active, sizeof(active)));
-    size_t lg_sample = 10;
-    CHECK_CTL(je_mallctl("prof.reset", NULL, NULL, &lg_sample, sizeof(lg_sample)));
-    enum { N = 3000 };
+    CHECK_MALLCTL(je_mallctl("thread.prof.active", NULL, NULL, &active, sizeof(active)));
+    size_t log2_sample = 10;
+    CHECK_MALLCTL(je_mallctl("prof.reset", NULL, NULL, &log2_sample, sizeof(log2_sample)));
+    enum
+    {
+        N = 3000
+    };
     static void * ptrs[N];
     for (int i = 0; i < N; ++i)
     {
@@ -474,7 +550,7 @@ static void section_prof(void)
     for (int i = 0; i < N; i += 2)
         je_free(ptrs[i]);
     const char * filename = "driver_prof.heap";
-    CHECK_CTL(je_mallctl("prof.dump", NULL, NULL, &filename, sizeof(filename)));
+    CHECK_MALLCTL(je_mallctl("prof.dump", NULL, NULL, &filename, sizeof(filename)));
     for (int i = 1; i < N; i += 2)
         je_free(ptrs[i]);
     print_global_stats("after prof");
@@ -495,9 +571,9 @@ struct activity_record
     uint64_t deallocated;
 };
 
-static void activity_callback(void * uctx, uint64_t allocated, uint64_t deallocated)
+static void activity_callback(void * user_context, uint64_t allocated, uint64_t deallocated)
 {
-    struct activity_record * record = uctx;
+    struct activity_record * record = user_context;
     ++record->calls;
     record->allocated = allocated;
     record->deallocated = deallocated;
@@ -523,30 +599,37 @@ static void section_experimental(void)
     struct activity_record record = {0, 0, 0};
     struct activity_thunk thunk = {activity_callback, &record};
     struct activity_thunk old_thunk = {NULL, NULL};
-    size_t sz = sizeof(old_thunk);
-    printf("activity_callback -> %d\n", je_mallctl("experimental.thread.activity_callback", &old_thunk, &sz, &thunk, sizeof(thunk)));
+    size_t size_value = sizeof(old_thunk);
+    printf(
+        "activity_callback -> %d\n", je_mallctl("experimental.thread.activity_callback", &old_thunk, &size_value, &thunk, sizeof(thunk)));
     printf("activity_callback old %d\n", old_thunk.callback != NULL);
 
     unsigned arena = 0;
-    sz = sizeof(arena);
-    CHECK_CTL(je_mallctl("experimental.arenas_create_ext", &arena, &sz, NULL, 0));
+    size_value = sizeof(arena);
+    CHECK_MALLCTL(je_mallctl("experimental.arenas_create_ext", &arena, &size_value, NULL, 0));
     printf("arenas_create_ext -> %u\n", arena);
     extent_hooks_t * default_hooks = NULL;
-    sz = sizeof(default_hooks);
-    CHECK_CTL(je_mallctl("arena.0.extent_hooks", &default_hooks, &sz, NULL, 0));
+    size_value = sizeof(default_hooks);
+    CHECK_MALLCTL(je_mallctl("arena.0.extent_hooks", &default_hooks, &size_value, NULL, 0));
     struct
     {
         extent_hooks_t * extent_hooks;
         bool metadata_use_hooks;
     } config = {default_hooks, false};
     unsigned arena2 = 0;
-    sz = sizeof(arena2);
-    CHECK_CTL(je_mallctl("experimental.arenas_create_ext", &arena2, &sz, &config, sizeof(config)));
+    size_value = sizeof(arena2);
+    CHECK_MALLCTL(je_mallctl("experimental.arenas_create_ext", &arena2, &size_value, &config, sizeof(config)));
     printf("arenas_create_ext (no metadata hooks) -> %u\n", arena2);
-    sz = sizeof(size_t);
-    printf("arenas_create_ext wrong size -> %d sz %zu\n", je_mallctl("experimental.arenas_create_ext", &arena2, &sz, NULL, 0), sz);
+    size_value = sizeof(size_t);
+    printf(
+        "arenas_create_ext wrong size -> %d sz %zu\n",
+        je_mallctl("experimental.arenas_create_ext", &arena2, &size_value, NULL, 0),
+        size_value);
 
-    enum { N = 70000 };
+    enum
+    {
+        N = 70000
+    };
     static void * ptrs[N];
     static const size_t sizes[] = {8, 11, 100, 4096, 16384, 20000, 100000};
     static const int flag_kinds = 5;
@@ -566,13 +649,21 @@ static void section_experimental(void)
             size_t num = (size_t)(next_random() % (sizes[s] <= 100 ? N : 300));
             struct batch_alloc_packet packet = {ptrs, num, sizes[s], f};
             size_t filled = 0;
-            sz = sizeof(filled);
-            int err = je_mallctl("experimental.batch_alloc", &filled, &sz, &packet, sizeof(packet));
+            size_value = sizeof(filled);
+            int error = je_mallctl("experimental.batch_alloc", &filled, &size_value, &packet, sizeof(packet));
             uint64_t hash = 0;
             for (size_t i = 0; i < filled; ++i)
                 hash = hash * 1000003 + (uintptr_t)ptrs[i];
-            printf("batch_alloc %zu x %zu flags %x -> %d filled %zu first %p last %p hash %" PRIx64 "\n", num, sizes[s],
-                   (unsigned)f, err, filled, filled ? ptrs[0] : NULL, filled ? ptrs[filled - 1] : NULL, hash);
+            printf(
+                "batch_alloc %zu x %zu flags %x -> %d filled %zu first %p last %p hash %" PRIx64 "\n",
+                num,
+                sizes[s],
+                (unsigned)f,
+                error,
+                filled,
+                filled ? ptrs[0] : NULL,
+                filled ? ptrs[filled - 1] : NULL,
+                hash);
 
             /* Utilization of a few of the pointers. */
             for (size_t i = 0; i < filled && i < 4; ++i)
@@ -583,17 +674,24 @@ static void section_experimental(void)
                     void * slabcur_addr;
                     size_t counts[5];
                 } out;
-                sz = sizeof(out);
-                CHECK_CTL(je_mallctl("experimental.utilization.query", &out, &sz, &in, sizeof(in)));
-                printf("  query %p -> slabcur %p nfree %zu nregs %zu size %zu bin_nfree %zu bin_nregs %zu\n", in, out.slabcur_addr,
-                       out.counts[0], out.counts[1], out.counts[2], out.counts[3], out.counts[4]);
+                size_value = sizeof(out);
+                CHECK_MALLCTL(je_mallctl("experimental.utilization.query", &out, &size_value, &in, sizeof(in)));
+                printf(
+                    "  query %p -> slabcur %p nfree %zu nregs %zu size %zu bin_nfree %zu bin_nregs %zu\n",
+                    in,
+                    out.slabcur_addr,
+                    out.counts[0],
+                    out.counts[1],
+                    out.counts[2],
+                    out.counts[3],
+                    out.counts[4]);
             }
             if (filled >= 2)
             {
                 void * in[2] = {ptrs[0], ptrs[filled - 1]};
                 size_t out[6];
-                sz = sizeof(out);
-                CHECK_CTL(je_mallctl("experimental.utilization.batch_query", out, &sz, in, sizeof(in)));
+                size_value = sizeof(out);
+                CHECK_MALLCTL(je_mallctl("experimental.utilization.batch_query", out, &size_value, in, sizeof(in)));
                 printf("  batch_query -> %zu %zu %zu %zu %zu %zu\n", out[0], out[1], out[2], out[3], out[4], out[5]);
             }
             for (size_t i = 0; i < filled; i += 2)
@@ -604,34 +702,46 @@ static void section_experimental(void)
     }
 
     uint64_t epoch = 1;
-    sz = sizeof(epoch);
-    CHECK_CTL(je_mallctl("epoch", &epoch, &sz, &epoch, sz));
-    const unsigned pactive_arenas[] = {0, arena, arena2};
-    for (size_t ai = 0; ai < 3; ++ai)
+    size_value = sizeof(epoch);
+    CHECK_MALLCTL(je_mallctl("epoch", &epoch, &size_value, &epoch, size_value));
+    const unsigned active_pages_arenas[] = {0, arena, arena2};
+    for (size_t arena_position = 0; arena_position < 3; ++arena_position)
     {
-        unsigned a = pactive_arenas[ai];
+        unsigned a = active_pages_arenas[arena_position];
         char name[64];
         snprintf(name, sizeof(name), "experimental.arenas.%u.pactivep", a);
-        size_t * pactivep = NULL;
-        sz = sizeof(pactivep);
-        int err = je_mallctl(name, &pactivep, &sz, NULL, 0);
-        size_t pactive = 0;
+        size_t * active_pages_ptr = NULL;
+        size_value = sizeof(active_pages_ptr);
+        int error = je_mallctl(name, &active_pages_ptr, &size_value, NULL, 0);
+        size_t active_pages = 0;
         snprintf(name, sizeof(name), "stats.arenas.%u.pactive", a);
-        sz = sizeof(pactive);
-        int err2 = je_mallctl(name, &pactive, &sz, NULL, 0);
-        printf("arena %u pactivep -> %d value %zu stats.pactive -> %d %zu\n", a, err, pactivep ? *pactivep : 0, err2, pactive);
+        size_value = sizeof(active_pages);
+        int error2 = je_mallctl(name, &active_pages, &size_value, NULL, 0);
+        printf(
+            "arena %u pactivep -> %d value %zu stats.pactive -> %d %zu\n",
+            a,
+            error,
+            active_pages_ptr ? *active_pages_ptr : 0,
+            error2,
+            active_pages);
     }
 
     struct activity_thunk null_thunk = {NULL, NULL};
-    sz = sizeof(old_thunk);
-    printf("activity_callback reset -> %d\n", je_mallctl("experimental.thread.activity_callback", &old_thunk, &sz, &null_thunk, sizeof(null_thunk)));
-    printf("activity_callback calls %u allocated %" PRIu64 " deallocated %" PRIu64 " same %d\n", record.calls, record.allocated,
-           record.deallocated, old_thunk.callback == activity_callback && old_thunk.uctx == &record);
+    size_value = sizeof(old_thunk);
+    printf(
+        "activity_callback reset -> %d\n",
+        je_mallctl("experimental.thread.activity_callback", &old_thunk, &size_value, &null_thunk, sizeof(null_thunk)));
+    printf(
+        "activity_callback calls %u allocated %" PRIu64 " deallocated %" PRIu64 " same %d\n",
+        record.calls,
+        record.allocated,
+        record.deallocated,
+        old_thunk.callback == activity_callback && old_thunk.uctx == &record);
 
     void (*hook)(const char *) = safety_check_abort_hook;
     void (*old_hook)(const char *) = NULL;
-    sz = sizeof(old_hook);
-    printf("safety_check_abort read -> %d\n", je_mallctl("experimental.hooks.safety_check_abort", &old_hook, &sz, NULL, 0));
+    size_value = sizeof(old_hook);
+    printf("safety_check_abort read -> %d\n", je_mallctl("experimental.hooks.safety_check_abort", &old_hook, &size_value, NULL, 0));
     printf("safety_check_abort wrong size -> %d\n", je_mallctl("experimental.hooks.safety_check_abort", NULL, NULL, &hook, 1));
     printf("safety_check_abort set -> %d\n", je_mallctl("experimental.hooks.safety_check_abort", NULL, NULL, &hook, sizeof(hook)));
     hook = NULL;
@@ -646,9 +756,9 @@ static void section_many_arenas(void)
     for (unsigned a = 0; a < 8; ++a)
     {
         unsigned arena = a;
-        size_t sz = sizeof(arena);
-        int err = je_mallctl("thread.arena", NULL, NULL, &arena, sizeof(arena));
-        printf("thread.arena = %u -> %d\n", a, err);
+        size_t size = sizeof(arena);
+        int error = je_mallctl("thread.arena", NULL, NULL, &arena, sizeof(arena));
+        printf("thread.arena = %u -> %d\n", a, error);
         for (int i = 0; i < 100; ++i)
         {
             void * p = je_malloc(random_size());
@@ -656,7 +766,7 @@ static void section_many_arenas(void)
             if (i % 3)
                 je_free(p);
         }
-        (void)sz;
+        (void)size;
     }
     print_global_stats("after many arenas");
 }
@@ -686,22 +796,25 @@ static int allowed_cpus(int * cpus, int max)
 static void print_thread_arena(const char * label)
 {
     unsigned arena = 0;
-    size_t sz = sizeof(arena);
-    int err = je_mallctl("thread.arena", &arena, &sz, NULL, 0);
-    printf("%s: thread.arena = %u (err %d)\n", label, arena, err);
+    size_t size = sizeof(arena);
+    int error = je_mallctl("thread.arena", &arena, &size, NULL, 0);
+    printf("%s: thread.arena = %u (err %d)\n", label, arena, error);
 }
 
 /* Moves the thread between the allowed CPUs, so that per-CPU arena selection (and migration) is exercised. */
-static void section_percpu(void)
+static void section_per_cpu(void)
 {
     printf("== percpu\n");
     int cpus[64];
-    int ncpus = allowed_cpus(cpus, 64);
-    printf("allowed cpus: %d\n", ncpus);
-    enum { N = 600 };
+    int num_cpus = allowed_cpus(cpus, 64);
+    printf("allowed cpus: %d\n", num_cpus);
+    enum
+    {
+        N = 600
+    };
     static void * ptrs[N];
     for (int round = 0; round < 3; ++round)
-        for (int c = 0; c < ncpus; ++c)
+        for (int c = 0; c < num_cpus; ++c)
         {
             pin_to_cpu(cpus[c]);
             char label[64];
@@ -716,7 +829,7 @@ static void section_percpu(void)
             /* Free half here; the other half after migrating to the next CPU (remote frees). */
             for (int i = 0; i < N; i += 2)
                 je_free(ptrs[i]);
-            pin_to_cpu(cpus[(c + 1) % ncpus]);
+            pin_to_cpu(cpus[(c + 1) % num_cpus]);
             for (int i = 1; i < N; i += 2)
                 je_free(ptrs[i]);
         }
@@ -724,7 +837,7 @@ static void section_percpu(void)
     unsigned arena = 0;
     printf("thread.arena write 0 -> %d\n", je_mallctl("thread.arena", NULL, NULL, &arena, sizeof(arena)));
     print_thread_arena("after write");
-    pin_to_cpu(cpus[ncpus - 1]);
+    pin_to_cpu(cpus[num_cpus - 1]);
     void * p = je_malloc(100);
     print_thread_arena("after migrate");
     je_free(p);
@@ -777,16 +890,19 @@ static void section_threads(void)
 {
     printf("== threads\n");
     int cpus[64];
-    int ncpus = allowed_cpus(cpus, 64);
-    enum { N = 800 };
+    int num_cpus = allowed_cpus(cpus, 64);
+    enum
+    {
+        N = 800
+    };
     static void * ptrs[N];
     for (int t = 0; t < 8; ++t)
     {
-        struct thread_args args = {cpus[t % ncpus], t, ptrs, N};
+        struct thread_args args = {cpus[t % num_cpus], t, ptrs, N};
         pthread_t thread;
         pthread_create(&thread, NULL, thread_alloc_function, &args);
         pthread_join(thread, NULL);
-        struct thread_args free_args = {cpus[(t + 1) % ncpus], t, ptrs, N};
+        struct thread_args free_args = {cpus[(t + 1) % num_cpus], t, ptrs, N};
         pthread_create(&thread, NULL, thread_free_function, &free_args);
         pthread_join(thread, NULL);
         print_global_stats("after threads");
@@ -809,10 +925,10 @@ static const struct section sections[] = {
     {"mallocx", section_mallocx},
     {"purge", section_purge},
     {"many_arenas", section_many_arenas},
-    {"percpu", section_percpu},
+    {"percpu", section_per_cpu},
     {"threads", section_threads},
-    {"ctl", section_ctl},
-    {"prof", section_prof},
+    {"ctl", section_mallctl},
+    {"prof", section_profiling},
     {"experimental", section_experimental},
     {"stats_print", section_stats_print},
 };

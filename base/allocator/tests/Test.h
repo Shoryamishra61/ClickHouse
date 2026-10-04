@@ -25,7 +25,7 @@ struct TestCase
     TestCase * next;
 };
 
-inline TestCase * & testList()
+inline TestCase *& testList()
 {
     static TestCase * list = nullptr;
     return list;
@@ -90,12 +90,12 @@ void printValue(const T & value)
     static void ALLOCATOR_TEST_CONCAT(test_##suite##_, name)()
 
 /// Non-fatal check: reports and continues.
-#define CHECK(cond) \
+#define CHECK(condition) \
     do \
     { \
-        if (!(cond)) \
+        if (!(condition)) \
         { \
-            std::fprintf(stderr, "%s:%d: CHECK(%s) failed\n", __FILE__, __LINE__, #cond); \
+            std::fprintf(stderr, "%s:%d: CHECK(%s) failed\n", __FILE__, __LINE__, #condition); \
             ++::allocator_test::failureCount(); \
         } \
     } while (false)
@@ -130,19 +130,26 @@ void printValue(const T & value)
         const char * check_b_ = (b); \
         if (!check_a_ || !check_b_ || std::strcmp(check_a_, check_b_) != 0) \
         { \
-            std::fprintf(stderr, "%s:%d: CHECK_STREQ(%s, %s) failed:\n  \"%s\"\n  \"%s\"\n", __FILE__, __LINE__, #a, #b, \
-                check_a_ ? check_a_ : "(null)", check_b_ ? check_b_ : "(null)"); \
+            std::fprintf( \
+                stderr, \
+                "%s:%d: CHECK_STREQ(%s, %s) failed:\n  \"%s\"\n  \"%s\"\n", \
+                __FILE__, \
+                __LINE__, \
+                #a, \
+                #b, \
+                check_a_ ? check_a_ : "(null)", \
+                check_b_ ? check_b_ : "(null)"); \
             ++::allocator_test::failureCount(); \
         } \
     } while (false)
 
 /// Fatal check: aborts the whole test executable.
-#define REQUIRE(cond) \
+#define REQUIRE(condition) \
     do \
     { \
-        if (!(cond)) \
+        if (!(condition)) \
         { \
-            std::fprintf(stderr, "%s:%d: REQUIRE(%s) failed\n", __FILE__, __LINE__, #cond); \
+            std::fprintf(stderr, "%s:%d: REQUIRE(%s) failed\n", __FILE__, __LINE__, #condition); \
             ::allocator_test::abortTest(); \
         } \
     } while (false)

@@ -10,135 +10,135 @@
 namespace jemalloc
 {
 
-alignas(CACHELINE) constinit std::atomic<Arena *> arenas[MALLOCX_ARENA_LIMIT] = {};
-constinit std::atomic<unsigned> narenas_total{0};
+alignas(CACHE_LINE) constinit std::atomic<Arena *> arenas[MALLOCX_ARENA_LIMIT] = {};
+constinit std::atomic<unsigned> num_arenas_total{0};
 constinit Arena * a0 = nullptr;
-constinit unsigned narenas_auto = 0;
+constinit unsigned num_arenas_auto = 0;
 constinit unsigned manual_arena_base = 0;
 constinit Mutex arenas_lock;
 
 /// --- Bootstrap allocation ------------------------------------------------------------------------------------------
 
 /// jemalloc: a0ialloc
-void * a0ialloc(size_t size, bool zero, bool is_internal)
+void * arena0InternalAllocate(size_t size, bool zero, bool is_internal)
 {
-    if (JE_UNLIKELY(mallocInitA0()))
+    if (ALLOCATOR_UNLIKELY(mallocInitA0()))
         return nullptr;
 
     /// iallocztm(TSDN_NULL, size, sz_size2index(size), zero, NULL, is_internal, arena_get(TSDN_NULL, 0, true), true)
-    ThreadState * tsdn = nullptr;
-    szind_t ind = sz::sizeToIndex(size);
-    Arena * arena = arenaGet(tsdn, 0, true);
-    bool slab = sz::canUseSlab(size);
-    void * ret = arenaMalloc(tsdn, arena, size, ind, zero, slab, nullptr, true);
-    if (config::stats && is_internal && JE_LIKELY(ret != nullptr))
-        arenaInternalAdd(arenaAalloc(tsdn, ret), arenaSalloc(tsdn, ret));
-    return ret;
+    ThreadState * thread_state = nullptr;
+    SizeClassIdx idx = size_classes::sizeToIndex(size);
+    Arena * arena = arenaGet(thread_state, 0, true);
+    bool slab = size_classes::canUseSlab(size);
+    void * result = arenaMalloc(thread_state, arena, size, idx, zero, slab, nullptr, true);
+    if (config::stats && is_internal && ALLOCATOR_LIKELY(result != nullptr))
+        arenaInternalAdd(arenaOfPointer(thread_state, result), arenaAllocationSize(thread_state, result));
+    return result;
 }
 
 /// jemalloc: a0idalloc
-void a0idalloc(void * ptr, bool is_internal)
+void arena0InternalDeallocate(void * ptr, bool is_internal)
 {
     /// idalloctm(TSDN_NULL, ptr, NULL, NULL, is_internal, true)
-    ThreadState * tsdn = nullptr;
-    JE_ASSERT(ptr != nullptr);
+    ThreadState * thread_state = nullptr;
+    ALLOCATOR_ASSERT(ptr != nullptr);
     if (config::stats && is_internal)
-        arenaInternalSub(arenaAalloc(tsdn, ptr), arenaSalloc(tsdn, ptr));
-    arenaDalloc(tsdn, ptr, nullptr, nullptr, true);
+        arenaInternalSub(arenaOfPointer(thread_state, ptr), arenaAllocationSize(thread_state, ptr));
+    arenaDeallocate(thread_state, ptr, nullptr, nullptr, true);
 }
 
 /// jemalloc: a0malloc
-void * a0malloc(size_t size)
+void * arena0Allocate(size_t size)
 {
-    return a0ialloc(size, false, true);
+    return arena0InternalAllocate(size, false, true);
 }
 
 /// jemalloc: a0dalloc
-void a0dalloc(void * ptr)
+void arena0Deallocate(void * ptr)
 {
-    a0idalloc(ptr, true);
+    arena0InternalDeallocate(ptr, true);
 }
 
 /// jemalloc: bootstrap_malloc
-void * bootstrapMalloc(size_t size)
+void * bootstrapAllocate(size_t size)
 {
-    if (JE_UNLIKELY(size == 0))
+    if (ALLOCATOR_UNLIKELY(size == 0))
         size = 1;
 
-    return a0ialloc(size, false, false);
+    return arena0InternalAllocate(size, false, false);
 }
 
 /// jemalloc: bootstrap_calloc
-void * bootstrapCalloc(size_t num, size_t size)
+void * bootstrapAllocateZeroed(size_t num, size_t size)
 {
     size_t num_size = num * size;
-    if (JE_UNLIKELY(num_size == 0))
+    if (ALLOCATOR_UNLIKELY(num_size == 0))
     {
-        JE_ASSERT(num == 0 || size == 0);
+        ALLOCATOR_ASSERT(num == 0 || size == 0);
         num_size = 1;
     }
 
-    return a0ialloc(num_size, true, false);
+    return arena0InternalAllocate(num_size, true, false);
 }
 
 /// jemalloc: bootstrap_free
 void bootstrapFree(void * ptr)
 {
-    if (JE_UNLIKELY(ptr == nullptr))
+    if (ALLOCATOR_UNLIKELY(ptr == nullptr))
         return;
 
-    a0idalloc(ptr, false);
+    arena0InternalDeallocate(ptr, false);
 }
 
 /// --- Creation ------------------------------------------------------------------------------------------------------
 
 /// jemalloc: arena_init_locked
-Arena * arenaInitLocked(ThreadState * tsdn, unsigned ind, const ArenaConfig * config)
+Arena * arenaInitLocked(ThreadState * thread_state, unsigned idx, const ArenaConfig * config)
 {
-    JE_ASSERT(ind <= narenasTotalGet());
-    if (ind >= MALLOCX_ARENA_LIMIT)
+    ALLOCATOR_ASSERT(idx <= numArenasTotalGet());
+    if (idx >= MALLOCX_ARENA_LIMIT)
         return nullptr;
-    if (ind == narenasTotalGet())
-        narenasTotalInc();
+    if (idx == numArenasTotalGet())
+        numArenasTotalIncrement();
 
     /// Another thread may have already initialized arenas[ind] if it's an auto arena.
-    Arena * arena = arenaGet(tsdn, ind, false);
+    Arena * arena = arenaGet(thread_state, idx, false);
     if (arena != nullptr)
     {
-        JE_ASSERT(arenaIsAuto(arena));
+        ALLOCATOR_ASSERT(arenaIsAuto(arena));
         return arena;
     }
 
     /// Actually initialize the arena.
-    arena = arenaNew(tsdn, ind, config);
+    arena = arenaNew(thread_state, idx, config);
 
     return arena;
 }
 
 /// jemalloc: arena_new_create_background_thread
-static void arenaNewCreateBackgroundThread(ThreadState * tsdn, unsigned ind)
+static void arenaNewCreateBackgroundThread(ThreadState * thread_state, unsigned idx)
 {
-    if (ind == 0)
+    if (idx == 0)
         return;
 
     if constexpr (config::background_thread)
     {
-        if (backgroundThreadCreate(*tsdn, ind))
+        if (backgroundThreadCreate(*thread_state, idx))
         {
-            printMessage("<jemalloc>: error in background thread creation for arena %u. Abort.\n", ind);
+            printMessage("<jemalloc>: error in background thread creation for arena %u. Abort.\n", idx);
             abort();
         }
     }
 }
 
 /// jemalloc: arena_init
-Arena * arenaInit(ThreadState * tsdn, unsigned ind, const ArenaConfig * config)
+Arena * arenaInit(ThreadState * thread_state, unsigned idx, const ArenaConfig * config)
 {
-    arenas_lock.lock(tsdn);
-    Arena * arena = arenaInitLocked(tsdn, ind, config);
-    arenas_lock.unlock(tsdn);
+    arenas_lock.lock(thread_state);
+    Arena * arena = arenaInitLocked(thread_state, idx, config);
+    arenas_lock.unlock(thread_state);
 
-    arenaNewCreateBackgroundThread(tsdn, ind);
+    arenaNewCreateBackgroundThread(thread_state, idx);
 
     return arena;
 }
@@ -146,76 +146,76 @@ Arena * arenaInit(ThreadState * tsdn, unsigned ind, const ArenaConfig * config)
 /// --- Binding -------------------------------------------------------------------------------------------------------
 
 /// jemalloc: arena_bind
-void arenaBind(ThreadState & tsd, unsigned ind, bool internal)
+void arenaBind(ThreadState & thread_state, unsigned idx, bool internal)
 {
-    Arena * arena = arenaGet(&tsd, ind, false);
-    arenaNthreadsInc(arena, internal);
+    Arena * arena = arenaGet(&thread_state, idx, false);
+    arenaNumThreadsIncrement(arena, internal);
 
     if (internal)
     {
-        tsd.iarena = arena;
+        thread_state.internal_arena = arena;
     }
     else
     {
-        tsd.arena = arena;
+        thread_state.arena = arena;
         /// While shard acts as a random seed, the cast below should not make much difference.
-        uint8_t shard = uint8_t(arena->binshard_next.fetch_add(1, std::memory_order_relaxed));
-        TSDBinshards * bins = &tsd.binshards;
-        for (unsigned i = 0; i < SC_NBINS; ++i)
+        uint8_t shard = uint8_t(arena->bin_shard_next.fetch_add(1, std::memory_order_relaxed));
+        ThreadStateBinShards * bins = &thread_state.bin_shards;
+        for (unsigned i = 0; i < SIZE_CLASS_NUM_BINS; ++i)
         {
-            JE_ASSERT(bin_infos[i].n_shards > 0 && bin_infos[i].n_shards <= BIN_SHARDS_MAX);
-            bins->binshard[i] = uint8_t(shard % bin_infos[i].n_shards);
+            ALLOCATOR_ASSERT(bin_infos[i].num_shards > 0 && bin_infos[i].num_shards <= BIN_SHARDS_MAX);
+            bins->bin_shard[i] = uint8_t(shard % bin_infos[i].num_shards);
         }
     }
 }
 
 /// jemalloc: arena_migrate
-void arenaMigrate(ThreadState & tsd, Arena * oldarena, Arena * newarena)
+void arenaMigrate(ThreadState & thread_state, Arena * old_arena, Arena * new_arena)
 {
-    JE_ASSERT(oldarena != nullptr);
-    JE_ASSERT(newarena != nullptr);
+    ALLOCATOR_ASSERT(old_arena != nullptr);
+    ALLOCATOR_ASSERT(new_arena != nullptr);
 
-    arenaNthreadsDec(oldarena, false);
-    arenaNthreadsInc(newarena, false);
-    tsd.arena = newarena;
+    arenaNumThreadsDecrement(old_arena, false);
+    arenaNumThreadsIncrement(new_arena, false);
+    thread_state.arena = new_arena;
 
-    if (arenaNthreadsGet(oldarena, false) == 0 && !backgroundThreadEnabled())
+    if (arenaNumThreadsGet(old_arena, false) == 0 && !backgroundThreadEnabled())
     {
         /// Purge if the old arena has no associated threads anymore and no background threads.
-        arenaDecay(&tsd, oldarena, /* is_background_thread */ false, /* all */ true);
+        arenaDecay(&thread_state, old_arena, /* is_background_thread */ false, /* all */ true);
     }
 }
 
 /// jemalloc: arena_unbind
-void arenaUnbind(ThreadState & tsd, unsigned ind, bool internal)
+void arenaUnbind(ThreadState & thread_state, unsigned idx, bool internal)
 {
-    Arena * arena = arenaGet(&tsd, ind, false);
-    arenaNthreadsDec(arena, internal);
+    Arena * arena = arenaGet(&thread_state, idx, false);
+    arenaNumThreadsDecrement(arena, internal);
 
     if (internal)
-        tsd.iarena = nullptr;
+        thread_state.internal_arena = nullptr;
     else
-        tsd.arena = nullptr;
+        thread_state.arena = nullptr;
 }
 
 /// jemalloc: arena_choose_hard
-Arena * arenaChooseHard(ThreadState & tsd, bool internal)
+Arena * arenaChooseHard(ThreadState & thread_state, bool internal)
 {
-    ThreadState * tsdn = &tsd;
-    Arena * ret = nullptr;
+    ThreadState * thread_state_ptr = &thread_state;
+    Arena * result = nullptr;
 
-    if (config::have_percpu_arena && percpuArenaEnabled(opt.percpu_arena))
+    if (config::have_per_cpu_arena && perCPUArenaEnabled(options.per_cpu_arena))
     {
-        unsigned choose = percpuArenaChoose();
-        ret = arenaGet(tsdn, choose, true);
-        JE_ASSERT(ret != nullptr);
-        arenaBind(tsd, arenaIndGet(ret), false);
-        arenaBind(tsd, arenaIndGet(ret), true);
+        unsigned choose = perCPUArenaChoose();
+        result = arenaGet(thread_state_ptr, choose, true);
+        ALLOCATOR_ASSERT(result != nullptr);
+        arenaBind(thread_state, arenaIdxGet(result), false);
+        arenaBind(thread_state, arenaIdxGet(result), true);
 
-        return ret;
+        return result;
     }
 
-    if (narenas_auto > 1)
+    if (num_arenas_auto > 1)
     {
         unsigned choose[2];
         bool is_new_arena[2];
@@ -229,21 +229,22 @@ Arena * arenaChooseHard(ThreadState & tsd, bool internal)
             is_new_arena[j] = false;
         }
 
-        unsigned first_null = narenas_auto;
-        arenas_lock.lock(tsdn);
-        JE_ASSERT(arenaGet(tsdn, 0, false) != nullptr);
-        for (unsigned i = 1; i < narenas_auto; ++i)
+        unsigned first_null = num_arenas_auto;
+        arenas_lock.lock(thread_state_ptr);
+        ALLOCATOR_ASSERT(arenaGet(thread_state_ptr, 0, false) != nullptr);
+        for (unsigned i = 1; i < num_arenas_auto; ++i)
         {
-            if (arenaGet(tsdn, i, false) != nullptr)
+            if (arenaGet(thread_state_ptr, i, false) != nullptr)
             {
                 /// Choose the first arena that has the lowest number of threads assigned to it.
                 for (unsigned j = 0; j < 2; ++j)
                 {
-                    if (arenaNthreadsGet(arenaGet(tsdn, i, false), !!j) < arenaNthreadsGet(arenaGet(tsdn, choose[j], false), !!j))
+                    if (arenaNumThreadsGet(arenaGet(thread_state_ptr, i, false), !!j)
+                        < arenaNumThreadsGet(arenaGet(thread_state_ptr, choose[j], false), !!j))
                         choose[j] = i;
                 }
             }
-            else if (first_null == narenas_auto)
+            else if (first_null == num_arenas_auto)
             {
                 /// Record the index of the first uninitialized arena, in case all extant arenas are in use.
                 ///
@@ -255,113 +256,113 @@ Arena * arenaChooseHard(ThreadState & tsd, bool internal)
 
         for (unsigned j = 0; j < 2; ++j)
         {
-            if (arenaNthreadsGet(arenaGet(tsdn, choose[j], false), !!j) == 0 || first_null == narenas_auto)
+            if (arenaNumThreadsGet(arenaGet(thread_state_ptr, choose[j], false), !!j) == 0 || first_null == num_arenas_auto)
             {
                 /// Use an unloaded arena, or the least loaded arena if all arenas are already initialized.
                 if (!!j == internal)
-                    ret = arenaGet(tsdn, choose[j], false);
+                    result = arenaGet(thread_state_ptr, choose[j], false);
             }
             else
             {
                 /// Initialize a new arena.
                 choose[j] = first_null;
-                Arena * arena = arenaInitLocked(tsdn, choose[j], &arena_config_default);
+                Arena * arena = arenaInitLocked(thread_state_ptr, choose[j], &arena_config_default);
                 if (arena == nullptr)
                 {
-                    arenas_lock.unlock(tsdn);
+                    arenas_lock.unlock(thread_state_ptr);
                     return nullptr;
                 }
                 is_new_arena[j] = true;
                 if (!!j == internal)
-                    ret = arena;
+                    result = arena;
             }
-            arenaBind(tsd, choose[j], !!j);
+            arenaBind(thread_state, choose[j], !!j);
         }
-        arenas_lock.unlock(tsdn);
+        arenas_lock.unlock(thread_state_ptr);
 
         for (unsigned j = 0; j < 2; ++j)
         {
             if (is_new_arena[j])
             {
-                JE_ASSERT(choose[j] > 0);
-                arenaNewCreateBackgroundThread(tsdn, choose[j]);
+                ALLOCATOR_ASSERT(choose[j] > 0);
+                arenaNewCreateBackgroundThread(thread_state_ptr, choose[j]);
             }
         }
     }
     else
     {
-        ret = arenaGet(tsdn, 0, false);
-        arenaBind(tsd, 0, false);
-        arenaBind(tsd, 0, true);
+        result = arenaGet(thread_state_ptr, 0, false);
+        arenaBind(thread_state, 0, false);
+        arenaBind(thread_state, 0, true);
     }
 
-    return ret;
+    return result;
 }
 
 /// The cold part of `arena_choose_impl` (jemalloc_internal_inlines_b.h), when the thread has no arena yet.
-Arena * arenaChooseFirstUse(ThreadState & tsd, bool internal)
+Arena * arenaChooseFirstUse(ThreadState & thread_state, bool internal)
 {
-    Arena * ret = arenaChooseHard(tsd, internal);
-    JE_ASSERT(ret);
-    if (tcacheAvailable(tsd))
+    Arena * result = arenaChooseHard(thread_state, internal);
+    ALLOCATOR_ASSERT(result);
+    if (threadCacheAvailable(thread_state))
     {
-        ThreadCacheSlow * tcache_slow = tsd.tcacheSlowGet();
-        ThreadCache * tcache = tsd.tcacheGet();
-        if (tcache_slow->arena != nullptr)
+        ThreadCacheSlow * thread_cache_slow = thread_state.threadCacheSlowGet();
+        ThreadCache * thread_cache = thread_state.threadCacheGet();
+        if (thread_cache_slow->arena != nullptr)
         {
-            /// See comments in `tcacheTSDDataInit`.
-            JE_ASSERT(tcache_slow->arena == arenaGet(&tsd, 0, false));
-            if (tcache_slow->arena != ret)
-                tcacheArenaReassociate(&tsd, tcache_slow, tcache, ret);
+            /// See comments in `threadCacheThreadStateDataInit`.
+            ALLOCATOR_ASSERT(thread_cache_slow->arena == arenaGet(&thread_state, 0, false));
+            if (thread_cache_slow->arena != result)
+                threadCacheArenaReassociate(&thread_state, thread_cache_slow, thread_cache, result);
         }
         else
         {
-            tcacheArenaAssociate(&tsd, tcache_slow, tcache, ret);
+            threadCacheArenaAssociate(&thread_state, thread_cache_slow, thread_cache, result);
         }
     }
-    return ret;
+    return result;
 }
 
 /// jemalloc: percpu_arena_update
-void percpuArenaUpdate(ThreadState & tsd, unsigned cpu)
+void perCPUArenaUpdate(ThreadState & thread_state, unsigned cpu)
 {
-    JE_ASSERT(config::have_percpu_arena);
-    Arena * oldarena = tsd.arena;
-    JE_ASSERT(oldarena != nullptr);
-    unsigned oldind = arenaIndGet(oldarena);
+    ALLOCATOR_ASSERT(config::have_per_cpu_arena);
+    Arena * old_arena = thread_state.arena;
+    ALLOCATOR_ASSERT(old_arena != nullptr);
+    unsigned old_idx = arenaIdxGet(old_arena);
 
-    if (oldind != cpu)
+    if (old_idx != cpu)
     {
-        unsigned newind = cpu;
-        Arena * newarena = arenaGet(&tsd, newind, true);
-        JE_ASSERT(newarena != nullptr);
+        unsigned new_idx = cpu;
+        Arena * new_arena = arenaGet(&thread_state, new_idx, true);
+        ALLOCATOR_ASSERT(new_arena != nullptr);
 
         /// Set new arena/tcache associations.
-        arenaMigrate(tsd, oldarena, newarena);
-        ThreadCache * tcache = tcacheGet(tsd);
-        if (tcache != nullptr)
+        arenaMigrate(thread_state, old_arena, new_arena);
+        ThreadCache * thread_cache = threadCacheGet(thread_state);
+        if (thread_cache != nullptr)
         {
-            ThreadCacheSlow * tcache_slow = tsd.tcacheSlowGet();
-            JE_ASSERT(tcache_slow->arena != nullptr);
-            tcacheArenaReassociate(&tsd, tcache_slow, tcache, newarena);
+            ThreadCacheSlow * thread_cache_slow = thread_state.threadCacheSlowGet();
+            ALLOCATOR_ASSERT(thread_cache_slow->arena != nullptr);
+            threadCacheArenaReassociate(&thread_state, thread_cache_slow, thread_cache, new_arena);
         }
     }
 }
 
 /// jemalloc: iarena_cleanup
-void iarenaCleanup(ThreadState & tsd)
+void internalArenaCleanup(ThreadState & thread_state)
 {
-    Arena * iarena = tsd.iarena;
-    if (iarena != nullptr)
-        arenaUnbind(tsd, arenaIndGet(iarena), true);
+    Arena * internal_arena = thread_state.internal_arena;
+    if (internal_arena != nullptr)
+        arenaUnbind(thread_state, arenaIdxGet(internal_arena), true);
 }
 
 /// jemalloc: arena_cleanup
-void arenaCleanup(ThreadState & tsd)
+void arenaCleanup(ThreadState & thread_state)
 {
-    Arena * arena = tsd.arena;
+    Arena * arena = thread_state.arena;
     if (arena != nullptr)
-        arenaUnbind(tsd, arenaIndGet(arena), false);
+        arenaUnbind(thread_state, arenaIdxGet(arena), false);
 }
 
 }

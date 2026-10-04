@@ -28,15 +28,15 @@ From the bottom up:
 
 | Layer | Files | jemalloc |
 |---|---|---|
-| Configuration and utilities | `Config.h`, `Common.h`, `Format`, `BufferedWriter`, `FixedPoint`, `NsTime`, `Prng.h`, `Ticker.h`, `Spin.h`, `Mutex`, `Hash.h`, `IntrusiveList.h`, `PairingHeap.h` | preamble, `malloc_io.c`, `buf_writer.c`, `fxp.c`, `nstime.c`, `prng.h`, `ticker.h`, `mutex.c`, `hash.h`, `ql.h`, `ph.h` |
+| Configuration and utilities | `Config.h`, `Common.h`, `Format`, `BufferedWriter`, `FixedPoint`, `Nanoseconds`, `PRNG.h`, `Ticker.h`, `Spin.h`, `Mutex`, `Hash.h`, `IntrusiveList.h`, `PairingHeap.h` | preamble, `malloc_io.c`, `buf_writer.c`, `fxp.c`, `nstime.c`, `prng.h`, `ticker.h`, `mutex.c`, `hash.h`, `ql.h`, `ph.h` |
 | Size classes | `SizeClassConstants.h`, `SizeClasses`, `Bitmap` | `sc.c`, `sz.c`, `bin_info.c`, `div.c`, `bitmap.c` |
 | Extent metadata | `Extent`, `ExtentPool`, `Base`, `RadixTree`, `ExtentMap`, `Pages`, `ExtentHooks` | `edata.c`, `edata_cache.c`, `base.c`, `rtree.c`, `emap.c`, `pages.c`, `ehooks.c` |
-| Page allocator | `ExtentSet`, `ExtentCache`, `ExtentOps`, `ExpGrow.h`, `Decay`, `PageAllocator`, `Sanitizer` | `eset.c`, `ecache.c`, `extent.c`, `exp_grow.c`, `decay.c`, `pac.c`, `pa.c`, `san.c`, `san_bump.c` |
+| Page allocator | `ExtentSet`, `ExtentCache`, `ExtentOps`, `ExponentialGrow.h`, `Decay`, `PageAllocator`, `Sanitizer` | `eset.c`, `ecache.c`, `extent.c`, `exp_grow.c`, `decay.c`, `pac.c`, `pa.c`, `san.c`, `san_bump.c` |
 | Arenas | `Bin`, `Arena`, `ArenaLarge.cpp`, `ArenaInlines.h`, `Arenas` | `bin.c`, `arena.c`, `large.c`, arena selection in `jemalloc.c` |
 | Threads | `CacheBin`, `ThreadCache`, `ThreadEvent`, `ThreadState` | `cache_bin.c`, `tcache.c`, `thread_event.c`, `tsd.c` |
-| Front-end | `Options`, `Conf`, `Init`, `Fork.cpp`, `Frontend.h`, `Imalloc.h`, `API.cpp`, `BatchAlloc.cpp`, `BackgroundThread`, `Zone.cpp` | `jemalloc.c`, `conf.c`, `background_thread.c`, `zone.c` |
-| Profiling | `Prof`, `ProfData.cpp`, `ProfSys.cpp`, `ProfRecent.cpp`, `ProfStats.cpp`, `ProfHooks.h`, `ProfTree.h`, `CuckooHash` | `prof*.c`, `ckh.c` |
-| Introspection | `Ctl*`, `Emitter.h`, `Stats` | `ctl.c`, `emitter.h`, `stats.c` |
+| Front-end | `Options`, `MallocConf`, `Init`, `Fork.cpp`, `Frontend.h`, `InternalMalloc.h`, `API.cpp`, `BatchAlloc.cpp`, `BackgroundThread`, `Zone.cpp` | `jemalloc.c`, `conf.c`, `background_thread.c`, `zone.c` |
+| Profiling | `Profiling`, `ProfilingData.cpp`, `ProfilingSystem.cpp`, `ProfilingRecent.cpp`, `ProfilingStats.cpp`, `ProfilingHooks.h`, `ProfilingTree.h`, `CuckooHash` | `prof*.c`, `ckh.c` |
+| Introspection | `Mallctl*`, `Emitter.h`, `Stats` | `ctl.c`, `emitter.h`, `stats.c` |
 
 ## Testing
 

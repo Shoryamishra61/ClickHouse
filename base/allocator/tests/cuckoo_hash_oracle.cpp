@@ -11,28 +11,27 @@
 #include <cstring>
 #include <random>
 
-extern "C"
-{
-int ref_ckh_new(size_t minitems, void (*hash)(const void *, size_t[2]), bool (*keycomp)(const void *, const void *));
-void ref_ckh_delete();
-int ref_ckh_insert(const void * key, const void * data);
-int ref_ckh_remove(const void * searchkey, void ** key, void ** data);
-int ref_ckh_search(const void * searchkey, void ** key, void ** data);
-int ref_ckh_iter(size_t * tabind, void ** key, void ** data);
-size_t ref_ckh_count();
-unsigned ref_ckh_lg_minbuckets();
-unsigned ref_ckh_lg_curbuckets();
-uint64_t ref_ckh_prng_state();
-const void * ref_ckh_cell_key(size_t i);
-const void * ref_ckh_cell_data(size_t i);
-size_t ref_ckh_table_usize();
-size_t ref_sizeof_ckh();
-unsigned ref_lg_ckh_bucket_cells();
+extern "C" {
+int ref_cuckoo_hash_new(size_t min_items, void (*hash)(const void *, size_t[2]), bool (*key_compare)(const void *, const void *));
+void ref_cuckoo_hash_delete();
+int ref_cuckoo_hash_insert(const void * key, const void * data);
+int ref_cuckoo_hash_remove(const void * search_key, void ** key, void ** data);
+int ref_cuckoo_hash_search(const void * search_key, void ** key, void ** data);
+int ref_cuckoo_hash_iterate(size_t * table_idx, void ** key, void ** data);
+size_t ref_cuckoo_hash_count();
+unsigned ref_cuckoo_hash_log2_min_buckets();
+unsigned ref_cuckoo_hash_log2_current_buckets();
+uint64_t ref_cuckoo_hash_prng_state();
+const void * ref_cuckoo_hash_cell_key(size_t i);
+const void * ref_cuckoo_hash_cell_data(size_t i);
+size_t ref_cuckoo_hash_table_usable_size();
+size_t ref_sizeof_cuckoo_hash();
+unsigned ref_log2_cuckoo_hash_bucket_cells();
 
 /// jemalloc's hash functions (`ckh.c`, exported unprefixed from the reference library).
-void ckh_string_hash(const void * key, size_t r_hash[2]);
+void ckh_string_hash(const void * key, size_t result_hash[2]);
 bool ckh_string_keycomp(const void * k1, const void * k2);
-void ckh_pointer_hash(const void * key, size_t r_hash[2]);
+void ckh_pointer_hash(const void * key, size_t result_hash[2]);
 bool ckh_pointer_keycomp(const void * k1, const void * k2);
 
 /// `ckh.o` pulls in the rest of the reference jemalloc, including the libunwind-based profiler backtrace, which is
@@ -53,24 +52,24 @@ struct TestAllocator
 {
     static constexpr size_t MAX_TABLES = 8;
     static inline void * tables[MAX_TABLES] = {};
-    static inline size_t usizes[MAX_TABLES] = {};
+    static inline size_t usable_sizes[MAX_TABLES] = {};
     static inline size_t allocations = 0;
     static inline bool fail = false;
 
-    static void * allocate(ThreadState &, size_t usize, size_t alignment)
+    static void * allocate(ThreadState &, size_t usable_size, size_t alignment)
     {
-        CHECK_EQ(alignment, CACHELINE);
+        CHECK_EQ(alignment, CACHE_LINE);
         if (fail)
             return nullptr;
-        void * ptr = std::aligned_alloc(alignment, usize);
+        void * ptr = std::aligned_alloc(alignment, usable_size);
         REQUIRE(ptr != nullptr);
-        std::memset(ptr, 0, usize);
+        std::memset(ptr, 0, usable_size);
         for (size_t i = 0; i < MAX_TABLES; ++i)
         {
             if (tables[i] == nullptr)
             {
                 tables[i] = ptr;
-                usizes[i] = usize;
+                usable_sizes[i] = usable_size;
                 ++allocations;
                 return ptr;
             }
@@ -93,11 +92,11 @@ struct TestAllocator
         REQUIRE(false);
     }
 
-    static size_t usizeOf(const void * ptr)
+    static size_t usableSizeOf(const void * ptr)
     {
         for (size_t i = 0; i < MAX_TABLES; ++i)
             if (tables[i] == ptr)
-                return usizes[i];
+                return usable_sizes[i];
         REQUIRE(false);
         return 0;
     }
@@ -113,19 +112,19 @@ struct TestAllocator
 
 using Table = CuckooHash<TestAllocator>;
 
-ThreadState test_tsd;
+ThreadState test_thread_state;
 
 /// A deliberately weak hash with only 5 significant bits per word, so that small tables have many collisions, long
 /// eviction chains, cycles and failed rebuilds, and some keys have both hashes in the same bucket.
-void weakHash(const void * key, size_t r_hash[2])
+void weakHash(const void * key, size_t result_hash[2])
 {
     uint64_t k = reinterpret_cast<uintptr_t>(key) >> 4;
     uint64_t h = k * 0x9E3779B97F4A7C15ULL;
-    r_hash[0] = (h >> 40) & 31;
-    r_hash[1] = (k % 5 == 0) ? r_hash[0] : ((h >> 20) & 31);
+    result_hash[0] = (h >> 40) & 31;
+    result_hash[1] = (k % 5 == 0) ? result_hash[0] : ((h >> 20) & 31);
 }
 
-bool weakKeycomp(const void * k1, const void * k2)
+bool weakKeyCompare(const void * k1, const void * k2)
 {
     return k1 == k2;
 }
@@ -133,9 +132,9 @@ bool weakKeycomp(const void * k1, const void * k2)
 void compareState(const Table & table, const char * what, size_t step)
 {
     bool ok = true;
-    if (table.count() != ref_ckh_count() || table.lgCurBuckets() != ref_ckh_lg_curbuckets()
-        || table.lgMinBuckets() != ref_ckh_lg_minbuckets() || table.prngState() != ref_ckh_prng_state()
-        || TestAllocator::usizeOf(table.cells()) != ref_ckh_table_usize())
+    if (table.count() != ref_cuckoo_hash_count() || table.log2CurrentBuckets() != ref_cuckoo_hash_log2_current_buckets()
+        || table.log2MinBuckets() != ref_cuckoo_hash_log2_min_buckets() || table.prngState() != ref_cuckoo_hash_prng_state()
+        || TestAllocator::usableSizeOf(table.cells()) != ref_cuckoo_hash_table_usable_size())
     {
         ok = false;
     }
@@ -143,7 +142,7 @@ void compareState(const Table & table, const char * what, size_t step)
     {
         for (size_t i = 0; i < table.numCells(); ++i)
         {
-            if (table.cells()[i].key != ref_ckh_cell_key(i) || table.cells()[i].data != ref_ckh_cell_data(i))
+            if (table.cells()[i].key != ref_cuckoo_hash_cell_key(i) || table.cells()[i].data != ref_cuckoo_hash_cell_data(i))
             {
                 ok = false;
                 break;
@@ -152,17 +151,26 @@ void compareState(const Table & table, const char * what, size_t step)
     }
     if (!ok)
     {
-        std::fprintf(stderr, "%s: state differs after step %zu (count %zu/%zu, lg_cur %u/%u, prng %llu/%llu, usize %zu/%zu)\n",
-            what, step, table.count(), ref_ckh_count(), table.lgCurBuckets(), ref_ckh_lg_curbuckets(),
-            static_cast<unsigned long long>(table.prngState()), static_cast<unsigned long long>(ref_ckh_prng_state()),
-            TestAllocator::usizeOf(table.cells()), ref_ckh_table_usize());
+        std::fprintf(
+            stderr,
+            "%s: state differs after step %zu (count %zu/%zu, lg_cur %u/%u, prng %llu/%llu, usize %zu/%zu)\n",
+            what,
+            step,
+            table.count(),
+            ref_cuckoo_hash_count(),
+            table.log2CurrentBuckets(),
+            ref_cuckoo_hash_log2_current_buckets(),
+            static_cast<unsigned long long>(table.prngState()),
+            static_cast<unsigned long long>(ref_cuckoo_hash_prng_state()),
+            TestAllocator::usableSizeOf(table.cells()),
+            ref_cuckoo_hash_table_usable_size());
         CHECK(false);
         allocator_test::abortTest();
     }
 
     /// Iteration order (implied by the layout, but this is the interface the profiler uses).
-    size_t ind = 0;
-    size_t ref_ind = 0;
+    size_t idx = 0;
+    size_t ref_idx = 0;
     size_t n = 0;
     while (true)
     {
@@ -170,12 +178,12 @@ void compareState(const Table & table, const char * what, size_t step)
         void * data = nullptr;
         void * ref_key = nullptr;
         void * ref_data = nullptr;
-        bool end = table.iter(&ind, &key, &data);
-        bool ref_end = ref_ckh_iter(&ref_ind, &ref_key, &ref_data) != 0;
+        bool end = table.iterate(&idx, &key, &data);
+        bool ref_end = ref_cuckoo_hash_iterate(&ref_idx, &ref_key, &ref_data) != 0;
         REQUIRE(end == ref_end);
         if (end)
             break;
-        REQUIRE(ind == ref_ind);
+        REQUIRE(idx == ref_idx);
         REQUIRE(key == ref_key);
         REQUIRE(data == ref_data);
         ++n;
@@ -195,23 +203,23 @@ struct ScenarioStats
 template <typename MakeKey>
 ScenarioStats runScenario(
     const char * what,
-    size_t minitems,
+    size_t min_items,
     CuckooHashFunction hash,
-    CuckooKeyCompare keycomp,
+    CuckooKeyCompare key_compare,
     CuckooHashFunction ref_hash,
-    CuckooKeyCompare ref_keycomp,
-    size_t nkeys,
+    CuckooKeyCompare ref_key_compare,
+    size_t num_keys,
     size_t steps,
     uint64_t seed,
     MakeKey && makeKey)
 {
     Table table;
-    REQUIRE(!table.init(test_tsd, minitems, hash, keycomp));
-    REQUIRE(ref_ckh_new(minitems, ref_hash, ref_keycomp) == 0);
+    REQUIRE(!table.init(test_thread_state, min_items, hash, key_compare));
+    REQUIRE(ref_cuckoo_hash_new(min_items, ref_hash, ref_key_compare) == 0);
     compareState(table, what, 0);
 
     constexpr size_t MAX_KEYS = 4096;
-    REQUIRE(nkeys <= MAX_KEYS);
+    REQUIRE(num_keys <= MAX_KEYS);
     static bool present[MAX_KEYS];
     std::memset(present, 0, sizeof(present));
 
@@ -222,7 +230,7 @@ ScenarioStats runScenario(
     {
         size_t phase = step * 3 / (steps + 1);
         unsigned insert_percent = phase == 0 ? 80 : (phase == 1 ? 50 : 15);
-        size_t k = rng() % nkeys;
+        size_t k = rng() % num_keys;
         const void * key = makeKey(k);
         const void * data = reinterpret_cast<const void *>(uintptr_t(rng() | 1));
         unsigned op = unsigned(rng() % 100);
@@ -231,36 +239,36 @@ ScenarioStats runScenario(
         {
             if (!present[k])
             {
-                unsigned lg_before = table.lgCurBuckets();
+                unsigned log2_before = table.log2CurrentBuckets();
                 size_t allocations_before = TestAllocator::allocations;
-                bool err = table.insert(test_tsd, key, data);
-                int ref_err = ref_ckh_insert(key, data);
-                REQUIRE(err == (ref_err != 0));
-                REQUIRE(!err);
+                bool error = table.insert(test_thread_state, key, data);
+                int ref_error = ref_cuckoo_hash_insert(key, data);
+                REQUIRE(error == (ref_error != 0));
+                REQUIRE(!error);
                 present[k] = true;
-                if (table.lgCurBuckets() > lg_before + 1)
+                if (table.log2CurrentBuckets() > log2_before + 1)
                     ++stats.multi_grows;
                 if (TestAllocator::allocations > allocations_before + 1)
                     ++stats.failed_rebuilds;
-                if (table.lgCurBuckets() > lg_before)
+                if (table.log2CurrentBuckets() > log2_before)
                     ++stats.grows;
             }
         }
         else if (op < 95)
         {
-            unsigned lg_before = table.lgCurBuckets();
+            unsigned log2_before = table.log2CurrentBuckets();
             void * removed_key = nullptr;
             void * removed_data = nullptr;
             void * ref_removed_key = nullptr;
             void * ref_removed_data = nullptr;
-            bool not_found = table.remove(test_tsd, key, &removed_key, &removed_data);
-            bool ref_not_found = ref_ckh_remove(key, &ref_removed_key, &ref_removed_data) != 0;
+            bool not_found = table.remove(test_thread_state, key, &removed_key, &removed_data);
+            bool ref_not_found = ref_cuckoo_hash_remove(key, &ref_removed_key, &ref_removed_data) != 0;
             REQUIRE(not_found == ref_not_found);
             REQUIRE(not_found == !present[k]);
             CHECK(removed_key == ref_removed_key);
             CHECK(removed_data == ref_removed_data);
             present[k] = false;
-            if (table.lgCurBuckets() < lg_before)
+            if (table.log2CurrentBuckets() < log2_before)
                 ++stats.shrinks;
         }
         else
@@ -270,7 +278,7 @@ ScenarioStats runScenario(
             void * ref_found_key = nullptr;
             void * ref_found_data = nullptr;
             bool not_found = table.search(key, &found_key, &found_data);
-            bool ref_not_found = ref_ckh_search(key, &ref_found_key, &ref_found_data) != 0;
+            bool ref_not_found = ref_cuckoo_hash_search(key, &ref_found_key, &ref_found_data) != 0;
             REQUIRE(not_found == ref_not_found);
             REQUIRE(not_found == !present[k]);
             CHECK(found_key == ref_found_key);
@@ -281,8 +289,8 @@ ScenarioStats runScenario(
         compareState(table, what, step);
     }
 
-    table.destroy(test_tsd);
-    ref_ckh_delete();
+    table.destroy(test_thread_state);
+    ref_cuckoo_hash_delete();
     CHECK_EQ(TestAllocator::live(), size_t(0));
     return stats;
 }
@@ -304,9 +312,9 @@ const void * stringKey(size_t k)
 
 TEST(CuckooHashOracle, Layout)
 {
-    CHECK_EQ(sizeof(CuckooHashBase), ref_sizeof_ckh());
-    CHECK_EQ(sizeof(Table), ref_sizeof_ckh());
-    CHECK_EQ(LG_CKH_BUCKET_CELLS, ref_lg_ckh_bucket_cells());
+    CHECK_EQ(sizeof(CuckooHashBase), ref_sizeof_cuckoo_hash());
+    CHECK_EQ(sizeof(Table), ref_sizeof_cuckoo_hash());
+    CHECK_EQ(LOG2_CUCKOO_HASH_BUCKET_CELLS, ref_log2_cuckoo_hash_bucket_cells());
 }
 
 TEST(CuckooHashOracle, HashFunctions)
@@ -316,49 +324,72 @@ TEST(CuckooHashOracle, HashFunctions)
         size_t expected[2];
         size_t actual[2];
         ckh_pointer_hash(pointerKey(k), expected);
-        ckhPointerHash(pointerKey(k), actual);
+        cuckooHashPointerHash(pointerKey(k), actual);
         CHECK_EQ(actual[0], expected[0]);
         CHECK_EQ(actual[1], expected[1]);
         ckh_string_hash(stringKey(k), expected);
-        ckhStringHash(stringKey(k), actual);
+        cuckooHashStringHash(stringKey(k), actual);
         CHECK_EQ(actual[0], expected[0]);
         CHECK_EQ(actual[1], expected[1]);
-        CHECK_EQ(ckhStringKeycomp(stringKey(k), stringKey(k)), ckh_string_keycomp(stringKey(k), stringKey(k)));
-        CHECK_EQ(ckhStringKeycomp(stringKey(k), stringKey(k + 1)), ckh_string_keycomp(stringKey(k), stringKey(k + 1)));
-        CHECK_EQ(ckhPointerKeycomp(pointerKey(k), pointerKey(k + 1)), ckh_pointer_keycomp(pointerKey(k), pointerKey(k + 1)));
+        CHECK_EQ(cuckooHashStringKeyCompare(stringKey(k), stringKey(k)), ckh_string_keycomp(stringKey(k), stringKey(k)));
+        CHECK_EQ(cuckooHashStringKeyCompare(stringKey(k), stringKey(k + 1)), ckh_string_keycomp(stringKey(k), stringKey(k + 1)));
+        CHECK_EQ(cuckooHashPointerKeyCompare(pointerKey(k), pointerKey(k + 1)), ckh_pointer_keycomp(pointerKey(k), pointerKey(k + 1)));
     }
 }
 
 TEST(CuckooHashOracle, InitialGeometry)
 {
-    /// Every `minitems` up to a few thousand: the same table size as jemalloc (e.g. 64 -> 32 buckets, 2048 bytes).
-    for (size_t minitems = 1; minitems <= 5000; minitems += (minitems < 300 ? 1 : 97))
+    /// Every `min_items` up to a few thousand: the same table size as jemalloc (e.g. 64 -> 32 buckets, 2048 bytes).
+    for (size_t min_items = 1; min_items <= 5000; min_items += (min_items < 300 ? 1 : 97))
     {
         Table table;
-        REQUIRE(!table.init(test_tsd, minitems, ckhPointerHash, ckhPointerKeycomp));
-        REQUIRE(ref_ckh_new(minitems, ckh_pointer_hash, ckh_pointer_keycomp) == 0);
-        compareState(table, "geometry", minitems);
-        if (minitems == 64)
+        REQUIRE(!table.init(test_thread_state, min_items, cuckooHashPointerHash, cuckooHashPointerKeyCompare));
+        REQUIRE(ref_cuckoo_hash_new(min_items, ckh_pointer_hash, ckh_pointer_keycomp) == 0);
+        compareState(table, "geometry", min_items);
+        if (min_items == 64)
         {
-            CHECK_EQ(table.lgCurBuckets(), 5u);
-            CHECK_EQ(TestAllocator::usizeOf(table.cells()), size_t(2048));
+            CHECK_EQ(table.log2CurrentBuckets(), 5u);
+            CHECK_EQ(TestAllocator::usableSizeOf(table.cells()), size_t(2048));
         }
-        table.destroy(test_tsd);
-        ref_ckh_delete();
+        table.destroy(test_thread_state);
+        ref_cuckoo_hash_delete();
     }
 }
 
 TEST(CuckooHashOracle, PointerKeys)
 {
-    runScenario("pointer/64", 64, ckhPointerHash, ckhPointerKeycomp, ckh_pointer_hash, ckh_pointer_keycomp, 600, 6000, 1, pointerKey);
-    runScenario("pointer/1", 1, ckhPointerHash, ckhPointerKeycomp, ckh_pointer_hash, ckh_pointer_keycomp, 2000, 12000, 2, pointerKey);
-    runScenario("pointer/7", 7, ckhPointerHash, ckhPointerKeycomp, ckh_pointer_hash, ckh_pointer_keycomp, 50, 3000, 3, pointerKey);
+    runScenario(
+        "pointer/64",
+        64,
+        cuckooHashPointerHash,
+        cuckooHashPointerKeyCompare,
+        ckh_pointer_hash,
+        ckh_pointer_keycomp,
+        600,
+        6000,
+        1,
+        pointerKey);
+    runScenario(
+        "pointer/1",
+        1,
+        cuckooHashPointerHash,
+        cuckooHashPointerKeyCompare,
+        ckh_pointer_hash,
+        ckh_pointer_keycomp,
+        2000,
+        12000,
+        2,
+        pointerKey);
+    runScenario(
+        "pointer/7", 7, cuckooHashPointerHash, cuckooHashPointerKeyCompare, ckh_pointer_hash, ckh_pointer_keycomp, 50, 3000, 3, pointerKey);
 }
 
 TEST(CuckooHashOracle, StringKeys)
 {
-    runScenario("string/64", 64, ckhStringHash, ckhStringKeycomp, ckh_string_hash, ckh_string_keycomp, 500, 5000, 4, stringKey);
-    runScenario("string/2", 2, ckhStringHash, ckhStringKeycomp, ckh_string_hash, ckh_string_keycomp, 1500, 9000, 5, stringKey);
+    runScenario(
+        "string/64", 64, cuckooHashStringHash, cuckooHashStringKeyCompare, ckh_string_hash, ckh_string_keycomp, 500, 5000, 4, stringKey);
+    runScenario(
+        "string/2", 2, cuckooHashStringHash, cuckooHashStringKeyCompare, ckh_string_hash, ckh_string_keycomp, 1500, 9000, 5, stringKey);
 }
 
 TEST(CuckooHashOracle, WeakHashEvictionsAndRebuildFailures)
@@ -368,14 +399,19 @@ TEST(CuckooHashOracle, WeakHashEvictionsAndRebuildFailures)
     for (uint64_t seed = 10; seed < 16; ++seed)
     {
         ScenarioStats stats
-            = runScenario("weak", 1 + seed % 4, weakHash, weakKeycomp, weakHash, weakKeycomp, 110, 4000, seed, pointerKey);
+            = runScenario("weak", 1 + seed % 4, weakHash, weakKeyCompare, weakHash, weakKeyCompare, 110, 4000, seed, pointerKey);
         total.grows += stats.grows;
         total.multi_grows += stats.multi_grows;
         total.failed_rebuilds += stats.failed_rebuilds;
         total.shrinks += stats.shrinks;
     }
-    std::fprintf(stderr, "weak hash: %zu grows, %zu multi-step grows, %zu failed rebuilds, %zu shrinks\n", total.grows,
-        total.multi_grows, total.failed_rebuilds, total.shrinks);
+    std::fprintf(
+        stderr,
+        "weak hash: %zu grows, %zu multi-step grows, %zu failed rebuilds, %zu shrinks\n",
+        total.grows,
+        total.multi_grows,
+        total.failed_rebuilds,
+        total.shrinks);
     /// The scenario must exercise the rare paths.
     CHECK_GT(total.multi_grows, size_t(0));
     CHECK_GT(total.failed_rebuilds, size_t(0));
@@ -388,25 +424,25 @@ TEST(CuckooHashOracle, AllocationFailure)
     /// over from the eviction chain is missing, as in jemalloc). Not compared with the reference, since its
     /// allocation cannot be made to fail.
     Table table;
-    REQUIRE(!table.init(test_tsd, 1, ckhPointerHash, ckhPointerKeycomp));
+    REQUIRE(!table.init(test_thread_state, 1, cuckooHashPointerHash, cuckooHashPointerKeyCompare));
     TestAllocator::fail = true;
     bool failed = false;
     size_t k = 0;
     for (; k < 100 && !failed; ++k)
-        failed = table.insert(test_tsd, pointerKey(k), pointerKey(k));
+        failed = table.insert(test_thread_state, pointerKey(k), pointerKey(k));
     TestAllocator::fail = false;
     CHECK(failed);
-    CHECK_EQ(table.lgCurBuckets(), table.lgMinBuckets());
+    CHECK_EQ(table.log2CurrentBuckets(), table.log2MinBuckets());
     size_t occupied = 0;
     for (size_t i = 0; i < table.numCells(); ++i)
         occupied += table.cells()[i].key != nullptr;
     CHECK_EQ(table.count(), occupied);
     CHECK_EQ(table.count(), k - 1);
-    table.destroy(test_tsd);
+    table.destroy(test_thread_state);
 
     /// `init` fails if the table cannot be allocated.
     TestAllocator::fail = true;
     Table table2;
-    CHECK(table2.init(test_tsd, 64, ckhPointerHash, ckhPointerKeycomp));
+    CHECK(table2.init(test_thread_state, 64, cuckooHashPointerHash, cuckooHashPointerKeyCompare));
     TestAllocator::fail = false;
 }

@@ -23,7 +23,7 @@ namespace jemalloc
 
 /// Values of the `thp` option (`opt_thp`).
 /// jemalloc: thp_mode_t
-enum class THPMode : unsigned
+enum class TransparentHugePagesMode : unsigned
 {
     /// Respect kernel THP settings. jemalloc: thp_mode_do_nothing
     DoNothing = 0,
@@ -36,11 +36,11 @@ enum class THPMode : unsigned
 };
 
 /// The number of values accepted by the `thp` option. jemalloc: thp_mode_names_limit
-inline constexpr unsigned thp_mode_names_limit = 3;
+inline constexpr unsigned transparent_huge_pages_mode_names_limit = 3;
 
-/// The kernel THP setting detected at boot (`init_system_thp_mode`).
+/// The kernel THP setting detected at boot (`init_system_transparent_huge_pages_mode`).
 /// jemalloc: system_thp_mode_t
-enum class SystemTHPMode : unsigned
+enum class SystemTransparentHugePagesMode : unsigned
 {
     Madvise = 0,
     Always = 1,
@@ -49,16 +49,16 @@ enum class SystemTHPMode : unsigned
 };
 
 /// jemalloc: THP_MODE_DEFAULT
-inline constexpr THPMode THP_MODE_DEFAULT = THPMode::DoNothing;
+inline constexpr TransparentHugePagesMode TRANSPARENT_HUGE_PAGES_MODE_DEFAULT = TransparentHugePagesMode::DoNothing;
 
 /// jemalloc: thp_mode_names
-extern const char * const thp_mode_names[];
+extern const char * const transparent_huge_pages_mode_names[];
 /// jemalloc: system_thp_mode_names
-extern const char * const system_thp_mode_names[];
+extern const char * const system_transparent_huge_pages_mode_names[];
 
 /// Values of the `metadata_thp` option.
 /// jemalloc: metadata_thp_mode_t (`base.h`)
-enum class MetadataTHPMode : unsigned
+enum class MetadataTransparentHugePagesMode : unsigned
 {
     Disabled = 0,
     /// Lazily enable hugepage for metadata. To avoid high RSS caused by THP + low usage arena (i.e. THP becomes a
@@ -70,23 +70,23 @@ enum class MetadataTHPMode : unsigned
 };
 
 /// jemalloc: metadata_thp_mode_limit
-inline constexpr unsigned metadata_thp_mode_limit = 3;
+inline constexpr unsigned metadata_transparent_huge_pages_mode_limit = 3;
 
 /// jemalloc: METADATA_THP_DEFAULT
-inline constexpr MetadataTHPMode METADATA_THP_DEFAULT = MetadataTHPMode::Disabled;
+inline constexpr MetadataTransparentHugePagesMode METADATA_TRANSPARENT_HUGE_PAGES_DEFAULT = MetadataTransparentHugePagesMode::Disabled;
 
 /// jemalloc: metadata_thp_mode_names (`src/base.c`)
-extern const char * const metadata_thp_mode_names[];
+extern const char * const metadata_transparent_huge_pages_mode_names[];
 
 /// jemalloc: metadata_thp_enabled
-inline bool metadataTHPEnabled()
+inline bool metadataTransparentHugePagesEnabled()
 {
-    return opt.metadata_thp != MetadataTHPMode::Disabled;
+    return options.metadata_transparent_huge_pages != MetadataTransparentHugePagesMode::Disabled;
 }
 
 /// Initial system-wide THP state.
 /// jemalloc: init_system_thp_mode
-extern SystemTHPMode init_system_thp_mode;
+extern SystemTransparentHugePagesMode init_system_transparent_huge_pages_mode;
 
 /// Actual operating system page size, detected during bootstrap, <= PAGE.
 /// jemalloc: os_page
@@ -133,7 +133,7 @@ bool huge(void * addr, size_t size);
 
 /// `MADV_NOHUGEPAGE` on a hugepage-aligned range. Returns true on error.
 /// jemalloc: pages_nohuge
-bool nohuge(void * addr, size_t size);
+bool noHuge(void * addr, size_t size);
 
 /// `MADV_COLLAPSE` (not configured on any supported platform: always fails).
 /// jemalloc: pages_collapse
@@ -149,7 +149,7 @@ bool doDump(void * addr, size_t size);
 
 /// Apply `opt.thp` to a new mapping (no-op with the default `thp` option).
 /// jemalloc: pages_set_thp_state
-void setTHPState(void * ptr, size_t size);
+void setTransparentHugePagesState(void * ptr, size_t size);
 
 /// Make the guard pages at `head` and/or `tail` (either may be null) inaccessible.
 /// jemalloc: pages_mark_guards
@@ -176,6 +176,6 @@ void * extentAllocMmap(void * new_addr, size_t size, size_t alignment, bool * ze
 
 /// Returns true if the memory was not deallocated (with `opt_retain`).
 /// jemalloc: extent_dalloc_mmap
-bool extentDallocMmap(void * addr, size_t size);
+bool extentDeallocateMmap(void * addr, size_t size);
 
 }

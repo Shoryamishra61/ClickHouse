@@ -19,8 +19,8 @@ enum class Variant
 /// The verification procedure of jemalloc's `test/unit/hash.c` (from SMHasher).
 uint32_t verify(Variant variant, uint8_t * key)
 {
-    const int hashbytes = variant == Variant::X86_32 ? 4 : 16;
-    const int hashes_size = hashbytes * 256;
+    const int hash_bytes = variant == Variant::X86_32 ? 4 : 16;
+    const int hashes_size = hash_bytes * 256;
     uint8_t hashes[16 * 256];
     uint8_t final_hash[16];
 
@@ -33,24 +33,21 @@ uint32_t verify(Variant variant, uint8_t * key)
         key[i] = uint8_t(i);
         switch (variant)
         {
-            case Variant::X86_32:
-            {
+            case Variant::X86_32: {
                 uint32_t out = hash::x86_32(key, int(i), 256 - i);
-                std::memcpy(&hashes[i * hashbytes], &out, size_t(hashbytes));
+                std::memcpy(&hashes[i * hash_bytes], &out, size_t(hash_bytes));
                 break;
             }
-            case Variant::X86_128:
-            {
+            case Variant::X86_128: {
                 uint64_t out[2];
                 hash::x86_128(key, int(i), 256 - i, out);
-                std::memcpy(&hashes[i * hashbytes], out, size_t(hashbytes));
+                std::memcpy(&hashes[i * hash_bytes], out, size_t(hash_bytes));
                 break;
             }
-            case Variant::X64_128:
-            {
+            case Variant::X64_128: {
                 uint64_t out[2];
                 hash::x64_128(key, int(i), 256 - i, out);
-                std::memcpy(&hashes[i * hashbytes], out, size_t(hashbytes));
+                std::memcpy(&hashes[i * hash_bytes], out, size_t(hash_bytes));
                 break;
             }
         }
@@ -58,21 +55,18 @@ uint32_t verify(Variant variant, uint8_t * key)
 
     switch (variant)
     {
-        case Variant::X86_32:
-        {
+        case Variant::X86_32: {
             uint32_t out = hash::x86_32(hashes, hashes_size, 0);
             std::memcpy(final_hash, &out, sizeof(out));
             break;
         }
-        case Variant::X86_128:
-        {
+        case Variant::X86_128: {
             uint64_t out[2];
             hash::x86_128(hashes, hashes_size, 0, out);
             std::memcpy(final_hash, out, sizeof(out));
             break;
         }
-        case Variant::X64_128:
-        {
+        case Variant::X64_128: {
             uint64_t out[2];
             hash::x64_128(hashes, hashes_size, 0, out);
             std::memcpy(final_hash, out, sizeof(out));

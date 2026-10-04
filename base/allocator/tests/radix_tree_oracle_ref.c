@@ -1,11 +1,11 @@
 /* The reference: jemalloc's radix tree (`rtree.h`, `rtree_tsd.h`, `rtree.c`) and the `edata_t` layout. */
 
 #ifndef _GNU_SOURCE
-#    define _GNU_SOURCE
+#define _GNU_SOURCE
 #endif
 
-#include "jemalloc/internal/jemalloc_preamble.h"
 #include "jemalloc/internal/jemalloc_internal_includes.h"
+#include "jemalloc/internal/jemalloc_preamble.h"
 
 #include "jemalloc/internal/base.h"
 #include "jemalloc/internal/edata.h"
@@ -17,9 +17,9 @@
 #include <stddef.h>
 #include <stdlib.h>
 
-static sc_data_t ref_sc_data;
+static sc_data_t ref_size_class_data;
 static rtree_t * ref_tree;
-static rtree_ctx_t ref_ctx;
+static rtree_ctx_t ref_context;
 
 /* Geometry and layout constants, by index. */
 size_t ref_constant(int which)
@@ -79,13 +79,13 @@ size_t ref_constant(int which)
     }
 }
 
-void ref_level(unsigned level, unsigned * bits, unsigned * cumbits)
+void ref_level(unsigned level, unsigned * bits, unsigned * cumulative_bits)
 {
     *bits = rtree_levels[level].bits;
-    *cumbits = rtree_levels[level].cumbits;
+    *cumulative_bits = rtree_levels[level].cumbits;
 }
 
-uintptr_t ref_leafkey(uintptr_t key)
+uintptr_t ref_leaf_key(uintptr_t key)
 {
     return rtree_leafkey(key);
 }
@@ -101,11 +101,11 @@ size_t ref_direct_map(uintptr_t key)
 }
 
 /* The contents are passed as {edata, szind, state, is_head, slab}. */
-static rtree_contents_t make_contents(uintptr_t edata, unsigned szind, unsigned state, int is_head, int slab)
+static rtree_contents_t make_contents(uintptr_t extent, unsigned size_class_idx, unsigned state, int is_head, int slab)
 {
     rtree_contents_t contents;
-    contents.edata = (edata_t *)edata;
-    contents.metadata.szind = szind;
+    contents.edata = (edata_t *)extent;
+    contents.metadata.szind = size_class_idx;
     contents.metadata.state = (extent_state_t)state;
     contents.metadata.is_head = is_head;
     contents.metadata.slab = slab;
@@ -122,11 +122,11 @@ static void split_contents(rtree_contents_t contents, uintptr_t * out)
 }
 
 /* The encoded element: out[0] = bits / edata pointer, out[1] = additional (non-compact). */
-void ref_encode(uintptr_t edata, unsigned szind, unsigned state, int is_head, int slab, uintptr_t * out)
+void ref_encode(uintptr_t extent, unsigned size_class_idx, unsigned state, int is_head, int slab, uintptr_t * out)
 {
     void * bits;
     unsigned additional = 0;
-    rtree_contents_encode(make_contents(edata, szind, state, is_head, slab), &bits, &additional);
+    rtree_contents_encode(make_contents(extent, size_class_idx, state, is_head, slab), &bits, &additional);
     out[0] = (uintptr_t)bits;
 #ifdef RTREE_LEAF_COMPACT
     out[1] = 0;
@@ -149,8 +149,8 @@ void ref_decode(uintptr_t bits, uintptr_t * out)
 
 int ref_init(void)
 {
-    sc_boot(&ref_sc_data);
-    sz_boot(&ref_sc_data, opt_cache_oblivious);
+    sc_boot(&ref_size_class_data);
+    sz_boot(&ref_size_class_data, opt_cache_oblivious);
     if (pages_boot())
         return 1;
     base_t * base = base_new(TSDN_NULL, 0, &ehooks_default_extent_hooks, true);
@@ -159,44 +159,44 @@ int ref_init(void)
     ref_tree = calloc(1, sizeof(rtree_t));
     if (ref_tree == NULL || rtree_new(ref_tree, base, true))
         return 1;
-    rtree_ctx_data_init(&ref_ctx);
+    rtree_ctx_data_init(&ref_context);
     return 0;
 }
 
 /* The cache: leafkeys and leaf pointers of L1 then L2. */
-void ref_ctx_get(uintptr_t * leafkeys, uintptr_t * leaves)
+void ref_context_get(uintptr_t * leaf_keys, uintptr_t * leaves)
 {
     for (unsigned i = 0; i < RTREE_CTX_NCACHE; i++)
     {
-        leafkeys[i] = ref_ctx.cache[i].leafkey;
-        leaves[i] = (uintptr_t)ref_ctx.cache[i].leaf;
+        leaf_keys[i] = ref_context.cache[i].leafkey;
+        leaves[i] = (uintptr_t)ref_context.cache[i].leaf;
     }
     for (unsigned i = 0; i < RTREE_CTX_NCACHE_L2; i++)
     {
-        leafkeys[RTREE_CTX_NCACHE + i] = ref_ctx.l2_cache[i].leafkey;
-        leaves[RTREE_CTX_NCACHE + i] = (uintptr_t)ref_ctx.l2_cache[i].leaf;
+        leaf_keys[RTREE_CTX_NCACHE + i] = ref_context.l2_cache[i].leafkey;
+        leaves[RTREE_CTX_NCACHE + i] = (uintptr_t)ref_context.l2_cache[i].leaf;
     }
 }
 
 uintptr_t ref_lookup(uintptr_t key, int dependent, int init_missing)
 {
-    return (uintptr_t)rtree_leaf_elm_lookup(TSDN_NULL, ref_tree, &ref_ctx, key, dependent, init_missing);
+    return (uintptr_t)rtree_leaf_elm_lookup(TSDN_NULL, ref_tree, &ref_context, key, dependent, init_missing);
 }
 
-int ref_write(uintptr_t key, uintptr_t edata, unsigned szind, unsigned state, int is_head, int slab)
+int ref_write(uintptr_t key, uintptr_t extent, unsigned size_class_idx, unsigned state, int is_head, int slab)
 {
-    return rtree_write(TSDN_NULL, ref_tree, &ref_ctx, key, make_contents(edata, szind, state, is_head, slab));
+    return rtree_write(TSDN_NULL, ref_tree, &ref_context, key, make_contents(extent, size_class_idx, state, is_head, slab));
 }
 
 void ref_read(uintptr_t key, uintptr_t * out)
 {
-    split_contents(rtree_read(TSDN_NULL, ref_tree, &ref_ctx, key), out);
+    split_contents(rtree_read(TSDN_NULL, ref_tree, &ref_context, key), out);
 }
 
 int ref_read_independent(uintptr_t key, uintptr_t * out)
 {
     rtree_contents_t contents;
-    if (rtree_read_independent(TSDN_NULL, ref_tree, &ref_ctx, key, &contents))
+    if (rtree_read_independent(TSDN_NULL, ref_tree, &ref_context, key, &contents))
         return 1;
     split_contents(contents, out);
     return 0;
@@ -205,7 +205,7 @@ int ref_read_independent(uintptr_t key, uintptr_t * out)
 int ref_metadata_try_read_fast(uintptr_t key, uintptr_t * out)
 {
     rtree_metadata_t metadata;
-    if (rtree_metadata_try_read_fast(TSDN_NULL, ref_tree, &ref_ctx, key, &metadata))
+    if (rtree_metadata_try_read_fast(TSDN_NULL, ref_tree, &ref_context, key, &metadata))
         return 1;
     out[0] = metadata.szind;
     out[1] = metadata.state;
@@ -216,22 +216,22 @@ int ref_metadata_try_read_fast(uintptr_t key, uintptr_t * out)
 
 void ref_clear(uintptr_t key)
 {
-    rtree_clear(TSDN_NULL, ref_tree, &ref_ctx, key);
+    rtree_clear(TSDN_NULL, ref_tree, &ref_context, key);
 }
 
-void ref_write_range(uintptr_t base, uintptr_t end, uintptr_t edata, unsigned szind, unsigned state, int is_head, int slab)
+void ref_write_range(uintptr_t base, uintptr_t end, uintptr_t extent, unsigned size_class_idx, unsigned state, int is_head, int slab)
 {
-    rtree_write_range(TSDN_NULL, ref_tree, &ref_ctx, base, end, make_contents(edata, szind, state, is_head, slab));
+    rtree_write_range(TSDN_NULL, ref_tree, &ref_context, base, end, make_contents(extent, size_class_idx, state, is_head, slab));
 }
 
 void ref_clear_range(uintptr_t base, uintptr_t end)
 {
-    rtree_clear_range(TSDN_NULL, ref_tree, &ref_ctx, base, end);
+    rtree_clear_range(TSDN_NULL, ref_tree, &ref_context, base, end);
 }
 
 void ref_state_update(uintptr_t key1, uintptr_t key2, unsigned state)
 {
-    rtree_leaf_elm_t * elm1 = rtree_leaf_elm_lookup(TSDN_NULL, ref_tree, &ref_ctx, key1, true, false);
-    rtree_leaf_elm_t * elm2 = key2 == 0 ? NULL : rtree_leaf_elm_lookup(TSDN_NULL, ref_tree, &ref_ctx, key2, true, false);
-    rtree_leaf_elm_state_update(TSDN_NULL, ref_tree, elm1, elm2, (extent_state_t)state);
+    rtree_leaf_elm_t * element1 = rtree_leaf_elm_lookup(TSDN_NULL, ref_tree, &ref_context, key1, true, false);
+    rtree_leaf_elm_t * element2 = key2 == 0 ? NULL : rtree_leaf_elm_lookup(TSDN_NULL, ref_tree, &ref_context, key2, true, false);
+    rtree_leaf_elm_state_update(TSDN_NULL, ref_tree, element1, element2, (extent_state_t)state);
 }

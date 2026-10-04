@@ -78,15 +78,15 @@ TEST(Format, StrToUMax)
     {
         errno = 0;
         char * remainder = nullptr;
-        uintmax_t result = strToUMax(c.input, &remainder, c.base);
-        int err = errno;
-        CHECK_EQ(err, c.expected_errno);
+        uintmax_t result = strToUIntMax(c.input, &remainder, c.base);
+        int error = errno;
+        CHECK_EQ(error, c.expected_errno);
         CHECK_STREQ(remainder, c.expected_remainder);
         CHECK_EQ(result, c.expected_x);
     }
 
     errno = 0;
-    CHECK_EQ(strToUMax("0", static_cast<char **>(nullptr), 0), 0u);
+    CHECK_EQ(strToUIntMax("0", static_cast<char **>(nullptr), 0), 0u);
     CHECK_EQ(errno, 0);
 }
 
@@ -96,12 +96,12 @@ namespace
 char buf[128];
 
 template <typename... Args>
-void checkFormat(const char * expected, const char * fmt, Args... args)
+void checkFormat(const char * expected, const char * format_string, Args... args)
 {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wformat-nonliteral"
 #pragma clang diagnostic ignored "-Wformat-security"
-    size_t result = format(buf, sizeof(buf), fmt, args...);
+    size_t result = format(buf, sizeof(buf), format_string, args...);
 #pragma clang diagnostic pop
     CHECK_STREQ(buf, expected);
     CHECK_EQ(result, std::strlen(expected));
@@ -163,13 +163,13 @@ TEST(Format, Basic)
     checkFormat("_-1234_", "_%td_", ptrdiff_t(-1234));
     checkFormat("_-1234_", "_%zd_", ssize_t(-1234));
     checkFormat("_0x1234abc_", "_%#zx_", size_t(0x1234abc));
-    checkFormat("18446744073709551615", "%" FMTu64, UINT64_MAX);
-    checkFormat("-9223372036854775808", "%" FMTd64, INT64_MIN);
-    checkFormat("9223372036854775807", "%" FMTd64, INT64_MAX);
-    checkFormat("ffffffffffffffff", "%" FMTx64, UINT64_MAX);
+    checkFormat("18446744073709551615", "%" FORMAT_U64, UINT64_MAX);
+    checkFormat("-9223372036854775808", "%" FORMAT_D64, INT64_MIN);
+    checkFormat("9223372036854775807", "%" FORMAT_D64, INT64_MAX);
+    checkFormat("ffffffffffffffff", "%" FORMAT_X64, UINT64_MAX);
     checkFormat("4294967295", "%u", UINT_MAX);
     checkFormat("-2147483648", "%d", INT_MIN);
-    checkFormat("01777777777777777777777", "%" FMTx64 "%zo", uint64_t(0), SIZE_MAX);
+    checkFormat("01777777777777777777777", "%" FORMAT_X64 "%zo", uint64_t(0), SIZE_MAX);
     /// Left-justified with a zero "flag": zero padding is ignored.
     checkFormat("12   |", "%-05u|", 12u);
     /// Zero padding goes before the `0x` prefix.
@@ -182,10 +182,10 @@ TEST(Format, Basic)
 
 TEST(Format, Truncated)
 {
-    constexpr size_t BUFLEN = 15;
-    char small[BUFLEN];
+    constexpr size_t BUF_LENGTH = 15;
+    char small[BUF_LENGTH];
 
-    for (size_t len = 1; len < BUFLEN; ++len)
+    for (size_t len = 1; len < BUF_LENGTH; ++len)
     {
         size_t result = format(small, len, "012346789");
         CHECK_EQ(std::strncmp(small, "012346789", len - 1), 0);
@@ -218,13 +218,13 @@ size_t captured_len = 0;
 int captured_calls = 0;
 void * captured_opaque = nullptr;
 
-void captureCallback(void * cbopaque, const char * s)
+void captureCallback(void * callback_argument, const char * s)
 {
     size_t len = std::strlen(s);
     std::memcpy(captured + captured_len, s, len + 1);
     captured_len += len;
     ++captured_calls;
-    captured_opaque = cbopaque;
+    captured_opaque = callback_argument;
 }
 
 void resetCapture()
@@ -246,10 +246,10 @@ TEST(Format, PrintToCallback)
     CHECK_EQ(captured_calls, 1);
     CHECK_EQ(captured_opaque, static_cast<void *>(&opaque));
 
-    /// Output is truncated to MALLOC_PRINTF_BUFSIZE - 1 characters.
+    /// Output is truncated to MALLOC_PRINTF_BUF_SIZE - 1 characters.
     resetCapture();
     printToCallback(captureCallback, nullptr, "%5000s", "x");
-    CHECK_EQ(captured_len, MALLOC_PRINTF_BUFSIZE - 1);
+    CHECK_EQ(captured_len, MALLOC_PRINTF_BUF_SIZE - 1);
     CHECK_EQ(captured_calls, 1);
 
     /// With a null callback, je_malloc_message is used.
@@ -275,7 +275,7 @@ TEST(Format, PrintToCallback)
 
 TEST(Format, BufferError)
 {
-    char b[BUFERROR_BUF];
+    char b[BUF_ERROR_BUF];
     CHECK_EQ(bufferError(ENOENT, b, sizeof(b)), 0);
     CHECK_STREQ(b, "No such file or directory");
     char tiny[4];
@@ -290,10 +290,10 @@ TEST(Format, FileIO)
     CHECK_EQ(writeFD(fds[1], "abcdef", 6), 6);
     CHECK_EQ(writeFD(fds[1], "", 0), 0);
     CHECK_EQ(closeFile(fds[1]), 0);
-    char rb[16] = {};
-    CHECK_EQ(readFD(fds[0], rb, sizeof(rb)), 6);
-    CHECK_STREQ(rb, "abcdef");
-    CHECK_EQ(readFD(fds[0], rb, sizeof(rb)), 0);
+    char ref_blocks[16] = {};
+    CHECK_EQ(readFD(fds[0], ref_blocks, sizeof(ref_blocks)), 6);
+    CHECK_STREQ(ref_blocks, "abcdef");
+    CHECK_EQ(readFD(fds[0], ref_blocks, sizeof(ref_blocks)), 0);
     CHECK_EQ(closeFile(fds[0]), 0);
     CHECK_LT(writeFD(fds[1], "x", 1), 0);
 

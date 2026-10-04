@@ -19,5 +19,5 @@ TEST(Spin, Adaptive)
     CHECK_EQ(spin.iteration, 5u);
     spin.adaptive();
     CHECK_EQ(spin.iteration, 5u);
-    spinCPUSpinwait();
+    spinCPUSpinWait();
 }

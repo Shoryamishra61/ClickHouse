@@ -7,7 +7,7 @@
 /// (ClickHouse calls it explicitly, `src/Common/AllocationInterceptors.cpp`) and also runs as a constructor.
 
 #if !defined(__APPLE__)
-#    error "This source file is for zones on Darwin (OS X)."
+#error "This source file is for zones on Darwin (OS X)."
 #endif
 
 #include <allocator/Common.h>
@@ -18,14 +18,13 @@
 #include <allocator/SizeClasses.h>
 #include <allocator/ThreadState.h>
 
-#include <mach/mach.h>
 #include <unistd.h>
+#include <mach/mach.h>
 
 #include <cstdlib>
 #include <cstring>
 
-extern "C"
-{
+extern "C" {
 #include <jemalloc/jemalloc_defs.h>
 #include <jemalloc/jemalloc_macros.h>
 #include <jemalloc/jemalloc_protos.h>
@@ -64,7 +63,7 @@ struct MallocZone
 };
 
 /// jemalloc: vm_range_t
-struct VmRange
+struct VMRange
 {
     vm_address_t address;
     vm_size_t size;
@@ -83,12 +82,12 @@ struct MallocStatistics
 using MemoryReader = kern_return_t(task_t, vm_address_t, vm_size_t, void **);
 
 /// jemalloc: vm_range_recorder_t
-using VmRangeRecorder = void(task_t, void *, unsigned type, VmRange *, unsigned);
+using VMRangeRecorder = void(task_t, void *, unsigned type, VMRange *, unsigned);
 
 /// jemalloc: malloc_introspection_t
 struct MallocIntrospection
 {
-    kern_return_t (*enumerator)(task_t, void *, unsigned, vm_address_t, MemoryReader, VmRangeRecorder);
+    kern_return_t (*enumerator)(task_t, void *, unsigned, vm_address_t, MemoryReader, VMRangeRecorder);
     size_t (*good_size)(MallocZone *, size_t);
     boolean_t (*check)(MallocZone *);
     void (*print)(MallocZone *, boolean_t);
@@ -110,8 +109,7 @@ struct MallocIntrospection
 
 }
 
-extern "C"
-{
+extern "C" {
 kern_return_t malloc_get_all_zones(task_t, jemalloc::MemoryReader, vm_address_t **, unsigned *);
 jemalloc::MallocZone * malloc_default_zone();
 void malloc_zone_register(jemalloc::MallocZone * zone);
@@ -146,7 +144,7 @@ constinit pid_t zone_force_lock_pid = -1;
 /// jemalloc: zone_size
 size_t zoneSize(MallocZone * /*zone*/, const void * ptr)
 {
-    return ivsalloc(ThreadState::tsdnFetch(), ptr);
+    return allocationSizeIfOwned(ThreadState::threadStateFetch(), ptr);
 }
 
 /// jemalloc: zone_malloc
@@ -164,15 +162,15 @@ void * zoneCalloc(MallocZone * /*zone*/, size_t num, size_t size)
 /// jemalloc: zone_valloc
 void * zoneValloc(MallocZone * /*zone*/, size_t size)
 {
-    void * ret = nullptr; /// Assignment avoids useless compiler warning.
-    je_posix_memalign(&ret, PAGE, size);
-    return ret;
+    void * result = nullptr; /// Assignment avoids useless compiler warning.
+    je_posix_memalign(&result, PAGE, size);
+    return result;
 }
 
 /// jemalloc: zone_free
 void zoneFree(MallocZone * /*zone*/, void * ptr)
 {
-    if (ivsalloc(ThreadState::tsdnFetch(), ptr) != 0)
+    if (allocationSizeIfOwned(ThreadState::threadStateFetch(), ptr) != 0)
     {
         je_free(ptr);
         return;
@@ -184,7 +182,7 @@ void zoneFree(MallocZone * /*zone*/, void * ptr)
 /// jemalloc: zone_realloc
 void * zoneRealloc(MallocZone * /*zone*/, void * ptr, size_t size)
 {
-    if (ivsalloc(ThreadState::tsdnFetch(), ptr) != 0)
+    if (allocationSizeIfOwned(ThreadState::threadStateFetch(), ptr) != 0)
         return je_realloc(ptr, size);
 
     return ::realloc(ptr, size);
@@ -193,18 +191,18 @@ void * zoneRealloc(MallocZone * /*zone*/, void * ptr, size_t size)
 /// jemalloc: zone_memalign
 void * zoneMemalign(MallocZone * /*zone*/, size_t alignment, size_t size)
 {
-    void * ret = nullptr; /// Assignment avoids useless compiler warning.
-    je_posix_memalign(&ret, alignment, size);
-    return ret;
+    void * result = nullptr; /// Assignment avoids useless compiler warning.
+    je_posix_memalign(&result, alignment, size);
+    return result;
 }
 
 /// jemalloc: zone_free_definite_size
 void zoneFreeDefiniteSize(MallocZone * /*zone*/, void * ptr, [[maybe_unused]] size_t size)
 {
-    size_t alloc_size = ivsalloc(ThreadState::tsdnFetch(), ptr);
+    size_t alloc_size = allocationSizeIfOwned(ThreadState::threadStateFetch(), ptr);
     if (alloc_size != 0)
     {
-        JE_ASSERT(alloc_size == size);
+        ALLOCATOR_ASSERT(alloc_size == size);
         je_free(ptr);
         return;
     }
@@ -216,7 +214,7 @@ void zoneFreeDefiniteSize(MallocZone * /*zone*/, void * ptr, [[maybe_unused]] si
 /// jemalloc: zone_destroy
 void zoneDestroy(MallocZone * /*zone*/)
 {
-    JE_NOT_REACHED();
+    ALLOCATOR_NOT_REACHED();
 }
 
 /// jemalloc: zone_batch_malloc
@@ -253,13 +251,17 @@ size_t zoneGoodSize(MallocZone * /*zone*/, size_t size)
 {
     if (size == 0)
         size = 1;
-    return sz::s2u(size);
+    return size_classes::sizeToUsableSize(size);
 }
 
 /// jemalloc: zone_enumerator
 kern_return_t zoneEnumerator(
-    task_t /*task*/, void * /*data*/, unsigned /*type_mask*/, vm_address_t /*zone_address*/, MemoryReader /*reader*/,
-    VmRangeRecorder /*recorder*/)
+    task_t /*task*/,
+    void * /*data*/,
+    unsigned /*type_mask*/,
+    vm_address_t /*zone_address*/,
+    MemoryReader /*reader*/,
+    VMRangeRecorder /*recorder*/)
 {
     return KERN_SUCCESS;
 }
@@ -286,7 +288,7 @@ void zoneForceLock(MallocZone * /*zone*/)
     if (isThreaded())
     {
         /// See the note in `zoneForceUnlock`, below, to see why we need this.
-        JE_ASSERT(zone_force_lock_pid == -1);
+        ALLOCATOR_ASSERT(zone_force_lock_pid == -1);
         zone_force_lock_pid = getpid();
         jemallocPrefork();
     }
@@ -303,7 +305,7 @@ void zoneForceUnlock(MallocZone * /*zone*/)
 {
     if (isThreaded())
     {
-        JE_ASSERT(zone_force_lock_pid != -1);
+        ALLOCATOR_ASSERT(zone_force_lock_pid != -1);
         if (getpid() == zone_force_lock_pid)
             jemallocPostforkParent();
         else

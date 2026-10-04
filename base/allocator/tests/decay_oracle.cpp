@@ -16,8 +16,7 @@
 
 using namespace jemalloc;
 
-extern "C"
-{
+extern "C" {
 /// `decay.o` (through `malloc_mutex_init`) pulls in the rest of the reference jemalloc, including the libunwind-based
 /// profiler backtrace, which is never called here.
 int unw_backtrace(void **, int)
@@ -52,23 +51,23 @@ struct Op
 /// The C implementation.
 struct RefImpl
 {
-    void * mem;
+    void * memory;
     explicit RefImpl(size_t offset)
-        : mem(storage + offset)
+        : memory(storage + offset)
     {
-        std::memset(mem, 0, sizeof(Decay));
+        std::memset(memory, 0, sizeof(Decay));
     }
-    bool init(uint64_t ns, ssize_t ms) { return ref_decay_init(mem, ns, ms); }
-    void reinit(uint64_t ns, ssize_t ms) { ref_decay_reinit(mem, ns, ms); }
-    bool advance(uint64_t ns, size_t npages) { return ref_decay_maybe_advance_epoch(mem, ns, npages); }
-    uint64_t untilPurge(size_t npages, uint64_t threshold) { return ref_decay_ns_until_purge(mem, npages, threshold); }
-    uint64_t purgeIn(uint64_t ns, size_t npages) { return ref_decay_npages_purge_in(mem, ns, npages); }
+    bool init(uint64_t ns, ssize_t ms) { return ref_decay_init(memory, ns, ms); }
+    void reinit(uint64_t ns, ssize_t ms) { ref_decay_reinit(memory, ns, ms); }
+    bool advance(uint64_t ns, size_t num_pages) { return ref_decay_maybe_advance_epoch(memory, ns, num_pages); }
+    uint64_t untilPurge(size_t num_pages, uint64_t threshold) { return ref_decay_ns_until_purge(memory, num_pages, threshold); }
+    uint64_t purgeIn(uint64_t ns, size_t num_pages) { return ref_decay_num_pages_purge_in(memory, ns, num_pages); }
     uint64_t queries()
     {
-        return uint64_t(ref_decay_queries(mem, 0)) | (uint64_t(ref_decay_queries(mem, 1)) << 1)
-            | (uint64_t(ref_decay_queries(mem, 2)) << 2) | (uint64_t(ref_decay_queries(mem, 3)) << 3);
+        return uint64_t(ref_decay_queries(memory, 0)) | (uint64_t(ref_decay_queries(memory, 1)) << 1)
+            | (uint64_t(ref_decay_queries(memory, 2)) << 2) | (uint64_t(ref_decay_queries(memory, 3)) << 3);
     }
-    void state(RefDecayState & s) { ref_decay_state(mem, &s); }
+    void state(RefDecayState & s) { ref_decay_state(memory, &s); }
 };
 
 /// The C++ implementation, at the same address.
@@ -81,15 +80,15 @@ struct NewImpl
         decay = new (storage + offset) Decay;
     }
     ~NewImpl() { decay->~Decay(); }
-    bool init(uint64_t ns, ssize_t ms) { return decay->init(NsTime::fromNs(ns), ms); }
-    void reinit(uint64_t ns, ssize_t ms) { decay->reinit(NsTime::fromNs(ns), ms); }
-    bool advance(uint64_t ns, size_t npages) { return decay->maybeAdvanceEpoch(NsTime::fromNs(ns), npages); }
-    uint64_t untilPurge(size_t npages, uint64_t threshold) { return decay->nsUntilPurge(npages, threshold); }
-    uint64_t purgeIn(uint64_t ns, size_t npages) { return decay->npagesPurgeIn(NsTime::fromNs(ns), npages); }
+    bool init(uint64_t ns, ssize_t ms) { return decay->init(Nanoseconds::fromNanoseconds(ns), ms); }
+    void reinit(uint64_t ns, ssize_t ms) { decay->reinit(Nanoseconds::fromNanoseconds(ns), ms); }
+    bool advance(uint64_t ns, size_t num_pages) { return decay->maybeAdvanceEpoch(Nanoseconds::fromNanoseconds(ns), num_pages); }
+    uint64_t untilPurge(size_t num_pages, uint64_t threshold) { return decay->nsUntilPurge(num_pages, threshold); }
+    uint64_t purgeIn(uint64_t ns, size_t num_pages) { return decay->numPagesPurgeIn(Nanoseconds::fromNanoseconds(ns), num_pages); }
     uint64_t queries()
     {
         return uint64_t(decay->immediately()) | (uint64_t(decay->disabled()) << 1) | (uint64_t(decay->gradually()) << 2)
-            | (uint64_t(decay->epochNpagesDelta() != 0) << 3);
+            | (uint64_t(decay->epochNumPagesDelta() != 0) << 3);
     }
     void state(RefDecayState & s)
     {
@@ -98,9 +97,9 @@ struct NewImpl
         s.epoch = decay->epoch.ns();
         s.jitter_state = decay->jitter_state;
         s.deadline = decay->deadline.ns();
-        s.npages_limit = decay->npagesLimitGet();
-        s.nunpurged = decay->nunpurged;
-        for (size_t i = 0; i < SMOOTHSTEP_NSTEPS; ++i)
+        s.num_pages_limit = decay->numPagesLimitGet();
+        s.num_unpurged = decay->num_unpurged;
+        for (size_t i = 0; i < SMOOTHSTEP_NUM_STEPS; ++i)
             s.backlog[i] = decay->backlog[i];
         s.purging = decay->purging;
     }
@@ -113,9 +112,9 @@ void pushState(std::vector<uint64_t> & trace, const RefDecayState & s)
     trace.push_back(s.epoch);
     trace.push_back(s.jitter_state);
     trace.push_back(s.deadline);
-    trace.push_back(s.npages_limit);
-    trace.push_back(s.nunpurged);
-    for (unsigned i = 0; i < REF_DECAY_NSTEPS; ++i)
+    trace.push_back(s.num_pages_limit);
+    trace.push_back(s.num_unpurged);
+    for (unsigned i = 0; i < REF_DECAY_NUM_STEPS; ++i)
         trace.push_back(s.backlog[i]);
     trace.push_back(s.purging);
 }
@@ -130,24 +129,12 @@ std::vector<uint64_t> run(const std::vector<Op> & ops, size_t offset)
     {
         switch (op.kind)
         {
-            case OpKind::Init:
-                trace.push_back(impl.init(op.a, op.ms));
-                break;
-            case OpKind::Reinit:
-                impl.reinit(op.a, op.ms);
-                break;
-            case OpKind::Advance:
-                trace.push_back(impl.advance(op.a, op.b));
-                break;
-            case OpKind::UntilPurge:
-                trace.push_back(impl.untilPurge(op.a, op.b));
-                break;
-            case OpKind::PurgeIn:
-                trace.push_back(impl.purgeIn(op.a, op.b));
-                break;
-            case OpKind::Queries:
-                trace.push_back(impl.queries());
-                break;
+            case OpKind::Init: trace.push_back(impl.init(op.a, op.ms)); break;
+            case OpKind::Reinit: impl.reinit(op.a, op.ms); break;
+            case OpKind::Advance: trace.push_back(impl.advance(op.a, op.b)); break;
+            case OpKind::UntilPurge: trace.push_back(impl.untilPurge(op.a, op.b)); break;
+            case OpKind::PurgeIn: trace.push_back(impl.purgeIn(op.a, op.b)); break;
+            case OpKind::Queries: trace.push_back(impl.queries()); break;
         }
         impl.state(s);
         pushState(trace, s);
@@ -166,7 +153,7 @@ int64_t pickMs(std::mt19937_64 & rng, bool allow_non_positive)
     return int64_t(1 + rng() % 10000000);
 }
 
-std::vector<Op> generate(uint64_t seed, size_t nops)
+std::vector<Op> generate(uint64_t seed, size_t num_ops)
 {
     std::mt19937_64 rng(seed);
     std::vector<Op> ops;
@@ -176,37 +163,37 @@ std::vector<Op> generate(uint64_t seed, size_t nops)
     ops.push_back({OpKind::Init, t, 0, ms});
     uint64_t interval = ms > 0 ? uint64_t(ms) * 1000000 / 200 : 0;
 
-    uint64_t npages = 0;
-    for (size_t i = 0; i < nops; ++i)
+    uint64_t num_pages = 0;
+    for (size_t i = 0; i < num_ops; ++i)
     {
         /// Random walk of the number of pages.
         unsigned np = rng() % 100;
         if (np < 40)
-            npages += rng() % 1000;
+            num_pages += rng() % 1000;
         else if (np < 60)
-            npages -= npages ? rng() % npages : 0;
+            num_pages -= num_pages ? rng() % num_pages : 0;
         else if (np < 63)
-            npages = 0;
+            num_pages = 0;
         else if (np < 65)
-            npages = rng() % (uint64_t(1) << 30);
+            num_pages = rng() % (uint64_t(1) << 30);
 
         unsigned r = rng() % 100;
         if (r < 55 && interval != 0)
         {
-            unsigned dt = rng() % 10;
+            unsigned time_delta = rng() % 10;
             uint64_t delta = 0;
-            if (dt == 0)
+            if (time_delta == 0)
                 delta = 0;
-            else if (dt < 4)
+            else if (time_delta < 4)
                 delta = rng() % interval;
-            else if (dt < 8)
+            else if (time_delta < 8)
                 delta = interval * (1 + rng() % 3) + rng() % (interval / 2 + 1) - interval / 4;
-            else if (dt == 8)
+            else if (time_delta == 8)
                 delta = interval * (rng() % 400);
             else
                 delta = rng() % (interval * 1000 + 1);
             t += delta;
-            ops.push_back({OpKind::Advance, t, npages, 0});
+            ops.push_back({OpKind::Advance, t, num_pages, 0});
         }
         else if (r < 72)
         {
@@ -214,18 +201,18 @@ std::vector<Op> generate(uint64_t seed, size_t nops)
             switch (rng() % 6)
             {
                 case 0: threshold = 0; break;
-                case 1: threshold = npages; break;
-                case 2: threshold = npages / 2; break;
-                case 3: threshold = npages * 2; break;
+                case 1: threshold = num_pages; break;
+                case 2: threshold = num_pages / 2; break;
+                case 3: threshold = num_pages * 2; break;
                 case 4: threshold = rng() % 1024; break;
-                default: threshold = rng() % (npages + 1); break;
+                default: threshold = rng() % (num_pages + 1); break;
             }
-            ops.push_back({OpKind::UntilPurge, npages, threshold, 0});
+            ops.push_back({OpKind::UntilPurge, num_pages, threshold, 0});
         }
         else if (r < 85 && interval != 0)
         {
             uint64_t time_ns = rng() % (interval * 200 * 2 + 1);
-            ops.push_back({OpKind::PurgeIn, time_ns, npages, 0});
+            ops.push_back({OpKind::PurgeIn, time_ns, num_pages, 0});
         }
         else if (r < 88)
         {
@@ -243,9 +230,9 @@ std::vector<Op> generate(uint64_t seed, size_t nops)
     return ops;
 }
 
-void compareScript(uint64_t seed, size_t nops, size_t offset)
+void compareScript(uint64_t seed, size_t num_ops, size_t offset)
 {
-    std::vector<Op> ops = generate(seed, nops);
+    std::vector<Op> ops = generate(seed, num_ops);
     std::vector<uint64_t> expected = run<RefImpl>(ops, offset);
     std::vector<uint64_t> actual = run<NewImpl>(ops, offset);
     CHECK_EQ(expected.size(), actual.size());
@@ -273,26 +260,37 @@ TEST(DecayOracle, Layout)
     CHECK_EQ(layout[REF_DECAY_OFFSET_EPOCH], offsetof(Decay, epoch));
     CHECK_EQ(layout[REF_DECAY_OFFSET_JITTER_STATE], offsetof(Decay, jitter_state));
     CHECK_EQ(layout[REF_DECAY_OFFSET_DEADLINE], offsetof(Decay, deadline));
-    CHECK_EQ(layout[REF_DECAY_OFFSET_NPAGES_LIMIT], offsetof(Decay, npages_limit));
-    CHECK_EQ(layout[REF_DECAY_OFFSET_NUNPURGED], offsetof(Decay, nunpurged));
+    CHECK_EQ(layout[REF_DECAY_OFFSET_NUM_PAGES_LIMIT], offsetof(Decay, num_pages_limit));
+    CHECK_EQ(layout[REF_DECAY_OFFSET_NUM_UNPURGED], offsetof(Decay, num_unpurged));
     CHECK_EQ(layout[REF_DECAY_OFFSET_BACKLOG], offsetof(Decay, backlog));
-    CHECK_EQ(layout[REF_DECAY_OFFSET_CEIL_NPAGES], offsetof(Decay, ceil_npages));
+    CHECK_EQ(layout[REF_DECAY_OFFSET_CEIL_NUM_PAGES], offsetof(Decay, ceil_num_pages));
 }
 
 TEST(DecayOracle, SmoothstepTable)
 {
-    CHECK_EQ(size_t(ref_smoothstep_nsteps()), SMOOTHSTEP_NSTEPS);
-    CHECK_EQ(ref_smoothstep_bfp(), SMOOTHSTEP_BFP);
-    for (unsigned i = 0; i < SMOOTHSTEP_NSTEPS; ++i)
+    CHECK_EQ(size_t(ref_smoothstep_num_steps()), SMOOTHSTEP_NUM_STEPS);
+    CHECK_EQ(ref_smoothstep_binary_fixed_point(), SMOOTHSTEP_BINARY_FIXED_POINT);
+    for (unsigned i = 0; i < SMOOTHSTEP_NUM_STEPS; ++i)
         CHECK_EQ(ref_h_step(i), smoothstep_h_steps[i]);
 }
 
 TEST(DecayOracle, MsValid)
 {
-    static constexpr int64_t values[] = {
-        INT64_MIN, -1000, -7, -2, -1, 0, 1, 8943, 1000000,
-        int64_t(NSTIME_SEC_MAX * 1000) - 1, int64_t(NSTIME_SEC_MAX * 1000), int64_t(NSTIME_SEC_MAX * 1000) + 1,
-        int64_t(NSTIME_SEC_MAX * 1000) + 39, INT64_MAX};
+    static constexpr int64_t values[]
+        = {INT64_MIN,
+           -1000,
+           -7,
+           -2,
+           -1,
+           0,
+           1,
+           8943,
+           1000000,
+           int64_t(NANOSECONDS_MAX_SECONDS * 1000) - 1,
+           int64_t(NANOSECONDS_MAX_SECONDS * 1000),
+           int64_t(NANOSECONDS_MAX_SECONDS * 1000) + 1,
+           int64_t(NANOSECONDS_MAX_SECONDS * 1000) + 39,
+           INT64_MAX};
     for (int64_t v : values)
         CHECK_EQ(ref_decay_ms_valid(v), Decay::msValid(v));
 }
@@ -315,17 +313,17 @@ TEST(DecayOracle, ClickHouseDirtyDecay)
     std::vector<Op> ops;
     uint64_t t = 123456789;
     ops.push_back({OpKind::Init, t, 0, 5000});
-    size_t npages = 0;
+    size_t num_pages = 0;
     for (size_t i = 0; i < 2000; ++i)
     {
         t += 7000000 + (i % 13) * 1000000;
         if (i < 500)
-            npages += 37;
+            num_pages += 37;
         else if (i > 1500)
-            npages = npages > 50 ? npages - 50 : 0;
-        ops.push_back({OpKind::Advance, t, npages, 0});
-        ops.push_back({OpKind::UntilPurge, npages, 1024, 0});
-        ops.push_back({OpKind::UntilPurge, npages, 0, 0});
+            num_pages = num_pages > 50 ? num_pages - 50 : 0;
+        ops.push_back({OpKind::Advance, t, num_pages, 0});
+        ops.push_back({OpKind::UntilPurge, num_pages, 1024, 0});
+        ops.push_back({OpKind::UntilPurge, num_pages, 0, 0});
     }
     std::vector<uint64_t> expected = run<RefImpl>(ops, 0);
     std::vector<uint64_t> actual = run<NewImpl>(ops, 0);

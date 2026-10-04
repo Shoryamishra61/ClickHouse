@@ -2,7 +2,7 @@
 #
 # Tests named `*_api.cpp` are end-to-end tests of the public API: they also link API.cpp, whose constructor initializes
 # the allocator (with `MALLOC_CONF` from the environment). They are registered twice: without heap profiling and with
-# frequent sampling (`<name>_prof`).
+# frequent sampling (`<name>_profiling`).
 #
 # Tests that need the reference jemalloc (an oracle) are named `*_oracle.cpp`; they are only built when
 # `ALLOCATOR_REFERENCE_JEMALLOC` is set and may have a companion C translation unit `<name>_ref.c` that includes
@@ -49,8 +49,8 @@ foreach (test_source ${TEST_SOURCES})
         set (api_test_conf "background_thread:false,tcache_gc_incr_bytes:2147483648")
         add_test (NAME ${test_name} COMMAND ${test_name})
         set_tests_properties (${test_name} PROPERTIES ENVIRONMENT "MALLOC_CONF=${api_test_conf},prof:false")
-        add_test (NAME ${test_name}_prof COMMAND ${test_name})
-        set_tests_properties (${test_name}_prof PROPERTIES ENVIRONMENT "MALLOC_CONF=${api_test_conf},prof:true,prof_active:true,prof_thread_active_init:true,lg_prof_sample:14")
+        add_test (NAME ${test_name}_profiling COMMAND ${test_name})
+        set_tests_properties (${test_name}_profiling PROPERTIES ENVIRONMENT "MALLOC_CONF=${api_test_conf},prof:true,prof_active:true,prof_thread_active_init:true,lg_prof_sample:14")
     else ()
         add_test (NAME ${test_name} COMMAND ${test_name})
     endif ()

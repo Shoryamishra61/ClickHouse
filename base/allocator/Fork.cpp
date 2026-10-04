@@ -3,9 +3,9 @@
 #include <allocator/Arena.h>
 #include <allocator/Arenas.h>
 #include <allocator/BackgroundThread.h>
-#include <allocator/Ctl.h>
 #include <allocator/Frontend.h>
-#include <allocator/ProfHooks.h>
+#include <allocator/Mallctl.h>
+#include <allocator/ProfilingHooks.h>
 #include <allocator/Stats.h>
 #include <allocator/ThreadCache.h>
 #include <allocator/ThreadState.h>
@@ -21,133 +21,114 @@ namespace jemalloc
 /// jemalloc: jemalloc_prefork (`_malloc_prefork` with `JEMALLOC_MUTEX_INIT_CB`)
 void jemallocPrefork()
 {
-    if constexpr (config::mutex_init_cb)
+    if constexpr (config::mutex_init_callback)
     {
         if (!mallocInitialized())
             return;
     }
-    JE_ASSERT(mallocInitialized());
+    ALLOCATOR_ASSERT(mallocInitialized());
 
-    ThreadState & tsd = ThreadState::fetch();
-    ThreadState * tsdn = &tsd;
+    ThreadState & thread_state = ThreadState::fetch();
+    ThreadState * thread_state_ptr = &thread_state;
 
-    unsigned narenas = narenasTotalGet();
+    unsigned num_arenas = numArenasTotalGet();
 
     /// `witness_prefork`: there is no witness.
     /// Acquire all mutexes in a safe order.
-    ctlPrefork(tsdn);
-    tcachePrefork(tsdn);
-    arenas_lock.prefork(tsdn);
+    mallctlPrefork(thread_state_ptr);
+    threadCachePrefork(thread_state_ptr);
+    arenas_lock.prefork(thread_state_ptr);
     if constexpr (config::background_thread)
-        backgroundThreadPrefork0(tsdn);
-    profPrefork0(tsdn);
+        backgroundThreadPrefork0(thread_state_ptr);
+    profilingPrefork0(thread_state_ptr);
     if constexpr (config::background_thread)
-        backgroundThreadPrefork1(tsdn);
+        backgroundThreadPrefork1(thread_state_ptr);
     /// Break arena prefork into stages to preserve lock order.
     for (unsigned i = 0; i < 9; ++i)
     {
-        for (unsigned j = 0; j < narenas; ++j)
+        for (unsigned j = 0; j < num_arenas; ++j)
         {
-            Arena * arena = arenaGet(tsdn, j, false);
+            Arena * arena = arenaGet(thread_state_ptr, j, false);
             if (arena != nullptr)
             {
                 switch (i)
                 {
-                    case 0:
-                        arenaPrefork0(tsdn, arena);
-                        break;
-                    case 1:
-                        arenaPrefork1(tsdn, arena);
-                        break;
-                    case 2:
-                        arenaPrefork2(tsdn, arena);
-                        break;
-                    case 3:
-                        arenaPrefork3(tsdn, arena);
-                        break;
-                    case 4:
-                        arenaPrefork4(tsdn, arena);
-                        break;
-                    case 5:
-                        arenaPrefork5(tsdn, arena);
-                        break;
-                    case 6:
-                        arenaPrefork6(tsdn, arena);
-                        break;
-                    case 7:
-                        arenaPrefork7(tsdn, arena);
-                        break;
-                    case 8:
-                        arenaPrefork8(tsdn, arena);
-                        break;
-                    default:
-                        JE_NOT_REACHED();
+                    case 0: arenaPrefork0(thread_state_ptr, arena); break;
+                    case 1: arenaPrefork1(thread_state_ptr, arena); break;
+                    case 2: arenaPrefork2(thread_state_ptr, arena); break;
+                    case 3: arenaPrefork3(thread_state_ptr, arena); break;
+                    case 4: arenaPrefork4(thread_state_ptr, arena); break;
+                    case 5: arenaPrefork5(thread_state_ptr, arena); break;
+                    case 6: arenaPrefork6(thread_state_ptr, arena); break;
+                    case 7: arenaPrefork7(thread_state_ptr, arena); break;
+                    case 8: arenaPrefork8(thread_state_ptr, arena); break;
+                    default: ALLOCATOR_NOT_REACHED();
                 }
             }
         }
     }
-    profPrefork1(tsdn);
-    statsPrefork(tsdn);
-    tsd.prefork();
+    profilingPrefork1(thread_state_ptr);
+    statsPrefork(thread_state_ptr);
+    thread_state.prefork();
 }
 
 /// jemalloc: jemalloc_postfork_parent (`_malloc_postfork` with `JEMALLOC_MUTEX_INIT_CB`)
 void jemallocPostforkParent()
 {
-    if constexpr (config::mutex_init_cb)
+    if constexpr (config::mutex_init_callback)
     {
         if (!mallocInitialized())
             return;
     }
-    JE_ASSERT(mallocInitialized());
+    ALLOCATOR_ASSERT(mallocInitialized());
 
-    ThreadState & tsd = ThreadState::fetch();
-    ThreadState * tsdn = &tsd;
+    ThreadState & thread_state = ThreadState::fetch();
+    ThreadState * thread_state_ptr = &thread_state;
 
-    tsd.postforkParent();
+    thread_state.postforkParent();
 
     /// `witness_postfork_parent`: there is no witness.
     /// Release all mutexes, now that fork() has completed.
-    statsPostforkParent(tsdn);
-    for (unsigned i = 0, narenas = narenasTotalGet(); i < narenas; ++i)
+    statsPostforkParent(thread_state_ptr);
+    for (unsigned i = 0, num_arenas = numArenasTotalGet(); i < num_arenas; ++i)
     {
-        Arena * arena = arenaGet(tsdn, i, false);
+        Arena * arena = arenaGet(thread_state_ptr, i, false);
         if (arena != nullptr)
-            arenaPostforkParent(tsdn, arena);
+            arenaPostforkParent(thread_state_ptr, arena);
     }
-    profPostforkParent(tsdn);
+    profilingPostforkParent(thread_state_ptr);
     if constexpr (config::background_thread)
-        backgroundThreadPostforkParent(tsdn);
-    arenas_lock.postforkParent(tsdn);
-    tcachePostforkParent(tsdn);
-    ctlPostforkParent(tsdn);
+        backgroundThreadPostforkParent(thread_state_ptr);
+    arenas_lock.postforkParent(thread_state_ptr);
+    threadCachePostforkParent(thread_state_ptr);
+    mallctlPostforkParent(thread_state_ptr);
 }
 
 /// jemalloc: jemalloc_postfork_child
 void jemallocPostforkChild()
 {
-    JE_ASSERT(mallocInitialized());
+    ALLOCATOR_ASSERT(mallocInitialized());
 
-    ThreadState & tsd = ThreadState::fetch();
-    ThreadState * tsdn = &tsd;
+    ThreadState & thread_state = ThreadState::fetch();
+    ThreadState * thread_state_ptr = &thread_state;
 
-    tsd.postforkChild();
+    thread_state.postforkChild();
 
     /// `witness_postfork_child`: there is no witness.
     /// Release all mutexes, now that fork() has completed.
-    statsPostforkChild(tsdn);
-    for (unsigned i = 0, narenas = narenasTotalGet(); i < narenas; ++i)
+    statsPostforkChild(thread_state_ptr);
+    for (unsigned i = 0, num_arenas = numArenasTotalGet(); i < num_arenas; ++i)
     {
-        Arena * arena = arenaGet(tsdn, i, false);
+        Arena * arena = arenaGet(thread_state_ptr, i, false);
         if (arena != nullptr)
-            arenaPostforkChild(tsdn, arena);
+            arenaPostforkChild(thread_state_ptr, arena);
     }
-    profPostforkChild(tsdn);
+    profilingPostforkChild(thread_state_ptr);
     if constexpr (config::background_thread)
-        backgroundThreadPostforkChild(tsdn);
-    arenas_lock.postforkChild(tsdn);
-    tcachePostforkChild(tsdn);
-    ctlPostforkChild(tsdn);
+        backgroundThreadPostforkChild(thread_state_ptr);
+    arenas_lock.postforkChild(thread_state_ptr);
+    threadCachePostforkChild(thread_state_ptr);
+    mallctlPostforkChild(thread_state_ptr);
 }
 
 }

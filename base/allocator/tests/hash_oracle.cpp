@@ -6,12 +6,11 @@
 
 #include <random>
 
-extern "C"
-{
+extern "C" {
 uint32_t ref_hash_x86_32(const void * key, int len, uint32_t seed);
-void ref_hash_x86_128(const void * key, int len, uint32_t seed, uint64_t r_out[2]);
-void ref_hash_x64_128(const void * key, int len, uint32_t seed, uint64_t r_out[2]);
-void ref_hash(const void * key, size_t len, uint32_t seed, size_t r_hash[2]);
+void ref_hash_x86_128(const void * key, int len, uint32_t seed, uint64_t result_out[2]);
+void ref_hash_x64_128(const void * key, int len, uint32_t seed, uint64_t result_out[2]);
+void ref_hash(const void * key, size_t len, uint32_t seed, size_t result_hash[2]);
 }
 
 using namespace jemalloc;

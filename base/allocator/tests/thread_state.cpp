@@ -18,9 +18,9 @@
 #include <vector>
 
 #include <pthread.h>
-#include <sys/wait.h>
 #include <ucontext.h>
 #include <unistd.h>
+#include <sys/wait.h>
 
 using namespace jemalloc;
 
@@ -42,21 +42,21 @@ void boot()
         return;
     booted_once = true;
     CHECK(!ThreadState::booted());
-    CHECK(ThreadState::tsdnFetch() == nullptr);
+    CHECK(ThreadState::threadStateFetch() == nullptr);
     thread_test::takeLog();
-    ThreadState * tsd = ThreadState::mallocTSDBoot0();
-    REQUIRE(tsd != nullptr);
+    ThreadState * thread_state = ThreadState::mallocThreadStateBoot0();
+    REQUIRE(thread_state != nullptr);
     CHECK(ThreadState::booted());
-    CHECK_EQ(tsd->stateGet(), tsd_state_nominal);
-    CHECK(tsd->tcache_enabled);
-    CHECK_EQ(tsd, &ThreadState::fetch());
-    ThreadState::mallocTSDBoot1();
-    CHECK_EQ(tsd->stateGet(), tsd_state_nominal);
+    CHECK_EQ(thread_state->stateGet(), thread_state_nominal);
+    CHECK(thread_state->thread_cache_enabled);
+    CHECK_EQ(thread_state, &ThreadState::fetch());
+    ThreadState::mallocThreadStateBoot1();
+    CHECK_EQ(thread_state->stateGet(), thread_state_nominal);
     auto log = thread_test::takeLog();
     REQUIRE(log.size() == 1);
     CHECK(log[0].name == "tcacheTsdDataInit");
-    /// `tcacheTSDDataInit` is called on a nominal_slow TSD (`tcache_enabled` is still false).
-    CHECK_EQ(log[0].state, tsd_state_nominal_slow);
+    /// `threadCacheThreadStateDataInit` is called on a nominal_slow TSD (`thread_cache_enabled` is still false).
+    CHECK_EQ(log[0].state, thread_state_nominal_slow);
 }
 
 template <typename F>
@@ -77,52 +77,53 @@ TEST(ThreadState, Layout)
     CHECK_EQ(offsetof(ThreadState, thread_allocated_next_event_fast) - offsetof(ThreadState, thread_allocated), 8u);
     CHECK_EQ(offsetof(ThreadState, thread_deallocated) - offsetof(ThreadState, thread_allocated), 16u);
     CHECK_EQ(offsetof(ThreadState, thread_deallocated_next_event_fast) - offsetof(ThreadState, thread_allocated), 24u);
-    CHECK_EQ(offsetof(ThreadState, tcache) + offsetof(ThreadCache, bins) - offsetof(ThreadState, state), 48u);
-    CHECK_EQ(offsetof(ThreadState, state) - offsetof(ThreadState, rtree_ctx), sizeof(RadixTreeContext));
+    CHECK_EQ(offsetof(ThreadState, thread_cache) + offsetof(ThreadCache, bins) - offsetof(ThreadState, state), 48u);
+    CHECK_EQ(offsetof(ThreadState, state) - offsetof(ThreadState, radix_tree_context), sizeof(RadixTreeContext));
 
     /// TSD_INITIALIZER.
     static constinit ThreadState initial;
-    CHECK_EQ(initial.stateGet(), tsd_state_uninitialized);
-    CHECK_EQ(initial.binshards.binshard[0], 255);
-    CHECK_EQ(initial.binshards.binshard[1], 0);
-    CHECK_EQ(initial.arena_decay_ticker.tick, ARENA_DECAY_NTICKS_PER_UPDATE);
-    CHECK(initial.tcache.bins[0].stillZeroInitialized());
-    CHECK(initial.tcache.tcache_slow == nullptr);
-    CHECK_EQ(initial.rtree_ctx.cache[0].leafkey, RTREE_LEAFKEY_INVALID);
+    CHECK_EQ(initial.stateGet(), thread_state_uninitialized);
+    CHECK_EQ(initial.bin_shards.bin_shard[0], 255);
+    CHECK_EQ(initial.bin_shards.bin_shard[1], 0);
+    CHECK_EQ(initial.arena_decay_ticker.tick, ARENA_DECAY_NUM_TICKS_PER_UPDATE);
+    CHECK(initial.thread_cache.bins[0].stillZeroInitialized());
+    CHECK(initial.thread_cache.thread_cache_slow == nullptr);
+    CHECK_EQ(initial.radix_tree_context.cache[0].leaf_key, RADIX_TREE_LEAF_KEY_INVALID);
 }
 
 TEST(ThreadState, BootAndFetch)
 {
     boot();
-    ThreadState & tsd = ThreadState::fetch();
-    CHECK(tsd.fast());
-    CHECK_EQ(&tsd, tsd_detail::tlsAddrTSDTLS());
-    CHECK_EQ(ThreadState::tsdnFetch(), &tsd);
-    CHECK_EQ(tsd.prng_state, static_cast<uint64_t>(reinterpret_cast<uintptr_t>(&tsd)));
-    CHECK_EQ(tsd.thread_allocated_next_event_fast, tsd.thread_allocated_next_event);
-    CHECK_EQ(tsd.thread_allocated_next_event, opt.tcache_gc_incr_bytes);
-    CHECK_EQ(tsd.san_extents_until_guard_small, opt.san_guard_small);
-    CHECK_EQ(tsd.san_extents_until_guard_large, opt.san_guard_large);
+    ThreadState & thread_state = ThreadState::fetch();
+    CHECK(thread_state.fast());
+    CHECK_EQ(&thread_state, thread_state_detail::tlsAddrThreadStateTLS());
+    CHECK_EQ(ThreadState::threadStateFetch(), &thread_state);
+    CHECK_EQ(thread_state.prng_state, static_cast<uint64_t>(reinterpret_cast<uintptr_t>(&thread_state)));
+    CHECK_EQ(thread_state.thread_allocated_next_event_fast, thread_state.thread_allocated_next_event);
+    CHECK_EQ(thread_state.thread_allocated_next_event, options.thread_cache_gc_increment_bytes);
+    CHECK_EQ(thread_state.sanitizer_extents_until_guard_small, options.sanitizer_guard_small);
+    CHECK_EQ(thread_state.sanitizer_extents_until_guard_large, options.sanitizer_guard_large);
 }
 
 TEST(ThreadState, NewThreadFullInit)
 {
     boot();
-    ThreadState * main_tsd = &ThreadState::fetch();
+    ThreadState * main_thread_state = &ThreadState::fetch();
     thread_test::takeLog();
-    ThreadState * thread_tsd = nullptr;
+    ThreadState * child_thread_state = nullptr;
     std::vector<thread_test::HookCall> init_log;
-    runInThread([&]
-    {
-        ThreadState * raw = TSD::get(false);
-        CHECK_EQ(raw->stateGet(), tsd_state_uninitialized);
-        thread_tsd = &ThreadState::fetch();
-        CHECK_EQ(raw, thread_tsd);
-        CHECK_EQ(thread_tsd->stateGet(), tsd_state_nominal);
-        CHECK_EQ(thread_tsd->reentrancy_level, 0);
-        init_log = thread_test::takeLog();
-    });
-    CHECK_NE(thread_tsd, main_tsd);
+    runInThread(
+        [&]
+        {
+            ThreadState * raw = ThreadStateStorage::get(false);
+            CHECK_EQ(raw->stateGet(), thread_state_uninitialized);
+            child_thread_state = &ThreadState::fetch();
+            CHECK_EQ(raw, child_thread_state);
+            CHECK_EQ(child_thread_state->stateGet(), thread_state_nominal);
+            CHECK_EQ(child_thread_state->reentrancy_level, 0);
+            init_log = thread_test::takeLog();
+        });
+    CHECK_NE(child_thread_state, main_thread_state);
     CHECK((names(init_log) == std::vector<std::string>{"tcacheTsdDataInit"}));
 
     /// Thread exit: the destructor cleans up in jemalloc's order, then the TSD stays in purgatory (one more destructor
@@ -131,8 +132,8 @@ TEST(ThreadState, NewThreadFullInit)
     CHECK((names(exit_log) == std::vector<std::string>{"profTdataCleanup", "iarenaCleanup", "arenaCleanup", "tcacheCleanup"}));
     for (const auto & call : exit_log)
     {
-        CHECK_EQ(call.tsd, thread_tsd);
-        CHECK_EQ(call.state, tsd_state_nominal);
+        CHECK_EQ(call.thread_state, child_thread_state);
+        CHECK_EQ(call.state, thread_state_nominal);
         CHECK_EQ(call.reentrancy_level, 0);
     }
 }
@@ -142,43 +143,45 @@ TEST(ThreadState, MinimalInitialized)
 {
     boot();
     thread_test::takeLog();
-    runInThread([]
-    {
-        ThreadState & tsd = ThreadState::fetchMin();
-        CHECK_EQ(tsd.stateGet(), tsd_state_minimal_initialized);
-        CHECK_EQ(tsd.min_init_state_nfetched, 1);
-        CHECK_EQ(tsd.reentrancy_level, 1);
-        CHECK(!tsd.tcache_enabled);
-        CHECK(!tsd.nominal());
-        CHECK(tsd.stateNocleanup());
-        CHECK_EQ(tsd.thread_allocated_next_event_fast, 0u);
-        CHECK_EQ(tsd.thread_deallocated_next_event_fast, 0u);
-        for (int i = 2; i < TSD_MIN_INIT_STATE_MAX_FETCHED; ++i)
+    runInThread(
+        []
         {
+            ThreadState & thread_state = ThreadState::fetchMin();
+            CHECK_EQ(thread_state.stateGet(), thread_state_minimal_initialized);
+            CHECK_EQ(thread_state.min_init_state_num_fetched, 1);
+            CHECK_EQ(thread_state.reentrancy_level, 1);
+            CHECK(!thread_state.thread_cache_enabled);
+            CHECK(!thread_state.nominal());
+            CHECK(thread_state.stateNoCleanup());
+            CHECK_EQ(thread_state.thread_allocated_next_event_fast, 0u);
+            CHECK_EQ(thread_state.thread_deallocated_next_event_fast, 0u);
+            for (int i = 2; i < THREAD_STATE_MIN_INIT_STATE_MAX_FETCHED; ++i)
+            {
+                ThreadState::fetchMin();
+                CHECK_EQ(thread_state.min_init_state_num_fetched, i);
+                CHECK_EQ(thread_state.stateGet(), thread_state_minimal_initialized);
+            }
+            CHECK(thread_test::takeLog().empty());
             ThreadState::fetchMin();
-            CHECK_EQ(tsd.min_init_state_nfetched, i);
-            CHECK_EQ(tsd.stateGet(), tsd_state_minimal_initialized);
-        }
-        CHECK(thread_test::takeLog().empty());
-        ThreadState::fetchMin();
-        CHECK_EQ(tsd.min_init_state_nfetched, TSD_MIN_INIT_STATE_MAX_FETCHED);
-        CHECK_EQ(tsd.stateGet(), tsd_state_nominal);
-        CHECK_EQ(tsd.reentrancy_level, 0);
-        CHECK(tsd.tcache_enabled);
-        CHECK((names(thread_test::takeLog()) == std::vector<std::string>{"tcacheTsdDataInit"}));
-    });
+            CHECK_EQ(thread_state.min_init_state_num_fetched, THREAD_STATE_MIN_INIT_STATE_MAX_FETCHED);
+            CHECK_EQ(thread_state.stateGet(), thread_state_nominal);
+            CHECK_EQ(thread_state.reentrancy_level, 0);
+            CHECK(thread_state.thread_cache_enabled);
+            CHECK((names(thread_test::takeLog()) == std::vector<std::string>{"tcacheTsdDataInit"}));
+        });
     CHECK_EQ(thread_test::takeLog().size(), 4u);
 
     /// A full fetch on a minimal TSD switches to nominal immediately.
-    runInThread([]
-    {
-        ThreadState & tsd = ThreadState::fetchMin();
-        CHECK_EQ(tsd.stateGet(), tsd_state_minimal_initialized);
-        ThreadState::fetch();
-        CHECK_EQ(tsd.stateGet(), tsd_state_nominal);
-        CHECK_EQ(tsd.min_init_state_nfetched, 2);
-        CHECK_EQ(tsd.reentrancy_level, 0);
-    });
+    runInThread(
+        []
+        {
+            ThreadState & thread_state = ThreadState::fetchMin();
+            CHECK_EQ(thread_state.stateGet(), thread_state_minimal_initialized);
+            ThreadState::fetch();
+            CHECK_EQ(thread_state.stateGet(), thread_state_nominal);
+            CHECK_EQ(thread_state.min_init_state_num_fetched, 2);
+            CHECK_EQ(thread_state.reentrancy_level, 0);
+        });
     CHECK_EQ(thread_test::takeLog().size(), 5u);
 
     /// A minimal TSD that exits is still cleaned up (jemalloc calls the cleanup "for testing and completeness").
@@ -187,7 +190,7 @@ TEST(ThreadState, MinimalInitialized)
     CHECK((names(log) == std::vector<std::string>{"profTdataCleanup", "iarenaCleanup", "arenaCleanup", "tcacheCleanup"}));
     for (const auto & call : log)
     {
-        CHECK_EQ(call.state, tsd_state_minimal_initialized);
+        CHECK_EQ(call.state, thread_state_minimal_initialized);
         CHECK_EQ(call.reentrancy_level, 1);
     }
 }
@@ -196,20 +199,21 @@ TEST(ThreadState, InternalFetch)
 {
     boot();
     thread_test::takeLog();
-    runInThread([]
-    {
-        ThreadState & tsd = ThreadState::internalFetch();
-        CHECK_EQ(tsd.stateGet(), tsd_state_reincarnated);
-        CHECK_EQ(tsd.reentrancy_level, 1);
-        CHECK(!tsd.tcache_enabled);
-        /// Reincarnated TSDs stay as they are.
-        CHECK_EQ(&ThreadState::fetch(), &tsd);
-        CHECK_EQ(tsd.stateGet(), tsd_state_reincarnated);
-    });
+    runInThread(
+        []
+        {
+            ThreadState & thread_state = ThreadState::internalFetch();
+            CHECK_EQ(thread_state.stateGet(), thread_state_reincarnated);
+            CHECK_EQ(thread_state.reentrancy_level, 1);
+            CHECK(!thread_state.thread_cache_enabled);
+            /// Reincarnated TSDs stay as they are.
+            CHECK_EQ(&ThreadState::fetch(), &thread_state);
+            CHECK_EQ(thread_state.stateGet(), thread_state_reincarnated);
+        });
     auto log = thread_test::takeLog();
     CHECK_EQ(log.size(), 4u);
     for (const auto & call : log)
-        CHECK_EQ(call.state, tsd_state_reincarnated);
+        CHECK_EQ(call.state, thread_state_reincarnated);
 }
 
 namespace
@@ -224,8 +228,8 @@ std::atomic<uint8_t> late_state_after{0};
 void lateDestructor(void *)
 {
     ++late_destructor_calls;
-    ThreadState * tsd = tsd_detail::tlsAddrTSDTLS();
-    late_state_before = tsd->stateGet();
+    ThreadState * thread_state = thread_state_detail::tlsAddrThreadStateTLS();
+    late_state_before = thread_state->stateGet();
     ThreadState & fetched = ThreadState::fetch();
     late_state_after = fetched.stateGet();
 }
@@ -239,30 +243,32 @@ TEST(ThreadState, Reincarnation)
     boot();
     REQUIRE(pthread_key_create(&late_key, &lateDestructor) == 0);
     thread_test::takeLog();
-    runInThread([]
-    {
-        ThreadState::fetch();
-        pthread_setspecific(late_key, reinterpret_cast<void *>(1));
-    });
+    runInThread(
+        []
+        {
+            ThreadState::fetch();
+            pthread_setspecific(late_key, reinterpret_cast<void *>(1));
+        });
     CHECK_EQ(late_destructor_calls.load(), 1);
-    CHECK_EQ(late_state_before.load(), tsd_state_purgatory);
-    CHECK_EQ(late_state_after.load(), tsd_state_reincarnated);
+    CHECK_EQ(late_state_before.load(), thread_state_purgatory);
+    CHECK_EQ(late_state_after.load(), thread_state_reincarnated);
     auto log = thread_test::takeLog();
-    CHECK((names(log)
-           == std::vector<std::string>{
-               "tcacheTsdDataInit",
-               "profTdataCleanup",
-               "iarenaCleanup",
-               "arenaCleanup",
-               "tcacheCleanup",
-               "profTdataCleanup",
-               "iarenaCleanup",
-               "arenaCleanup",
-               "tcacheCleanup"}));
+    CHECK(
+        (names(log)
+         == std::vector<std::string>{
+             "tcacheTsdDataInit",
+             "profTdataCleanup",
+             "iarenaCleanup",
+             "arenaCleanup",
+             "tcacheCleanup",
+             "profTdataCleanup",
+             "iarenaCleanup",
+             "arenaCleanup",
+             "tcacheCleanup"}));
     if (log.size() == 9)
     {
-        CHECK_EQ(log[1].state, tsd_state_nominal);
-        CHECK_EQ(log[5].state, tsd_state_reincarnated);
+        CHECK_EQ(log[1].state, thread_state_nominal);
+        CHECK_EQ(log[5].state, thread_state_reincarnated);
         CHECK_EQ(log[5].reentrancy_level, 1);
     }
     pthread_key_delete(late_key);
@@ -271,138 +277,140 @@ TEST(ThreadState, Reincarnation)
 TEST(ThreadState, Reentrancy)
 {
     boot();
-    ThreadState & tsd = ThreadState::fetch();
-    REQUIRE(tsd.fast());
-    uint64_t threshold = tsd.thread_allocated_next_event_fast;
+    ThreadState & thread_state = ThreadState::fetch();
+    REQUIRE(thread_state.fast());
+    uint64_t threshold = thread_state.thread_allocated_next_event_fast;
     CHECK_NE(threshold, 0u);
 
-    preReentrancy(tsd, nullptr);
-    CHECK_EQ(tsd.reentrancy_level, 1);
-    CHECK_EQ(tsd.stateGet(), tsd_state_nominal_slow);
-    CHECK_EQ(tsd.thread_allocated_next_event_fast, 0u);
-    CHECK_EQ(tsd.thread_deallocated_next_event_fast, 0u);
+    preReentrancy(thread_state, nullptr);
+    CHECK_EQ(thread_state.reentrancy_level, 1);
+    CHECK_EQ(thread_state.stateGet(), thread_state_nominal_slow);
+    CHECK_EQ(thread_state.thread_allocated_next_event_fast, 0u);
+    CHECK_EQ(thread_state.thread_deallocated_next_event_fast, 0u);
     /// A fetch on the slow path does nothing.
-    CHECK_EQ(&ThreadState::fetch(), &tsd);
-    CHECK_EQ(tsd.stateGet(), tsd_state_nominal_slow);
+    CHECK_EQ(&ThreadState::fetch(), &thread_state);
+    CHECK_EQ(thread_state.stateGet(), thread_state_nominal_slow);
 
-    preReentrancy(tsd, nullptr);
-    CHECK_EQ(tsd.reentrancy_level, 2);
-    postReentrancy(tsd);
-    CHECK_EQ(tsd.reentrancy_level, 1);
-    CHECK_EQ(tsd.stateGet(), tsd_state_nominal_slow);
-    postReentrancy(tsd);
-    CHECK_EQ(tsd.reentrancy_level, 0);
-    CHECK_EQ(tsd.stateGet(), tsd_state_nominal);
-    CHECK_EQ(tsd.thread_allocated_next_event_fast, threshold);
+    preReentrancy(thread_state, nullptr);
+    CHECK_EQ(thread_state.reentrancy_level, 2);
+    postReentrancy(thread_state);
+    CHECK_EQ(thread_state.reentrancy_level, 1);
+    CHECK_EQ(thread_state.stateGet(), thread_state_nominal_slow);
+    postReentrancy(thread_state);
+    CHECK_EQ(thread_state.reentrancy_level, 0);
+    CHECK_EQ(thread_state.stateGet(), thread_state_nominal);
+    CHECK_EQ(thread_state.thread_allocated_next_event_fast, threshold);
 
     /// `malloc_slow` keeps every TSD on the slow path.
     malloc_slow = true;
-    tsd.slowUpdate();
-    CHECK_EQ(tsd.stateGet(), tsd_state_nominal_slow);
-    CHECK_EQ(tsd.thread_allocated_next_event_fast, 0u);
+    thread_state.slowUpdate();
+    CHECK_EQ(thread_state.stateGet(), thread_state_nominal_slow);
+    CHECK_EQ(thread_state.thread_allocated_next_event_fast, 0u);
     malloc_slow = false;
-    tsd.slowUpdate();
-    CHECK_EQ(tsd.stateGet(), tsd_state_nominal);
+    thread_state.slowUpdate();
+    CHECK_EQ(thread_state.stateGet(), thread_state_nominal);
 
     /// So does a disabled tcache.
-    tsd.tcache_enabled = false;
-    tsd.slowUpdate();
-    CHECK_EQ(tsd.stateGet(), tsd_state_nominal_slow);
-    tsd.tcache_enabled = true;
-    tsd.slowUpdate();
-    CHECK_EQ(tsd.stateGet(), tsd_state_nominal);
+    thread_state.thread_cache_enabled = false;
+    thread_state.slowUpdate();
+    CHECK_EQ(thread_state.stateGet(), thread_state_nominal_slow);
+    thread_state.thread_cache_enabled = true;
+    thread_state.slowUpdate();
+    CHECK_EQ(thread_state.stateGet(), thread_state_nominal);
 }
 
-/// `globalSlowInc` moves every nominal thread to `nominal_recompute` and zeroes its fast thresholds; each thread
+/// `globalSlowIncrement` moves every nominal thread to `nominal_recompute` and zeroes its fast thresholds; each thread
 /// recomputes its state at its next fetch.
 TEST(ThreadState, GlobalSlow)
 {
     boot();
-    constexpr int nthreads = 4;
+    constexpr int num_threads = 4;
     std::mutex mutex;
-    std::condition_variable cv;
+    std::condition_variable condition;
     int phase = 0;
     int ready = 0;
-    std::vector<ThreadState *> tsds(nthreads);
-    std::vector<uint8_t> states_after_inc(nthreads);
-    std::vector<uint8_t> states_after_fetch(nthreads);
-    std::vector<uint8_t> states_after_dec(nthreads);
-    std::vector<uint64_t> fast_after_inc(nthreads);
+    std::vector<ThreadState *> thread_states(num_threads);
+    std::vector<uint8_t> states_after_increment(num_threads);
+    std::vector<uint8_t> states_after_fetch(num_threads);
+    std::vector<uint8_t> states_after_decrement(num_threads);
+    std::vector<uint64_t> fast_after_increment(num_threads);
 
     auto wait_phase = [&](int p)
     {
         std::unique_lock lock(mutex);
-        cv.wait(lock, [&] { return phase >= p; });
+        condition.wait(lock, [&] { return phase >= p; });
     };
     auto report = [&]
     {
         std::lock_guard lock(mutex);
         ++ready;
-        cv.notify_all();
+        condition.notify_all();
     };
 
     std::vector<std::thread> threads;
-    for (int i = 0; i < nthreads; ++i)
+    for (int i = 0; i < num_threads; ++i)
     {
-        threads.emplace_back([&, i]
-        {
-            tsds[i] = &ThreadState::fetch();
-            report();
-            wait_phase(1);
-            states_after_inc[i] = tsds[i]->stateGet();
-            fast_after_inc[i] = tsds[i]->thread_allocated_next_event_fast + tsds[i]->thread_deallocated_next_event_fast;
-            ThreadState::fetch();
-            states_after_fetch[i] = tsds[i]->stateGet();
-            report();
-            wait_phase(2);
-            states_after_dec[i] = tsds[i]->stateGet();
-            ThreadState::fetch();
-            states_after_fetch[i] = tsds[i]->stateGet();
-            report();
-        });
+        threads.emplace_back(
+            [&, i]
+            {
+                thread_states[i] = &ThreadState::fetch();
+                report();
+                wait_phase(1);
+                states_after_increment[i] = thread_states[i]->stateGet();
+                fast_after_increment[i]
+                    = thread_states[i]->thread_allocated_next_event_fast + thread_states[i]->thread_deallocated_next_event_fast;
+                ThreadState::fetch();
+                states_after_fetch[i] = thread_states[i]->stateGet();
+                report();
+                wait_phase(2);
+                states_after_decrement[i] = thread_states[i]->stateGet();
+                ThreadState::fetch();
+                states_after_fetch[i] = thread_states[i]->stateGet();
+                report();
+            });
     }
 
     auto wait_ready = [&](int n)
     {
         std::unique_lock lock(mutex);
-        cv.wait(lock, [&] { return ready >= n; });
+        condition.wait(lock, [&] { return ready >= n; });
     };
 
-    wait_ready(nthreads);
+    wait_ready(num_threads);
     CHECK(!ThreadState::globalSlow());
-    ThreadState::globalSlowInc(&ThreadState::fetch());
+    ThreadState::globalSlowIncrement(&ThreadState::fetch());
     CHECK(ThreadState::globalSlow());
-    ThreadState & main_tsd = ThreadState::fetch(); /// Recomputes the main thread too.
-    CHECK_EQ(main_tsd.stateGet(), tsd_state_nominal_slow);
+    ThreadState & main_thread_state = ThreadState::fetch(); /// Recomputes the main thread too.
+    CHECK_EQ(main_thread_state.stateGet(), thread_state_nominal_slow);
     {
         std::lock_guard lock(mutex);
         phase = 1;
-        cv.notify_all();
+        condition.notify_all();
     }
-    wait_ready(2 * nthreads);
-    for (int i = 0; i < nthreads; ++i)
+    wait_ready(2 * num_threads);
+    for (int i = 0; i < num_threads; ++i)
     {
-        CHECK_EQ(states_after_inc[i], tsd_state_nominal_recompute);
-        CHECK_EQ(fast_after_inc[i], 0u);
-        CHECK_EQ(states_after_fetch[i], tsd_state_nominal_slow);
+        CHECK_EQ(states_after_increment[i], thread_state_nominal_recompute);
+        CHECK_EQ(fast_after_increment[i], 0u);
+        CHECK_EQ(states_after_fetch[i], thread_state_nominal_slow);
     }
-    ThreadState::globalSlowDec(&main_tsd);
+    ThreadState::globalSlowDecrement(&main_thread_state);
     CHECK(!ThreadState::globalSlow());
     {
         std::lock_guard lock(mutex);
         phase = 2;
-        cv.notify_all();
+        condition.notify_all();
     }
-    wait_ready(3 * nthreads);
-    for (int i = 0; i < nthreads; ++i)
+    wait_ready(3 * num_threads);
+    for (int i = 0; i < num_threads; ++i)
     {
-        CHECK_EQ(states_after_dec[i], tsd_state_nominal_recompute);
-        CHECK_EQ(states_after_fetch[i], tsd_state_nominal);
+        CHECK_EQ(states_after_decrement[i], thread_state_nominal_recompute);
+        CHECK_EQ(states_after_fetch[i], thread_state_nominal);
     }
-    CHECK_EQ(main_tsd.stateGet(), tsd_state_nominal_recompute);
+    CHECK_EQ(main_thread_state.stateGet(), thread_state_nominal_recompute);
     ThreadState::fetch();
-    CHECK_EQ(main_tsd.stateGet(), tsd_state_nominal);
-    CHECK_NE(main_tsd.thread_allocated_next_event_fast, 0u);
+    CHECK_EQ(main_thread_state.stateGet(), thread_state_nominal);
+    CHECK_NE(main_thread_state.thread_allocated_next_event_fast, 0u);
     for (auto & thread : threads)
         thread.join();
     thread_test::takeLog();
@@ -412,52 +420,53 @@ TEST(ThreadState, GlobalSlow)
 TEST(ThreadState, Fork)
 {
     boot();
-    ThreadState & tsd = ThreadState::fetch();
+    ThreadState & thread_state = ThreadState::fetch();
 
     std::mutex mutex;
-    std::condition_variable cv;
+    std::condition_variable condition;
     bool done = false;
     bool started = false;
-    std::thread other([&]
+    std::thread other(
+        [&]
+        {
+            ThreadState::fetch();
+            std::unique_lock lock(mutex);
+            started = true;
+            condition.notify_all();
+            condition.wait(lock, [&] { return done; });
+        });
     {
-        ThreadState::fetch();
         std::unique_lock lock(mutex);
-        started = true;
-        cv.notify_all();
-        cv.wait(lock, [&] { return done; });
-    });
-    {
-        std::unique_lock lock(mutex);
-        cv.wait(lock, [&] { return started; });
+        condition.wait(lock, [&] { return started; });
     }
 
-    tsd.prefork();
+    thread_state.prefork();
     pid_t pid = fork();
     REQUIRE(pid >= 0);
     if (pid == 0)
     {
-        tsd.postforkChild();
-        bool ok = tsd.tsd_link.next == &tsd && tsd.tsd_link.prev == &tsd;
+        thread_state.postforkChild();
+        bool ok = thread_state.thread_state_link.next == &thread_state && thread_state.thread_state_link.prev == &thread_state;
         /// The list (and its lock) works in the child.
-        ThreadState::globalSlowInc(&tsd);
-        ok = ok && tsd.stateGet() == tsd_state_nominal_recompute;
-        ThreadState::globalSlowDec(&tsd);
+        ThreadState::globalSlowIncrement(&thread_state);
+        ok = ok && thread_state.stateGet() == thread_state_nominal_recompute;
+        ThreadState::globalSlowDecrement(&thread_state);
         ThreadState::fetch();
-        ok = ok && tsd.stateGet() == tsd_state_nominal;
+        ok = ok && thread_state.stateGet() == thread_state_nominal;
         _exit(ok ? 0 : 1);
     }
-    tsd.postforkParent();
+    thread_state.postforkParent();
     int status = 0;
     REQUIRE(waitpid(pid, &status, 0) == pid);
     CHECK(WIFEXITED(status));
     CHECK_EQ(WEXITSTATUS(status), 0);
     /// The parent still has both threads in the list.
-    CHECK(tsd.tsd_link.next != &tsd);
+    CHECK(thread_state.thread_state_link.next != &thread_state);
 
     {
         std::lock_guard lock(mutex);
         done = true;
-        cv.notify_all();
+        condition.notify_all();
     }
     other.join();
     thread_test::takeLog();
@@ -468,31 +477,32 @@ TEST(ThreadState, MallocThreadCleanup)
     /// The FreeBSD cleanup driver: repeats the cleanups that ask for another round.
     static int calls_a = 0;
     static int calls_b = 0;
-    mallocTSDCleanupRegister([] { return ++calls_a < 3; });
-    mallocTSDCleanupRegister([] { return ++calls_b < 1; });
+    mallocThreadStateCleanupRegister([] { return ++calls_a < 3; });
+    mallocThreadStateCleanupRegister([] { return ++calls_b < 1; });
     mallocThreadCleanup();
     CHECK_EQ(calls_a, 3);
     CHECK_EQ(calls_b, 1);
 }
 
-/// The Darwin implementation also works with Linux pthreads: wrappers are allocated with `a0malloc` and freed at
+/// The Darwin implementation also works with Linux pthreads: wrappers are allocated with `arena0Allocate` and freed at
 /// thread exit.
 TEST(ThreadState, GenericWrapper)
 {
-    REQUIRE(!TSDGeneric::boot0());
-    CHECK(TSDGeneric::is_booted);
-    runInThread([]
-    {
-        CHECK(TSDGeneric::get(false) == nullptr);
-        ThreadState * tsd = TSDGeneric::get(true);
-        REQUIRE(tsd != nullptr);
-        CHECK_EQ(TSDGeneric::get(false), tsd);
-        CHECK_EQ(tsd->stateGet(), tsd_state_uninitialized);
-        CHECK_EQ(reinterpret_cast<uintptr_t>(TSDGeneric::wrapperGet(false)) % CACHELINE, 0u);
-        CHECK(!TSDGeneric::wrapperGet(false)->initialized);
-        TSDGeneric::set(tsd);
-        CHECK(TSDGeneric::wrapperGet(false)->initialized);
-    });
+    REQUIRE(!ThreadStateGeneric::boot0());
+    CHECK(ThreadStateGeneric::is_booted);
+    runInThread(
+        []
+        {
+            CHECK(ThreadStateGeneric::get(false) == nullptr);
+            ThreadState * thread_state = ThreadStateGeneric::get(true);
+            REQUIRE(thread_state != nullptr);
+            CHECK_EQ(ThreadStateGeneric::get(false), thread_state);
+            CHECK_EQ(thread_state->stateGet(), thread_state_uninitialized);
+            CHECK_EQ(reinterpret_cast<uintptr_t>(ThreadStateGeneric::wrapperGet(false)) % CACHE_LINE, 0u);
+            CHECK(!ThreadStateGeneric::wrapperGet(false)->initialized);
+            ThreadStateGeneric::set(thread_state);
+            CHECK(ThreadStateGeneric::wrapperGet(false)->initialized);
+        });
     /// The uninitialized TSD needs no cleanup hooks.
     CHECK(thread_test::takeLog().empty());
 }
@@ -510,7 +520,7 @@ constexpr size_t fiber_stack_size = 1 << 16;
 ucontext_t fiber_context[num_fibers];
 ucontext_t * return_context[num_fibers];
 /// The TSD of the worker that resumed the fiber (written by the worker before switching to the fiber).
-ThreadState * expected_tsd[num_fibers];
+ThreadState * expected_thread_state[num_fibers];
 int fiber_remaining_ops[num_fibers];
 bool fiber_done[num_fibers];
 std::atomic<int> fiber_errors{0};
@@ -548,12 +558,12 @@ void fiberRun(int id)
         /// Fetch, count a "deallocation" on the current thread's TSD, yield (possibly to another thread), then fetch
         /// again: the address must be that of the new thread's TSD.
         ThreadState & before = ThreadState::fetch();
-        if (&before != expected_tsd[id])
+        if (&before != expected_thread_state[id])
             ++fiber_errors;
         ++before.thread_deallocated;
         swapcontext(&fiber_context[id], return_context[id]);
         ThreadState & after = ThreadState::fetch();
-        if (&after != expected_tsd[id])
+        if (&after != expected_thread_state[id])
             ++fiber_errors;
         if (previous != nullptr && previous != &after)
             ++fiber_migrations;
@@ -583,7 +593,7 @@ void workerThread()
             continue;
         }
         return_context[id] = &scheduler_context;
-        expected_tsd[id] = own;
+        expected_thread_state[id] = own;
         swapcontext(&scheduler_context, &fiber_context[id]);
         bool done;
         {
@@ -630,25 +640,28 @@ TEST(ThreadState, FiberMigration)
 TEST(ThreadState, TLSAddress)
 {
     boot();
-    ThreadState * main_tsd = tsd_detail::tlsAddrTSDTLS();
-    CHECK_EQ(main_tsd, &ThreadState::fetch());
+    ThreadState * main_thread_state = thread_state_detail::tlsAddrThreadStateTLS();
+    CHECK_EQ(main_thread_state, &ThreadState::fetch());
     ThreadState * other = nullptr;
     bool * other_initialized = nullptr;
-    runInThread([&]
-    {
-        other = tsd_detail::tlsAddrTSDTLS();
-        /// `tsd_initialized` exists only with `TSDMallocThreadCleanup` (FreeBSD), like in jemalloc.
-        if constexpr (config::tsd_impl == TSDImpl::MallocThreadCleanup)
+    runInThread(
+        [&]
         {
-            other_initialized = tsd_detail::tlsAddrTSDInitialized();
-            CHECK(!*other_initialized);
-        }
-    });
-    CHECK_NE(other, main_tsd);
-    if constexpr (config::tsd_impl == TSDImpl::MallocThreadCleanup)
-        CHECK(other_initialized != tsd_detail::tlsAddrTSDInitialized());
+            other = thread_state_detail::tlsAddrThreadStateTLS();
+            /// `thread_state_initialized` exists only with `ThreadStateMallocThreadCleanup` (FreeBSD), like in jemalloc.
+            if constexpr (config::thread_state_impl == ThreadStateImpl::MallocThreadCleanup)
+            {
+                other_initialized = thread_state_detail::tlsAddrThreadStateInitialized();
+                CHECK(!*other_initialized);
+            }
+        });
+    CHECK_NE(other, main_thread_state);
+    if constexpr (config::thread_state_impl == ThreadStateImpl::MallocThreadCleanup)
+        CHECK(other_initialized != thread_state_detail::tlsAddrThreadStateInitialized());
 #if ALLOCATOR_TLS_ADDR_FAST
-    CHECK_NE(tsd_detail::tls_offset_tsd_tls.load(), tsd_detail::TLS_OFFSET_UNINITIALIZED);
-    CHECK_EQ(reinterpret_cast<char *>(main_tsd) - tsd_detail::threadPointer(), tsd_detail::tls_offset_tsd_tls.load());
+    CHECK_NE(thread_state_detail::tls_offset_thread_state_tls.load(), thread_state_detail::TLS_OFFSET_UNINITIALIZED);
+    CHECK_EQ(
+        reinterpret_cast<char *>(main_thread_state) - thread_state_detail::threadPointer(),
+        thread_state_detail::tls_offset_thread_state_tls.load());
 #endif
 }

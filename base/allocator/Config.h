@@ -36,7 +36,7 @@ enum class Arch : uint8_t
 };
 
 /// How thread-specific data is implemented (jemalloc: `tsd_tls.h`, `tsd_malloc_thread_cleanup.h`, `tsd_generic.h`).
-enum class TSDImpl : uint8_t
+enum class ThreadStateImpl : uint8_t
 {
     /// `thread_local` (initial-exec) + a pthread key whose destructor cleans up. Linux.
     TLS,
@@ -56,7 +56,7 @@ inline constexpr OS os = OS::FreeBSD;
 #elif defined(__APPLE__)
 inline constexpr OS os = OS::Darwin;
 #else
-#    error "Unsupported OS"
+#error "Unsupported OS"
 #endif
 
 #if defined(__x86_64__)
@@ -70,7 +70,7 @@ inline constexpr Arch arch = Arch::RISCV64;
 #elif defined(__s390x__)
 inline constexpr Arch arch = Arch::S390X;
 #else
-#    error "Unsupported architecture"
+#error "Unsupported architecture"
 #endif
 
 #if defined(ALLOCATOR_MUSL) && ALLOCATOR_MUSL
@@ -85,32 +85,32 @@ inline constexpr bool os_darwin = os == OS::Darwin;
 
 /// --- Geometry ---------------------------------------------------------------------------------------------------
 
-/// LG_PAGE: the allocator's page size, which must not be smaller than the kernel page size.
+/// LOG2_PAGE: the allocator's page size, which must not be smaller than the kernel page size.
 #if defined(ALLOCATOR_LG_PAGE)
-inline constexpr unsigned lg_page = ALLOCATOR_LG_PAGE;
+inline constexpr unsigned log2_page = ALLOCATOR_LG_PAGE;
 #elif defined(__linux__) && (defined(__x86_64__) || defined(__s390x__))
-inline constexpr unsigned lg_page = 12;
+inline constexpr unsigned log2_page = 12;
 #elif defined(__linux__) && (defined(__powerpc64__) || defined(__riscv))
-inline constexpr unsigned lg_page = 16;
+inline constexpr unsigned log2_page = 16;
 #elif defined(__linux__) && defined(__aarch64__)
-#    error "ALLOCATOR_LG_PAGE must be specified on Linux aarch64 (JEMALLOC_AARCH64_PAGE_SIZE_KIB)"
+#error "ALLOCATOR_LG_PAGE must be specified on Linux aarch64 (JEMALLOC_AARCH64_PAGE_SIZE_KIB)"
 #elif defined(__FreeBSD__) && defined(__aarch64__)
-inline constexpr unsigned lg_page = 16;
+inline constexpr unsigned log2_page = 16;
 #elif defined(__FreeBSD__)
-inline constexpr unsigned lg_page = 12;
+inline constexpr unsigned log2_page = 12;
 #elif defined(__APPLE__) && defined(__aarch64__)
-inline constexpr unsigned lg_page = 14;
+inline constexpr unsigned log2_page = 14;
 #elif defined(__APPLE__)
-inline constexpr unsigned lg_page = 12;
+inline constexpr unsigned log2_page = 12;
 #endif
 
-static_assert(lg_page == 12 || lg_page == 14 || lg_page == 16, "Unsupported page size");
+static_assert(log2_page == 12 || log2_page == 14 || log2_page == 16, "Unsupported page size");
 
-/// LG_HUGEPAGE.
-inline constexpr unsigned lg_hugepage = []
+/// LOG2_HUGE_PAGE.
+inline constexpr unsigned log2_huge_page = []
 {
     if constexpr (os_linux && arch == Arch::AArch64)
-        return 2 * lg_page - 3; /// A PMD-level THP maps (page size / 8) entries of one page each.
+        return 2 * log2_page - 3; /// A PMD-level THP maps (page size / 8) entries of one page each.
     else if constexpr (os_linux && arch == Arch::RISCV64)
         return 29u;
     else if constexpr (os_linux && arch == Arch::S390X)
@@ -121,8 +121,8 @@ inline constexpr unsigned lg_hugepage = []
         return 21u;
 }();
 
-/// LG_VADDR: number of significant virtual address bits.
-inline constexpr unsigned lg_vaddr = []
+/// LOG2_VIRTUAL_ADDRESS: number of significant virtual address bits.
+inline constexpr unsigned log2_virtual_address = []
 {
     if constexpr (arch == Arch::PPC64LE || arch == Arch::S390X)
         return 64u;
@@ -132,9 +132,9 @@ inline constexpr unsigned lg_vaddr = []
         return 48u;
 }();
 
-inline constexpr unsigned lg_sizeof_ptr = 3;
-inline constexpr unsigned lg_quantum = 4;
-inline constexpr unsigned lg_cacheline = 6;
+inline constexpr unsigned log2_sizeof_ptr = 3;
+inline constexpr unsigned log2_quantum = 4;
+inline constexpr unsigned log2_cache_line = 6;
 inline constexpr bool big_endian = arch == Arch::S390X;
 
 /// --- Features that are the same on every platform -----------------------------------------------------------------
@@ -146,16 +146,16 @@ inline constexpr bool debug =
     false;
 #endif
 
-inline constexpr bool stats = true;          /// JEMALLOC_STATS
-inline constexpr bool fill = true;           /// JEMALLOC_FILL
-inline constexpr bool prof = true;           /// JEMALLOC_PROF
+inline constexpr bool stats = true; /// JEMALLOC_STATS
+inline constexpr bool fill = true; /// JEMALLOC_FILL
+inline constexpr bool profiling = true; /// JEMALLOC_PROF
 inline constexpr bool cache_oblivious = true; /// JEMALLOC_CACHE_OBLIVIOUS (default of `opt.cache_oblivious`)
-inline constexpr bool maps_coalesce = true;  /// JEMALLOC_MAPS_COALESCE
+inline constexpr bool maps_coalesce = true; /// JEMALLOC_MAPS_COALESCE
 inline constexpr bool background_thread = true; /// JEMALLOC_BACKGROUND_THREAD
-inline constexpr bool opt_safety_checks = false;
-inline constexpr bool opt_size_checks = false;
+inline constexpr bool option_safety_checks = false;
+inline constexpr bool option_size_checks = false;
 
-inline constexpr bool uaf_detection =
+inline constexpr bool use_after_free_detection =
 #if defined(ALLOCATOR_UAF_DETECTION) && ALLOCATOR_UAF_DETECTION
     true;
 #else
@@ -168,7 +168,7 @@ inline constexpr bool uaf_detection =
 inline constexpr bool retain = os_linux;
 
 /// JEMALLOC_DSS is compiled in everywhere except Darwin (the allocator never uses sbrk; this only affects reporting).
-inline constexpr bool have_dss = !os_darwin;
+inline constexpr bool have_sbrk = !os_darwin;
 
 /// JEMALLOC_HAVE_MADVISE_HUGE, JEMALLOC_PURGE_MADVISE_DONTNEED_ZEROS, JEMALLOC_MADVISE_DONTDUMP.
 inline constexpr bool have_madvise_huge = os_linux;
@@ -177,10 +177,10 @@ inline constexpr bool madvise_dontdump = os_linux;
 inline constexpr bool madvise_nocore = os_freebsd;
 
 /// JEMALLOC_PAGEID: name anonymous mappings with prctl(PR_SET_VMA).
-inline constexpr bool pageid = os_linux && arch != Arch::S390X;
+inline constexpr bool page_id = os_linux && arch != Arch::S390X;
 
 /// JEMALLOC_PROC_SYS_VM_OVERCOMMIT_MEMORY / JEMALLOC_SYSCTL_VM_OVERCOMMIT.
-inline constexpr bool proc_sys_vm_overcommit_memory = os_linux;
+inline constexpr bool proc_system_vm_overcommit_memory = os_linux;
 inline constexpr bool sysctl_vm_overcommit = os_freebsd;
 
 /// JEMALLOC_HAVE_VM_MAKE_TAG.
@@ -194,7 +194,7 @@ inline constexpr bool have_sched_getcpu = os_linux || (os_freebsd && arch == Arc
 inline constexpr bool have_sched_setaffinity = have_sched_getcpu;
 
 /// JEMALLOC_PERCPU_ARENA: there is a way to query the current CPU (Darwin uses the fork's `malloc_getcpu`).
-inline constexpr bool have_percpu_arena = have_sched_getcpu || os_darwin;
+inline constexpr bool have_per_cpu_arena = have_sched_getcpu || os_darwin;
 
 /// JEMALLOC_HAVE_PTHREAD_ATFORK (missing on Linux ppc64le).
 inline constexpr bool have_pthread_atfork = !(os_linux && arch == Arch::PPC64LE);
@@ -209,11 +209,12 @@ inline constexpr bool have_clock_monotonic = !os_darwin;
 
 /// JEMALLOC_THREADED_INIT, JEMALLOC_MUTEX_INIT_CB, JEMALLOC_LAZY_LOCK.
 inline constexpr bool threaded_init = os_linux;
-inline constexpr bool mutex_init_cb = os_freebsd;
+inline constexpr bool mutex_init_callback = os_freebsd;
 inline constexpr bool lazy_lock = os_freebsd;
 
 /// The thread-specific data implementation.
-inline constexpr TSDImpl tsd_impl = os_freebsd ? TSDImpl::MallocThreadCleanup : (os_darwin ? TSDImpl::Generic : TSDImpl::TLS);
+inline constexpr ThreadStateImpl thread_state_impl
+    = os_freebsd ? ThreadStateImpl::MallocThreadCleanup : (os_darwin ? ThreadStateImpl::Generic : ThreadStateImpl::TLS);
 
 /// JEMALLOC_TLS_MODEL_INITIAL_EXEC is not available on Linux aarch64 musl.
 inline constexpr bool tls_model_initial_exec = !(os_linux && musl && arch == Arch::AArch64);
@@ -238,7 +239,7 @@ inline constexpr bool enable_cxx = (os_linux && arch == Arch::S390X) || (os_free
 inline constexpr bool have_malloc_size = os_darwin;
 
 /// HAVE_CPU_SPINWAIT.
-inline constexpr bool have_cpu_spinwait = arch == Arch::X86_64;
+inline constexpr bool have_cpu_spin_wait = arch == Arch::X86_64;
 
 /// JEMALLOC_CONFIG_MALLOC_CONF. s390x and FreeBSD ppc64le hard-code an empty string in the jemalloc configuration.
 #if defined(ALLOCATOR_MALLOC_CONF)
@@ -252,32 +253,32 @@ inline constexpr const char * malloc_conf_default = "";
 
 /// --- Derived constants ----------------------------------------------------------------------------------------------
 
-inline constexpr unsigned LG_PAGE = config::lg_page;
-inline constexpr size_t PAGE = size_t(1) << LG_PAGE;
+inline constexpr unsigned LOG2_PAGE = config::log2_page;
+inline constexpr size_t PAGE = size_t(1) << LOG2_PAGE;
 inline constexpr size_t PAGE_MASK = PAGE - 1;
 
-inline constexpr unsigned LG_HUGEPAGE = config::lg_hugepage;
-inline constexpr size_t HUGEPAGE = size_t(1) << LG_HUGEPAGE;
-inline constexpr size_t HUGEPAGE_MASK = HUGEPAGE - 1;
+inline constexpr unsigned LOG2_HUGE_PAGE = config::log2_huge_page;
+inline constexpr size_t HUGE_PAGE = size_t(1) << LOG2_HUGE_PAGE;
+inline constexpr size_t HUGE_PAGE_MASK = HUGE_PAGE - 1;
 
-inline constexpr unsigned LG_VADDR = config::lg_vaddr;
+inline constexpr unsigned LOG2_VIRTUAL_ADDRESS = config::log2_virtual_address;
 
-inline constexpr unsigned LG_SIZEOF_PTR = config::lg_sizeof_ptr;
+inline constexpr unsigned LG_SIZEOF_PTR = config::log2_sizeof_ptr;
 
-inline constexpr unsigned LG_QUANTUM = config::lg_quantum;
-inline constexpr size_t QUANTUM = size_t(1) << LG_QUANTUM;
+inline constexpr unsigned LOG2_QUANTUM = config::log2_quantum;
+inline constexpr size_t QUANTUM = size_t(1) << LOG2_QUANTUM;
 inline constexpr size_t QUANTUM_MASK = QUANTUM - 1;
 
-inline constexpr unsigned LG_CACHELINE = config::lg_cacheline;
-inline constexpr size_t CACHELINE = size_t(1) << LG_CACHELINE;
-inline constexpr size_t CACHELINE_MASK = CACHELINE - 1;
+inline constexpr unsigned LOG2_CACHE_LINE = config::log2_cache_line;
+inline constexpr size_t CACHE_LINE = size_t(1) << LOG2_CACHE_LINE;
+inline constexpr size_t CACHE_LINE_MASK = CACHE_LINE - 1;
 
 /// Maximum number of arenas (MALLOCX_ARENA_BITS).
 inline constexpr unsigned MALLOCX_ARENA_BITS = 12;
 inline constexpr unsigned MALLOCX_ARENA_LIMIT = (1u << MALLOCX_ARENA_BITS) - 1;
 
-/// Maximum number of explicit thread caches (MALLOCX_TCACHE_BITS).
-inline constexpr unsigned MALLOCX_TCACHE_BITS = 12;
-inline constexpr unsigned MALLOCX_TCACHE_MAX = (1u << MALLOCX_TCACHE_BITS) - 3;
+/// Maximum number of explicit thread caches (MALLOCX_THREAD_CACHE_BITS).
+inline constexpr unsigned MALLOCX_THREAD_CACHE_BITS = 12;
+inline constexpr unsigned MALLOCX_THREAD_CACHE_MAX = (1u << MALLOCX_THREAD_CACHE_BITS) - 3;
 
 }

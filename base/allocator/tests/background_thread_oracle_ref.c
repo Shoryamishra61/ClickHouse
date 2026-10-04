@@ -2,11 +2,11 @@
  * `background_work_sleep_once` (`background_thread.c`, static there) for `background_thread_oracle.cpp`. */
 
 #ifndef _GNU_SOURCE
-#    define _GNU_SOURCE
+#define _GNU_SOURCE
 #endif
 
-#include "jemalloc/internal/jemalloc_preamble.h"
 #include "jemalloc/internal/jemalloc_internal_includes.h"
+#include "jemalloc/internal/jemalloc_preamble.h"
 
 #include <stddef.h>
 
@@ -37,40 +37,47 @@ typedef struct
 {
     const uint64_t * times; /* UINT64_MAX - 1 marks a missing arena */
     unsigned * worked;
-    unsigned nworked;
+    unsigned num_worked;
     unsigned * queried;
-    unsigned nqueried;
+    unsigned num_queried;
 } ref_scan_t;
 
 /* `background_work_sleep_once` without the sleep, with the arena accessors replaced by the script. */
-uint64_t ref_background_work_sleep_ns(ref_scan_t * scan, unsigned ind, unsigned narenas, size_t max_threads, bool slept_indefinitely)
+uint64_t ref_background_work_sleep_ns(ref_scan_t * scan, unsigned idx, unsigned num_arenas, size_t max_threads, bool slept_indefinitely)
 {
     uint64_t ns_until_deferred = BACKGROUND_THREAD_DEFERRED_MAX;
 
-    for (unsigned i = ind; i < narenas; i += max_threads) {
+    for (unsigned i = idx; i < num_arenas; i += max_threads)
+    {
         const uint64_t * arena = scan->times[i] == UINT64_MAX - 1 ? NULL : &scan->times[i];
-        if (!arena) {
+        if (!arena)
+        {
             continue;
         }
-        if (!slept_indefinitely) {
-            scan->worked[scan->nworked++] = i;
+        if (!slept_indefinitely)
+        {
+            scan->worked[scan->num_worked++] = i;
         }
-        if (ns_until_deferred <= BACKGROUND_THREAD_MIN_INTERVAL_NS) {
+        if (ns_until_deferred <= BACKGROUND_THREAD_MIN_INTERVAL_NS)
+        {
             continue;
         }
-        scan->queried[scan->nqueried++] = i;
+        scan->queried[scan->num_queried++] = i;
         uint64_t ns_arena_deferred = *arena;
-        if (ns_arena_deferred < ns_until_deferred) {
+        if (ns_arena_deferred < ns_until_deferred)
+        {
             ns_until_deferred = ns_arena_deferred;
         }
     }
 
     uint64_t sleep_ns;
-    if (ns_until_deferred == BACKGROUND_THREAD_DEFERRED_MAX) {
+    if (ns_until_deferred == BACKGROUND_THREAD_DEFERRED_MAX)
+    {
         sleep_ns = BACKGROUND_THREAD_INDEFINITE_SLEEP;
-    } else {
-        sleep_ns = (ns_until_deferred < BACKGROUND_THREAD_MIN_INTERVAL_NS) ? BACKGROUND_THREAD_MIN_INTERVAL_NS
-                                                                           : ns_until_deferred;
+    }
+    else
+    {
+        sleep_ns = (ns_until_deferred < BACKGROUND_THREAD_MIN_INTERVAL_NS) ? BACKGROUND_THREAD_MIN_INTERVAL_NS : ns_until_deferred;
     }
     return sleep_ns;
 }

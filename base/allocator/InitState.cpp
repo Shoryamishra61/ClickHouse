@@ -15,7 +15,7 @@ constinit MallocInitState malloc_init_state = malloc_init_uninitialized;
 constinit bool malloc_slow = true;
 
 /// The number of CPUs (declared in Mutex.h). jemalloc: ncpus
-constinit unsigned ncpus = 0;
+constinit unsigned num_cpus = 0;
 
 /// Declared in Frontend.h (here rather than in API.cpp because the `stats.zero_reallocs` mallctl reads it).
 /// jemalloc: zero_realloc_count

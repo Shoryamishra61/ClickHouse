@@ -13,7 +13,7 @@ namespace jemalloc
 /// High 16 bits are the integer part, low 16 are the fractional part (`fxp_t`).
 using FixedPoint = uint32_t;
 
-namespace fxp
+namespace fixed_point
 {
 
 /// jemalloc: FXP_INIT_INT
@@ -23,9 +23,9 @@ constexpr FixedPoint initInt(uint32_t x)
 }
 
 /// jemalloc: FXP_INIT_PERCENT
-constexpr FixedPoint initPercent(uint32_t pct)
+constexpr FixedPoint initPercent(uint32_t percent)
 {
-    return (pct << 16) / 100;
+    return (percent << 16) / 100;
 }
 
 /// Number of digits used in parsing and printing (`FXP_INTEGER_PART_DIGITS`, `FXP_FRACTIONAL_PART_DIGITS`).
@@ -44,21 +44,21 @@ constexpr FixedPoint add(FixedPoint a, FixedPoint b)
 /// jemalloc: fxp_sub
 constexpr FixedPoint sub(FixedPoint a, FixedPoint b)
 {
-    JE_ASSERT(a >= b);
+    ALLOCATOR_ASSERT(a >= b);
     return a - b;
 }
 
 /// jemalloc: fxp_mul
-constexpr FixedPoint mul(FixedPoint a, FixedPoint b)
+constexpr FixedPoint multiply(FixedPoint a, FixedPoint b)
 {
     uint64_t unshifted = uint64_t(a) * uint64_t(b);
     return static_cast<uint32_t>(unshifted >> 16);
 }
 
 /// jemalloc: fxp_div
-constexpr FixedPoint div(FixedPoint a, FixedPoint b)
+constexpr FixedPoint divide(FixedPoint a, FixedPoint b)
 {
-    JE_ASSERT(b != 0);
+    ALLOCATOR_ASSERT(b != 0);
     uint64_t unshifted = (uint64_t(a) << 32) / uint64_t(b);
     return static_cast<uint32_t>(unshifted >> 16);
 }
@@ -77,17 +77,17 @@ constexpr uint32_t roundNearest(FixedPoint a)
     return (a >> 16) + increment;
 }
 
-/// Approximately computes `x * frac`, without the size limitations of converting `x` to a `FixedPoint`.
+/// Approximately computes `x * fraction`, without the size limitations of converting `x` to a `FixedPoint`.
 /// jemalloc: fxp_mul_frac
-constexpr size_t mulFrac(size_t x_orig, FixedPoint frac)
+constexpr size_t multiplyByFraction(size_t x_original, FixedPoint fraction)
 {
-    JE_ASSERT(frac <= (1U << 16));
-    uint64_t x = x_orig;
+    ALLOCATOR_ASSERT(fraction <= (1U << 16));
+    uint64_t x = x_original;
     /// If we can guarantee no overflow, multiply first before shifting, to preserve some precision.
     if (x < (1ULL << 48))
-        return static_cast<size_t>((x * frac) >> 16);
+        return static_cast<size_t>((x * fraction) >> 16);
     else
-        return static_cast<size_t>((x >> 16) * uint64_t(frac));
+        return static_cast<size_t>((x >> 16) * uint64_t(fraction));
 }
 
 /// Returns true on error. Otherwise, returns false and sets `*end` (if not null) to the first character not parsed.

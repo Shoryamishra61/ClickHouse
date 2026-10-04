@@ -7,24 +7,24 @@
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
-#include <sys/mman.h>
 #include <unistd.h>
+#include <sys/mman.h>
 
 #if defined(__linux__)
-#    include <sys/prctl.h>
-#    ifndef PR_SET_VMA
-#        define PR_SET_VMA 0x53564d41
-#        define PR_SET_VMA_ANON_NAME 0
-#    endif
+#include <sys/prctl.h>
+#ifndef PR_SET_VMA
+#define PR_SET_VMA 0x53564d41
+#define PR_SET_VMA_ANON_NAME 0
+#endif
 #endif
 
 #if defined(__FreeBSD__)
-#    include <sys/sysctl.h>
-#    include <vm/vm_param.h>
+#include <sys/sysctl.h>
+#include <vm/vm_param.h>
 #endif
 
 #if defined(__APPLE__)
-#    include <mach/vm_statistics.h>
+#include <mach/vm_statistics.h>
 #endif
 
 namespace jemalloc
@@ -34,12 +34,12 @@ namespace jemalloc
 
 constinit size_t os_page = 0;
 
-constinit const char * const thp_mode_names[] = {"default", "always", "never", "not supported"};
-constinit const char * const system_thp_mode_names[] = {"madvise", "always", "never", "not supported"};
+constinit const char * const transparent_huge_pages_mode_names[] = {"default", "always", "never", "not supported"};
+constinit const char * const system_transparent_huge_pages_mode_names[] = {"madvise", "always", "never", "not supported"};
 
-constinit const char * const metadata_thp_mode_names[] = {"disabled", "auto", "always"};
+constinit const char * const metadata_transparent_huge_pages_mode_names[] = {"disabled", "auto", "always"};
 
-constinit SystemTHPMode init_system_thp_mode = SystemTHPMode::Madvise;
+constinit SystemTransparentHugePagesMode init_system_transparent_huge_pages_mode = SystemTransparentHugePagesMode::Madvise;
 
 namespace pages
 {
@@ -47,8 +47,8 @@ namespace pages
 namespace
 {
 
-constexpr int PAGES_PROT_COMMIT = PROT_READ | PROT_WRITE;
-constexpr int PAGES_PROT_DECOMMIT = PROT_NONE;
+constexpr int PAGES_PROTECTION_COMMIT = PROT_READ | PROT_WRITE;
+constexpr int PAGES_PROTECTION_DECOMMIT = PROT_NONE;
 
 /// jemalloc: PAGES_FD_TAG
 #if defined(__APPLE__)
@@ -106,7 +106,7 @@ int madviseDontNeedZeroesPages()
     if (::munmap(addr, size) != 0)
     {
         writeMessage("<jemalloc>: Cannot deallocate memory for MADV_DONTNEED check\n");
-        if (opt.abort)
+        if (options.abort)
             abort();
     }
 
@@ -119,9 +119,9 @@ int madviseDontNeedZeroesPages()
 [[maybe_unused]] int osPageID(void * addr, size_t size, const char * name)
 {
 #if defined(__linux__)
-    JE_ASSERT(addr != nullptr);
+    ALLOCATOR_ASSERT(addr != nullptr);
     int n = ::prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, reinterpret_cast<uintptr_t>(addr), size, reinterpret_cast<uintptr_t>(name));
-    JE_ASSERT(n == 0 || (n == -1 && errno == EINVAL));
+    ALLOCATOR_ASSERT(n == 0 || (n == -1 && errno == EINVAL));
     return n;
 #else
     (void)addr;
@@ -134,65 +134,65 @@ int madviseDontNeedZeroesPages()
 /// jemalloc: os_pages_map
 void * osPagesMap(void * addr, size_t size, size_t /*alignment*/, bool * commit)
 {
-    JE_ASSERT(alignmentAddrToBase(addr, os_page) == addr);
-    JE_ASSERT(alignmentCeiling(size, os_page) == size);
-    JE_ASSERT(size != 0);
+    ALLOCATOR_ASSERT(alignmentAddrToBase(addr, os_page) == addr);
+    ALLOCATOR_ASSERT(alignmentCeiling(size, os_page) == size);
+    ALLOCATOR_ASSERT(size != 0);
 
     if (os_overcommits)
         *commit = true;
 
     /// We don't use MAP_FIXED here, because it can cause the *replacement* of existing mappings, and we only want
     /// to create new mappings.
-    int prot = *commit ? PAGES_PROT_COMMIT : PAGES_PROT_DECOMMIT;
-    void * ret = ::mmap(addr, size, prot, mmap_flags, PAGES_FD_TAG, 0);
-    JE_ASSERT(ret != nullptr);
+    int prot = *commit ? PAGES_PROTECTION_COMMIT : PAGES_PROTECTION_DECOMMIT;
+    void * result = ::mmap(addr, size, prot, mmap_flags, PAGES_FD_TAG, 0);
+    ALLOCATOR_ASSERT(result != nullptr);
 
-    if (ret == MAP_FAILED)
-        ret = nullptr;
-    else if (addr != nullptr && ret != addr)
+    if (result == MAP_FAILED)
+        result = nullptr;
+    else if (addr != nullptr && result != addr)
     {
         /// We succeeded in mapping memory, but not in the right place.
-        osPagesUnmap(ret, size);
-        ret = nullptr;
+        osPagesUnmap(result, size);
+        result = nullptr;
     }
-    JE_ASSERT(ret == nullptr || (addr == nullptr && ret != addr) || (addr != nullptr && ret == addr));
+    ALLOCATOR_ASSERT(result == nullptr || (addr == nullptr && result != addr) || (addr != nullptr && result == addr));
 
-    if constexpr (config::pageid)
+    if constexpr (config::page_id)
     {
-        if (ret != nullptr)
-            osPageID(ret, size, os_overcommits ? "jemalloc_pg_overcommit" : "jemalloc_pg");
+        if (result != nullptr)
+            osPageID(result, size, os_overcommits ? "jemalloc_pg_overcommit" : "jemalloc_pg");
     }
-    return ret;
+    return result;
 }
 
 /// jemalloc: os_pages_trim
-void * osPagesTrim(void * addr, size_t alloc_size, size_t leadsize, size_t size, bool * /*commit*/)
+void * osPagesTrim(void * addr, size_t alloc_size, size_t lead_size, size_t size, bool * /*commit*/)
 {
-    void * ret = static_cast<char *>(addr) + leadsize;
+    void * result = static_cast<char *>(addr) + lead_size;
 
-    JE_ASSERT(alloc_size >= leadsize + size);
-    size_t trailsize = alloc_size - leadsize - size;
+    ALLOCATOR_ASSERT(alloc_size >= lead_size + size);
+    size_t trail_size = alloc_size - lead_size - size;
 
-    if (leadsize != 0)
-        osPagesUnmap(addr, leadsize);
-    if (trailsize != 0)
-        osPagesUnmap(static_cast<char *>(ret) + size, trailsize);
-    return ret;
+    if (lead_size != 0)
+        osPagesUnmap(addr, lead_size);
+    if (trail_size != 0)
+        osPagesUnmap(static_cast<char *>(result) + size, trail_size);
+    return result;
 }
 
 /// jemalloc: os_pages_unmap
 void osPagesUnmap(void * addr, size_t size)
 {
-    JE_ASSERT(alignmentAddrToBase(addr, os_page) == addr);
-    JE_ASSERT(alignmentCeiling(size, os_page) == size);
+    ALLOCATOR_ASSERT(alignmentAddrToBase(addr, os_page) == addr);
+    ALLOCATOR_ASSERT(alignmentCeiling(size, os_page) == size);
 
     if (::munmap(addr, size) == -1)
     {
-        char buf[BUFERROR_BUF];
+        char buf[BUF_ERROR_BUF];
 
         bufferError(errno, buf, sizeof(buf));
         printMessage("<jemalloc>: Error in munmap(): %s\n", buf);
-        if (opt.abort)
+        if (options.abort)
             abort();
     }
 }
@@ -205,28 +205,28 @@ void * pagesMapSlow(size_t size, size_t alignment, bool * commit)
     if (alloc_size < size)
         return nullptr;
 
-    void * ret;
+    void * result;
     do
     {
         void * pages = osPagesMap(nullptr, alloc_size, alignment, commit);
         if (pages == nullptr)
             return nullptr;
-        size_t leadsize = alignmentCeiling(reinterpret_cast<uintptr_t>(pages), alignment) - reinterpret_cast<uintptr_t>(pages);
-        ret = osPagesTrim(pages, alloc_size, leadsize, size, commit);
-    } while (ret == nullptr);
+        size_t lead_size = alignmentCeiling(reinterpret_cast<uintptr_t>(pages), alignment) - reinterpret_cast<uintptr_t>(pages);
+        result = osPagesTrim(pages, alloc_size, lead_size, size, commit);
+    } while (result == nullptr);
 
-    JE_ASSERT(ret != nullptr);
-    JE_ASSERT(pageAddrToBase(ret) == ret);
-    return ret;
+    ALLOCATOR_ASSERT(result != nullptr);
+    ALLOCATOR_ASSERT(pageAddrToBase(result) == result);
+    return result;
 }
 
 /// jemalloc: os_pages_commit
 bool osPagesCommit(void * addr, size_t size, bool commit)
 {
-    JE_ASSERT(pageAddrToBase(addr) == addr);
-    JE_ASSERT(pageCeiling(size) == size);
+    ALLOCATOR_ASSERT(pageAddrToBase(addr) == addr);
+    ALLOCATOR_ASSERT(pageCeiling(size) == size);
 
-    int prot = commit ? PAGES_PROT_COMMIT : PAGES_PROT_DECOMMIT;
+    int prot = commit ? PAGES_PROTECTION_COMMIT : PAGES_PROTECTION_DECOMMIT;
     void * result = ::mmap(addr, size, prot, mmap_flags | MAP_FIXED, PAGES_FD_TAG, 0);
     if (result == MAP_FAILED)
         return true;
@@ -253,8 +253,8 @@ bool pagesHugeImpl(void * addr, size_t size, bool aligned)
 {
     if (aligned)
     {
-        JE_ASSERT(hugepageAddrToBase(addr) == addr);
-        JE_ASSERT(hugepageCeiling(size) == size);
+        ALLOCATOR_ASSERT(hugePageAddrToBase(addr) == addr);
+        ALLOCATOR_ASSERT(hugePageCeiling(size) == size);
     }
 #if defined(__linux__)
     return ::madvise(addr, size, MADV_HUGEPAGE) != 0;
@@ -272,12 +272,12 @@ bool pagesHugeUnaligned(void * addr, size_t size)
 }
 
 /// jemalloc: pages_nohuge_impl
-bool pagesNohugeImpl(void * addr, size_t size, bool aligned)
+bool pagesNoHugeImpl(void * addr, size_t size, bool aligned)
 {
     if (aligned)
     {
-        JE_ASSERT(hugepageAddrToBase(addr) == addr);
-        JE_ASSERT(hugepageCeiling(size) == size);
+        ALLOCATOR_ASSERT(hugePageAddrToBase(addr) == addr);
+        ALLOCATOR_ASSERT(hugePageCeiling(size) == size);
     }
 #if defined(__linux__)
     return ::madvise(addr, size, MADV_NOHUGEPAGE) != 0;
@@ -289,9 +289,9 @@ bool pagesNohugeImpl(void * addr, size_t size, bool aligned)
 }
 
 /// jemalloc: pages_nohuge_unaligned
-bool pagesNohugeUnaligned(void * addr, size_t size)
+bool pagesNoHugeUnaligned(void * addr, size_t size)
 {
-    return pagesNohugeImpl(addr, size, false);
+    return pagesNoHugeImpl(addr, size, false);
 }
 
 /// jemalloc: os_page_detect
@@ -304,8 +304,8 @@ size_t osPageDetect()
     long result = sysconf(_SC_PAGESIZE);
     if (result == -1)
     {
-        /// jemalloc compatibility: returns `LG_PAGE` rather than `PAGE` (an upstream oddity).
-        return LG_PAGE;
+        /// jemalloc compatibility: returns `LOG2_PAGE` rather than `PAGE` (an upstream oddity).
+        return LOG2_PAGE;
     }
     return static_cast<size_t>(result);
 #endif
@@ -316,17 +316,17 @@ size_t osPageDetect()
 bool osOvercommitsSysctl()
 {
     int vm_overcommit;
-    size_t sz = sizeof(vm_overcommit);
-#    if defined(VM_OVERCOMMIT)
+    size_t size = sizeof(vm_overcommit);
+#if defined(VM_OVERCOMMIT)
     int mib[2];
     mib[0] = CTL_VM;
     mib[1] = VM_OVERCOMMIT;
-    if (::sysctl(mib, 2, &vm_overcommit, &sz, nullptr, 0) != 0)
+    if (::sysctl(mib, 2, &vm_overcommit, &size, nullptr, 0) != 0)
         return false; /// Error.
-#    else
-    if (::sysctlbyname("vm.overcommit", &vm_overcommit, &sz, nullptr, 0) != 0)
+#else
+    if (::sysctlbyname("vm.overcommit", &vm_overcommit, &size, nullptr, 0) != 0)
         return false; /// Error.
-#    endif
+#endif
     return (vm_overcommit & 0x3) == 0;
 }
 #endif
@@ -341,10 +341,10 @@ bool osOvercommitsSysctl()
     if (fd == -1)
         return false; /// Error.
 
-    ssize_t nread = readFD(fd, &buf, sizeof(buf));
+    ssize_t num_read = readFD(fd, &buf, sizeof(buf));
     closeFile(fd);
 
-    if (nread < 1)
+    if (num_read < 1)
         return false; /// Error.
 
     /// /proc/sys/vm/overcommit_memory meanings:
@@ -355,10 +355,13 @@ bool osOvercommitsSysctl()
 }
 
 /// jemalloc: pages_should_skip_set_thp_state
-bool pagesShouldSkipSetTHPState()
+bool pagesShouldSkipSetTransparentHugePagesState()
 {
-    return opt.thp == THPMode::DoNothing || (opt.thp == THPMode::Always && init_system_thp_mode == SystemTHPMode::Always)
-        || (opt.thp == THPMode::Never && init_system_thp_mode == SystemTHPMode::Never);
+    return options.transparent_huge_pages == TransparentHugePagesMode::DoNothing
+        || (options.transparent_huge_pages == TransparentHugePagesMode::Always
+            && init_system_transparent_huge_pages_mode == SystemTransparentHugePagesMode::Always)
+        || (options.transparent_huge_pages == TransparentHugePagesMode::Never
+            && init_system_transparent_huge_pages_mode == SystemTransparentHugePagesMode::Never);
 }
 
 }
@@ -367,11 +370,11 @@ namespace
 {
 
 /// jemalloc: init_thp_state
-void initTHPState()
+void initTransparentHugePagesState()
 {
     if constexpr (!config::have_madvise_huge)
     {
-        if (metadataTHPEnabled() && opt.abort)
+        if (metadataTransparentHugePagesEnabled() && options.abort)
         {
             writeMessage("<jemalloc>: no MADV_HUGEPAGE support\n");
             abort();
@@ -379,31 +382,31 @@ void initTHPState()
     }
     else
     {
-        static constexpr char sys_state_madvise[] = "always [madvise] never\n";
-        static constexpr char sys_state_always[] = "[always] madvise never\n";
-        static constexpr char sys_state_never[] = "always madvise [never]\n";
-        char buf[sizeof(sys_state_madvise)];
+        static constexpr char system_state_madvise[] = "always [madvise] never\n";
+        static constexpr char system_state_always[] = "[always] madvise never\n";
+        static constexpr char system_state_never[] = "always madvise [never]\n";
+        char buf[sizeof(system_state_madvise)];
 
         int fd = openFile("/sys/kernel/mm/transparent_hugepage/enabled", O_RDONLY);
         if (fd != -1)
         {
-            ssize_t nread = readFD(fd, &buf, sizeof(buf));
+            ssize_t num_read = readFD(fd, &buf, sizeof(buf));
             closeFile(fd);
-            if (nread >= 0)
+            if (num_read >= 0)
             {
-                if (strncmp(buf, sys_state_madvise, static_cast<size_t>(nread)) == 0)
+                if (strncmp(buf, system_state_madvise, static_cast<size_t>(num_read)) == 0)
                 {
-                    init_system_thp_mode = SystemTHPMode::Madvise;
+                    init_system_transparent_huge_pages_mode = SystemTransparentHugePagesMode::Madvise;
                     return;
                 }
-                if (strncmp(buf, sys_state_always, static_cast<size_t>(nread)) == 0)
+                if (strncmp(buf, system_state_always, static_cast<size_t>(num_read)) == 0)
                 {
-                    init_system_thp_mode = SystemTHPMode::Always;
+                    init_system_transparent_huge_pages_mode = SystemTransparentHugePagesMode::Always;
                     return;
                 }
-                if (strncmp(buf, sys_state_never, static_cast<size_t>(nread)) == 0)
+                if (strncmp(buf, system_state_never, static_cast<size_t>(num_read)) == 0)
                 {
-                    init_system_thp_mode = SystemTHPMode::Never;
+                    init_system_transparent_huge_pages_mode = SystemTransparentHugePagesMode::Never;
                     return;
                 }
                 /// `opt_hpa_opts.hugify_style` adjustments are dropped together with HPA.
@@ -412,8 +415,8 @@ void initTHPState()
     }
 
     /// label_error:
-    opt.thp = THPMode::NotSupported;
-    init_system_thp_mode = SystemTHPMode::NotSupported;
+    options.transparent_huge_pages = TransparentHugePagesMode::NotSupported;
+    init_system_transparent_huge_pages_mode = SystemTransparentHugePagesMode::NotSupported;
 }
 
 }
@@ -423,8 +426,8 @@ void initTHPState()
 /// jemalloc: pages_map
 void * map(void * addr, size_t size, size_t alignment, bool * commit)
 {
-    JE_ASSERT(alignment >= PAGE);
-    JE_ASSERT(alignmentAddrToBase(addr, alignment) == addr);
+    ALLOCATOR_ASSERT(alignment >= PAGE);
+    ALLOCATOR_ASSERT(alignmentAddrToBase(addr, alignment) == addr);
 
 #if defined(__FreeBSD__) && defined(MAP_EXCL)
     /// FreeBSD has mechanisms both to mmap at specific address without touching existing mappings, and to mmap with
@@ -433,7 +436,7 @@ void * map(void * addr, size_t size, size_t alignment, bool * commit)
         if (os_overcommits)
             *commit = true;
 
-        int prot = *commit ? PAGES_PROT_COMMIT : PAGES_PROT_DECOMMIT;
+        int prot = *commit ? PAGES_PROTECTION_COMMIT : PAGES_PROTECTION_DECOMMIT;
         int flags = mmap_flags;
 
         if (addr != nullptr)
@@ -441,16 +444,16 @@ void * map(void * addr, size_t size, size_t alignment, bool * commit)
         else
         {
             /// jemalloc: `ffs_zu(alignment)` (0-based: log2 of the alignment).
-            unsigned alignment_bits = ffs(alignment);
-            JE_ASSERT(alignment_bits > 0);
+            unsigned alignment_bits = findFirstSet(alignment);
+            ALLOCATOR_ASSERT(alignment_bits > 0);
             flags |= MAP_ALIGNED(alignment_bits);
         }
 
-        void * ret = ::mmap(addr, size, prot, flags, -1, 0);
-        if (ret == MAP_FAILED)
-            ret = nullptr;
+        void * result = ::mmap(addr, size, prot, flags, -1, 0);
+        if (result == MAP_FAILED)
+            result = nullptr;
 
-        return ret;
+        return result;
     }
 #endif
     /// Ideally, there would be a way to specify alignment to mmap() (like NetBSD has), but in the absence of such a
@@ -460,25 +463,25 @@ void * map(void * addr, size_t size, size_t alignment, bool * commit)
     ///
     /// Optimistically try mapping precisely the right amount before falling back to the slow method, with the
     /// expectation that the optimistic approach works most of the time.
-    void * ret = osPagesMap(addr, size, os_page, commit);
-    if (ret == nullptr || ret == addr)
-        return ret;
-    JE_ASSERT(addr == nullptr);
-    if (alignmentAddrToOffset(reinterpret_cast<uintptr_t>(ret), alignment) != 0)
+    void * result = osPagesMap(addr, size, os_page, commit);
+    if (result == nullptr || result == addr)
+        return result;
+    ALLOCATOR_ASSERT(addr == nullptr);
+    if (alignmentAddrToOffset(reinterpret_cast<uintptr_t>(result), alignment) != 0)
     {
-        osPagesUnmap(ret, size);
+        osPagesUnmap(result, size);
         return pagesMapSlow(size, alignment, commit);
     }
 
-    JE_ASSERT(pageAddrToBase(ret) == ret);
-    return ret;
+    ALLOCATOR_ASSERT(pageAddrToBase(result) == result);
+    return result;
 }
 
 /// jemalloc: pages_unmap
 void unmap(void * addr, size_t size)
 {
-    JE_ASSERT(pageAddrToBase(addr) == addr);
-    JE_ASSERT(pageCeiling(size) == size);
+    ALLOCATOR_ASSERT(pageAddrToBase(addr) == addr);
+    ALLOCATOR_ASSERT(pageCeiling(size) == size);
 
     osPagesUnmap(addr, size);
 }
@@ -498,8 +501,8 @@ bool decommit(void * addr, size_t size)
 /// jemalloc: pages_mark_guards (`JEMALLOC_HAVE_MPROTECT` is defined on all supported platforms)
 void markGuards(void * head, void * tail)
 {
-    JE_ASSERT(head != nullptr || tail != nullptr);
-    JE_ASSERT(head == nullptr || tail == nullptr || reinterpret_cast<uintptr_t>(head) < reinterpret_cast<uintptr_t>(tail));
+    ALLOCATOR_ASSERT(head != nullptr || tail != nullptr);
+    ALLOCATOR_ASSERT(head == nullptr || tail == nullptr || reinterpret_cast<uintptr_t>(head) < reinterpret_cast<uintptr_t>(tail));
     if (head != nullptr)
         ::mprotect(head, PAGE, PROT_NONE);
     if (tail != nullptr)
@@ -509,14 +512,14 @@ void markGuards(void * head, void * tail)
 /// jemalloc: pages_unmark_guards
 void unmarkGuards(void * head, void * tail)
 {
-    JE_ASSERT(head != nullptr || tail != nullptr);
-    JE_ASSERT(head == nullptr || tail == nullptr || reinterpret_cast<uintptr_t>(head) < reinterpret_cast<uintptr_t>(tail));
+    ALLOCATOR_ASSERT(head != nullptr || tail != nullptr);
+    ALLOCATOR_ASSERT(head == nullptr || tail == nullptr || reinterpret_cast<uintptr_t>(head) < reinterpret_cast<uintptr_t>(tail));
     bool head_and_tail = (head != nullptr) && (tail != nullptr);
     size_t range = head_and_tail ? reinterpret_cast<uintptr_t>(tail) - reinterpret_cast<uintptr_t>(head) + PAGE : SIZE_MAX;
-    /// The amount of work that the kernel does in mprotect depends on the range argument. SC_LARGE_MINCLASS is an
+    /// The amount of work that the kernel does in mprotect depends on the range argument. SIZE_CLASS_LARGE_MIN_CLASS is an
     /// arbitrary threshold chosen to prevent kernel from doing too much work that would outweigh the savings of
     /// performing one less system call.
-    bool ranged_mprotect = head_and_tail && range <= SC_LARGE_MINCLASS;
+    bool ranged_mprotect = head_and_tail && range <= SIZE_CLASS_LARGE_MIN_CLASS;
     if (ranged_mprotect)
         ::mprotect(head, range, PROT_READ | PROT_WRITE);
     else
@@ -533,8 +536,8 @@ void unmarkGuards(void * head, void * tail)
 /// jemalloc: pages_purge_lazy
 bool purgeLazy(void * addr, size_t size)
 {
-    JE_ASSERT(alignmentAddrToBase(addr, os_page) == addr);
-    JE_ASSERT(pageCeiling(size) == size);
+    ALLOCATOR_ASSERT(alignmentAddrToBase(addr, os_page) == addr);
+    ALLOCATOR_ASSERT(pageCeiling(size) == size);
 
     if constexpr (!can_purge_lazy)
         return true;
@@ -550,14 +553,14 @@ bool purgeLazy(void * addr, size_t size)
 /// jemalloc: pages_purge_forced
 bool purgeForced(void * addr, size_t size)
 {
-    JE_ASSERT(pageAddrToBase(addr) == addr);
-    JE_ASSERT(pageCeiling(size) == size);
+    ALLOCATOR_ASSERT(pageAddrToBase(addr) == addr);
+    ALLOCATOR_ASSERT(pageCeiling(size) == size);
 
     if constexpr (!can_purge_forced)
         return true;
 
     if constexpr (config::purge_madvise_dontneed_zeros)
-        return JE_UNLIKELY(madvise_dont_need_zeros_is_faulty) || ::madvise(addr, size, MADV_DONTNEED) != 0;
+        return ALLOCATOR_UNLIKELY(madvise_dont_need_zeros_is_faulty) || ::madvise(addr, size, MADV_DONTNEED) != 0;
     else
     {
         /// `JEMALLOC_MAPS_COALESCE`: try to overlay a new demand-zeroed mapping.
@@ -574,16 +577,16 @@ bool huge(void * addr, size_t size)
 }
 
 /// jemalloc: pages_nohuge
-bool nohuge(void * addr, size_t size)
+bool noHuge(void * addr, size_t size)
 {
-    return pagesNohugeImpl(addr, size, true);
+    return pagesNoHugeImpl(addr, size, true);
 }
 
 /// jemalloc: pages_collapse (`JEMALLOC_HAVE_MADVISE_COLLAPSE` is not defined on any supported platform)
 bool collapse(void * addr, size_t size)
 {
-    JE_ASSERT(pageAddrToBase(addr) == addr);
-    JE_ASSERT(pageCeiling(size) == size);
+    ALLOCATOR_ASSERT(pageAddrToBase(addr) == addr);
+    ALLOCATOR_ASSERT(pageCeiling(size) == size);
     (void)addr;
     (void)size;
     return true;
@@ -592,8 +595,8 @@ bool collapse(void * addr, size_t size)
 /// jemalloc: pages_dontdump
 bool dontDump(void * addr, size_t size)
 {
-    JE_ASSERT(pageAddrToBase(addr) == addr);
-    JE_ASSERT(pageCeiling(size) == size);
+    ALLOCATOR_ASSERT(pageAddrToBase(addr) == addr);
+    ALLOCATOR_ASSERT(pageCeiling(size) == size);
 #if defined(__linux__)
     return ::madvise(addr, size, MADV_DONTDUMP) != 0;
 #elif defined(__FreeBSD__)
@@ -608,8 +611,8 @@ bool dontDump(void * addr, size_t size)
 /// jemalloc: pages_dodump
 bool doDump(void * addr, size_t size)
 {
-    JE_ASSERT(pageAddrToBase(addr) == addr);
-    JE_ASSERT(pageCeiling(size) == size);
+    ALLOCATOR_ASSERT(pageAddrToBase(addr) == addr);
+    ALLOCATOR_ASSERT(pageCeiling(size) == size);
 #if defined(__linux__)
     return ::madvise(addr, size, MADV_DODUMP) != 0;
 #elif defined(__FreeBSD__)
@@ -622,18 +625,23 @@ bool doDump(void * addr, size_t size)
 }
 
 /// jemalloc: pages_set_thp_state
-void setTHPState(void * ptr, size_t size)
+void setTransparentHugePagesState(void * ptr, size_t size)
 {
-    if (pagesShouldSkipSetTHPState())
+    if (pagesShouldSkipSetTransparentHugePagesState())
         return;
-    JE_ASSERT(opt.thp != THPMode::NotSupported && init_system_thp_mode != SystemTHPMode::NotSupported);
+    ALLOCATOR_ASSERT(
+        options.transparent_huge_pages != TransparentHugePagesMode::NotSupported
+        && init_system_transparent_huge_pages_mode != SystemTransparentHugePagesMode::NotSupported);
 
-    if (opt.thp == THPMode::Always && init_system_thp_mode == SystemTHPMode::Madvise)
+    if (options.transparent_huge_pages == TransparentHugePagesMode::Always
+        && init_system_transparent_huge_pages_mode == SystemTransparentHugePagesMode::Madvise)
         pagesHugeUnaligned(ptr, size);
-    else if (opt.thp == THPMode::Never)
+    else if (options.transparent_huge_pages == TransparentHugePagesMode::Never)
     {
-        JE_ASSERT(init_system_thp_mode == SystemTHPMode::Madvise || init_system_thp_mode == SystemTHPMode::Always);
-        pagesNohugeUnaligned(ptr, size);
+        ALLOCATOR_ASSERT(
+            init_system_transparent_huge_pages_mode == SystemTransparentHugePagesMode::Madvise
+            || init_system_transparent_huge_pages_mode == SystemTransparentHugePagesMode::Always);
+        pagesNoHugeUnaligned(ptr, size);
     }
 }
 
@@ -646,14 +654,14 @@ bool boot()
     if (os_page > PAGE)
     {
         writeMessage("<jemalloc>: Unsupported system page size\n");
-        if (opt.abort)
+        if (options.abort)
             abort();
         return true;
     }
 
     if constexpr (config::purge_madvise_dontneed_zeros)
     {
-        if (!opt.trust_madvise)
+        if (!options.trust_madvise)
         {
             madvise_dont_need_zeros_is_faulty = !madviseDontNeedZeroesPages();
             if (madvise_dont_need_zeros_is_faulty)
@@ -681,7 +689,7 @@ bool boot()
     os_overcommits = false;
 #endif
 
-    initTHPState();
+    initTransparentHugePagesState();
 
     if constexpr (!config::os_freebsd)
     {
@@ -689,13 +697,13 @@ bool boot()
         if constexpr (can_purge_lazy)
         {
             bool committed = false;
-            void * madv_free_page = osPagesMap(nullptr, PAGE, PAGE, &committed);
-            if (madv_free_page == nullptr)
+            void * madvise_free_page = osPagesMap(nullptr, PAGE, PAGE, &committed);
+            if (madvise_free_page == nullptr)
                 return true;
-            JE_ASSERT(pages_can_purge_lazy_runtime);
-            if (purgeLazy(madv_free_page, PAGE))
+            ALLOCATOR_ASSERT(pages_can_purge_lazy_runtime);
+            if (purgeLazy(madvise_free_page, PAGE))
                 pages_can_purge_lazy_runtime = false;
-            osPagesUnmap(madv_free_page, PAGE);
+            osPagesUnmap(madvise_free_page, PAGE);
         }
     }
 
@@ -730,21 +738,21 @@ bool canPurgeLazyRuntime()
 /// jemalloc: extent_alloc_mmap
 void * extentAllocMmap(void * new_addr, size_t size, size_t alignment, bool * zero, bool * commit)
 {
-    JE_ASSERT(alignment == alignmentCeiling(alignment, PAGE));
-    void * ret = pages::map(new_addr, size, alignment, commit);
-    if (ret == nullptr)
+    ALLOCATOR_ASSERT(alignment == alignmentCeiling(alignment, PAGE));
+    void * result = pages::map(new_addr, size, alignment, commit);
+    if (result == nullptr)
         return nullptr;
     if (*commit)
         *zero = true;
-    return ret;
+    return result;
 }
 
 /// jemalloc: extent_dalloc_mmap
-bool extentDallocMmap(void * addr, size_t size)
+bool extentDeallocateMmap(void * addr, size_t size)
 {
-    if (!opt.retain)
+    if (!options.retain)
         pages::unmap(addr, size);
-    return opt.retain;
+    return options.retain;
 }
 
 }

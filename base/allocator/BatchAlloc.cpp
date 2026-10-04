@@ -1,7 +1,7 @@
 /// `experimental.batch_alloc` (jemalloc: `batch_alloc` in `src/jemalloc.c`). In the core library (not API.cpp)
 /// because the mallctl tree references it.
 
-#include <allocator/Imalloc.h>
+#include <allocator/InternalMalloc.h>
 
 namespace jemalloc
 {
@@ -10,25 +10,26 @@ namespace
 {
 
 /// jemalloc: prof_sampled
-[[maybe_unused]] bool profSampled(ThreadState & tsd, const void * ptr)
+[[maybe_unused]] bool profilingSampled(ThreadState & thread_state, const void * ptr)
 {
-    ProfInfo prof_info;
-    profInfoGet(tsd, ptr, nullptr, &prof_info);
-    return profTctxIsValid(prof_info.alloc_tctx);
+    ProfilingInfo profiling_info;
+    profilingInfoGet(thread_state, ptr, nullptr, &profiling_info);
+    return profilingThreadContextIsValid(profiling_info.alloc_thread_context);
 }
 
 /// jemalloc: batch_alloc_prof_sample_assert
-void batchAllocProfSampleAssert([[maybe_unused]] ThreadState & tsd, [[maybe_unused]] size_t batch, [[maybe_unused]] size_t usize)
+void batchAllocProfilingSampleAssert(
+    [[maybe_unused]] ThreadState & thread_state, [[maybe_unused]] size_t batch, [[maybe_unused]] size_t usable_size)
 {
-    JE_ASSERT(config::prof && opt.prof);
+    ALLOCATOR_ASSERT(config::profiling && options.profiling);
     if constexpr (config::debug)
     {
-        bool prof_sample_event = teProfSampleEventLookahead(tsd, batch * usize);
-        JE_ASSERT(!prof_sample_event);
+        bool profiling_sample_event = threadEventProfilingSampleEventLookahead(thread_state, batch * usable_size);
+        ALLOCATOR_ASSERT(!profiling_sample_event);
         size_t surplus;
-        prof_sample_event = teProfSampleEventLookaheadSurplus(tsd, (batch + 1) * usize, &surplus);
-        JE_ASSERT(prof_sample_event);
-        JE_ASSERT(surplus < usize);
+        profiling_sample_event = threadEventProfilingSampleEventLookaheadSurplus(thread_state, (batch + 1) * usable_size, &surplus);
+        ALLOCATOR_ASSERT(profiling_sample_event);
+        ALLOCATOR_ASSERT(surplus < usable_size);
     }
 }
 
@@ -37,75 +38,75 @@ void batchAllocProfSampleAssert([[maybe_unused]] ThreadState & tsd, [[maybe_unus
 /// jemalloc: batch_alloc
 size_t batchAlloc(void ** ptrs, size_t num, size_t size, int flags)
 {
-    ThreadState & tsd = ThreadState::fetch();
+    ThreadState & thread_state = ThreadState::fetch();
 
     size_t filled = 0;
 
-    if (JE_UNLIKELY(tsd.reentrancyLevel() > 0))
+    if (ALLOCATOR_UNLIKELY(thread_state.reentrancyLevel() > 0))
         return filled;
 
-    size_t alignment = mallocxAlignGet(flags);
-    size_t usize;
-    if (alignedUsizeGet(size, alignment, &usize, nullptr, false))
+    size_t alignment = alignmentFromFlags(flags);
+    size_t usable_size;
+    if (alignedUsableSizeGet(size, alignment, &usable_size, nullptr, false))
         return filled;
-    szind_t ind = sz::sizeToIndex(usize);
-    bool zero = zeroGet(mallocxZeroGet(flags), /* slow */ true);
+    SizeClassIdx idx = size_classes::sizeToIndex(usable_size);
+    bool zero = zeroGet(zeroFromFlags(flags), /* slow */ true);
 
     /// The cache bin and arena will be lazily initialized; it's hard to know in advance whether each of them needs
     /// to be initialized.
     CacheBin * bin = nullptr;
     Arena * arena = nullptr;
 
-    size_t nregs = 0;
-    if (JE_LIKELY(ind < SC_NBINS))
+    size_t num_regions = 0;
+    if (ALLOCATOR_LIKELY(idx < SIZE_CLASS_NUM_BINS))
     {
-        nregs = bin_infos[ind].nregs;
-        JE_ASSERT(nregs > 0);
+        num_regions = bin_infos[idx].num_regions;
+        ALLOCATOR_ASSERT(num_regions > 0);
     }
 
     while (filled < num)
     {
         size_t batch = num - filled;
         size_t surplus = SIZE_MAX; /// Dead store.
-        bool prof_sample_event = config::prof && opt.prof && profActiveGetUnlocked()
-            && teProfSampleEventLookaheadSurplus(tsd, batch * usize, &surplus);
+        bool profiling_sample_event = config::profiling && options.profiling && profilingActiveGetUnlocked()
+            && threadEventProfilingSampleEventLookaheadSurplus(thread_state, batch * usable_size, &surplus);
 
-        if (prof_sample_event)
+        if (profiling_sample_event)
         {
             /// Adjust so that the batch does not trigger prof sampling.
-            batch -= surplus / usize + 1;
-            batchAllocProfSampleAssert(tsd, batch, usize);
+            batch -= surplus / usable_size + 1;
+            batchAllocProfilingSampleAssert(thread_state, batch, usable_size);
         }
 
         size_t progress = 0;
 
-        if (JE_LIKELY(ind < SC_NBINS) && batch >= nregs)
+        if (ALLOCATOR_LIKELY(idx < SIZE_CLASS_NUM_BINS) && batch >= num_regions)
         {
             if (arena == nullptr)
             {
-                unsigned arena_ind = mallocxArenaIndGet(flags);
-                if (arenaGetFromInd(tsd, arena_ind, &arena))
+                unsigned arena_idx = arenaIdxFromFlags(flags);
+                if (arenaGetFromIdx(thread_state, arena_idx, &arena))
                     return filled;
                 if (arena == nullptr)
-                    arena = arenaChoose(tsd, nullptr);
-                if (JE_UNLIKELY(arena == nullptr))
+                    arena = arenaChoose(thread_state, nullptr);
+                if (ALLOCATOR_UNLIKELY(arena == nullptr))
                     return filled;
             }
-            size_t arena_batch = batch - batch % nregs;
-            size_t n = arenaFillSmallFresh(&tsd, arena, ind, ptrs + filled, arena_batch, zero);
+            size_t arena_batch = batch - batch % num_regions;
+            size_t n = arenaFillSmallFresh(&thread_state, arena, idx, ptrs + filled, arena_batch, zero);
             progress += n;
             filled += n;
         }
 
-        unsigned tcache_ind = mallocxTcacheIndGet(flags);
-        ThreadCache * tcache = tcacheGetFromInd(tsd, tcache_ind, /* slow */ true, /* is_alloc */ true);
-        if (JE_LIKELY(
-                tcache != nullptr && ind < tcacheNbinsGet(tcache->tcache_slow)
-                && !tcacheBinDisabled(ind, &tcache->bins[ind], tcache->tcache_slow))
+        unsigned thread_cache_idx = threadCacheIdxFromFlags(flags);
+        ThreadCache * thread_cache = threadCacheGetFromIdx(thread_state, thread_cache_idx, /* slow */ true, /* is_alloc */ true);
+        if (ALLOCATOR_LIKELY(
+                thread_cache != nullptr && idx < threadCacheNumBinsGet(thread_cache->thread_cache_slow)
+                && !threadCacheBinDisabled(idx, &thread_cache->bins[idx], thread_cache->thread_cache_slow))
             && progress < batch)
         {
             if (bin == nullptr)
-                bin = &tcache->bins[ind];
+                bin = &thread_cache->bins[idx];
             /// If we don't have a tcache bin, we don't want to immediately give up, because there's the possibility
             /// that the user explicitly requested to bypass the tcache, or that the user explicitly turned off the
             /// tcache; in such cases, we go through the slow path, i.e. the `mallocx` call at the end of the while
@@ -122,16 +123,16 @@ size_t batchAlloc(void ** ptrs, size_t num, size_t size, int flags)
                 /// the tcache will not be empty for the next allocation request.
                 size_t n = bin->allocBatch(bin_batch, ptrs + filled);
                 if constexpr (config::stats)
-                    bin->tstats.nrequests += n;
+                    bin->thread_cache_stats.num_requests += n;
                 if (zero)
                 {
                     for (size_t i = 0; i < n; ++i)
-                        memset(ptrs[filled + i], 0, usize);
+                        memset(ptrs[filled + i], 0, usable_size);
                 }
-                if (config::prof && opt.prof && JE_UNLIKELY(ind >= SC_NBINS))
+                if (config::profiling && options.profiling && ALLOCATOR_UNLIKELY(idx >= SIZE_CLASS_NUM_BINS))
                 {
                     for (size_t i = 0; i < n; ++i)
-                        profTctxResetSampled(tsd, ptrs[filled + i]);
+                        profilingThreadContextResetSampled(thread_state, ptrs[filled + i]);
                 }
                 progress += n;
                 filled += n;
@@ -144,18 +145,18 @@ size_t batchAlloc(void ** ptrs, size_t num, size_t size, int flags)
         /// (b) it's possible that some event would have been triggered multiple times, instead of only once, if the
         ///     allocations were handled individually, but it would do no harm (or even be beneficial) to coalesce
         ///     the triggerings.
-        threadAllocEvent(tsd, progress * usize);
+        threadAllocationEvent(thread_state, progress * usable_size);
 
-        if (progress < batch || prof_sample_event)
+        if (progress < batch || profiling_sample_event)
         {
-            void * p = mallocx(size, flags);
+            void * p = allocateWithFlags(size, flags);
             if (p == nullptr)
             {
                 /// OOM
                 break;
             }
             if (progress == batch)
-                JE_ASSERT(profSampled(tsd, p));
+                ALLOCATOR_ASSERT(profilingSampled(thread_state, p));
             ptrs[filled++] = p;
         }
     }

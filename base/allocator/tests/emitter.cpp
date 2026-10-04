@@ -11,7 +11,7 @@ namespace
 
 struct Buffer
 {
-    char data[jemalloc::MALLOC_PRINTF_BUFSIZE];
+    char data[jemalloc::MALLOC_PRINTF_BUF_SIZE];
     size_t len = 0;
 };
 
@@ -25,10 +25,10 @@ void forwardingCallback(void * opaque, const char * s)
 }
 
 template <size_t N>
-void expectEmitOutput(const EmOp (&script)[N], const char * json, const char * json_compact, const char * table)
+void expectEmitOutput(const EmitterOp (&script)[N], const char * json, const char * json_compact, const char * table)
 {
     const char * expected[] = {json, json_compact, table};
-    for (int output = EM_OUT_JSON; output <= EM_OUT_TABLE; ++output)
+    for (int output = EMITTER_OUTPUT_JSON; output <= EMITTER_OUTPUT_TABLE; ++output)
     {
         Buffer buf;
         buf.data[0] = '\0';
@@ -41,7 +41,8 @@ void expectEmitOutput(const EmOp (&script)[N], const char * json, const char * j
 
 TEST(Emitter, Dict)
 {
-    expectEmitOutput(em::script_dict,
+    expectEmitOutput(
+        emitter::script_dict,
         "{\n"
         "\t\"foo\": {\n"
         "\t\t\"abc\": false,\n"
@@ -67,7 +68,8 @@ TEST(Emitter, Dict)
 
 TEST(Emitter, TablePrintf)
 {
-    expectEmitOutput(em::script_table_printf,
+    expectEmitOutput(
+        emitter::script_table_printf,
         "{\n"
         "}\n",
         "{}",
@@ -77,7 +79,8 @@ TEST(Emitter, TablePrintf)
 
 TEST(Emitter, NestedDict)
 {
-    expectEmitOutput(em::script_nested_dict,
+    expectEmitOutput(
+        emitter::script_nested_dict,
         "{\n"
         "\t\"json1\": {\n"
         "\t\t\"json2\": {\n"
@@ -124,7 +127,8 @@ TEST(Emitter, NestedDict)
 
 TEST(Emitter, Types)
 {
-    expectEmitOutput(em::script_types,
+    expectEmitOutput(
+        emitter::script_types,
         "{\n"
         "\t\"k1\": false,\n"
         "\t\"k2\": -123,\n"
@@ -160,7 +164,8 @@ TEST(Emitter, Types)
 
 TEST(Emitter, Modal)
 {
-    expectEmitOutput(em::script_modal,
+    expectEmitOutput(
+        emitter::script_modal,
         "{\n"
         "\t\"j0\": {\n"
         "\t\t\"j1\": {\n"
@@ -194,7 +199,8 @@ TEST(Emitter, Modal)
 
 TEST(Emitter, JSONArray)
 {
-    expectEmitOutput(em::script_json_array,
+    expectEmitOutput(
+        emitter::script_json_array,
         "{\n"
         "\t\"dict\": {\n"
         "\t\t\"arr\": [\n"
@@ -230,7 +236,8 @@ TEST(Emitter, JSONArray)
 
 TEST(Emitter, JSONNestedArray)
 {
-    expectEmitOutput(em::script_json_nested_array,
+    expectEmitOutput(
+        emitter::script_json_nested_array,
         "{\n"
         "\t[\n"
         "\t\t[\n"
@@ -274,7 +281,8 @@ TEST(Emitter, JSONNestedArray)
 
 TEST(Emitter, TableRow)
 {
-    expectEmitOutput(em::script_table_row,
+    expectEmitOutput(
+        emitter::script_table_row,
         "{\n"
         "}\n",
         "{}",
@@ -297,7 +305,7 @@ TEST(Emitter, BeginWritesOnce)
         }
     };
     Counter counter;
-    const EmOp script[] = {em::begin(), em::end()};
-    newEmitterRun(EM_OUT_TABLE, script, std::size(script), &Counter::callback, &counter);
+    const EmitterOp script[] = {emitter::begin(), emitter::end()};
+    newEmitterRun(EMITTER_OUTPUT_TABLE, script, std::size(script), &Counter::callback, &counter);
     CHECK_EQ(counter.calls, 1);
 }

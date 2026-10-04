@@ -18,13 +18,13 @@
 /// identical.
 ///
 /// Limits: the reference library is initialized with ClickHouse's configuration by its constructor, so global state
-/// (`narenas_auto`, `manual_arena_base`, `oversize_threshold`, the decay defaults, `opt_prof`) is copied from it to the
+/// (`num_arenas_auto`, `manual_arena_base`, `oversize_threshold`, the decay defaults, `opt_prof`) is copied from it to the
 /// C++ side; the reference's background threads are disabled through their state flag. Our side does not create arena
 /// 0 / the auto arenas (only the arena table entries of the test arenas exist). The extent map is global on both
-/// sides, so rtree metadata is not compared (`metadata_rtree` is 0 for a non-zero arena's base on both sides).
+/// sides, so rtree metadata is not compared (`metadata_radix_tree` is 0 for a non-zero arena's base on both sides).
 
-#include <allocator/ArenaInlines.h>
 #include <allocator/Arena.h>
+#include <allocator/ArenaInlines.h>
 #include <allocator/Arenas.h>
 #include <allocator/Base.h>
 #include <allocator/ExtentHooks.h>
@@ -42,8 +42,7 @@
 #include <random>
 #include <vector>
 
-extern "C"
-{
+extern "C" {
 /// The reference pulls in the libunwind-based profiler backtrace, which is never called here.
 int unw_backtrace(void **, int)
 {
@@ -59,9 +58,9 @@ namespace
 constexpr int REF_SIDE = 0;
 constexpr int OUR_SIDE = 1;
 
-constinit ThreadState our_tsd;
+constinit ThreadState our_thread_state;
 
-ref_globals_t ref_globals;
+RefGlobals ref_globals;
 
 struct SideScope
 {
@@ -82,54 +81,54 @@ void bootOnce()
     REQUIRE(ref_globals.sizeof_bin == sizeof(Bin));
 
     /// Copy the reference's configuration.
-    opt.prof = ref_globals.opt_prof;
-    opt.retain = ref_globals.opt_retain;
-    opt.cache_oblivious = ref_globals.opt_cache_oblivious;
-    opt.calloc_madvise_threshold = ref_globals.calloc_madvise_threshold;
-    opt.lg_extent_max_active_fit = ref_globals.lg_extent_max_active_fit;
-    opt.dirty_decay_ms = ref_globals.dirty_decay_ms_default;
-    opt.muzzy_decay_ms = ref_globals.muzzy_decay_ms_default;
+    options.profiling = ref_globals.option_profiling;
+    options.retain = ref_globals.option_retain;
+    options.cache_oblivious = ref_globals.option_cache_oblivious;
+    options.calloc_madvise_threshold = ref_globals.calloc_madvise_threshold;
+    options.log2_extent_max_active_fit = ref_globals.log2_extent_max_active_fit;
+    options.dirty_decay_ms = ref_globals.dirty_decay_ms_default;
+    options.muzzy_decay_ms = ref_globals.muzzy_decay_ms_default;
 
     REQUIRE(!pages::boot());
-    szBoot(default_sc_data, opt.cache_oblivious);
-    REQUIRE(sz_large_pad == ref_globals.sz_large_pad);
+    sizeBoot(default_size_class_data, options.cache_oblivious);
+    REQUIRE(large_pad == ref_globals.large_pad);
     REQUIRE(!baseBoot(nullptr));
-    REQUIRE(!arena_emap_global.init(b0get(), /* zeroed */ true));
-    REQUIRE(!arenaBoot(&default_sc_data, b0get(), false));
-    REQUIRE(arena_nbins_total == ref_globals.nbins_total);
+    REQUIRE(!arena_extent_map_global.init(base0Get(), /* zeroed */ true));
+    REQUIRE(!arenaBoot(&default_size_class_data, base0Get(), false));
+    REQUIRE(arena_num_bins_total == ref_globals.num_bins_total);
     REQUIRE(!arenas_lock.init("arenas", MutexRank::ARENAS, MutexLockOrder::RankExclusive));
 
     oversize_threshold = ref_globals.oversize_threshold;
-    narenas_auto = ref_globals.narenas_auto;
+    num_arenas_auto = ref_globals.num_arenas_auto;
     manual_arena_base = ref_globals.manual_arena_base;
-    narenasTotalSet(ref_globals.narenas_total);
+    numArenasTotalSet(ref_globals.num_arenas_total);
 
     /// A nominal (slow) state, as for a thread that has initialized its tsd (`arenaNew` enters and leaves reentrancy,
     /// which recomputes the state). The object is not in the nominal list.
-    our_tsd.state.store(tsd_state_nominal_slow, std::memory_order_relaxed);
+    our_thread_state.state.store(thread_state_nominal_slow, std::memory_order_relaxed);
 
     /// The same PRNG / ticker state on both sides.
     uint64_t prng;
     int32_t tick;
-    int32_t nticks;
-    ref_tsd_rng_get(&prng, &tick, &nticks);
-    our_tsd.prngState() = prng;
-    our_tsd.arena_decay_ticker.tick = tick;
-    our_tsd.arena_decay_ticker.nticks = nticks;
+    int32_t num_ticks;
+    ref_thread_state_rng_get(&prng, &tick, &num_ticks);
+    our_thread_state.prngState() = prng;
+    our_thread_state.arena_decay_ticker.tick = tick;
+    our_thread_state.arena_decay_ticker.num_ticks = num_ticks;
 }
 
-struct Norm
+struct NormalizedAddress
 {
     bool ok = false;
     size_t rank = 0;
     size_t offset = 0;
 
-    bool operator==(const Norm & other) const = default;
+    bool operator==(const NormalizedAddress & other) const = default;
 };
 
-Norm normalize(int side, const void * p)
+NormalizedAddress normalize(int side, const void * p)
 {
-    Norm n;
+    NormalizedAddress n;
     n.ok = ref_normalize(side, reinterpret_cast<uintptr_t>(p), &n.rank, &n.offset);
     return n;
 }
@@ -142,8 +141,8 @@ bool samePtr(const void * ref, const void * our, int step, const char * what)
             std::fprintf(stderr, "step %d: %s: ref %p our %p\n", step, what, ref, our);
         return ref == our;
     }
-    Norm r = normalize(REF_SIDE, ref);
-    Norm o = normalize(OUR_SIDE, our);
+    NormalizedAddress r = normalize(REF_SIDE, ref);
+    NormalizedAddress o = normalize(OUR_SIDE, our);
     bool ok = r.ok && o.ok && r == o;
     if (!ok)
         std::fprintf(
@@ -165,113 +164,125 @@ void put(std::vector<uint64_t> & out, uint64_t v)
     out.push_back(v);
 }
 
-void putMutex(std::vector<uint64_t> & out, const MutexProfData & d)
+void putMutex(std::vector<uint64_t> & out, const MutexProfilingData & d)
 {
-    put(out, d.n_lock_ops);
-    put(out, d.n_owner_switches);
-    put(out, d.n_wait_times);
-    put(out, d.n_spin_acquired);
-    put(out, d.max_n_thds);
+    put(out, d.num_lock_ops);
+    put(out, d.num_owner_switches);
+    put(out, d.num_wait_times);
+    put(out, d.num_spin_acquired);
+    put(out, d.max_num_threads);
 }
 
 /// The same order as `ref_stats`.
 std::vector<uint64_t> ourStats(Arena * arena)
 {
-    static ArenaStats astats;
-    static BinStatsData bstats[SC_NBINS];
-    static ArenaStatsLarge lstats[SC_NSIZES - SC_NBINS];
-    static PacExtentStats estats[SC_NPSIZES];
-    std::memset(static_cast<void *>(&astats), 0, sizeof(astats));
-    std::memset(static_cast<void *>(bstats), 0, sizeof(bstats));
-    std::memset(static_cast<void *>(lstats), 0, sizeof(lstats));
-    std::memset(static_cast<void *>(estats), 0, sizeof(estats));
+    static ArenaStats arena_stats;
+    static BinStatsData bin_stats[SIZE_CLASS_NUM_BINS];
+    static ArenaStatsLarge large_stats[SIZE_CLASS_NUM_SIZES - SIZE_CLASS_NUM_BINS];
+    static PageAllocatorExtentStats extent_stats[SIZE_CLASS_NUM_PAGE_SIZES];
+    std::memset(static_cast<void *>(&arena_stats), 0, sizeof(arena_stats));
+    std::memset(static_cast<void *>(bin_stats), 0, sizeof(bin_stats));
+    std::memset(static_cast<void *>(large_stats), 0, sizeof(large_stats));
+    std::memset(static_cast<void *>(extent_stats), 0, sizeof(extent_stats));
 
-    unsigned nthreads = 0;
-    const char * dss = nullptr;
+    unsigned num_threads = 0;
+    const char * sbrk = nullptr;
     ssize_t dirty_decay_ms = 0;
     ssize_t muzzy_decay_ms = 0;
-    size_t nactive = 0;
-    size_t ndirty = 0;
-    size_t nmuzzy = 0;
+    size_t num_active = 0;
+    size_t num_dirty = 0;
+    size_t num_muzzy = 0;
     arenaStatsMerge(
-        &our_tsd, arena, &nthreads, &dss, &dirty_decay_ms, &muzzy_decay_ms, &nactive, &ndirty, &nmuzzy, &astats, bstats, lstats, estats);
+        &our_thread_state,
+        arena,
+        &num_threads,
+        &sbrk,
+        &dirty_decay_ms,
+        &muzzy_decay_ms,
+        &num_active,
+        &num_dirty,
+        &num_muzzy,
+        &arena_stats,
+        bin_stats,
+        large_stats,
+        extent_stats);
 
     std::vector<uint64_t> out;
-    put(out, nthreads);
-    uint64_t dss_ind = 99;
-    for (unsigned i = 0; i < unsigned(DSSPrec::Limit); ++i)
-        if (std::strcmp(dss, dss_prec_names[i]) == 0)
-            dss_ind = i;
-    put(out, dss_ind);
+    put(out, num_threads);
+    uint64_t sbrk_idx = 99;
+    for (unsigned i = 0; i < unsigned(SbrkPrecedence::Limit); ++i)
+        if (std::strcmp(sbrk, sbrk_precedence_names[i]) == 0)
+            sbrk_idx = i;
+    put(out, sbrk_idx);
     put(out, uint64_t(dirty_decay_ms));
     put(out, uint64_t(muzzy_decay_ms));
-    put(out, nactive);
-    put(out, ndirty);
-    put(out, nmuzzy);
+    put(out, num_active);
+    put(out, num_dirty);
+    put(out, num_muzzy);
 
-    put(out, astats.base);
-    put(out, astats.metadata_edata);
-    put(out, astats.metadata_rtree);
-    put(out, astats.resident);
-    put(out, astats.metadata_thp);
-    put(out, astats.mapped);
-    put(out, astats.internal.load());
-    put(out, astats.allocated_large);
-    put(out, astats.nmalloc_large);
-    put(out, astats.ndalloc_large);
-    put(out, astats.nfills_large);
-    put(out, astats.nflushes_large);
-    put(out, astats.nrequests_large);
-    put(out, astats.pa_shard_stats.edata_avail);
-    const PacStats & pac = astats.pa_shard_stats.pac_stats;
-    put(out, pac.decay_dirty.npurge.readUnsynchronized());
-    put(out, pac.decay_dirty.nmadvise.readUnsynchronized());
-    put(out, pac.decay_dirty.purged.readUnsynchronized());
-    put(out, pac.decay_muzzy.npurge.readUnsynchronized());
-    put(out, pac.decay_muzzy.nmadvise.readUnsynchronized());
-    put(out, pac.decay_muzzy.purged.readUnsynchronized());
-    put(out, pac.retained);
-    put(out, pac.pac_mapped.load());
-    put(out, pac.abandoned_vm.load());
-    put(out, astats.tcache_bytes);
-    put(out, astats.tcache_stashed_bytes);
-    for (unsigned i = 0; i < mutex_prof_num_arena_mutexes; ++i)
-        putMutex(out, astats.mutex_prof_data[i]);
+    put(out, arena_stats.base);
+    put(out, arena_stats.metadata_extent);
+    put(out, arena_stats.metadata_radix_tree);
+    put(out, arena_stats.resident);
+    put(out, arena_stats.metadata_transparent_huge_pages);
+    put(out, arena_stats.mapped);
+    put(out, arena_stats.internal.load());
+    put(out, arena_stats.allocated_large);
+    put(out, arena_stats.num_allocations_large);
+    put(out, arena_stats.num_deallocations_large);
+    put(out, arena_stats.num_fills_large);
+    put(out, arena_stats.num_flushes_large);
+    put(out, arena_stats.num_requests_large);
+    put(out, arena_stats.page_allocator_shard_stats.extent_available);
+    const PageAllocatorStats & page_allocator = arena_stats.page_allocator_shard_stats.page_allocator_stats;
+    put(out, page_allocator.decay_dirty.num_purge.readUnsynchronized());
+    put(out, page_allocator.decay_dirty.num_madvises.readUnsynchronized());
+    put(out, page_allocator.decay_dirty.purged.readUnsynchronized());
+    put(out, page_allocator.decay_muzzy.num_purge.readUnsynchronized());
+    put(out, page_allocator.decay_muzzy.num_madvises.readUnsynchronized());
+    put(out, page_allocator.decay_muzzy.purged.readUnsynchronized());
+    put(out, page_allocator.retained);
+    put(out, page_allocator.page_allocator_mapped.load());
+    put(out, page_allocator.abandoned_vm.load());
+    put(out, arena_stats.thread_cache_bytes);
+    put(out, arena_stats.thread_cache_stashed_bytes);
+    for (unsigned i = 0; i < mutex_profiling_num_arena_mutexes; ++i)
+        putMutex(out, arena_stats.mutex_profiling_data[i]);
 
-    for (unsigned i = 0; i < SC_NBINS; ++i)
+    for (unsigned i = 0; i < SIZE_CLASS_NUM_BINS; ++i)
     {
-        const BinStats & b = bstats[i].stats_data;
-        put(out, b.nmalloc);
-        put(out, b.ndalloc);
-        put(out, b.nrequests);
-        put(out, b.curregs);
-        put(out, b.nfills);
-        put(out, b.nflushes);
-        put(out, b.nslabs);
-        put(out, b.reslabs);
-        put(out, b.curslabs);
-        put(out, b.nonfull_slabs);
-        putMutex(out, bstats[i].mutex_data);
+        const BinStats & b = bin_stats[i].stats_data;
+        put(out, b.num_allocations);
+        put(out, b.num_deallocations);
+        put(out, b.num_requests);
+        put(out, b.current_regions);
+        put(out, b.num_fills);
+        put(out, b.num_flushes);
+        put(out, b.num_slabs);
+        put(out, b.slab_changes);
+        put(out, b.current_slabs);
+        put(out, b.non_full_slabs);
+        putMutex(out, bin_stats[i].mutex_data);
     }
-    for (unsigned i = 0; i < SC_NSIZES - SC_NBINS; ++i)
+    for (unsigned i = 0; i < SIZE_CLASS_NUM_SIZES - SIZE_CLASS_NUM_BINS; ++i)
     {
-        const ArenaStatsLarge & l = lstats[i];
-        put(out, l.nmalloc.readUnsynchronized());
-        put(out, l.ndalloc.readUnsynchronized());
+        const ArenaStatsLarge & l = large_stats[i];
+        put(out, l.num_allocations.readUnsynchronized());
+        put(out, l.num_deallocations.readUnsynchronized());
         put(out, l.active_bytes.readUnsynchronized());
-        put(out, l.nrequests.readUnsynchronized());
-        put(out, l.nfills.readUnsynchronized());
-        put(out, l.nflushes.readUnsynchronized());
-        put(out, l.curlextents);
+        put(out, l.num_requests.readUnsynchronized());
+        put(out, l.num_fills.readUnsynchronized());
+        put(out, l.num_flushes.readUnsynchronized());
+        put(out, l.current_large_extents);
     }
-    for (unsigned i = 0; i < SC_NPSIZES; ++i)
+    for (unsigned i = 0; i < SIZE_CLASS_NUM_PAGE_SIZES; ++i)
     {
-        const PacExtentStats & e = estats[i];
-        put(out, e.ndirty);
+        const PageAllocatorExtentStats & e = extent_stats[i];
+        put(out, e.num_dirty);
         put(out, e.dirty_bytes);
-        put(out, e.nmuzzy);
+        put(out, e.num_muzzy);
         put(out, e.muzzy_bytes);
-        put(out, e.nretained);
+        put(out, e.num_retained);
         put(out, e.retained_bytes);
     }
     return out;
@@ -322,9 +333,10 @@ bool sameRng(int step)
 {
     uint64_t prng;
     int32_t tick;
-    int32_t nticks;
-    ref_tsd_rng_get(&prng, &tick, &nticks);
-    bool ok = prng == our_tsd.prngState() && tick == our_tsd.arena_decay_ticker.tick && nticks == our_tsd.arena_decay_ticker.nticks;
+    int32_t num_ticks;
+    ref_thread_state_rng_get(&prng, &tick, &num_ticks);
+    bool ok = prng == our_thread_state.prngState() && tick == our_thread_state.arena_decay_ticker.tick
+        && num_ticks == our_thread_state.arena_decay_ticker.num_ticks;
     if (!ok)
         std::fprintf(
             stderr,
@@ -332,34 +344,35 @@ bool sameRng(int step)
             step,
             static_cast<unsigned long long>(prng),
             tick,
-            nticks,
-            static_cast<unsigned long long>(our_tsd.prngState()),
-            our_tsd.arena_decay_ticker.tick,
-            our_tsd.arena_decay_ticker.nticks);
+            num_ticks,
+            static_cast<unsigned long long>(our_thread_state.prngState()),
+            our_thread_state.arena_decay_ticker.tick,
+            our_thread_state.arena_decay_ticker.num_ticks);
     return ok;
 }
 
-bool sameBin(void * ref_arena, Arena * our_arena, unsigned binind, int step)
+bool sameBin(void * ref_arena, Arena * our_arena, unsigned bin_idx, int step)
 {
-    uintptr_t ref_slabcur;
-    unsigned ref_nfree;
+    uintptr_t ref_current_slab;
+    unsigned ref_num_free;
     uintptr_t ref_first;
-    size_t ref_nfull;
-    ref_bin_state(ref_arena, binind, &ref_slabcur, &ref_nfree, &ref_first, &ref_nfull);
+    size_t ref_num_full;
+    ref_bin_state(ref_arena, bin_idx, &ref_current_slab, &ref_num_free, &ref_first, &ref_num_full);
 
-    Bin * bin = arenaGetBin(our_arena, binind, 0);
-    void * our_slabcur = bin->slabcur ? bin->slabcur->addr() : nullptr;
-    unsigned our_nfree = bin->slabcur ? bin->slabcur->nfree() : 0;
-    Extent * first = bin->slabs_nonfull.first();
+    Bin * bin = arenaGetBin(our_arena, bin_idx, 0);
+    void * our_current_slab = bin->current_slab ? bin->current_slab->addr() : nullptr;
+    unsigned our_num_free = bin->current_slab ? bin->current_slab->numFree() : 0;
+    Extent * first = bin->slabs_non_full.first();
     void * our_first = first ? first->addr() : nullptr;
-    size_t our_nfull = 0;
+    size_t our_num_full = 0;
     for (Extent * e = bin->slabs_full.first(); e != nullptr; e = bin->slabs_full.next(e))
-        ++our_nfull;
+        ++our_num_full;
 
-    bool ok = samePtr(reinterpret_cast<void *>(ref_slabcur), our_slabcur, step, "slabcur") && ref_nfree == our_nfree
-        && samePtr(reinterpret_cast<void *>(ref_first), our_first, step, "nonfull first") && ref_nfull == our_nfull;
+    bool ok = samePtr(reinterpret_cast<void *>(ref_current_slab), our_current_slab, step, "slabcur") && ref_num_free == our_num_free
+        && samePtr(reinterpret_cast<void *>(ref_first), our_first, step, "nonfull first") && ref_num_full == our_num_full;
     if (!ok)
-        std::fprintf(stderr, "step %d: bin %u: nfree %u/%u nfull %zu/%zu\n", step, binind, ref_nfree, our_nfree, ref_nfull, our_nfull);
+        std::fprintf(
+            stderr, "step %d: bin %u: nfree %u/%u nfull %zu/%zu\n", step, bin_idx, ref_num_free, our_num_free, ref_num_full, our_num_full);
     return ok;
 }
 
@@ -389,8 +402,8 @@ struct Live
 {
     void * ref;
     void * our;
-    size_t usize;
-    szind_t szind;
+    size_t usable_size;
+    SizeClassIdx size_class_idx;
     bool small;
     unsigned arena;
 };
@@ -409,23 +422,23 @@ struct Oracle
         bootOnce();
         for (unsigned a = 0; a < 2; ++a)
         {
-            unsigned ind = narenasTotalGet();
+            unsigned idx = numArenasTotalGet();
             {
                 SideScope scope(REF_SIDE);
-                ref_arenas[a] = ref_arena_new(ind);
+                ref_arenas[a] = ref_arena_new(idx);
             }
             {
                 SideScope scope(OUR_SIDE);
-                our_arenas[a] = arenaNew(&our_tsd, ind, &arena_config_default);
+                our_arenas[a] = arenaNew(&our_thread_state, idx, &arena_config_default);
             }
             REQUIRE(ref_arenas[a] != nullptr);
             REQUIRE(our_arenas[a] != nullptr);
-            REQUIRE(ref_arena_ind(ref_arenas[a]) == ind);
-            REQUIRE(arenaIndGet(our_arenas[a]) == ind);
+            REQUIRE(ref_arena_idx(ref_arenas[a]) == idx);
+            REQUIRE(arenaIdxGet(our_arenas[a]) == idx);
             /// The reference does not count arenas created by `arena_new` directly; advance our counter in the same way
             /// as `arena_init_locked` would for the next index, and keep the reference's view consistent: both sides
-            /// use `ind + 1` for the second arena.
-            narenasTotalSet(ind + 1);
+            /// use `idx + 1` for the second arena.
+            numArenasTotalSet(idx + 1);
             char ref_name[ARENA_NAME_LEN];
             char our_name[ARENA_NAME_LEN];
             ref_arena_name(ref_arenas[a], ref_name);
@@ -434,7 +447,7 @@ struct Oracle
         }
     }
 
-    size_t rnd(size_t n) { return size_t(rng() % n); }
+    size_t random(size_t n) { return size_t(rng() % n); }
 
     void checkAll(std::initializer_list<unsigned> bins = {})
     {
@@ -454,188 +467,188 @@ struct Oracle
         CHECK(samePtr(ref, our, step, what));
         if (ref == nullptr || our == nullptr)
             return;
-        size_t ref_usize = ref_salloc(ref);
-        size_t our_usize = arenaSalloc(&our_tsd, our);
-        CHECK_EQ(ref_usize, our_usize);
-        szind_t ind = sz::sizeToIndex(our_usize);
-        live.push_back({ref, our, our_usize, ind, ind < SC_NBINS, a});
+        size_t ref_usable_size = ref_allocation_size(ref);
+        size_t our_usable_size = arenaAllocationSize(&our_thread_state, our);
+        CHECK_EQ(ref_usable_size, our_usable_size);
+        SizeClassIdx idx = size_classes::sizeToIndex(our_usable_size);
+        live.push_back({ref, our, our_usable_size, idx, idx < SIZE_CLASS_NUM_BINS, a});
         /// `prof_malloc` of an allocation that is not sampled (`opt.prof` is on): the extent's tctx of a large
         /// allocation is reset (otherwise it may hold garbage from a previous slab use of the extent).
-        if (opt.prof)
+        if (options.profiling)
         {
-            ref_prof_tctx_reset(ref);
-            arenaProfTctxReset(our_tsd, our, nullptr);
+            ref_profiling_thread_context_reset(ref);
+            arenaProfilingThreadContextReset(our_thread_state, our, nullptr);
         }
         /// Touch the memory (the same pattern on both sides) so that later zeroing decisions matter.
-        std::memset(ref, 0x5a, minOf<size_t>(our_usize, 64));
-        std::memset(our, 0x5a, minOf<size_t>(our_usize, 64));
+        std::memset(ref, 0x5a, minOf<size_t>(our_usable_size, 64));
+        std::memset(our, 0x5a, minOf<size_t>(our_usable_size, 64));
     }
 
     size_t randomSmallSize()
     {
-        szind_t ind = szind_t(rnd(4) == 0 ? rnd(SC_NBINS) : rnd(12));
-        size_t usize = sz::indexToSize(ind);
-        size_t lo = ind == 0 ? 1 : sz::indexToSize(ind - 1) + 1;
-        return lo + rnd(usize - lo + 1);
+        SizeClassIdx idx = SizeClassIdx(random(4) == 0 ? random(SIZE_CLASS_NUM_BINS) : random(12));
+        size_t usable_size = size_classes::indexToSize(idx);
+        size_t low = idx == 0 ? 1 : size_classes::indexToSize(idx - 1) + 1;
+        return low + random(usable_size - low + 1);
     }
 
     size_t randomLargeSize()
     {
-        size_t lg = SC_LG_LARGE_MINCLASS + rnd(6);
-        return (size_t(1) << lg) + rnd(size_t(1) << lg);
+        size_t log2_size = SIZE_CLASS_LOG2_LARGE_MIN_CLASS + random(6);
+        return (size_t(1) << log2_size) + random(size_t(1) << log2_size);
     }
 
     void opMallocSmall()
     {
-        unsigned a = unsigned(rnd(2));
+        unsigned a = unsigned(random(2));
         size_t size = randomSmallSize();
-        szind_t ind = sz::sizeToIndex(size);
-        bool zero = rnd(4) == 0;
+        SizeClassIdx idx = size_classes::sizeToIndex(size);
+        bool zero = random(4) == 0;
         void * ref;
         void * our;
         {
             SideScope scope(REF_SIDE);
-            ref = ref_malloc_hard(ref_arenas[a], size, ind, zero, true);
+            ref = ref_malloc_hard(ref_arenas[a], size, idx, zero, true);
         }
         {
             SideScope scope(OUR_SIDE);
-            our = arenaMallocHard(&our_tsd, our_arenas[a], size, ind, zero, true);
+            our = arenaMallocHard(&our_thread_state, our_arenas[a], size, idx, zero, true);
         }
         if (zero && our != nullptr)
             CHECK_EQ(static_cast<unsigned char *>(our)[0], 0);
         addLive(ref, our, a, "malloc small");
-        checkAll({ind});
+        checkAll({idx});
     }
 
     void opMallocLarge()
     {
-        unsigned a = unsigned(rnd(2));
+        unsigned a = unsigned(random(2));
         size_t size = randomLargeSize();
-        szind_t ind = sz::sizeToIndex(size);
-        bool zero = rnd(3) == 0;
+        SizeClassIdx idx = size_classes::sizeToIndex(size);
+        bool zero = random(3) == 0;
         void * ref;
         void * our;
         {
             SideScope scope(REF_SIDE);
-            ref = ref_malloc_hard(ref_arenas[a], size, ind, zero, false);
+            ref = ref_malloc_hard(ref_arenas[a], size, idx, zero, false);
         }
         {
             SideScope scope(OUR_SIDE);
-            our = arenaMallocHard(&our_tsd, our_arenas[a], size, ind, zero, false);
+            our = arenaMallocHard(&our_thread_state, our_arenas[a], size, idx, zero, false);
         }
         if (zero && our != nullptr)
-            CHECK_EQ(static_cast<unsigned char *>(our)[sz::s2u(size) - 1], 0);
+            CHECK_EQ(static_cast<unsigned char *>(our)[size_classes::sizeToUsableSize(size) - 1], 0);
         addLive(ref, our, a, "malloc large");
         checkAll();
     }
 
-    void opPalloc()
+    void opAllocateAligned()
     {
-        unsigned a = unsigned(rnd(2));
-        size_t alignment = size_t(1) << (4 + rnd(LG_PAGE + 2 - 4));
-        size_t size = rnd(2) ? randomSmallSize() : randomLargeSize();
-        size_t usize = sz::sa2u(size, alignment);
-        if (usize == 0 || usize > SC_LARGE_MAXCLASS)
+        unsigned a = unsigned(random(2));
+        size_t alignment = size_t(1) << (4 + random(LOG2_PAGE + 2 - 4));
+        size_t size = random(2) ? randomSmallSize() : randomLargeSize();
+        size_t usable_size = size_classes::alignedSizeToUsableSize(size, alignment);
+        if (usable_size == 0 || usable_size > SIZE_CLASS_LARGE_MAX_CLASS)
             return;
-        bool slab = sz::canUseSlab(usize) && alignment <= PAGE;
-        bool zero = rnd(4) == 0;
+        bool slab = size_classes::canUseSlab(usable_size) && alignment <= PAGE;
+        bool zero = random(4) == 0;
         void * ref;
         void * our;
         {
             SideScope scope(REF_SIDE);
-            ref = ref_palloc(ref_arenas[a], usize, alignment, zero, slab);
+            ref = ref_allocate_aligned(ref_arenas[a], usable_size, alignment, zero, slab);
         }
         {
             SideScope scope(OUR_SIDE);
-            our = arenaPalloc(&our_tsd, our_arenas[a], usize, alignment, zero, slab, nullptr);
+            our = arenaAllocateAligned(&our_thread_state, our_arenas[a], usable_size, alignment, zero, slab, nullptr);
         }
         if (our != nullptr)
             CHECK_EQ(reinterpret_cast<uintptr_t>(our) % alignment, 0u);
         addLive(ref, our, a, "palloc");
-        checkAll({slab ? sz::sizeToIndex(usize) : 0u});
+        checkAll({slab ? size_classes::sizeToIndex(usable_size) : 0u});
     }
 
-    void opDalloc()
+    void opDeallocate()
     {
         if (live.empty())
             return;
-        size_t i = rnd(live.size());
+        size_t i = random(live.size());
         Live l = live[i];
         live[i] = live.back();
         live.pop_back();
-        bool sized = rnd(2) == 0;
+        bool sized = random(2) == 0;
         {
             SideScope scope(REF_SIDE);
             if (sized)
-                ref_sdalloc_no_tcache(l.ref, l.usize);
+                ref_sized_deallocate_no_thread_cache(l.ref, l.usable_size);
             else
-                ref_dalloc_no_tcache(l.ref);
+                ref_deallocate_no_thread_cache(l.ref);
         }
         {
             SideScope scope(OUR_SIDE);
             if (sized)
-                arenaSdallocNoTcache(&our_tsd, l.our, l.usize);
+                arenaSizedDeallocateNoThreadCache(&our_thread_state, l.our, l.usable_size);
             else
-                arenaDallocNoTcache(&our_tsd, l.our);
+                arenaDeallocateNoThreadCache(&our_thread_state, l.our);
         }
         if (l.small)
-            checkAll({l.szind});
+            checkAll({l.size_class_idx});
         else
             checkAll();
     }
 
     void opFill()
     {
-        unsigned a = unsigned(rnd(2));
-        unsigned binind = unsigned(rnd(4) == 0 ? rnd(SC_NBINS) : rnd(12));
-        unsigned nfill_min = 1 + unsigned(rnd(64));
-        unsigned nfill_max = nfill_min + unsigned(rnd(200));
-        uint64_t nrequests = rnd(1000);
-        std::vector<void *> ref_ptrs(nfill_max);
-        std::vector<void *> our_ptrs(nfill_max);
+        unsigned a = unsigned(random(2));
+        unsigned bin_idx = unsigned(random(4) == 0 ? random(SIZE_CLASS_NUM_BINS) : random(12));
+        unsigned num_fill_min = 1 + unsigned(random(64));
+        unsigned num_fill_max = num_fill_min + unsigned(random(200));
+        uint64_t num_requests = random(1000);
+        std::vector<void *> ref_ptrs(num_fill_max);
+        std::vector<void *> our_ptrs(num_fill_max);
         unsigned ref_n;
         unsigned our_n;
         {
             SideScope scope(REF_SIDE);
-            ref_n = ref_fill_small(ref_arenas[a], binind, ref_ptrs.data(), nfill_min, nfill_max, nrequests);
+            ref_n = ref_fill_small(ref_arenas[a], bin_idx, ref_ptrs.data(), num_fill_min, num_fill_max, num_requests);
         }
         {
             SideScope scope(OUR_SIDE);
-            CacheBinPtrArray arr{cache_bin_sz_t(nfill_max)};
-            arr.ptr = our_ptrs.data();
+            CacheBinPtrArray array{CacheBinSize(num_fill_max)};
+            array.ptr = our_ptrs.data();
             CacheBinStats stats;
-            stats.nrequests = nrequests;
+            stats.num_requests = num_requests;
             our_n = arenaPtrArrayFillSmall(
-                &our_tsd, our_arenas[a], binind, &arr, cache_bin_sz_t(nfill_min), cache_bin_sz_t(nfill_max), stats);
+                &our_thread_state, our_arenas[a], bin_idx, &array, CacheBinSize(num_fill_min), CacheBinSize(num_fill_max), stats);
         }
         CHECK_EQ(ref_n, our_n);
         for (unsigned i = 0; i < minOf(ref_n, our_n); ++i)
             addLive(ref_ptrs[i], our_ptrs[i], a, "fill");
-        checkAll({binind});
+        checkAll({bin_idx});
     }
 
     void opFillFresh()
     {
-        unsigned a = unsigned(rnd(2));
-        unsigned binind = unsigned(rnd(12));
-        size_t nfill = 1 + rnd(300);
-        bool zero = rnd(2) == 0;
-        std::vector<void *> ref_ptrs(nfill);
-        std::vector<void *> our_ptrs(nfill);
+        unsigned a = unsigned(random(2));
+        unsigned bin_idx = unsigned(random(12));
+        size_t num_fill = 1 + random(300);
+        bool zero = random(2) == 0;
+        std::vector<void *> ref_ptrs(num_fill);
+        std::vector<void *> our_ptrs(num_fill);
         size_t ref_n;
         size_t our_n;
         {
             SideScope scope(REF_SIDE);
-            ref_n = ref_fill_small_fresh(ref_arenas[a], binind, ref_ptrs.data(), nfill, zero);
+            ref_n = ref_fill_small_fresh(ref_arenas[a], bin_idx, ref_ptrs.data(), num_fill, zero);
         }
         {
             SideScope scope(OUR_SIDE);
-            our_n = arenaFillSmallFresh(&our_tsd, our_arenas[a], binind, our_ptrs.data(), nfill, zero);
+            our_n = arenaFillSmallFresh(&our_thread_state, our_arenas[a], bin_idx, our_ptrs.data(), num_fill, zero);
         }
         CHECK_EQ(ref_n, our_n);
         for (size_t i = 0; i < minOf(ref_n, our_n); ++i)
             addLive(ref_ptrs[i], our_ptrs[i], a, "fill fresh");
-        checkAll({binind});
+        checkAll({bin_idx});
     }
 
     void opFlush()
@@ -644,15 +657,15 @@ struct Oracle
             return;
         /// Pick a size class of a random live object and flush a random subset of the objects of that class (from both
         /// arenas: the flush partitions by arena).
-        const Live & sample = live[rnd(live.size())];
-        szind_t szind = sample.szind;
-        bool small = szind < SC_NBINS;
-        /// The tcache only caches (and so only flushes) large size classes up to `TCACHE_MAXCLASS_LIMIT`.
-        if (!small && sample.usize > TCACHE_MAXCLASS_LIMIT)
+        const Live & sample = live[random(live.size())];
+        SizeClassIdx size_class_idx = sample.size_class_idx;
+        bool small = size_class_idx < SIZE_CLASS_NUM_BINS;
+        /// The tcache only caches (and so only flushes) large size classes up to `THREAD_CACHE_MAX_CLASS_LIMIT`.
+        if (!small && sample.usable_size > THREAD_CACHE_MAX_CLASS_LIMIT)
             return;
         std::vector<size_t> picked;
         for (size_t i = 0; i < live.size(); ++i)
-            if (live[i].szind == szind && rnd(3) != 0)
+            if (live[i].size_class_idx == size_class_idx && random(3) != 0)
                 picked.push_back(i);
         if (picked.empty())
             return;
@@ -669,81 +682,81 @@ struct Oracle
             live[picked[k]] = live.back();
             live.pop_back();
         }
-        unsigned stats_a = unsigned(rnd(2));
-        uint64_t nrequests = rnd(500);
+        unsigned stats_a = unsigned(random(2));
+        uint64_t num_requests = random(500);
         unsigned n = unsigned(ref_ptrs.size());
         {
             SideScope scope(REF_SIDE);
-            ref_flush(szind, ref_ptrs.data(), n, small, ref_arenas[stats_a], nrequests);
+            ref_flush(size_class_idx, ref_ptrs.data(), n, small, ref_arenas[stats_a], num_requests);
         }
         {
             SideScope scope(OUR_SIDE);
-            CacheBinPtrArray arr{cache_bin_sz_t(n)};
-            arr.ptr = our_ptrs.data();
+            CacheBinPtrArray array{CacheBinSize(n)};
+            array.ptr = our_ptrs.data();
             CacheBinStats stats;
-            stats.nrequests = nrequests;
-            arenaPtrArrayFlush(our_tsd, szind, &arr, n, small, our_arenas[stats_a], stats);
+            stats.num_requests = num_requests;
+            arenaPtrArrayFlush(our_thread_state, size_class_idx, &array, n, small, our_arenas[stats_a], stats);
         }
         if (small)
-            checkAll({szind});
+            checkAll({size_class_idx});
         else
             checkAll();
     }
 
-    void opRallocNoMove()
+    void opReallocateNoMove()
     {
         if (live.empty())
             return;
-        Live & l = live[rnd(live.size())];
-        size_t size = rnd(2) ? randomSmallSize() : randomLargeSize();
-        size_t extra = rnd(2) ? 0 : rnd(size_t(1) << (LG_PAGE + 2));
-        if (size + extra > SC_LARGE_MAXCLASS)
+        Live & l = live[random(live.size())];
+        size_t size = random(2) ? randomSmallSize() : randomLargeSize();
+        size_t extra = random(2) ? 0 : random(size_t(1) << (LOG2_PAGE + 2));
+        if (size + extra > SIZE_CLASS_LARGE_MAX_CLASS)
             extra = 0;
-        bool zero = rnd(3) == 0;
-        size_t ref_newsize;
-        size_t our_newsize;
-        bool ref_ret;
-        bool our_ret;
+        bool zero = random(3) == 0;
+        size_t ref_new_size;
+        size_t our_new_size;
+        bool ref_result;
+        bool our_result;
         {
             SideScope scope(REF_SIDE);
-            ref_ret = ref_ralloc_no_move(l.ref, l.usize, size, extra, zero, &ref_newsize);
+            ref_result = ref_reallocate_no_move(l.ref, l.usable_size, size, extra, zero, &ref_new_size);
         }
         {
             SideScope scope(OUR_SIDE);
-            our_ret = arenaRallocNoMove(&our_tsd, l.our, l.usize, size, extra, zero, &our_newsize);
+            our_result = arenaReallocateNoMove(&our_thread_state, l.our, l.usable_size, size, extra, zero, &our_new_size);
         }
-        CHECK_EQ(ref_ret, our_ret);
-        CHECK_EQ(ref_newsize, our_newsize);
-        CHECK_EQ(ref_salloc(l.ref), arenaSalloc(&our_tsd, l.our));
-        l.usize = arenaSalloc(&our_tsd, l.our);
-        l.szind = sz::sizeToIndex(l.usize);
-        l.small = l.szind < SC_NBINS;
+        CHECK_EQ(ref_result, our_result);
+        CHECK_EQ(ref_new_size, our_new_size);
+        CHECK_EQ(ref_allocation_size(l.ref), arenaAllocationSize(&our_thread_state, l.our));
+        l.usable_size = arenaAllocationSize(&our_thread_state, l.our);
+        l.size_class_idx = size_classes::sizeToIndex(l.usable_size);
+        l.small = l.size_class_idx < SIZE_CLASS_NUM_BINS;
         checkAll();
     }
 
-    void opRalloc()
+    void opReallocate()
     {
         if (live.empty())
             return;
-        size_t i = rnd(live.size());
+        size_t i = random(live.size());
         Live l = live[i];
-        unsigned a = unsigned(rnd(2));
-        size_t size = rnd(2) ? randomSmallSize() : randomLargeSize();
-        size_t alignment = rnd(3) == 0 ? (size_t(1) << (4 + rnd(LG_PAGE + 2 - 4))) : 0;
-        size_t usize = alignment == 0 ? sz::s2u(size) : sz::sa2u(size, alignment);
-        if (usize == 0 || usize > SC_LARGE_MAXCLASS)
+        unsigned a = unsigned(random(2));
+        size_t size = random(2) ? randomSmallSize() : randomLargeSize();
+        size_t alignment = random(3) == 0 ? (size_t(1) << (4 + random(LOG2_PAGE + 2 - 4))) : 0;
+        size_t usable_size = alignment == 0 ? size_classes::sizeToUsableSize(size) : size_classes::alignedSizeToUsableSize(size, alignment);
+        if (usable_size == 0 || usable_size > SIZE_CLASS_LARGE_MAX_CLASS)
             return;
-        bool slab = sz::canUseSlab(usize) && alignment <= PAGE;
-        bool zero = rnd(4) == 0;
+        bool slab = size_classes::canUseSlab(usable_size) && alignment <= PAGE;
+        bool zero = random(4) == 0;
         void * ref;
         void * our;
         {
             SideScope scope(REF_SIDE);
-            ref = ref_ralloc(ref_arenas[a], l.ref, l.usize, size, alignment, zero, slab);
+            ref = ref_reallocate(ref_arenas[a], l.ref, l.usable_size, size, alignment, zero, slab);
         }
         {
             SideScope scope(OUR_SIDE);
-            our = arenaRalloc(&our_tsd, our_arenas[a], l.our, l.usize, size, alignment, zero, slab, nullptr);
+            our = arenaReallocate(&our_thread_state, our_arenas[a], l.our, l.usable_size, size, alignment, zero, slab, nullptr);
         }
         CHECK(samePtr(ref, our, step, "ralloc"));
         if (ref != nullptr && our != nullptr)
@@ -759,125 +772,110 @@ struct Oracle
 
     void opDecay()
     {
-        unsigned a = unsigned(rnd(2));
-        bool all = rnd(3) == 0;
+        unsigned a = unsigned(random(2));
+        bool all = random(3) == 0;
         {
             SideScope scope(REF_SIDE);
             ref_decay(ref_arenas[a], all);
         }
         {
             SideScope scope(OUR_SIDE);
-            arenaDecay(&our_tsd, our_arenas[a], false, all);
+            arenaDecay(&our_thread_state, our_arenas[a], false, all);
         }
         checkAll();
     }
 
     void opPromote()
     {
-        /// A sampled small allocation: a large extent of `bumped_usize` (PAGE-aligned, not a slab) that reports the
+        /// A sampled small allocation: a large extent of `bumped_usable_size` (PAGE-aligned, not a slab) that reports the
         /// small usize.
-        unsigned a = unsigned(rnd(2));
-        size_t usize = sz::indexToSize(szind_t(rnd(SC_NBINS)));
-        size_t bumped_usize = sz::sa2u(usize, PROF_SAMPLE_ALIGNMENT);
+        unsigned a = unsigned(random(2));
+        size_t usable_size = size_classes::indexToSize(SizeClassIdx(random(SIZE_CLASS_NUM_BINS)));
+        size_t bumped_usable_size = size_classes::alignedSizeToUsableSize(usable_size, PROFILING_SAMPLE_ALIGNMENT);
         void * ref;
         void * our;
         {
             SideScope scope(REF_SIDE);
-            ref = ref_palloc(ref_arenas[a], bumped_usize, PROF_SAMPLE_ALIGNMENT, false, false);
+            ref = ref_allocate_aligned(ref_arenas[a], bumped_usable_size, PROFILING_SAMPLE_ALIGNMENT, false, false);
             if (ref != nullptr)
-                ref_prof_promote(ref, usize, bumped_usize);
+                ref_profiling_promote(ref, usable_size, bumped_usable_size);
         }
         {
             SideScope scope(OUR_SIDE);
-            our = arenaPalloc(&our_tsd, our_arenas[a], bumped_usize, PROF_SAMPLE_ALIGNMENT, false, false, nullptr);
+            our = arenaAllocateAligned(
+                &our_thread_state, our_arenas[a], bumped_usable_size, PROFILING_SAMPLE_ALIGNMENT, false, false, nullptr);
             if (our != nullptr)
-                arenaProfPromote(&our_tsd, our, usize, bumped_usize);
+                arenaProfilingPromote(&our_thread_state, our, usable_size, bumped_usable_size);
         }
         CHECK(samePtr(ref, our, step, "promoted"));
         if (ref != nullptr && our != nullptr)
         {
-            CHECK_EQ(ref_salloc(ref), usize);
-            CHECK_EQ(arenaSalloc(&our_tsd, our), usize);
-            CHECK_EQ(ref_vsalloc(ref), arenaVsalloc(&our_tsd, our));
+            CHECK_EQ(ref_allocation_size(ref), usable_size);
+            CHECK_EQ(arenaAllocationSize(&our_thread_state, our), usable_size);
+            CHECK_EQ(ref_allocation_size_if_owned(ref), arenaAllocationSizeIfOwned(&our_thread_state, our));
             checkAll();
             {
                 SideScope scope(REF_SIDE);
-                ref_dalloc_no_tcache(ref);
+                ref_deallocate_no_thread_cache(ref);
             }
             {
                 SideScope scope(OUR_SIDE);
-                arenaDallocNoTcache(&our_tsd, our);
+                arenaDeallocateNoThreadCache(&our_thread_state, our);
             }
         }
         checkAll();
     }
 
-    void opSalloc()
+    void opAllocationSize()
     {
         if (live.empty())
             return;
-        const Live & l = live[rnd(live.size())];
-        CHECK_EQ(ref_salloc(l.ref), arenaSalloc(&our_tsd, l.our));
-        CHECK_EQ(ref_vsalloc(l.ref), arenaVsalloc(&our_tsd, l.our));
+        const Live & l = live[random(live.size())];
+        CHECK_EQ(ref_allocation_size(l.ref), arenaAllocationSize(&our_thread_state, l.our));
+        CHECK_EQ(ref_allocation_size_if_owned(l.ref), arenaAllocationSizeIfOwned(&our_thread_state, l.our));
         /// An interior pointer of a slab and a pointer that is not managed.
         if (l.small)
-            CHECK_EQ(ref_vsalloc(static_cast<char *>(l.ref) + 1), arenaVsalloc(&our_tsd, static_cast<char *>(l.our) + 1));
+            CHECK_EQ(
+                ref_allocation_size_if_owned(static_cast<char *>(l.ref) + 1),
+                arenaAllocationSizeIfOwned(&our_thread_state, static_cast<char *>(l.our) + 1));
     }
 
     size_t op_counts[14] = {};
     size_t max_live = 0;
     size_t checks = 0;
 
-    void run(int nsteps)
+    void run(int num_steps)
     {
-        for (step = 0; step < nsteps && allocator_test::failureCount() == 0; ++step)
+        for (step = 0; step < num_steps && allocator_test::failureCount() == 0; ++step)
         {
-            size_t op = rnd(14);
+            size_t op = random(14);
             ++op_counts[op];
             max_live = maxOf(max_live, live.size());
             switch (op)
             {
                 case 0:
                 case 1:
-                case 2:
-                    opMallocSmall();
-                    break;
-                case 3:
-                    opMallocLarge();
-                    break;
-                case 4:
-                    opPalloc();
-                    break;
+                case 2: opMallocSmall(); break;
+                case 3: opMallocLarge(); break;
+                case 4: opAllocateAligned(); break;
                 case 5:
-                case 6:
-                    opDalloc();
-                    break;
-                case 7:
-                    opFill();
-                    break;
-                case 8:
-                    opFlush();
-                    break;
-                case 9:
-                    opRallocNoMove();
-                    break;
-                case 10:
-                    opRalloc();
-                    break;
+                case 6: opDeallocate(); break;
+                case 7: opFill(); break;
+                case 8: opFlush(); break;
+                case 9: opReallocateNoMove(); break;
+                case 10: opReallocate(); break;
                 case 11:
-                    if (rnd(4) == 0)
+                    if (random(4) == 0)
                         opDecay();
                     else
                         opFillFresh();
                     break;
                 case 12:
-                    /// Only sampled allocations are promoted (`prof` is off with an empty compiled-in conf, e.g. s390x).
-                    if (opt.prof)
+                    /// Only sampled allocations are promoted (`profiling` is off with an empty compiled-in conf, e.g. s390x).
+                    if (options.profiling)
                         opPromote();
                     break;
-                case 13:
-                    opSalloc();
-                    break;
+                case 13: opAllocationSize(); break;
             }
         }
     }
@@ -893,7 +891,7 @@ struct Oracle
             }
             {
                 SideScope scope(OUR_SIDE);
-                arenaReset(our_tsd, our_arenas[a]);
+                arenaReset(our_thread_state, our_arenas[a]);
             }
             checkAll();
             {
@@ -902,7 +900,7 @@ struct Oracle
             }
             {
                 SideScope scope(OUR_SIDE);
-                arenaDecay(&our_tsd, our_arenas[a], false, true);
+                arenaDecay(&our_thread_state, our_arenas[a], false, true);
             }
             checkAll();
         }
@@ -915,9 +913,9 @@ struct Oracle
             }
             {
                 SideScope scope(OUR_SIDE);
-                arenaDestroy(our_tsd, our_arenas[a]);
+                arenaDestroy(our_thread_state, our_arenas[a]);
             }
-            CHECK(arenaGet(&our_tsd, arenaIndGet(our_arenas[a]), false) == nullptr);
+            CHECK(arenaGet(&our_thread_state, arenaIdxGet(our_arenas[a]), false) == nullptr);
         }
         CHECK(sameRng(step));
     }
@@ -931,7 +929,8 @@ TEST(ArenaOracle, RandomScripts)
     {
         Oracle oracle(seed);
         oracle.run(1500);
-        std::fprintf(stderr, "seed %llu: %zu checks, max live %zu, ops:", static_cast<unsigned long long>(seed), oracle.checks, oracle.max_live);
+        std::fprintf(
+            stderr, "seed %llu: %zu checks, max live %zu, ops:", static_cast<unsigned long long>(seed), oracle.checks, oracle.max_live);
         for (size_t c : oracle.op_counts)
             std::fprintf(stderr, " %zu", c);
         std::fprintf(stderr, "\n");
@@ -952,7 +951,7 @@ TEST(ArenaOracle, DirtyDecayImmediately)
         }
         {
             SideScope scope(OUR_SIDE);
-            CHECK(!arenaDecayMsSet(&our_tsd, oracle.our_arenas[a], extent_state_dirty, 0));
+            CHECK(!arenaDecayMsSet(&our_thread_state, oracle.our_arenas[a], extent_state_dirty, 0));
         }
     }
     oracle.checkAll();

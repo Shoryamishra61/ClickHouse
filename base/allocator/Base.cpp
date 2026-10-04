@@ -9,7 +9,7 @@ namespace jemalloc
 {
 
 /// The layout of `base_t` (its size is bump-allocated from the first block and counted in `stats.metadata`).
-static_assert(sizeof(Base) == 2 * sizeof(ExtentHooks) + sizeof(Mutex) + 8 + 8 + 8 + SC_NSIZES * 16 + 16 + 6 * 8);
+static_assert(sizeof(Base) == 2 * sizeof(ExtentHooks) + sizeof(Mutex) + 8 + 8 + 8 + SIZE_CLASS_NUM_SIZES * 16 + 16 + 6 * 8);
 #if defined(__linux__) && defined(__GLIBC__) && defined(__aarch64__)
 static_assert(sizeof(Base) == 3952, "base_t is 3952 bytes on aarch64 glibc");
 #endif
@@ -20,37 +20,38 @@ namespace
 constinit Base * b0 = nullptr;
 
 /// jemalloc: metadata_thp_madvise
-JE_ALWAYS_INLINE bool metadataTHPMadvise()
+ALLOCATOR_ALWAYS_INLINE bool metadataTransparentHugePagesMadvise()
 {
-    return metadataTHPEnabled() && init_system_thp_mode == SystemTHPMode::Madvise;
+    return metadataTransparentHugePagesEnabled() && init_system_transparent_huge_pages_mode == SystemTransparentHugePagesMode::Madvise;
 }
 
 /// Borrow the guarded bit to indicate if the extent is a recycled one, i.e. the ones returned to base for reuse;
 /// currently only tcache bin stacks. Skips stats updating if so (needed for this purpose only).
 /// jemalloc: base_edata_is_reused
-JE_ALWAYS_INLINE bool baseEdataIsReused(const Extent * edata)
+ALLOCATOR_ALWAYS_INLINE bool baseExtentIsReused(const Extent * extent)
 {
-    return edata->guarded();
+    return extent->guarded();
 }
 
 /// jemalloc: base_edata_init
-void baseEdataInit(size_t * extent_sn_next, Extent * edata, void * addr, size_t size)
+void baseExtentInit(size_t * extent_serial_number_next, Extent * extent, void * addr, size_t size)
 {
-    size_t sn = *extent_sn_next;
-    ++(*extent_sn_next);
+    size_t serial_number = *extent_serial_number_next;
+    ++(*extent_serial_number_next);
 
-    edata->initBase(addr, size, sn, /* reused */ false);
+    extent->initBase(addr, size, serial_number, /* reused */ false);
 }
 
 /// jemalloc: base_block_size_ceil
 size_t baseBlockSizeCeil(size_t block_size)
 {
-    return opt.metadata_thp == MetadataTHPMode::Disabled ? alignmentCeiling(block_size, BASE_BLOCK_MIN_ALIGN)
-                                                         : hugepageCeiling(block_size);
+    return options.metadata_transparent_huge_pages == MetadataTransparentHugePagesMode::Disabled
+        ? alignmentCeiling(block_size, BASE_BLOCK_MIN_ALIGN)
+        : hugePageCeiling(block_size);
 }
 
 /// jemalloc: b0_alloc_header_size
-JE_ALWAYS_INLINE void b0AllocHeaderSize(size_t * header_size, size_t * alignment)
+ALLOCATOR_ALWAYS_INLINE void b0AllocHeaderSize(size_t * header_size, size_t * alignment)
 {
     *alignment = QUANTUM;
     *header_size = QUANTUM > sizeof(Extent *) ? QUANTUM : sizeof(Extent *);
@@ -59,24 +60,24 @@ JE_ALWAYS_INLINE void b0AllocHeaderSize(size_t * header_size, size_t * alignment
 }
 
 /// jemalloc: base_map
-void * Base::map(ThreadState * /*tsdn*/, ExtentHooks * ehooks, unsigned /*ind*/, size_t size)
+void * Base::map(ThreadState * /*tsdn*/, ExtentHooks * extent_hooks, unsigned /*ind*/, size_t size)
 {
     bool zero = true;
     bool commit = true;
 
     /// Use huge page sizes and alignment when opt.metadata_thp is enabled or auto.
     size_t alignment;
-    if (opt.metadata_thp == MetadataTHPMode::Disabled)
+    if (options.metadata_transparent_huge_pages == MetadataTransparentHugePagesMode::Disabled)
         alignment = BASE_BLOCK_MIN_ALIGN;
     else
     {
-        JE_ASSERT(size == hugepageCeiling(size));
-        alignment = HUGEPAGE;
+        ALLOCATOR_ASSERT(size == hugePageCeiling(size));
+        alignment = HUGE_PAGE;
     }
     /// Only the default hooks exist (custom extent hooks are dropped): jemalloc calls `extent_alloc_mmap` directly
     /// for them, bypassing `ehooks_default_alloc_impl`.
-    JE_ASSERT(ehooks->areDefault());
-    (void)ehooks;
+    ALLOCATOR_ASSERT(extent_hooks->areDefault());
+    (void)extent_hooks;
     return extentAllocMmap(nullptr, size, alignment, &zero, &commit);
 }
 
@@ -84,11 +85,11 @@ void * Base::map(ThreadState * /*tsdn*/, ExtentHooks * ehooks, unsigned /*ind*/,
 /// performed for consistency with the cascade in `extent_dalloc_wrapper`. This function is only ever called as a side
 /// effect of arena destruction.
 /// jemalloc: base_unmap
-void Base::unmap(ThreadState * /*tsdn*/, ExtentHooks * ehooks, unsigned /*ind*/, void * addr, size_t size)
+void Base::unmap(ThreadState * /*tsdn*/, ExtentHooks * extent_hooks, unsigned /*ind*/, void * addr, size_t size)
 {
-    JE_ASSERT(ehooks->areDefault());
-    (void)ehooks;
-    if (!extentDallocMmap(addr, size))
+    ALLOCATOR_ASSERT(extent_hooks->areDefault());
+    (void)extent_hooks;
+    if (!extentDeallocateMmap(addr, size))
     {
     }
     else if (!pages::decommit(addr, size))
@@ -103,15 +104,15 @@ void Base::unmap(ThreadState * /*tsdn*/, ExtentHooks * ehooks, unsigned /*ind*/,
     else
     {
         /// Nothing worked. This should never happen.
-        JE_NOT_REACHED();
+        ALLOCATOR_NOT_REACHED();
     }
 
     /// label_done:
-    if (metadataTHPMadvise())
+    if (metadataTransparentHugePagesMadvise())
     {
         /// Set NOHUGEPAGE after unmap to avoid kernel defrag.
-        JE_ASSERT((reinterpret_cast<uintptr_t>(addr) & HUGEPAGE_MASK) == 0 && (size & HUGEPAGE_MASK) == 0);
-        pages::nohuge(addr, size);
+        ALLOCATOR_ASSERT((reinterpret_cast<uintptr_t>(addr) & HUGE_PAGE_MASK) == 0 && (size & HUGE_PAGE_MASK) == 0);
+        pages::noHuge(addr, size);
     }
 }
 
@@ -119,199 +120,208 @@ void Base::unmap(ThreadState * /*tsdn*/, ExtentHooks * ehooks, unsigned /*ind*/,
 size_t Base::getNumBlocks(bool with_new_block) const
 {
     const BaseBlock * b = blocks;
-    JE_ASSERT(b != nullptr);
+    ALLOCATOR_ASSERT(b != nullptr);
 
-    size_t n_blocks = with_new_block ? 2 : 1;
+    size_t num_blocks = with_new_block ? 2 : 1;
     while (b->next != nullptr)
     {
-        ++n_blocks;
+        ++num_blocks;
         b = b->next;
     }
 
-    return n_blocks;
+    return num_blocks;
 }
 
 /// jemalloc: base_auto_thp_switch
-void Base::autoTHPSwitch(ThreadState * tsdn)
+void Base::autoTransparentHugePagesSwitch(ThreadState * thread_state)
 {
-    JE_ASSERT(opt.metadata_thp == MetadataTHPMode::Auto);
-    mtx.assertOwner(tsdn);
-    if (auto_thp_switched)
+    ALLOCATOR_ASSERT(options.metadata_transparent_huge_pages == MetadataTransparentHugePagesMode::Auto);
+    mutex.assertOwner(thread_state);
+    if (auto_transparent_huge_pages_switched)
         return;
     /// Called when adding a new block.
     bool should_switch;
-    if (indGet() != 0)
-        should_switch = (getNumBlocks(true) == BASE_AUTO_THP_THRESHOLD);
+    if (idxGet() != 0)
+        should_switch = (getNumBlocks(true) == BASE_AUTO_TRANSPARENT_HUGE_PAGES_THRESHOLD);
     else
-        should_switch = (getNumBlocks(true) == BASE_AUTO_THP_THRESHOLD_A0);
+        should_switch = (getNumBlocks(true) == BASE_AUTO_TRANSPARENT_HUGE_PAGES_THRESHOLD_A0);
     if (!should_switch)
         return;
 
-    auto_thp_switched = true;
-    JE_ASSERT(!config::stats || n_thp == 0);
+    auto_transparent_huge_pages_switched = true;
+    ALLOCATOR_ASSERT(!config::stats || num_transparent_huge_pages == 0);
     /// Make the initial blocks THP lazily.
     BaseBlock * block = blocks;
     while (block != nullptr)
     {
-        JE_ASSERT((block->size & HUGEPAGE_MASK) == 0);
+        ALLOCATOR_ASSERT((block->size & HUGE_PAGE_MASK) == 0);
         pages::huge(block, block->size);
         if constexpr (config::stats)
-            n_thp += hugepageCeiling(block->size - block->edata.bsize()) >> LG_HUGEPAGE;
+            num_transparent_huge_pages += hugePageCeiling(block->size - block->extent.baseSize()) >> LOG2_HUGE_PAGE;
         block = block->next;
-        JE_ASSERT(block == nullptr || (indGet() == 0));
+        ALLOCATOR_ASSERT(block == nullptr || (idxGet() == 0));
     }
 
-    /// The THP auto switch of the huge arena (`huge_arena_auto_thp_switch`) belongs to the `huge_arena_pac_thp`
-    /// feature, which is dead under ClickHouse's configuration (`huge_arena_pac_thp` is off) and dropped.
+    /// The THP auto switch of the huge arena (`huge_arena_auto_thp_switch`) belongs to the `huge_arena_transparent_huge_pages`
+    /// feature, which is dead under ClickHouse's configuration (`huge_arena_transparent_huge_pages` is off) and dropped.
 }
 
 /// jemalloc: base_extent_bump_alloc_helper
-void * Base::extentBumpAllocHelper(Extent * edata, size_t * gap_size, size_t size, size_t alignment)
+void * Base::extentBumpAllocHelper(Extent * extent, size_t * gap_size, size_t size, size_t alignment)
 {
-    JE_ASSERT(alignment == alignmentCeiling(alignment, QUANTUM));
-    JE_ASSERT(size == alignmentCeiling(size, alignment));
+    ALLOCATOR_ASSERT(alignment == alignmentCeiling(alignment, QUANTUM));
+    ALLOCATOR_ASSERT(size == alignmentCeiling(size, alignment));
 
-    uintptr_t addr = reinterpret_cast<uintptr_t>(edata->addr());
+    uintptr_t addr = reinterpret_cast<uintptr_t>(extent->addr());
     *gap_size = alignmentCeiling(addr, alignment) - addr;
-    void * ret = reinterpret_cast<char *>(addr) + *gap_size;
-    JE_ASSERT(edata->bsize() >= *gap_size + size);
-    edata->initBase(
-        reinterpret_cast<char *>(addr) + *gap_size + size, edata->bsize() - *gap_size - size, edata->sn(), baseEdataIsReused(edata));
-    return ret;
+    void * result = reinterpret_cast<char *>(addr) + *gap_size;
+    ALLOCATOR_ASSERT(extent->baseSize() >= *gap_size + size);
+    extent->initBase(
+        reinterpret_cast<char *>(addr) + *gap_size + size,
+        extent->baseSize() - *gap_size - size,
+        extent->serialNumber(),
+        baseExtentIsReused(extent));
+    return result;
 }
 
 /// jemalloc: base_edata_heap_insert
-void Base::edataHeapInsert(ThreadState * tsdn, Extent * edata)
+void Base::extentHeapInsert(ThreadState * thread_state, Extent * extent)
 {
-    mtx.assertOwner(tsdn);
+    mutex.assertOwner(thread_state);
 
-    size_t bsize = edata->bsize();
-    JE_ASSERT(bsize > 0);
+    size_t base_size = extent->baseSize();
+    ALLOCATOR_ASSERT(base_size > 0);
     /// Compute the index for the largest size class that does not exceed extent's size.
-    szind_t index_floor = sz::sizeToIndex(bsize + 1) - 1;
-    avail[index_floor].insert(edata);
+    SizeClassIdx index_floor = size_classes::sizeToIndex(base_size + 1) - 1;
+    available[index_floor].insert(extent);
 }
 
 /// Only can be called by top-level functions, since it may call `allocExtent` internally when cache is empty.
 /// jemalloc: base_alloc_base_edata
-Extent * Base::allocBaseEdata(ThreadState * tsdn)
+Extent * Base::allocBaseExtent(ThreadState * thread_state)
 {
-    Extent * edata;
+    Extent * extent;
 
-    mtx.lock(tsdn);
-    edata = edata_avail.first();
-    if (edata != nullptr)
-        edata_avail.remove(edata);
-    mtx.unlock(tsdn);
+    mutex.lock(thread_state);
+    extent = extent_available.first();
+    if (extent != nullptr)
+        extent_available.remove(extent);
+    mutex.unlock(thread_state);
 
-    if (edata == nullptr)
-        edata = allocExtent(tsdn);
+    if (extent == nullptr)
+        extent = allocExtent(thread_state);
 
-    return edata;
+    return extent;
 }
 
 /// jemalloc: base_extent_bump_alloc_post
-void Base::extentBumpAllocPost(ThreadState * tsdn, Extent * edata, size_t gap_size, void * addr, size_t size)
+void Base::extentBumpAllocPost(ThreadState * thread_state, Extent * extent, size_t gap_size, void * addr, size_t size)
 {
-    if (edata->bsize() > 0)
-        edataHeapInsert(tsdn, edata);
+    if (extent->baseSize() > 0)
+        extentHeapInsert(thread_state, extent);
     else
     {
-        /// Freed base `Extent` stored in `edata_avail`.
-        edata_avail.insert(edata);
+        /// Freed base `Extent` stored in `extent_available`.
+        extent_available.insert(extent);
     }
 
-    if (config::stats && !baseEdataIsReused(edata))
+    if (config::stats && !baseExtentIsReused(extent))
     {
         allocated += size;
-        /// Add one PAGE to `resident` for every page boundary that is crossed by the new allocation. Adjust `n_thp`
+        /// Add one PAGE to `resident` for every page boundary that is crossed by the new allocation. Adjust `num_transparent_huge_pages`
         /// similarly when metadata_thp is enabled.
         uintptr_t a = reinterpret_cast<uintptr_t>(addr);
         resident += pageCeiling(a + size) - pageCeiling(a - gap_size);
-        JE_ASSERT(allocated <= resident);
-        JE_ASSERT(resident <= mapped);
-        if (metadataTHPMadvise() && (opt.metadata_thp == MetadataTHPMode::Always || auto_thp_switched))
+        ALLOCATOR_ASSERT(allocated <= resident);
+        ALLOCATOR_ASSERT(resident <= mapped);
+        if (metadataTransparentHugePagesMadvise()
+            && (options.metadata_transparent_huge_pages == MetadataTransparentHugePagesMode::Always
+                || auto_transparent_huge_pages_switched))
         {
-            n_thp += (hugepageCeiling(a + size) - hugepageCeiling(a - gap_size)) >> LG_HUGEPAGE;
-            JE_ASSERT(mapped >= n_thp << LG_HUGEPAGE);
+            num_transparent_huge_pages += (hugePageCeiling(a + size) - hugePageCeiling(a - gap_size)) >> LOG2_HUGE_PAGE;
+            ALLOCATOR_ASSERT(mapped >= num_transparent_huge_pages << LOG2_HUGE_PAGE);
         }
     }
 }
 
 /// jemalloc: base_extent_bump_alloc
-void * Base::extentBumpAlloc(ThreadState * tsdn, Extent * edata, size_t size, size_t alignment)
+void * Base::extentBumpAlloc(ThreadState * thread_state, Extent * extent, size_t size, size_t alignment)
 {
     size_t gap_size;
-    void * ret = extentBumpAllocHelper(edata, &gap_size, size, alignment);
-    extentBumpAllocPost(tsdn, edata, gap_size, ret, size);
-    return ret;
+    void * result = extentBumpAllocHelper(extent, &gap_size, size, alignment);
+    extentBumpAllocPost(thread_state, extent, gap_size, result, size);
+    return result;
 }
 
 /// Allocate a block of virtual memory that is large enough to start with a `BaseBlock` header, followed by an object
 /// of specified size and alignment. On success a pointer to the initialized `BaseBlock` header is returned.
 /// jemalloc: base_block_alloc
 BaseBlock * Base::blockAlloc(
-    ThreadState * tsdn,
+    ThreadState * thread_state,
     Base * base,
-    ExtentHooks * ehooks,
-    unsigned ind,
-    pszind_t * pind_last,
-    size_t * extent_sn_next,
+    ExtentHooks * extent_hooks,
+    unsigned idx,
+    PageSizeClassIdx * page_size_class_idx_last,
+    size_t * extent_serial_number_next,
     size_t size,
     size_t alignment)
 {
     alignment = alignmentCeiling(alignment, QUANTUM);
-    size_t usize = alignmentCeiling(size, alignment);
+    size_t usable_size = alignmentCeiling(size, alignment);
     size_t header_size = sizeof(BaseBlock);
     size_t gap_size = alignmentCeiling(header_size, alignment) - header_size;
     /// Create increasingly larger blocks in order to limit the total number of disjoint virtual memory ranges.
     /// Choose the next size in the page size class series (skipping size classes that are not a multiple of HUGEPAGE
     /// when using metadata_thp), or a size large enough to satisfy the requested size and alignment, whichever is
     /// larger.
-    size_t min_block_size = baseBlockSizeCeil(sz::psz2u(header_size + gap_size + usize));
-    pszind_t pind_next = (*pind_last + 1 < sz::psz2ind(SC_LARGE_MAXCLASS)) ? *pind_last + 1 : *pind_last;
-    size_t next_block_size = baseBlockSizeCeil(sz::pind2sz(pind_next));
+    size_t min_block_size = baseBlockSizeCeil(size_classes::pageSizeToUsableSize(header_size + gap_size + usable_size));
+    PageSizeClassIdx page_size_class_idx_next
+        = (*page_size_class_idx_last + 1 < size_classes::pageSizeToPageSizeClassIdx(SIZE_CLASS_LARGE_MAX_CLASS))
+        ? *page_size_class_idx_last + 1
+        : *page_size_class_idx_last;
+    size_t next_block_size = baseBlockSizeCeil(size_classes::pageSizeClassIdxToSize(page_size_class_idx_next));
     size_t block_size = (min_block_size > next_block_size) ? min_block_size : next_block_size;
-    BaseBlock * block = static_cast<BaseBlock *>(map(tsdn, ehooks, ind, block_size));
+    BaseBlock * block = static_cast<BaseBlock *>(map(thread_state, extent_hooks, idx, block_size));
     if (block == nullptr)
         return nullptr;
 
-    if (metadataTHPMadvise())
+    if (metadataTransparentHugePagesMadvise())
     {
         void * addr = block;
-        JE_ASSERT((reinterpret_cast<uintptr_t>(addr) & HUGEPAGE_MASK) == 0 && (block_size & HUGEPAGE_MASK) == 0);
-        if (opt.metadata_thp == MetadataTHPMode::Always)
+        ALLOCATOR_ASSERT((reinterpret_cast<uintptr_t>(addr) & HUGE_PAGE_MASK) == 0 && (block_size & HUGE_PAGE_MASK) == 0);
+        if (options.metadata_transparent_huge_pages == MetadataTransparentHugePagesMode::Always)
             pages::huge(addr, block_size);
-        else if (opt.metadata_thp == MetadataTHPMode::Auto && base != nullptr)
+        else if (options.metadata_transparent_huge_pages == MetadataTransparentHugePagesMode::Auto && base != nullptr)
         {
             /// base != nullptr indicates this is not a new base.
-            base->mtx.lock(tsdn);
-            base->autoTHPSwitch(tsdn);
-            if (base->auto_thp_switched)
+            base->mutex.lock(thread_state);
+            base->autoTransparentHugePagesSwitch(thread_state);
+            if (base->auto_transparent_huge_pages_switched)
                 pages::huge(addr, block_size);
-            base->mtx.unlock(tsdn);
+            base->mutex.unlock(thread_state);
         }
     }
 
-    *pind_last = sz::psz2ind(block_size);
+    *page_size_class_idx_last = size_classes::pageSizeToPageSizeClassIdx(block_size);
     block->size = block_size;
     block->next = nullptr;
-    JE_ASSERT(block_size >= header_size);
-    baseEdataInit(extent_sn_next, &block->edata, reinterpret_cast<char *>(block) + header_size, block_size - header_size);
+    ALLOCATOR_ASSERT(block_size >= header_size);
+    baseExtentInit(extent_serial_number_next, &block->extent, reinterpret_cast<char *>(block) + header_size, block_size - header_size);
     return block;
 }
 
 /// Allocate an extent that is at least as large as specified size, with specified alignment.
 /// jemalloc: base_extent_alloc
-Extent * Base::extentAlloc(ThreadState * tsdn, size_t size, size_t alignment)
+Extent * Base::extentAlloc(ThreadState * thread_state, size_t size, size_t alignment)
 {
-    mtx.assertOwner(tsdn);
+    mutex.assertOwner(thread_state);
 
-    ExtentHooks * metadata_ehooks = ehooksGetForMetadata();
+    ExtentHooks * metadata_extent_hooks = extentHooksGetForMetadata();
     /// Drop mutex during `blockAlloc`, because an extent hook will be called.
-    mtx.unlock(tsdn);
-    BaseBlock * block = blockAlloc(tsdn, this, metadata_ehooks, indGet(), &pind_last, &extent_sn_next, size, alignment);
-    mtx.lock(tsdn);
+    mutex.unlock(thread_state);
+    BaseBlock * block = blockAlloc(
+        thread_state, this, metadata_extent_hooks, idxGet(), &page_size_class_idx_last, &extent_serial_number_next, size, alignment);
+    mutex.lock(thread_state);
     if (block == nullptr)
         return nullptr;
     block->next = blocks;
@@ -321,90 +331,94 @@ Extent * Base::extentAlloc(ThreadState * tsdn, size_t size, size_t alignment)
         allocated += sizeof(BaseBlock);
         resident += pageCeiling(sizeof(BaseBlock));
         mapped += block->size;
-        if (metadataTHPMadvise() && !(opt.metadata_thp == MetadataTHPMode::Auto && !auto_thp_switched))
+        if (metadataTransparentHugePagesMadvise()
+            && !(
+                options.metadata_transparent_huge_pages == MetadataTransparentHugePagesMode::Auto && !auto_transparent_huge_pages_switched))
         {
-            JE_ASSERT(n_thp > 0);
-            n_thp += hugepageCeiling(sizeof(BaseBlock)) >> LG_HUGEPAGE;
+            ALLOCATOR_ASSERT(num_transparent_huge_pages > 0);
+            num_transparent_huge_pages += hugePageCeiling(sizeof(BaseBlock)) >> LOG2_HUGE_PAGE;
         }
-        JE_ASSERT(allocated <= resident);
-        JE_ASSERT(resident <= mapped);
-        JE_ASSERT(n_thp << LG_HUGEPAGE <= mapped);
+        ALLOCATOR_ASSERT(allocated <= resident);
+        ALLOCATOR_ASSERT(resident <= mapped);
+        ALLOCATOR_ASSERT(num_transparent_huge_pages << LOG2_HUGE_PAGE <= mapped);
     }
-    return &block->edata;
+    return &block->extent;
 }
 
 /// jemalloc: b0get
-Base * b0get()
+Base * base0Get()
 {
     return b0;
 }
 
 /// jemalloc: base_new
-Base * Base::create(ThreadState * tsdn, unsigned ind, const extent_hooks_t * extent_hooks, bool metadata_use_hooks)
+Base * Base::create(ThreadState * thread_state, unsigned idx, const extent_hooks_t * extent_hooks_ptr, bool metadata_use_hooks)
 {
-    pszind_t pind_last = 0;
-    size_t extent_sn_next = 0;
+    PageSizeClassIdx page_size_class_idx_last = 0;
+    size_t extent_serial_number_next = 0;
 
     /// The base will contain the hooks eventually, but it itself is allocated using them. So we use some stack hooks
     /// to bootstrap its memory, and then initialize the hooks within the `Base`.
-    extent_hooks_t * metadata_hooks = metadata_use_hooks ? const_cast<extent_hooks_t *>(extent_hooks)
-                                                         : const_cast<extent_hooks_t *>(&ehooks_default_extent_hooks);
-    ExtentHooks fake_ehooks;
-    fake_ehooks.init(metadata_hooks, ind);
+    extent_hooks_t * metadata_hooks = metadata_use_hooks ? const_cast<extent_hooks_t *>(extent_hooks_ptr)
+                                                         : const_cast<extent_hooks_t *>(&extent_hooks_default_extent_hooks);
+    ExtentHooks fake_extent_hooks;
+    fake_extent_hooks.init(metadata_hooks, idx);
 
-    BaseBlock * block = blockAlloc(tsdn, nullptr, &fake_ehooks, ind, &pind_last, &extent_sn_next, sizeof(Base), QUANTUM);
+    BaseBlock * block = blockAlloc(
+        thread_state, nullptr, &fake_extent_hooks, idx, &page_size_class_idx_last, &extent_serial_number_next, sizeof(Base), QUANTUM);
     if (block == nullptr)
         return nullptr;
 
     size_t gap_size;
-    size_t base_alignment = CACHELINE;
+    size_t base_alignment = CACHE_LINE;
     size_t base_size = alignmentCeiling(sizeof(Base), base_alignment);
-    void * base_memory = extentBumpAllocHelper(&block->edata, &gap_size, base_size, base_alignment);
+    void * base_memory = extentBumpAllocHelper(&block->extent, &gap_size, base_size, base_alignment);
     /// The memory is zero-filled by mmap, which is also the state the constructor produces.
     Base * base = new (base_memory) Base;
-    base->ehooks.init(const_cast<extent_hooks_t *>(extent_hooks), ind);
-    base->ehooks_base.init(metadata_hooks, ind);
-    if (base->mtx.init("base", MutexRank::BASE, MutexLockOrder::RankExclusive))
+    base->extent_hooks.init(const_cast<extent_hooks_t *>(extent_hooks_ptr), idx);
+    base->extent_hooks_base.init(metadata_hooks, idx);
+    if (base->mutex.init("base", MutexRank::BASE, MutexLockOrder::RankExclusive))
     {
-        unmap(tsdn, &fake_ehooks, ind, block, block->size);
+        unmap(thread_state, &fake_extent_hooks, idx, block, block->size);
         return nullptr;
     }
-    base->pind_last = pind_last;
-    base->extent_sn_next = extent_sn_next;
+    base->page_size_class_idx_last = page_size_class_idx_last;
+    base->extent_serial_number_next = extent_serial_number_next;
     base->blocks = block;
-    base->auto_thp_switched = false;
-    for (szind_t i = 0; i < SC_NSIZES; ++i)
-        base->avail[i].init();
-    base->edata_avail.init();
+    base->auto_transparent_huge_pages_switched = false;
+    for (SizeClassIdx i = 0; i < SIZE_CLASS_NUM_SIZES; ++i)
+        base->available[i].init();
+    base->extent_available.init();
 
     if constexpr (config::stats)
     {
-        base->edata_allocated = 0;
-        base->rtree_allocated = 0;
+        base->extent_allocated = 0;
+        base->radix_tree_allocated = 0;
         base->allocated = sizeof(BaseBlock);
         base->resident = pageCeiling(sizeof(BaseBlock));
         base->mapped = block->size;
-        base->n_thp = (opt.metadata_thp == MetadataTHPMode::Always) && metadataTHPMadvise()
-            ? hugepageCeiling(sizeof(BaseBlock)) >> LG_HUGEPAGE
+        base->num_transparent_huge_pages
+            = (options.metadata_transparent_huge_pages == MetadataTransparentHugePagesMode::Always) && metadataTransparentHugePagesMadvise()
+            ? hugePageCeiling(sizeof(BaseBlock)) >> LOG2_HUGE_PAGE
             : 0;
-        JE_ASSERT(base->allocated <= base->resident);
-        JE_ASSERT(base->resident <= base->mapped);
-        JE_ASSERT(base->n_thp << LG_HUGEPAGE <= base->mapped);
+        ALLOCATOR_ASSERT(base->allocated <= base->resident);
+        ALLOCATOR_ASSERT(base->resident <= base->mapped);
+        ALLOCATOR_ASSERT(base->num_transparent_huge_pages << LOG2_HUGE_PAGE <= base->mapped);
     }
 
     /// Locking here is only necessary because of assertions.
-    base->mtx.lock(tsdn);
-    base->extentBumpAllocPost(tsdn, &block->edata, gap_size, base, base_size);
-    base->mtx.unlock(tsdn);
+    base->mutex.lock(thread_state);
+    base->extentBumpAllocPost(thread_state, &block->extent, gap_size, base, base_size);
+    base->mutex.unlock(thread_state);
 
     return base;
 }
 
 /// jemalloc: base_delete
-void Base::destroy(ThreadState * tsdn)
+void Base::destroy(ThreadState * thread_state)
 {
-    ExtentHooks * metadata_ehooks = ehooksGetForMetadata();
-    unsigned ind = indGet();
+    ExtentHooks * metadata_extent_hooks = extentHooksGetForMetadata();
+    unsigned idx = idxGet();
     BaseBlock * next = blocks;
     do
     {
@@ -412,173 +426,174 @@ void Base::destroy(ThreadState * tsdn)
         next = block->next;
         /// NOTE: the block containing `*this` may be unmapped here (without `opt_retain`); nothing of `*this` is
         /// accessed afterwards.
-        unmap(tsdn, metadata_ehooks, ind, block, block->size);
+        unmap(thread_state, metadata_extent_hooks, idx, block, block->size);
     } while (next != nullptr);
 }
 
 /// jemalloc: base_extent_hooks_set
-extent_hooks_t * Base::extentHooksSet(extent_hooks_t * extent_hooks)
+extent_hooks_t * Base::extentHooksSet(extent_hooks_t * extent_hooks_ptr)
 {
-    extent_hooks_t * old_extent_hooks = ehooks.getExtentHooksPtr();
-    ehooks.init(extent_hooks, ehooks.indGet());
-    return old_extent_hooks;
+    extent_hooks_t * old_extent_hooks_ptr = extent_hooks.getExtentHooksPtr();
+    extent_hooks.init(extent_hooks_ptr, extent_hooks.idxGet());
+    return old_extent_hooks_ptr;
 }
 
 /// jemalloc: base_alloc_impl
-void * Base::allocImpl(ThreadState * tsdn, size_t size, size_t alignment, size_t * esn, size_t * ret_usize)
+void *
+Base::allocImpl(ThreadState * thread_state, size_t size, size_t alignment, size_t * struct_serial_number, size_t * result_usable_size)
 {
     alignment = quantumCeiling(alignment);
-    size_t usize = alignmentCeiling(size, alignment);
-    size_t asize = usize + alignment - QUANTUM;
+    size_t usable_size = alignmentCeiling(size, alignment);
+    size_t aligned_size = usable_size + alignment - QUANTUM;
 
-    Extent * edata = nullptr;
-    void * ret = nullptr;
-    mtx.lock(tsdn);
-    for (szind_t i = sz::sizeToIndex(asize); i < SC_NSIZES; ++i)
+    Extent * extent = nullptr;
+    void * result = nullptr;
+    mutex.lock(thread_state);
+    for (SizeClassIdx i = size_classes::sizeToIndex(aligned_size); i < SIZE_CLASS_NUM_SIZES; ++i)
     {
-        edata = avail[i].removeFirst();
-        if (edata != nullptr)
+        extent = available[i].removeFirst();
+        if (extent != nullptr)
         {
             /// Use existing space.
             break;
         }
     }
-    if (edata == nullptr)
+    if (extent == nullptr)
     {
         /// Try to allocate more space.
-        edata = extentAlloc(tsdn, usize, alignment);
+        extent = extentAlloc(thread_state, usable_size, alignment);
     }
-    if (edata != nullptr)
+    if (extent != nullptr)
     {
-        ret = extentBumpAlloc(tsdn, edata, usize, alignment);
-        if (esn != nullptr)
-            *esn = static_cast<size_t>(edata->sn());
-        if (ret_usize != nullptr)
-            *ret_usize = usize;
+        result = extentBumpAlloc(thread_state, extent, usable_size, alignment);
+        if (struct_serial_number != nullptr)
+            *struct_serial_number = static_cast<size_t>(extent->serialNumber());
+        if (result_usable_size != nullptr)
+            *result_usable_size = usable_size;
     }
-    mtx.unlock(tsdn);
-    return ret;
+    mutex.unlock(thread_state);
+    return result;
 }
 
 /// jemalloc: base_alloc
-void * Base::alloc(ThreadState * tsdn, size_t size, size_t alignment)
+void * Base::alloc(ThreadState * thread_state, size_t size, size_t alignment)
 {
-    return allocImpl(tsdn, size, alignment, nullptr, nullptr);
+    return allocImpl(thread_state, size, alignment, nullptr, nullptr);
 }
 
 /// jemalloc: base_alloc_edata
-Extent * Base::allocExtent(ThreadState * tsdn)
+Extent * Base::allocExtent(ThreadState * thread_state)
 {
-    size_t esn;
-    size_t usize;
-    Extent * edata = static_cast<Extent *>(allocImpl(tsdn, sizeof(Extent), EDATA_ALIGNMENT, &esn, &usize));
-    if (edata == nullptr)
+    size_t struct_serial_number;
+    size_t usable_size;
+    Extent * extent = static_cast<Extent *>(allocImpl(thread_state, sizeof(Extent), EXTENT_ALIGNMENT, &struct_serial_number, &usable_size));
+    if (extent == nullptr)
         return nullptr;
     if constexpr (config::stats)
-        edata_allocated += usize;
-    edata->setESN(esn);
-    return edata;
+        extent_allocated += usable_size;
+    extent->setStructSerialNumber(struct_serial_number);
+    return extent;
 }
 
 /// jemalloc: base_alloc_rtree
-void * Base::allocRtree(ThreadState * tsdn, size_t size)
+void * Base::allocRadixTree(ThreadState * thread_state, size_t size)
 {
-    size_t usize;
-    void * rtree = allocImpl(tsdn, size, CACHELINE, nullptr, &usize);
-    if (rtree == nullptr)
+    size_t usable_size;
+    void * radix_tree = allocImpl(thread_state, size, CACHE_LINE, nullptr, &usable_size);
+    if (radix_tree == nullptr)
         return nullptr;
     if constexpr (config::stats)
-        rtree_allocated += usize;
-    return rtree;
+        radix_tree_allocated += usable_size;
+    return radix_tree;
 }
 
 /// jemalloc: b0_alloc_tcache_stack
-void * b0AllocTcacheStack(ThreadState * tsdn, size_t stack_size)
+void * b0AllocThreadCacheStack(ThreadState * thread_state, size_t stack_size)
 {
-    Base * base = b0get();
-    Extent * edata = base->allocBaseEdata(tsdn);
-    if (edata == nullptr)
+    Base * base = base0Get();
+    Extent * extent = base->allocBaseExtent(thread_state);
+    if (extent == nullptr)
         return nullptr;
 
     /// Reserve room for the header, which stores a pointer to the managing `Extent`. The header itself is located
     /// right before the return address, so that the extent can be retrieved on dalloc. Bump up to usize to improve
     /// reusability -- otherwise the freed stacks will be put back into the previous size class.
-    size_t esn;
+    size_t struct_serial_number;
     size_t alignment;
     size_t header_size;
     b0AllocHeaderSize(&header_size, &alignment);
 
-    size_t alloc_size = sz::s2u(stack_size + header_size);
-    void * addr = base->allocImpl(tsdn, alloc_size, alignment, &esn, nullptr);
+    size_t alloc_size = size_classes::sizeToUsableSize(stack_size + header_size);
+    void * addr = base->allocImpl(thread_state, alloc_size, alignment, &struct_serial_number, nullptr);
     if (addr == nullptr)
     {
         /// jemalloc inserts without holding the base mutex here (a data race on this OOM path); take it.
-        base->mtx.lock(tsdn);
-        base->edata_avail.insert(edata);
-        base->mtx.unlock(tsdn);
+        base->mutex.lock(thread_state);
+        base->extent_available.insert(extent);
+        base->mutex.unlock(thread_state);
         return nullptr;
     }
 
-    /// Set is_reused: see comments in `baseEdataIsReused`.
-    edata->initBase(addr, alloc_size, esn, /* reused */ true);
-    *static_cast<Extent **>(addr) = edata;
+    /// Set is_reused: see comments in `baseExtentIsReused`.
+    extent->initBase(addr, alloc_size, struct_serial_number, /* reused */ true);
+    *static_cast<Extent **>(addr) = extent;
 
     return static_cast<char *>(addr) + header_size;
 }
 
 /// jemalloc: b0_dalloc_tcache_stack
-void b0DallocTcacheStack(ThreadState * tsdn, void * tcache_stack)
+void b0DeallocateThreadCacheStack(ThreadState * thread_state, void * thread_cache_stack)
 {
     /// The `Extent` pointer is stored in the header.
     size_t alignment;
     size_t header_size;
     b0AllocHeaderSize(&header_size, &alignment);
 
-    Extent * edata = *reinterpret_cast<Extent **>(static_cast<char *>(tcache_stack) - header_size);
-    void * addr = edata->addr();
-    size_t bsize = edata->bsize();
+    Extent * extent = *reinterpret_cast<Extent **>(static_cast<char *>(thread_cache_stack) - header_size);
+    void * addr = extent->addr();
+    size_t base_size = extent->baseSize();
     /// Marked as "reused" to avoid double counting stats.
-    JE_ASSERT(baseEdataIsReused(edata));
-    JE_ASSERT(addr != nullptr && bsize > 0);
+    ALLOCATOR_ASSERT(baseExtentIsReused(extent));
+    ALLOCATOR_ASSERT(addr != nullptr && base_size > 0);
 
     /// Zero out since base_alloc returns zeroed memory.
-    memset(addr, 0, bsize);
+    memset(addr, 0, base_size);
 
-    Base * base = b0get();
-    base->mtx.lock(tsdn);
-    base->edataHeapInsert(tsdn, edata);
-    base->mtx.unlock(tsdn);
+    Base * base = base0Get();
+    base->mutex.lock(thread_state);
+    base->extentHeapInsert(thread_state, extent);
+    base->mutex.unlock(thread_state);
 }
 
 /// jemalloc: base_stats_get
 void Base::statsGet(
-    ThreadState * tsdn,
+    ThreadState * thread_state,
     size_t * allocated_,
-    size_t * edata_allocated_,
-    size_t * rtree_allocated_,
+    size_t * extent_allocated_,
+    size_t * radix_tree_allocated_,
     size_t * resident_,
     size_t * mapped_,
-    size_t * n_thp_)
+    size_t * num_transparent_huge_pages_)
 {
     static_assert(config::stats);
 
-    mtx.lock(tsdn);
-    JE_ASSERT(allocated <= resident);
-    JE_ASSERT(resident <= mapped);
-    JE_ASSERT(edata_allocated + rtree_allocated <= allocated);
+    mutex.lock(thread_state);
+    ALLOCATOR_ASSERT(allocated <= resident);
+    ALLOCATOR_ASSERT(resident <= mapped);
+    ALLOCATOR_ASSERT(extent_allocated + radix_tree_allocated <= allocated);
     *allocated_ = allocated;
-    *edata_allocated_ = edata_allocated;
-    *rtree_allocated_ = rtree_allocated;
+    *extent_allocated_ = extent_allocated;
+    *radix_tree_allocated_ = radix_tree_allocated;
     *resident_ = resident;
     *mapped_ = mapped;
-    *n_thp_ = n_thp;
-    mtx.unlock(tsdn);
+    *num_transparent_huge_pages_ = num_transparent_huge_pages;
+    mutex.unlock(thread_state);
 }
 
 /// jemalloc: base_boot
-bool baseBoot(ThreadState * tsdn)
+bool baseBoot(ThreadState * thread_state)
 {
-    b0 = Base::create(tsdn, 0, &ehooks_default_extent_hooks, /* metadata_use_hooks */ true);
+    b0 = Base::create(thread_state, 0, &extent_hooks_default_extent_hooks, /* metadata_use_hooks */ true);
     return b0 == nullptr;
 }
 

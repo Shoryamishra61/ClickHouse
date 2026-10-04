@@ -29,7 +29,7 @@
 #include <allocator/Common.h>
 #include <allocator/ExtentMap.h>
 #include <allocator/Options.h>
-#include <allocator/ProfHooks.h>
+#include <allocator/ProfilingHooks.h>
 #include <allocator/SizeClasses.h>
 #include <allocator/ThreadCache.h>
 #include <allocator/ThreadEvent.h>
@@ -59,7 +59,7 @@ enum MallocInitState : uint8_t
 extern constinit MallocInitState malloc_init_state;
 
 /// jemalloc: malloc_initialized
-JE_ALWAYS_INLINE bool mallocInitialized()
+ALLOCATOR_ALWAYS_INLINE bool mallocInitialized()
 {
     return malloc_init_state == malloc_init_initialized;
 }
@@ -68,9 +68,9 @@ JE_ALWAYS_INLINE bool mallocInitialized()
 bool mallocInitHard();
 
 /// jemalloc: malloc_init
-JE_ALWAYS_INLINE bool mallocInit()
+ALLOCATOR_ALWAYS_INLINE bool mallocInit()
 {
-    if (JE_UNLIKELY(!mallocInitialized()) && mallocInitHard())
+    if (ALLOCATOR_UNLIKELY(!mallocInitialized()) && mallocInitHard())
         return true;
     return false;
 }
@@ -90,363 +90,419 @@ inline constexpr uint8_t junk_alloc_byte = 0xa5;
 inline constexpr uint8_t junk_free_byte = 0x5a;
 
 /// jemalloc: junk_alloc_callback = default_junk_alloc (`JET_MUTABLE` is `const` outside of tests)
-JE_ALWAYS_INLINE void junkAllocCallback(void * ptr, size_t usize)
+ALLOCATOR_ALWAYS_INLINE void junkAllocCallback(void * ptr, size_t usable_size)
 {
-    memset(ptr, junk_alloc_byte, usize);
+    memset(ptr, junk_alloc_byte, usable_size);
 }
 
 /// jemalloc: junk_free_callback = default_junk_free
-JE_ALWAYS_INLINE void junkFreeCallback(void * ptr, size_t usize)
+ALLOCATOR_ALWAYS_INLINE void junkFreeCallback(void * ptr, size_t usable_size)
 {
-    memset(ptr, junk_free_byte, usize);
+    memset(ptr, junk_free_byte, usable_size);
 }
 
 /// --- Sentinels of the tcache / arena indices (jemalloc_internal_inlines_c.h) ------------------------------------
 
 /// These correspond to the macros in jemalloc_macros.h (the representations need not be related).
 /// jemalloc: TCACHE_IND_NONE, TCACHE_IND_AUTOMATIC, ARENA_IND_AUTOMATIC
-inline constexpr unsigned TCACHE_IND_NONE = unsigned(-1);
-inline constexpr unsigned TCACHE_IND_AUTOMATIC = unsigned(-2);
-inline constexpr unsigned ARENA_IND_AUTOMATIC = unsigned(-1);
+inline constexpr unsigned THREAD_CACHE_IDX_NONE = unsigned(-1);
+inline constexpr unsigned THREAD_CACHE_IDX_AUTOMATIC = unsigned(-2);
+inline constexpr unsigned ARENA_IDX_AUTOMATIC = unsigned(-1);
 
 /// jemalloc: mallocx_tcache_get
-JE_ALWAYS_INLINE unsigned mallocxTcacheIndGet(int flags)
+ALLOCATOR_ALWAYS_INLINE unsigned threadCacheIdxFromFlags(int flags)
 {
-    if (JE_LIKELY((flags & MALLOCX_TCACHE_MASK) == 0))
-        return TCACHE_IND_AUTOMATIC;
-    else if ((flags & MALLOCX_TCACHE_MASK) == MALLOCX_TCACHE_NONE_FLAG)
-        return TCACHE_IND_NONE;
+    if (ALLOCATOR_LIKELY((flags & MALLOCX_THREAD_CACHE_MASK) == 0))
+        return THREAD_CACHE_IDX_AUTOMATIC;
+    else if ((flags & MALLOCX_THREAD_CACHE_MASK) == MALLOCX_THREAD_CACHE_NONE_FLAG)
+        return THREAD_CACHE_IDX_NONE;
     else
-        return mallocxTcacheGet(flags);
+        return threadCacheFromFlags(flags);
 }
 
 /// jemalloc: mallocx_arena_get
-JE_ALWAYS_INLINE unsigned mallocxArenaIndGet(int flags)
+ALLOCATOR_ALWAYS_INLINE unsigned arenaIdxFromFlags(int flags)
 {
-    if (JE_UNLIKELY((flags & MALLOCX_ARENA_MASK) != 0))
-        return mallocxArenaGet(flags);
+    if (ALLOCATOR_UNLIKELY((flags & MALLOCX_ARENA_MASK) != 0))
+        return arenaFromFlags(flags);
     else
-        return ARENA_IND_AUTOMATIC;
+        return ARENA_IDX_AUTOMATIC;
 }
 
 /// --- The `i` functions (jemalloc_internal_inlines_c.h) --------------------------------------------------------------
 
 /// jemalloc: iaalloc
-JE_ALWAYS_INLINE Arena * iaalloc(ThreadState * tsdn, const void * ptr)
+ALLOCATOR_ALWAYS_INLINE Arena * allocationArena(ThreadState * thread_state, const void * ptr)
 {
-    JE_ASSERT(ptr != nullptr);
-    return arenaAalloc(tsdn, ptr);
+    ALLOCATOR_ASSERT(ptr != nullptr);
+    return arenaOfPointer(thread_state, ptr);
 }
 
 /// jemalloc: isalloc
-JE_ALWAYS_INLINE size_t isalloc(ThreadState * tsdn, const void * ptr)
+ALLOCATOR_ALWAYS_INLINE size_t allocationSize(ThreadState * thread_state, const void * ptr)
 {
-    JE_ASSERT(ptr != nullptr);
-    return arenaSalloc(tsdn, ptr);
+    ALLOCATOR_ASSERT(ptr != nullptr);
+    return arenaAllocationSize(thread_state, ptr);
 }
 
 /// jemalloc: iallocztm_explicit_slab
-JE_ALWAYS_INLINE void * iallocztmExplicitSlab(
-    ThreadState * tsdn, size_t size, szind_t ind, bool zero, bool slab, ThreadCache * tcache, bool is_internal, Arena * arena,
+ALLOCATOR_ALWAYS_INLINE void * internalAllocateFullExplicitSlab(
+    ThreadState * thread_state,
+    size_t size,
+    SizeClassIdx idx,
+    bool zero,
+    bool slab,
+    ThreadCache * thread_cache,
+    bool is_internal,
+    Arena * arena,
     bool slow_path)
 {
-    JE_ASSERT(!slab || sz::canUseSlab(size)); /// slab && large is illegal
-    JE_ASSERT(!is_internal || tcache == nullptr);
-    JE_ASSERT(!is_internal || arena == nullptr || arenaIsAuto(arena));
+    ALLOCATOR_ASSERT(!slab || size_classes::canUseSlab(size)); /// slab && large is illegal
+    ALLOCATOR_ASSERT(!is_internal || thread_cache == nullptr);
+    ALLOCATOR_ASSERT(!is_internal || arena == nullptr || arenaIsAuto(arena));
 
-    void * ret = arenaMalloc(tsdn, arena, size, ind, zero, slab, tcache, slow_path);
-    if (config::stats && is_internal && JE_LIKELY(ret != nullptr))
-        arenaInternalAdd(iaalloc(tsdn, ret), isalloc(tsdn, ret));
-    return ret;
+    void * result = arenaMalloc(thread_state, arena, size, idx, zero, slab, thread_cache, slow_path);
+    if (config::stats && is_internal && ALLOCATOR_LIKELY(result != nullptr))
+        arenaInternalAdd(allocationArena(thread_state, result), allocationSize(thread_state, result));
+    return result;
 }
 
 /// jemalloc: iallocztm
-JE_ALWAYS_INLINE void * iallocztm(
-    ThreadState * tsdn, size_t size, szind_t ind, bool zero, ThreadCache * tcache, bool is_internal, Arena * arena, bool slow_path)
+ALLOCATOR_ALWAYS_INLINE void * internalAllocateFull(
+    ThreadState * thread_state,
+    size_t size,
+    SizeClassIdx idx,
+    bool zero,
+    ThreadCache * thread_cache,
+    bool is_internal,
+    Arena * arena,
+    bool slow_path)
 {
-    bool slab = sz::canUseSlab(size);
-    return iallocztmExplicitSlab(tsdn, size, ind, zero, slab, tcache, is_internal, arena, slow_path);
+    bool slab = size_classes::canUseSlab(size);
+    return internalAllocateFullExplicitSlab(thread_state, size, idx, zero, slab, thread_cache, is_internal, arena, slow_path);
 }
 
 /// jemalloc: ialloc
-JE_ALWAYS_INLINE void * ialloc(ThreadState & tsd, size_t size, szind_t ind, bool zero, bool slow_path)
+ALLOCATOR_ALWAYS_INLINE void * internalAllocate(ThreadState & thread_state, size_t size, SizeClassIdx idx, bool zero, bool slow_path)
 {
-    return iallocztm(&tsd, size, ind, zero, tcacheGet(tsd), false, nullptr, slow_path);
+    return internalAllocateFull(&thread_state, size, idx, zero, threadCacheGet(thread_state), false, nullptr, slow_path);
 }
 
 /// jemalloc: ipallocztm_explicit_slab
-JE_ALWAYS_INLINE void * ipallocztmExplicitSlab(
-    ThreadState * tsdn, size_t usize, size_t alignment, bool zero, bool slab, ThreadCache * tcache, bool is_internal, Arena * arena)
+ALLOCATOR_ALWAYS_INLINE void * internalAllocateAlignedFullExplicitSlab(
+    ThreadState * thread_state,
+    size_t usable_size,
+    size_t alignment,
+    bool zero,
+    bool slab,
+    ThreadCache * thread_cache,
+    bool is_internal,
+    Arena * arena)
 {
-    JE_ASSERT(!slab || sz::canUseSlab(usize)); /// slab && large is illegal
-    JE_ASSERT(usize != 0);
-    JE_ASSERT(usize == sz::sa2u(usize, alignment));
-    JE_ASSERT(!is_internal || tcache == nullptr);
-    JE_ASSERT(!is_internal || arena == nullptr || arenaIsAuto(arena));
+    ALLOCATOR_ASSERT(!slab || size_classes::canUseSlab(usable_size)); /// slab && large is illegal
+    ALLOCATOR_ASSERT(usable_size != 0);
+    ALLOCATOR_ASSERT(usable_size == size_classes::alignedSizeToUsableSize(usable_size, alignment));
+    ALLOCATOR_ASSERT(!is_internal || thread_cache == nullptr);
+    ALLOCATOR_ASSERT(!is_internal || arena == nullptr || arenaIsAuto(arena));
 
-    void * ret = arenaPalloc(tsdn, arena, usize, alignment, zero, slab, tcache);
-    JE_ASSERT(alignmentAddrToBase(ret, alignment) == ret);
-    if (config::stats && is_internal && JE_LIKELY(ret != nullptr))
-        arenaInternalAdd(iaalloc(tsdn, ret), isalloc(tsdn, ret));
-    return ret;
+    void * result = arenaAllocateAligned(thread_state, arena, usable_size, alignment, zero, slab, thread_cache);
+    ALLOCATOR_ASSERT(alignmentAddrToBase(result, alignment) == result);
+    if (config::stats && is_internal && ALLOCATOR_LIKELY(result != nullptr))
+        arenaInternalAdd(allocationArena(thread_state, result), allocationSize(thread_state, result));
+    return result;
 }
 
 /// jemalloc: ipallocztm
-JE_ALWAYS_INLINE void * ipallocztm(
-    ThreadState * tsdn, size_t usize, size_t alignment, bool zero, ThreadCache * tcache, bool is_internal, Arena * arena)
+ALLOCATOR_ALWAYS_INLINE void * internalAllocateAlignedFull(
+    ThreadState * thread_state,
+    size_t usable_size,
+    size_t alignment,
+    bool zero,
+    ThreadCache * thread_cache,
+    bool is_internal,
+    Arena * arena)
 {
-    return ipallocztmExplicitSlab(tsdn, usize, alignment, zero, sz::canUseSlab(usize), tcache, is_internal, arena);
+    return internalAllocateAlignedFullExplicitSlab(
+        thread_state, usable_size, alignment, zero, size_classes::canUseSlab(usable_size), thread_cache, is_internal, arena);
 }
 
 /// jemalloc: ipalloct
-JE_ALWAYS_INLINE void * ipalloct(ThreadState * tsdn, size_t usize, size_t alignment, bool zero, ThreadCache * tcache, Arena * arena)
+ALLOCATOR_ALWAYS_INLINE void * internalAllocateAlignedWithCache(
+    ThreadState * thread_state, size_t usable_size, size_t alignment, bool zero, ThreadCache * thread_cache, Arena * arena)
 {
-    return ipallocztm(tsdn, usize, alignment, zero, tcache, false, arena);
+    return internalAllocateAlignedFull(thread_state, usable_size, alignment, zero, thread_cache, false, arena);
 }
 
 /// jemalloc: ipalloct_explicit_slab
-JE_ALWAYS_INLINE void * ipalloctExplicitSlab(
-    ThreadState * tsdn, size_t usize, size_t alignment, bool zero, bool slab, ThreadCache * tcache, Arena * arena)
+ALLOCATOR_ALWAYS_INLINE void * internalAllocateAlignedWithCacheExplicitSlab(
+    ThreadState * thread_state, size_t usable_size, size_t alignment, bool zero, bool slab, ThreadCache * thread_cache, Arena * arena)
 {
-    return ipallocztmExplicitSlab(tsdn, usize, alignment, zero, slab, tcache, false, arena);
+    return internalAllocateAlignedFullExplicitSlab(thread_state, usable_size, alignment, zero, slab, thread_cache, false, arena);
 }
 
 /// jemalloc: ipalloc
-JE_ALWAYS_INLINE void * ipalloc(ThreadState & tsd, size_t usize, size_t alignment, bool zero)
+ALLOCATOR_ALWAYS_INLINE void * internalAllocateAligned(ThreadState & thread_state, size_t usable_size, size_t alignment, bool zero)
 {
-    return ipallocztm(&tsd, usize, alignment, zero, tcacheGet(tsd), false, nullptr);
+    return internalAllocateAlignedFull(&thread_state, usable_size, alignment, zero, threadCacheGet(thread_state), false, nullptr);
 }
 
 /// jemalloc: ivsalloc
-JE_ALWAYS_INLINE size_t ivsalloc(ThreadState * tsdn, const void * ptr)
+ALLOCATOR_ALWAYS_INLINE size_t allocationSizeIfOwned(ThreadState * thread_state, const void * ptr)
 {
-    return arenaVsalloc(tsdn, ptr);
+    return arenaAllocationSizeIfOwned(thread_state, ptr);
 }
 
 /// jemalloc: idalloctm
-JE_ALWAYS_INLINE void idalloctm(
-    ThreadState * tsdn, void * ptr, ThreadCache * tcache, AllocContext * alloc_ctx, bool is_internal, bool slow_path)
+ALLOCATOR_ALWAYS_INLINE void internalDeallocateFull(
+    ThreadState * thread_state, void * ptr, ThreadCache * thread_cache, AllocContext * alloc_context, bool is_internal, bool slow_path)
 {
-    JE_ASSERT(ptr != nullptr);
-    JE_ASSERT(!is_internal || tcache == nullptr);
-    JE_ASSERT(!is_internal || arenaIsAuto(iaalloc(tsdn, ptr)));
+    ALLOCATOR_ASSERT(ptr != nullptr);
+    ALLOCATOR_ASSERT(!is_internal || thread_cache == nullptr);
+    ALLOCATOR_ASSERT(!is_internal || arenaIsAuto(allocationArena(thread_state, ptr)));
     if (config::stats && is_internal)
-        arenaInternalSub(iaalloc(tsdn, ptr), isalloc(tsdn, ptr));
-    if (!is_internal && tsdn != nullptr && tsdn->reentrancyLevel() != 0)
-        JE_ASSERT(tcache == nullptr);
-    arenaDalloc(tsdn, ptr, tcache, alloc_ctx, slow_path);
+        arenaInternalSub(allocationArena(thread_state, ptr), allocationSize(thread_state, ptr));
+    if (!is_internal && thread_state != nullptr && thread_state->reentrancyLevel() != 0)
+        ALLOCATOR_ASSERT(thread_cache == nullptr);
+    arenaDeallocate(thread_state, ptr, thread_cache, alloc_context, slow_path);
 }
 
 /// jemalloc: idalloc
-JE_ALWAYS_INLINE void idalloc(ThreadState & tsd, void * ptr)
+ALLOCATOR_ALWAYS_INLINE void internalDeallocate(ThreadState & thread_state, void * ptr)
 {
-    idalloctm(&tsd, ptr, tcacheGet(tsd), nullptr, false, true);
+    internalDeallocateFull(&thread_state, ptr, threadCacheGet(thread_state), nullptr, false, true);
 }
 
 /// jemalloc: isdalloct
-JE_ALWAYS_INLINE void isdalloct(ThreadState * tsdn, void * ptr, size_t size, ThreadCache * tcache, AllocContext * alloc_ctx, bool slow_path)
+ALLOCATOR_ALWAYS_INLINE void internalSizedDeallocate(
+    ThreadState * thread_state, void * ptr, size_t size, ThreadCache * thread_cache, AllocContext * alloc_context, bool slow_path)
 {
-    arenaSdalloc(tsdn, ptr, size, tcache, alloc_ctx, slow_path);
+    arenaSizedDeallocate(thread_state, ptr, size, thread_cache, alloc_context, slow_path);
 }
 
 /// jemalloc: iralloct_realign
-JE_ALWAYS_INLINE void * iralloctRealign(
-    ThreadState * tsdn, void * ptr, size_t oldsize, size_t size, size_t alignment, bool zero, bool slab, ThreadCache * tcache,
+ALLOCATOR_ALWAYS_INLINE void * internalReallocateRealign(
+    ThreadState * thread_state,
+    void * ptr,
+    size_t old_size,
+    size_t size,
+    size_t alignment,
+    bool zero,
+    bool slab,
+    ThreadCache * thread_cache,
     Arena * arena)
 {
-    size_t usize = sz::sa2u(size, alignment);
-    if (JE_UNLIKELY(usize == 0 || usize > SC_LARGE_MAXCLASS))
+    size_t usable_size = size_classes::alignedSizeToUsableSize(size, alignment);
+    if (ALLOCATOR_UNLIKELY(usable_size == 0 || usable_size > SIZE_CLASS_LARGE_MAX_CLASS))
         return nullptr;
-    void * p = ipalloctExplicitSlab(tsdn, usize, alignment, zero, slab, tcache, arena);
+    void * p = internalAllocateAlignedWithCacheExplicitSlab(thread_state, usable_size, alignment, zero, slab, thread_cache, arena);
     if (p == nullptr)
         return nullptr;
     /// Copy at most size bytes (not size+extra), since the caller has no expectation that the extra bytes will be
     /// reliably preserved.
-    size_t copysize = (size < oldsize) ? size : oldsize;
-    memcpy(p, ptr, copysize);
-    isdalloct(tsdn, ptr, oldsize, tcache, nullptr, true);
+    size_t copy_size = (size < old_size) ? size : old_size;
+    memcpy(p, ptr, copy_size);
+    internalSizedDeallocate(thread_state, ptr, old_size, thread_cache, nullptr, true);
     return p;
 }
 
 /// jemalloc: iralloct_explicit_slab
-JE_ALWAYS_INLINE void * iralloctExplicitSlab(
-    ThreadState * tsdn, void * ptr, size_t oldsize, size_t size, size_t alignment, bool zero, bool slab, ThreadCache * tcache,
+ALLOCATOR_ALWAYS_INLINE void * internalReallocateExplicitSlab(
+    ThreadState * thread_state,
+    void * ptr,
+    size_t old_size,
+    size_t size,
+    size_t alignment,
+    bool zero,
+    bool slab,
+    ThreadCache * thread_cache,
     Arena * arena)
 {
-    JE_ASSERT(ptr != nullptr);
-    JE_ASSERT(size != 0);
+    ALLOCATOR_ASSERT(ptr != nullptr);
+    ALLOCATOR_ASSERT(size != 0);
 
     if (alignment != 0 && (reinterpret_cast<uintptr_t>(ptr) & (uintptr_t(alignment) - 1)) != 0)
     {
         /// Existing object alignment is inadequate; allocate new space and copy.
-        return iralloctRealign(tsdn, ptr, oldsize, size, alignment, zero, slab, tcache, arena);
+        return internalReallocateRealign(thread_state, ptr, old_size, size, alignment, zero, slab, thread_cache, arena);
     }
 
-    return arenaRalloc(tsdn, arena, ptr, oldsize, size, alignment, zero, slab, tcache);
+    return arenaReallocate(thread_state, arena, ptr, old_size, size, alignment, zero, slab, thread_cache);
 }
 
 /// jemalloc: iralloct
-JE_ALWAYS_INLINE void * iralloct(
-    ThreadState * tsdn, void * ptr, size_t oldsize, size_t size, size_t alignment, size_t usize, bool zero, ThreadCache * tcache,
+ALLOCATOR_ALWAYS_INLINE void * internalReallocateWithCache(
+    ThreadState * thread_state,
+    void * ptr,
+    size_t old_size,
+    size_t size,
+    size_t alignment,
+    size_t usable_size,
+    bool zero,
+    ThreadCache * thread_cache,
     Arena * arena)
 {
-    bool slab = sz::canUseSlab(usize);
-    return iralloctExplicitSlab(tsdn, ptr, oldsize, size, alignment, zero, slab, tcache, arena);
+    bool slab = size_classes::canUseSlab(usable_size);
+    return internalReallocateExplicitSlab(thread_state, ptr, old_size, size, alignment, zero, slab, thread_cache, arena);
 }
 
 /// jemalloc: iralloc
-JE_ALWAYS_INLINE void * iralloc(ThreadState & tsd, void * ptr, size_t oldsize, size_t size, size_t alignment, size_t usize, bool zero)
+ALLOCATOR_ALWAYS_INLINE void *
+internalReallocate(ThreadState & thread_state, void * ptr, size_t old_size, size_t size, size_t alignment, size_t usable_size, bool zero)
 {
-    return iralloct(&tsd, ptr, oldsize, size, alignment, usize, zero, tcacheGet(tsd), nullptr);
+    return internalReallocateWithCache(
+        &thread_state, ptr, old_size, size, alignment, usable_size, zero, threadCacheGet(thread_state), nullptr);
 }
 
-/// Returns true if the allocation could not be resized in place (`*newsize` is the resulting usable size).
+/// Returns true if the allocation could not be resized in place (`*new_size` is the resulting usable size).
 /// jemalloc: ixalloc
-JE_ALWAYS_INLINE bool ixalloc(
-    ThreadState * tsdn, void * ptr, size_t oldsize, size_t size, size_t extra, size_t alignment, bool zero, size_t * newsize)
+ALLOCATOR_ALWAYS_INLINE bool internalExpandInPlace(
+    ThreadState * thread_state, void * ptr, size_t old_size, size_t size, size_t extra, size_t alignment, bool zero, size_t * new_size)
 {
-    JE_ASSERT(ptr != nullptr);
-    JE_ASSERT(size != 0);
+    ALLOCATOR_ASSERT(ptr != nullptr);
+    ALLOCATOR_ASSERT(size != 0);
 
     if (alignment != 0 && (reinterpret_cast<uintptr_t>(ptr) & (uintptr_t(alignment) - 1)) != 0)
     {
         /// Existing object alignment is inadequate.
-        *newsize = oldsize;
+        *new_size = old_size;
         return true;
     }
 
-    return arenaRallocNoMove(tsdn, ptr, oldsize, size, extra, zero, newsize);
+    return arenaReallocateNoMove(thread_state, ptr, old_size, size, extra, zero, new_size);
 }
 
 /// --- Fast paths (jemalloc_internal_inlines_c.h) ---------------------------------------------------------------------
 
 /// jemalloc: fastpath_success_finish
-JE_ALWAYS_INLINE void fastpathSuccessFinish(ThreadState * tsd, uint64_t allocated_after, CacheBin * bin, void * /*ret*/)
+ALLOCATOR_ALWAYS_INLINE void fastPathSuccessFinish(ThreadState * thread_state, uint64_t allocated_after, CacheBin * bin, void * /*ret*/)
 {
-    tsd->thread_allocated = allocated_after;
+    thread_state->thread_allocated = allocated_after;
     if constexpr (config::stats)
-        ++bin->tstats.nrequests;
+        ++bin->thread_cache_stats.num_requests;
 }
 
-/// The `malloc` fast path. Assumes `size <= SC_LOOKUP_MAXCLASS` and that the tcache bin is not empty; otherwise (and
+/// The `malloc` fast path. Assumes `size <= SIZE_CLASS_LOOKUP_MAX_CLASS` and that the tcache bin is not empty; otherwise (and
 /// for the uninitialized / slow / event-triggering cases, which are all folded into one threshold comparison) it
 /// tail-calls `fallback_alloc`, which has the signature of `malloc`, so that no call frame is set up in the common
 /// case.
 /// jemalloc: imalloc_fastpath
 template <void * (*fallback_alloc)(size_t)>
-JE_ALWAYS_INLINE void * imallocFastpath(size_t size)
+ALLOCATOR_ALWAYS_INLINE void * allocateFastPath(size_t size)
 {
-    if (TSD::get_allocates && JE_UNLIKELY(!mallocInitialized()))
+    if (ThreadStateStorage::get_allocates && ALLOCATOR_UNLIKELY(!mallocInitialized()))
         return fallback_alloc(size);
 
-    ThreadState * tsd = TSD::get(false);
-    if (JE_UNLIKELY((size > SC_LOOKUP_MAXCLASS) || tsd == nullptr))
+    ThreadState * thread_state = ThreadStateStorage::get(false);
+    if (ALLOCATOR_UNLIKELY((size > SIZE_CLASS_LOOKUP_MAX_CLASS) || thread_state == nullptr))
         return fallback_alloc(size);
 
     /// The code below till the branch checking the next_event threshold may execute before `mallocInit`, in which case
     /// the threshold is 0 to trigger slow path and initialization. Note that when uninitialized, only the fast-path
     /// variants of the sz / tsd facilities may be called.
-    szind_t ind;
+    SizeClassIdx idx;
     /// The `thread_allocated` counter in tsd serves as a general purpose accumulator for bytes of allocation to
     /// trigger different types of events. usize is always needed to advance thread_allocated, though it's not always
     /// needed in the core allocation logic.
-    size_t usize;
-    sz::sizeToIndexUsizeFastpath(size, &ind, &usize);
+    size_t usable_size;
+    size_classes::sizeToIndexUsableSizeFastPath(size, &idx, &usable_size);
     /// Fast path relies on size being a bin.
-    JE_ASSERT(ind < SC_NBINS);
-    static_assert(SC_LOOKUP_MAXCLASS < SC_SMALL_MAXCLASS);
+    ALLOCATOR_ASSERT(idx < SIZE_CLASS_NUM_BINS);
+    static_assert(SIZE_CLASS_LOOKUP_MAX_CLASS < SIZE_CLASS_SMALL_MAX_CLASS);
 
     uint64_t allocated;
     uint64_t threshold;
-    teMallocFastpathCtx(*tsd, allocated, threshold);
-    uint64_t allocated_after = allocated + usize;
+    threadEventMallocFastPathContext(*thread_state, allocated, threshold);
+    uint64_t allocated_after = allocated + usable_size;
     /// The ind and usize might be uninitialized (or partially) before `mallocInit`. The assertions check for: 1) full
     /// correctness (usize & ind) when initialized; and 2) guaranteed slow-path (threshold == 0) when !initialized.
     if (!mallocInitialized())
     {
-        JE_ASSERT(threshold == 0);
+        ALLOCATOR_ASSERT(threshold == 0);
     }
     else
     {
-        JE_ASSERT(ind == sz::sizeToIndex(size));
-        JE_ASSERT(usize > 0 && usize == sz::indexToSize(ind));
+        ALLOCATOR_ASSERT(idx == size_classes::sizeToIndex(size));
+        ALLOCATOR_ASSERT(usable_size > 0 && usable_size == size_classes::indexToSize(idx));
     }
     /// Check for events and tsd non-nominal (fast_threshold will be set to 0) in a single branch.
-    if (JE_UNLIKELY(allocated_after >= threshold))
+    if (ALLOCATOR_UNLIKELY(allocated_after >= threshold))
         return fallback_alloc(size);
-    JE_ASSERT(tsd->fast());
+    ALLOCATOR_ASSERT(thread_state->fast());
 
-    ThreadCache * tcache = tsd->tcacheGet();
-    JE_ASSERT(tcache == tcacheGet(*tsd));
-    CacheBin * bin = &tcache->bins[ind];
+    ThreadCache * thread_cache = thread_state->threadCacheGet();
+    ALLOCATOR_ASSERT(thread_cache == threadCacheGet(*thread_state));
+    CacheBin * bin = &thread_cache->bins[idx];
 
     /// We split up the code this way so that redundant low-water computation doesn't happen on the (more common) case
     /// in which we don't touch the low water mark. The compiler won't do this duplication on its own.
-    bool tcache_success;
-    void * ret = bin->allocEasy(tcache_success);
-    if (tcache_success)
+    bool thread_cache_success;
+    void * result = bin->allocEasy(thread_cache_success);
+    if (thread_cache_success)
     {
-        fastpathSuccessFinish(tsd, allocated_after, bin, ret);
-        return ret;
+        fastPathSuccessFinish(thread_state, allocated_after, bin, result);
+        return result;
     }
-    ret = bin->alloc(tcache_success);
-    if (tcache_success)
+    result = bin->alloc(thread_cache_success);
+    if (thread_cache_success)
     {
-        fastpathSuccessFinish(tsd, allocated_after, bin, ret);
-        return ret;
+        fastPathSuccessFinish(thread_state, allocated_after, bin, result);
+        return result;
     }
 
     return fallback_alloc(size);
 }
 
 /// jemalloc: tcache_get_from_ind
-JE_ALWAYS_INLINE ThreadCache * tcacheGetFromInd(ThreadState & tsd, unsigned tcache_ind, bool slow, bool is_alloc)
+ALLOCATOR_ALWAYS_INLINE ThreadCache * threadCacheGetFromIdx(ThreadState & thread_state, unsigned thread_cache_idx, bool slow, bool is_alloc)
 {
-    ThreadCache * tcache;
-    if (tcache_ind == TCACHE_IND_AUTOMATIC)
+    ThreadCache * thread_cache;
+    if (thread_cache_idx == THREAD_CACHE_IDX_AUTOMATIC)
     {
-        if (JE_LIKELY(!slow))
+        if (ALLOCATOR_LIKELY(!slow))
         {
             /// Getting tcache ptr unconditionally.
-            tcache = tsd.tcacheGet();
-            JE_ASSERT(tcache == tcacheGet(tsd));
+            thread_cache = thread_state.threadCacheGet();
+            ALLOCATOR_ASSERT(thread_cache == threadCacheGet(thread_state));
         }
-        else if (is_alloc || JE_LIKELY(tsd.reentrancyLevel() == 0))
+        else if (is_alloc || ALLOCATOR_LIKELY(thread_state.reentrancyLevel() == 0))
         {
-            tcache = tcacheGet(tsd);
+            thread_cache = threadCacheGet(thread_state);
         }
         else
         {
-            tcache = nullptr;
+            thread_cache = nullptr;
         }
     }
     else
     {
         /// Should not specify tcache on deallocation path when being reentrant.
-        JE_ASSERT(is_alloc || tsd.reentrancyLevel() == 0 || tsd.stateNocleanup());
-        if (tcache_ind == TCACHE_IND_NONE)
-            tcache = nullptr;
+        ALLOCATOR_ASSERT(is_alloc || thread_state.reentrancyLevel() == 0 || thread_state.stateNoCleanup());
+        if (thread_cache_idx == THREAD_CACHE_IDX_NONE)
+            thread_cache = nullptr;
         else
-            tcache = tcachesGet(tsd, tcache_ind);
+            thread_cache = explicitThreadCachesGet(thread_state, thread_cache_idx);
     }
-    return tcache;
+    return thread_cache;
 }
 
 /// Only with `config_opt_size_checks` (never enabled in ClickHouse). Returns true on a detected mismatch.
 /// jemalloc: maybe_check_alloc_ctx
-JE_ALWAYS_INLINE bool maybeCheckAllocCtx(ThreadState & tsd, void * ptr, AllocContext * alloc_ctx)
+ALLOCATOR_ALWAYS_INLINE bool maybeCheckAllocContext(ThreadState & thread_state, void * ptr, AllocContext * alloc_context)
 {
-    if constexpr (config::opt_size_checks)
+    if constexpr (config::option_size_checks)
     {
-        AllocContext dbg_ctx;
-        arena_emap_global.allocCtxLookup(&tsd, ptr, &dbg_ctx);
-        if (alloc_ctx->szind != dbg_ctx.szind)
+        AllocContext debug_context;
+        arena_extent_map_global.allocContextLookup(&thread_state, ptr, &debug_context);
+        if (alloc_context->size_class_idx != debug_context.size_class_idx)
         {
             safetyCheckFailSizedDealloc(
-                /* current_dealloc */ true, ptr, /* true_size */ dbg_ctx.usizeGet(), /* input_size */ alloc_ctx->usizeGet());
+                /* current_dealloc */ true,
+                ptr,
+                /* true_size */ debug_context.usableSizeGet(),
+                /* input_size */ alloc_context->usableSizeGet());
             return true;
         }
-        if (alloc_ctx->slab != dbg_ctx.slab)
+        if (alloc_context->slab != debug_context.slab)
         {
             safetyCheckFail("Internal heap corruption detected: mismatch in slab bit");
             return true;
@@ -454,9 +510,9 @@ JE_ALWAYS_INLINE bool maybeCheckAllocCtx(ThreadState & tsd, void * ptr, AllocCon
     }
     else
     {
-        (void)tsd;
+        (void)thread_state;
         (void)ptr;
-        (void)alloc_ctx;
+        (void)alloc_context;
     }
     return false;
 }
@@ -465,123 +521,123 @@ JE_ALWAYS_INLINE bool maybeCheckAllocCtx(ThreadState & tsd, void * ptr, AllocCon
 /// use-after-free detection. Both have special alignments which are used to escape the fast path. `prof_sample` is
 /// page-aligned, which covers the UAF check when both are enabled. At most one runtime branch.
 /// jemalloc: free_fastpath_nonfast_aligned
-JE_ALWAYS_INLINE bool freeFastpathNonfastAligned(void * ptr, bool check_prof)
+ALLOCATOR_ALWAYS_INLINE bool freeFastPathNonFastAligned(void * ptr, bool check_profiling)
 {
     if constexpr (config::debug)
     {
-        if (cacheBinNonfastAligned(ptr))
-            JE_ASSERT(profSampleAligned(ptr));
+        if (cacheBinNonFastAligned(ptr))
+            ALLOCATOR_ASSERT(profilingSampleAligned(ptr));
     }
 
-    if (config::prof && check_prof)
+    if (config::profiling && check_profiling)
     {
         /// When prof is enabled, the prof_sample alignment is enough.
-        return profSampleAligned(ptr);
+        return profilingSampleAligned(ptr);
     }
 
-    if constexpr (config::uaf_detection)
-        return cacheBinNonfastAligned(ptr);
+    if constexpr (config::use_after_free_detection)
+        return cacheBinNonFastAligned(ptr);
 
     return false;
 }
 
 /// Returns whether or not the free attempt was successful.
 /// jemalloc: free_fastpath
-JE_ALWAYS_INLINE bool freeFastpath(void * ptr, size_t size, bool size_hint)
+ALLOCATOR_ALWAYS_INLINE bool freeFastPath(void * ptr, size_t size, bool size_hint)
 {
-    ThreadState * tsd = TSD::get(false);
+    ThreadState * thread_state = ThreadStateStorage::get(false);
     /// The branch gets optimized away unless the TSD implementation allocates.
-    if (JE_UNLIKELY(tsd == nullptr))
+    if (ALLOCATOR_UNLIKELY(thread_state == nullptr))
         return false;
     /// The `tsd_fast` / initialized checks are folded into the branch testing (deallocated_after >= threshold) later in
     /// this function. The threshold will be set to 0 when !tsd_fast.
-    JE_ASSERT(tsd->fast() || tsd->thread_deallocated_next_event_fast == 0);
+    ALLOCATOR_ASSERT(thread_state->fast() || thread_state->thread_deallocated_next_event_fast == 0);
 
-    AllocContext alloc_ctx{0, 0, false};
-    size_t usize;
+    AllocContext alloc_context{0, 0, false};
+    size_t usable_size;
     if (!size_hint)
     {
-        bool err = arena_emap_global.allocCtxTryLookupFast(*tsd, ptr, &alloc_ctx);
+        bool error = arena_extent_map_global.allocContextTryLookupFast(*thread_state, ptr, &alloc_context);
 
         /// Note: profiled objects will have alloc_ctx.slab set.
-        if (JE_UNLIKELY(err || !alloc_ctx.slab || freeFastpathNonfastAligned(ptr, /* check_prof */ false)))
+        if (ALLOCATOR_UNLIKELY(error || !alloc_context.slab || freeFastPathNonFastAligned(ptr, /* check_prof */ false)))
             return false;
-        JE_ASSERT(alloc_ctx.szind != SC_NSIZES);
-        usize = sz::indexToSize(alloc_ctx.szind);
+        ALLOCATOR_ASSERT(alloc_context.size_class_idx != SIZE_CLASS_NUM_SIZES);
+        usable_size = size_classes::indexToSize(alloc_context.size_class_idx);
     }
     else
     {
         /// Check for both sizes that are too large, and for sampled / special aligned objects. The alignment check will
         /// also check for null ptr.
-        if (JE_UNLIKELY(size > SC_LOOKUP_MAXCLASS || freeFastpathNonfastAligned(ptr, /* check_prof */ true)))
+        if (ALLOCATOR_UNLIKELY(size > SIZE_CLASS_LOOKUP_MAX_CLASS || freeFastPathNonFastAligned(ptr, /* check_prof */ true)))
             return false;
-        sz::sizeToIndexUsizeFastpath(size, &alloc_ctx.szind, &usize);
+        size_classes::sizeToIndexUsableSizeFastPath(size, &alloc_context.size_class_idx, &usable_size);
         /// Max lookup class must be small.
-        JE_ASSERT(alloc_ctx.szind < SC_NBINS);
+        ALLOCATOR_ASSERT(alloc_context.size_class_idx < SIZE_CLASS_NUM_BINS);
         /// This is a dead store, except when opt size checking is on.
-        alloc_ctx.slab = true;
+        alloc_context.slab = true;
     }
-    /// Currently the fast path only handles small sizes. The branch on SC_LOOKUP_MAXCLASS makes sure of it. This lets
+    /// Currently the fast path only handles small sizes. The branch on SIZE_CLASS_LOOKUP_MAX_CLASS makes sure of it. This lets
     /// us avoid checking the tcache szind upper limit (i.e. tcache_max) as well.
-    JE_ASSERT(alloc_ctx.slab);
+    ALLOCATOR_ASSERT(alloc_context.slab);
 
     uint64_t deallocated;
     uint64_t threshold;
-    teFreeFastpathCtx(*tsd, deallocated, threshold);
+    threadEventFreeFastPathContext(*thread_state, deallocated, threshold);
 
-    uint64_t deallocated_after = deallocated + usize;
+    uint64_t deallocated_after = deallocated + usable_size;
     /// Check for events and tsd non-nominal (fast_threshold will be set to 0) in a single branch. Note that this
     /// handles the uninitialized case as well (TSD init will be triggered on the non-fastpath). Therefore anything
     /// that depends on a functional TSD (e.g. the alloc_ctx sanity check below) needs to be after this branch.
-    if (JE_UNLIKELY(deallocated_after >= threshold))
+    if (ALLOCATOR_UNLIKELY(deallocated_after >= threshold))
         return false;
-    JE_ASSERT(tsd->fast());
-    bool fail = maybeCheckAllocCtx(*tsd, ptr, &alloc_ctx);
+    ALLOCATOR_ASSERT(thread_state->fast());
+    bool fail = maybeCheckAllocContext(*thread_state, ptr, &alloc_context);
     if (fail)
     {
         /// See the comment in isfree.
         return true;
     }
 
-    ThreadCache * tcache = tcacheGetFromInd(*tsd, TCACHE_IND_AUTOMATIC, /* slow */ false, /* is_alloc */ false);
-    CacheBin * bin = &tcache->bins[alloc_ctx.szind];
+    ThreadCache * thread_cache = threadCacheGetFromIdx(*thread_state, THREAD_CACHE_IDX_AUTOMATIC, /* slow */ false, /* is_alloc */ false);
+    CacheBin * bin = &thread_cache->bins[alloc_context.size_class_idx];
 
     /// If junking were enabled, this is where we would do it. It's not though, since we ensured above that we're on
     /// the fast path.
-    JE_ASSERT(!opt.junk_free);
+    ALLOCATOR_ASSERT(!options.junk_free);
 
-    if (!bin->dallocEasy(ptr))
+    if (!bin->deallocateEasy(ptr))
         return false;
 
-    tsd->thread_deallocated = deallocated_after;
+    thread_state->thread_deallocated = deallocated_after;
 
     return true;
 }
 
 /// The slow paths of `malloc`, `free`, `sdallocx` (noinline, defined in API.cpp).
 /// jemalloc: malloc_default, free_default, sdallocx_default
-JE_NOINLINE void * mallocDefault(size_t size);
-JE_NOINLINE void freeDefault(void * ptr);
-JE_NOINLINE void sdallocxDefault(void * ptr, size_t size, int flags);
+ALLOCATOR_NOINLINE void * mallocDefault(size_t size);
+ALLOCATOR_NOINLINE void freeDefault(void * ptr);
+ALLOCATOR_NOINLINE void sizedDeallocateWithFlagsDefault(void * ptr, size_t size, int flags);
 
 /// jemalloc: je_sdallocx_noflags
-JE_ALWAYS_INLINE void sdallocxNoflags(void * ptr, size_t size)
+ALLOCATOR_ALWAYS_INLINE void sizedDeallocateNoFlags(void * ptr, size_t size)
 {
-    if (!freeFastpath(ptr, size, true))
-        sdallocxDefault(ptr, size, 0);
+    if (!freeFastPath(ptr, size, true))
+        sizedDeallocateWithFlagsDefault(ptr, size, 0);
 }
 
 /// jemalloc: je_sdallocx_impl
-JE_ALWAYS_INLINE void sdallocxImpl(void * ptr, size_t size, int flags)
+ALLOCATOR_ALWAYS_INLINE void sizedDeallocateWithFlagsImpl(void * ptr, size_t size, int flags)
 {
-    if (flags != 0 || !freeFastpath(ptr, size, true))
-        sdallocxDefault(ptr, size, flags);
+    if (flags != 0 || !freeFastPath(ptr, size, true))
+        sizedDeallocateWithFlagsDefault(ptr, size, flags);
 }
 
 /// jemalloc: je_free_impl
-JE_ALWAYS_INLINE void freeImpl(void * ptr)
+ALLOCATOR_ALWAYS_INLINE void freeImpl(void * ptr)
 {
-    if (!freeFastpath(ptr, 0, false))
+    if (!freeFastPath(ptr, 0, false))
         freeDefault(ptr);
 }
 

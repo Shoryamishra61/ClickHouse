@@ -1,6 +1,6 @@
 #include <allocator/Decay.h>
 
-#include <allocator/Prng.h>
+#include <allocator/PRNG.h>
 
 #include <cstring>
 
@@ -13,47 +13,47 @@ void Decay::deadlineInit()
     deadline.add(interval);
     if (msRead() > 0)
     {
-        NsTime jitter;
+        Nanoseconds jitter;
         jitter.init(prngRangeU64(jitter_state, interval.ns()));
         deadline.add(jitter);
     }
 }
 
-void Decay::reinit(const NsTime & cur_time, ssize_t decay_ms)
+void Decay::reinit(const Nanoseconds & current_time, ssize_t decay_ms)
 {
     time_ms.store(decay_ms, std::memory_order_relaxed);
     if (decay_ms > 0)
     {
         interval.init(static_cast<uint64_t>(decay_ms) * 1000000ULL);
-        interval.idivide(SMOOTHSTEP_NSTEPS);
+        interval.divideBy(SMOOTHSTEP_NUM_STEPS);
     }
 
-    epoch.copy(cur_time);
+    epoch.copy(current_time);
     /// The jitter stream is seeded with the address of the object, exactly like jemalloc.
     jitter_state = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(this));
     deadlineInit();
-    nunpurged = 0;
-    std::memset(backlog, 0, SMOOTHSTEP_NSTEPS * sizeof(size_t));
+    num_unpurged = 0;
+    std::memset(backlog, 0, SMOOTHSTEP_NUM_STEPS * sizeof(size_t));
 }
 
-bool Decay::init(const NsTime & cur_time, ssize_t decay_ms)
+bool Decay::init(const Nanoseconds & current_time, ssize_t decay_ms)
 {
     if constexpr (config::debug)
     {
         /// jemalloc checks that the whole `decay_t` is zeroed; the mutex is checked by its own initialization (its
         /// initial state is not all-zero bytes on every platform).
-        JE_ASSERT(!purging);
-        JE_ASSERT(time_ms.load(std::memory_order_relaxed) == 0);
-        JE_ASSERT(interval.ns() == 0 && epoch.ns() == 0 && deadline.ns() == 0);
-        JE_ASSERT(jitter_state == 0 && npages_limit == 0 && nunpurged == 0 && ceil_npages == 0);
-        for (size_t i = 0; i < SMOOTHSTEP_NSTEPS; ++i)
-            JE_ASSERT(backlog[i] == 0);
-        ceil_npages = 0;
+        ALLOCATOR_ASSERT(!purging);
+        ALLOCATOR_ASSERT(time_ms.load(std::memory_order_relaxed) == 0);
+        ALLOCATOR_ASSERT(interval.ns() == 0 && epoch.ns() == 0 && deadline.ns() == 0);
+        ALLOCATOR_ASSERT(jitter_state == 0 && num_pages_limit == 0 && num_unpurged == 0 && ceil_num_pages == 0);
+        for (size_t i = 0; i < SMOOTHSTEP_NUM_STEPS; ++i)
+            ALLOCATOR_ASSERT(backlog[i] == 0);
+        ceil_num_pages = 0;
     }
-    if (mtx.init("decay", MutexRank::DECAY, MutexLockOrder::RankExclusive))
+    if (mutex.init("decay", MutexRank::DECAY, MutexLockOrder::RankExclusive))
         return true;
     purging = false;
-    reinit(cur_time, decay_ms);
+    reinit(current_time, decay_ms);
     return false;
 }
 
@@ -61,14 +61,14 @@ bool Decay::msValid(ssize_t decay_ms)
 {
     if (decay_ms < -1)
         return false;
-    if (decay_ms == -1 || static_cast<uint64_t>(decay_ms) <= NSTIME_SEC_MAX * 1000ULL)
+    if (decay_ms == -1 || static_cast<uint64_t>(decay_ms) <= NANOSECONDS_MAX_SECONDS * 1000ULL)
         return true;
     return false;
 }
 
-void Decay::maybeUpdateTime(const NsTime & new_time)
+void Decay::maybeUpdateTime(const Nanoseconds & new_time)
 {
-    if (JE_UNLIKELY(!NsTime::isMonotonic() && epoch.compare(new_time) > 0))
+    if (ALLOCATOR_UNLIKELY(!Nanoseconds::isMonotonic() && epoch.compare(new_time) > 0))
     {
         /// Time went backwards. Move the epoch back in time and generate a new deadline, with the expectation that
         /// time typically flows forward for long enough periods of time that epochs complete. Unfortunately, this
@@ -80,101 +80,101 @@ void Decay::maybeUpdateTime(const NsTime & new_time)
     else
     {
         /// Verify that time does not go backwards.
-        JE_ASSERT(epoch.compare(new_time) <= 0);
+        ALLOCATOR_ASSERT(epoch.compare(new_time) <= 0);
     }
 }
 
-size_t Decay::backlogNpagesLimit() const
+size_t Decay::backlogNumPagesLimit() const
 {
     /// For each element of the backlog, multiply by the corresponding fixed-point smoothstep decay factor. Sum the
     /// products, then divide to round down to the nearest whole number of pages.
     uint64_t sum = 0;
-    for (unsigned i = 0; i < SMOOTHSTEP_NSTEPS; ++i)
+    for (unsigned i = 0; i < SMOOTHSTEP_NUM_STEPS; ++i)
         sum += backlog[i] * smoothstep_h_steps[i];
-    size_t npages_limit_backlog = static_cast<size_t>(sum >> SMOOTHSTEP_BFP);
+    size_t num_pages_limit_backlog = static_cast<size_t>(sum >> SMOOTHSTEP_BINARY_FIXED_POINT);
 
-    return npages_limit_backlog;
+    return num_pages_limit_backlog;
 }
 
-void Decay::backlogUpdate(uint64_t nadvance_u64, size_t current_npages)
+void Decay::backlogUpdate(uint64_t num_advance_u64, size_t current_num_pages)
 {
-    if (nadvance_u64 >= SMOOTHSTEP_NSTEPS)
+    if (num_advance_u64 >= SMOOTHSTEP_NUM_STEPS)
     {
-        std::memset(backlog, 0, (SMOOTHSTEP_NSTEPS - 1) * sizeof(size_t));
+        std::memset(backlog, 0, (SMOOTHSTEP_NUM_STEPS - 1) * sizeof(size_t));
     }
     else
     {
-        size_t nadvance_z = static_cast<size_t>(nadvance_u64);
+        size_t num_advance_size = static_cast<size_t>(num_advance_u64);
 
-        JE_ASSERT(static_cast<uint64_t>(nadvance_z) == nadvance_u64);
+        ALLOCATOR_ASSERT(static_cast<uint64_t>(num_advance_size) == num_advance_u64);
 
-        std::memmove(backlog, &backlog[nadvance_z], (SMOOTHSTEP_NSTEPS - nadvance_z) * sizeof(size_t));
-        if (nadvance_z > 1)
-            std::memset(&backlog[SMOOTHSTEP_NSTEPS - nadvance_z], 0, (nadvance_z - 1) * sizeof(size_t));
+        std::memmove(backlog, &backlog[num_advance_size], (SMOOTHSTEP_NUM_STEPS - num_advance_size) * sizeof(size_t));
+        if (num_advance_size > 1)
+            std::memset(&backlog[SMOOTHSTEP_NUM_STEPS - num_advance_size], 0, (num_advance_size - 1) * sizeof(size_t));
     }
 
-    size_t npages_delta = (current_npages > nunpurged) ? current_npages - nunpurged : 0;
-    backlog[SMOOTHSTEP_NSTEPS - 1] = npages_delta;
+    size_t num_pages_delta = (current_num_pages > num_unpurged) ? current_num_pages - num_unpurged : 0;
+    backlog[SMOOTHSTEP_NUM_STEPS - 1] = num_pages_delta;
 
     if constexpr (config::debug)
     {
-        if (current_npages > ceil_npages)
-            ceil_npages = current_npages;
-        size_t limit = backlogNpagesLimit();
-        JE_ASSERT(ceil_npages >= limit);
-        if (ceil_npages > limit)
-            ceil_npages = limit;
+        if (current_num_pages > ceil_num_pages)
+            ceil_num_pages = current_num_pages;
+        size_t limit = backlogNumPagesLimit();
+        ALLOCATOR_ASSERT(ceil_num_pages >= limit);
+        if (ceil_num_pages > limit)
+            ceil_num_pages = limit;
     }
 }
 
-uint64_t Decay::npagesPurgeIn(const NsTime & time, size_t npages_new) const
+uint64_t Decay::numPagesPurgeIn(const Nanoseconds & time, size_t num_pages_new) const
 {
     uint64_t decay_interval_ns = epochDurationNs();
-    JE_ASSERT(decay_interval_ns != 0);
-    size_t n_epoch = static_cast<size_t>(time.ns() / decay_interval_ns);
+    ALLOCATOR_ASSERT(decay_interval_ns != 0);
+    size_t num_epoch = static_cast<size_t>(time.ns() / decay_interval_ns);
 
-    uint64_t npages_purge;
-    if (n_epoch >= SMOOTHSTEP_NSTEPS)
+    uint64_t num_pages_purge;
+    if (num_epoch >= SMOOTHSTEP_NUM_STEPS)
     {
-        npages_purge = npages_new;
+        num_pages_purge = num_pages_new;
     }
     else
     {
-        uint64_t h_steps_max = smoothstep_h_steps[SMOOTHSTEP_NSTEPS - 1];
-        JE_ASSERT(h_steps_max >= smoothstep_h_steps[SMOOTHSTEP_NSTEPS - 1 - n_epoch]);
-        npages_purge = npages_new * (h_steps_max - smoothstep_h_steps[SMOOTHSTEP_NSTEPS - 1 - n_epoch]);
-        npages_purge >>= SMOOTHSTEP_BFP;
+        uint64_t h_steps_max = smoothstep_h_steps[SMOOTHSTEP_NUM_STEPS - 1];
+        ALLOCATOR_ASSERT(h_steps_max >= smoothstep_h_steps[SMOOTHSTEP_NUM_STEPS - 1 - num_epoch]);
+        num_pages_purge = num_pages_new * (h_steps_max - smoothstep_h_steps[SMOOTHSTEP_NUM_STEPS - 1 - num_epoch]);
+        num_pages_purge >>= SMOOTHSTEP_BINARY_FIXED_POINT;
     }
-    return npages_purge;
+    return num_pages_purge;
 }
 
-bool Decay::maybeAdvanceEpoch(const NsTime & new_time, size_t npages_current)
+bool Decay::maybeAdvanceEpoch(const Nanoseconds & new_time, size_t num_pages_current)
 {
     /// Handle possible non-monotonicity of time.
     maybeUpdateTime(new_time);
 
     if (!deadlineReached(new_time))
         return false;
-    NsTime delta;
+    Nanoseconds delta;
     delta.copy(new_time);
     delta.subtract(epoch);
 
-    uint64_t nadvance_u64 = delta.divide(interval);
-    JE_ASSERT(nadvance_u64 > 0);
+    uint64_t num_advance_u64 = delta.divide(interval);
+    ALLOCATOR_ASSERT(num_advance_u64 > 0);
 
     /// Add nadvance_u64 decay intervals to epoch.
     delta.copy(interval);
-    delta.imultiply(nadvance_u64);
+    delta.multiplyBy(num_advance_u64);
     epoch.add(delta);
 
     /// Set a new deadline.
     deadlineInit();
 
     /// Update the backlog.
-    backlogUpdate(nadvance_u64, npages_current);
+    backlogUpdate(num_advance_u64, num_pages_current);
 
-    npages_limit = backlogNpagesLimit();
-    nunpurged = (npages_limit > npages_current) ? npages_limit : npages_current;
+    num_pages_limit = backlogNumPagesLimit();
+    num_unpurged = (num_pages_limit > num_pages_current) ? num_pages_limit : num_pages_current;
 
     return true;
 }
@@ -187,75 +187,75 @@ bool Decay::maybeAdvanceEpoch(const NsTime & new_time, size_t npages_current)
 /// positions to the left and sigmoid curve would be applied starting with backlog[interval_epochs].
 ///
 /// The implementation doesn't directly map to the description, but it's essentially the same calculation, optimized
-/// to avoid iterating over [interval_epochs..SMOOTHSTEP_NSTEPS) twice.
-size_t Decay::npurgeAfterInterval(size_t interval_epochs) const
+/// to avoid iterating over [interval_epochs..SMOOTHSTEP_NUM_STEPS) twice.
+size_t Decay::numPurgeAfterInterval(size_t interval_epochs) const
 {
     size_t i;
     uint64_t sum = 0;
     for (i = 0; i < interval_epochs; ++i)
         sum += backlog[i] * smoothstep_h_steps[i];
-    for (; i < SMOOTHSTEP_NSTEPS; ++i)
+    for (; i < SMOOTHSTEP_NUM_STEPS; ++i)
         sum += backlog[i] * (smoothstep_h_steps[i] - smoothstep_h_steps[i - interval_epochs]);
 
-    return static_cast<size_t>(sum >> SMOOTHSTEP_BFP);
+    return static_cast<size_t>(sum >> SMOOTHSTEP_BINARY_FIXED_POINT);
 }
 
-uint64_t Decay::nsUntilPurge(size_t npages_current, uint64_t npages_threshold) const
+uint64_t Decay::nsUntilPurge(size_t num_pages_current, uint64_t num_pages_threshold) const
 {
     if (!gradually())
         return DECAY_UNBOUNDED_TIME_TO_PURGE;
     uint64_t decay_interval_ns = epochDurationNs();
-    JE_ASSERT(decay_interval_ns > 0);
-    if (npages_current == 0)
+    ALLOCATOR_ASSERT(decay_interval_ns > 0);
+    if (num_pages_current == 0)
     {
         unsigned i;
-        for (i = 0; i < SMOOTHSTEP_NSTEPS; ++i)
+        for (i = 0; i < SMOOTHSTEP_NUM_STEPS; ++i)
         {
             if (backlog[i] > 0)
                 break;
         }
-        if (i == SMOOTHSTEP_NSTEPS)
+        if (i == SMOOTHSTEP_NUM_STEPS)
         {
             /// No dirty pages recorded. Sleep indefinitely.
             return DECAY_UNBOUNDED_TIME_TO_PURGE;
         }
     }
-    if (npages_current <= npages_threshold)
+    if (num_pages_current <= num_pages_threshold)
     {
         /// Use max interval.
-        return decay_interval_ns * SMOOTHSTEP_NSTEPS;
+        return decay_interval_ns * SMOOTHSTEP_NUM_STEPS;
     }
 
     /// Minimal 2 intervals to ensure reaching next epoch deadline.
-    size_t lb = 2;
-    size_t ub = SMOOTHSTEP_NSTEPS;
+    size_t lower_bound = 2;
+    size_t upper_bound = SMOOTHSTEP_NUM_STEPS;
 
-    size_t npurge_lb = npurgeAfterInterval(lb);
-    if (npurge_lb > npages_threshold)
-        return decay_interval_ns * lb;
-    size_t npurge_ub = npurgeAfterInterval(ub);
-    if (npurge_ub < npages_threshold)
-        return decay_interval_ns * ub;
+    size_t num_purge_lower_bound = numPurgeAfterInterval(lower_bound);
+    if (num_purge_lower_bound > num_pages_threshold)
+        return decay_interval_ns * lower_bound;
+    size_t num_purge_upper_bound = numPurgeAfterInterval(upper_bound);
+    if (num_purge_upper_bound < num_pages_threshold)
+        return decay_interval_ns * upper_bound;
 
-    [[maybe_unused]] unsigned n_search = 0;
-    while ((npurge_lb + npages_threshold < npurge_ub) && (lb + 2 < ub))
+    [[maybe_unused]] unsigned num_search = 0;
+    while ((num_purge_lower_bound + num_pages_threshold < num_purge_upper_bound) && (lower_bound + 2 < upper_bound))
     {
-        size_t target = (lb + ub) / 2;
-        size_t npurge = npurgeAfterInterval(target);
-        if (npurge > npages_threshold)
+        size_t target = (lower_bound + upper_bound) / 2;
+        size_t num_purge = numPurgeAfterInterval(target);
+        if (num_purge > num_pages_threshold)
         {
-            ub = target;
-            npurge_ub = npurge;
+            upper_bound = target;
+            num_purge_upper_bound = num_purge;
         }
         else
         {
-            lb = target;
-            npurge_lb = npurge;
+            lower_bound = target;
+            num_purge_lower_bound = num_purge;
         }
-        JE_ASSERT(n_search < lgFloor(SMOOTHSTEP_NSTEPS) + 1);
-        ++n_search;
+        ALLOCATOR_ASSERT(num_search < log2Floor(SMOOTHSTEP_NUM_STEPS) + 1);
+        ++num_search;
     }
-    return decay_interval_ns * (ub + lb) / 2;
+    return decay_interval_ns * (upper_bound + lower_bound) / 2;
 }
 
 }

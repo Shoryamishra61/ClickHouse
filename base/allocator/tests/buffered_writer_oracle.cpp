@@ -7,22 +7,22 @@
 #include <cstring>
 #include <random>
 
-extern "C"
-{
+extern "C" {
 struct buf_writer_t
 {
-    void (*write_cb)(void *, const char *);
-    void * cbopaque;
+    void (*write_callback)(void *, const char *);
+    void * callback_argument;
     char * buf;
     size_t buf_size;
-    size_t buf_end;
+    size_t buffer_end;
     bool internal_buf;
 };
-bool buf_writer_init(void * tsdn, buf_writer_t * buf_writer, void (*write_cb)(void *, const char *), void * cbopaque, char * buf, size_t buf_len);
+bool buf_writer_init(
+    void * thread_state, buf_writer_t * buf_writer, void (*write_callback)(void *, const char *), void * callback_argument, char * buf, size_t buf_len);
 void buf_writer_flush(buf_writer_t * buf_writer);
 void buf_writer_cb(void * buf_writer, const char * s);
-void buf_writer_terminate(void * tsdn, buf_writer_t * buf_writer);
-void buf_writer_pipe(buf_writer_t * buf_writer, ssize_t (*read_cb)(void *, void *, size_t), void * read_cbopaque);
+void buf_writer_terminate(void * thread_state, buf_writer_t * buf_writer);
+void buf_writer_pipe(buf_writer_t * buf_writer, ssize_t (*read_callback)(void *, void *, size_t), void * read_callback_argument);
 
 /// `buf_writer.o` pulls in the rest of the reference jemalloc, including the libunwind-based profiler backtrace,
 /// which is never called here.

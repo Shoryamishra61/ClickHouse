@@ -3,8 +3,8 @@
 /// Structured output of the statistics: pretty JSON, compact JSON or a human-readable table.
 /// jemalloc: `emitter.h`.
 ///
-/// Every print goes through `printToCallbackV` (`malloc_vcprintf`): it formats into a `MALLOC_PRINTF_BUFSIZE` stack
-/// buffer (truncating longer output of a single call) and calls `write_cb` once per call; the sequence of callback
+/// Every print goes through `printToCallbackV` (`malloc_vcprintf`): it formats into a `MALLOC_PRINTF_BUF_SIZE` stack
+/// buffer (truncating longer output of a single call) and calls `write_callback` once per call; the sequence of callback
 /// invocations is the same as in jemalloc. Strings are always quoted, without escaping.
 
 #include <allocator/Common.h>
@@ -55,7 +55,7 @@ struct EmitterRow;
 
 /// A column of a table row. Columns are linked into their row (no allocations) and printed in insertion order.
 /// jemalloc: emitter_col_t
-struct EmitterCol
+struct EmitterColumn
 {
     /// Filled in by the user.
     EmitterJustify justify = EmitterJustify::Left;
@@ -63,29 +63,29 @@ struct EmitterCol
     EmitterType type = EmitterType::Bool;
     union
     {
-        bool bool_val;
-        int int_val;
-        unsigned unsigned_val;
-        uint32_t uint32_val;
-        uint32_t uint32_t_val;
-        uint64_t uint64_val;
-        uint64_t uint64_t_val;
-        size_t size_val;
-        ssize_t ssize_val;
-        const char * str_val;
+        bool bool_value;
+        int int_value;
+        unsigned unsigned_value;
+        uint32_t uint32_value;
+        uint32_t uint32_t_value;
+        uint64_t uint64_value;
+        uint64_t uint64_t_value;
+        size_t size_value;
+        ssize_t ssize_value;
+        const char * str_value;
     };
 
     /// Filled in by initialization.
-    RingLink<EmitterCol> link;
+    RingLink<EmitterColumn> link;
 
-    EmitterCol()
-        : uint64_val(0)
+    EmitterColumn()
+        : uint64_value(0)
         , link{nullptr, nullptr}
     {
     }
 
-    EmitterCol(const EmitterCol &) = delete;
-    EmitterCol & operator=(const EmitterCol &) = delete;
+    EmitterColumn(const EmitterColumn &) = delete;
+    EmitterColumn & operator=(const EmitterColumn &) = delete;
 
     /// Appends the column to `row`.
     /// jemalloc: emitter_col_init
@@ -95,16 +95,16 @@ struct EmitterCol
 /// jemalloc: emitter_row_t
 struct EmitterRow
 {
-    IntrusiveList<EmitterCol, &EmitterCol::link> cols;
+    IntrusiveList<EmitterColumn, &EmitterColumn::link> columns;
 
     /// jemalloc: emitter_row_init
-    void init() { cols.init(); }
+    void init() { columns.init(); }
 };
 
-inline void EmitterCol::init(EmitterRow & row)
+inline void EmitterColumn::init(EmitterRow & row)
 {
-    IntrusiveList<EmitterCol, &EmitterCol::link>::elementInit(this);
-    row.cols.tailInsert(this);
+    IntrusiveList<EmitterColumn, &EmitterColumn::link>::elementInit(this);
+    row.columns.tailInsert(this);
 }
 
 /// jemalloc: emitter_t
@@ -112,10 +112,10 @@ class Emitter
 {
 public:
     /// jemalloc: emitter_init
-    Emitter(EmitterOutput output_, WriteCallback * write_cb_, void * cbopaque_)
+    Emitter(EmitterOutput output_, WriteCallback * write_callback_, void * callback_argument_)
         : output(output_)
-        , write_cb(write_cb_)
-        , cbopaque(cbopaque_)
+        , write_callback(write_callback_)
+        , callback_argument(callback_argument_)
     {
     }
 
@@ -123,11 +123,11 @@ public:
     Emitter & operator=(const Emitter &) = delete;
 
     /// jemalloc: emitter_init
-    void init(EmitterOutput output_, WriteCallback * write_cb_, void * cbopaque_)
+    void init(EmitterOutput output_, WriteCallback * write_callback_, void * callback_argument_)
     {
         output = output_;
-        write_cb = write_cb_;
-        cbopaque = cbopaque_;
+        write_callback = write_callback_;
+        callback_argument = callback_argument_;
         item_at_depth = false;
         emitted_key = false;
         nesting_depth = 0;
@@ -165,7 +165,7 @@ public:
 
     /// Shorthand for calling `jsonKey` and then `jsonValue`.
     /// jemalloc: emitter_json_kv
-    void jsonKv(const char * json_key, EmitterType value_type, const void * value)
+    void jsonKeyValue(const char * json_key, EmitterType value_type, const void * value)
     {
         jsonKey(json_key);
         jsonValue(value_type, value);
@@ -178,13 +178,13 @@ public:
         {
             jsonKeyPrefix();
             print("[");
-            nestInc();
+            nestIncrement();
         }
     }
 
     /// Shorthand for calling `jsonKey` and then `jsonArrayBegin`.
     /// jemalloc: emitter_json_array_kv_begin
-    void jsonArrayKvBegin(const char * json_key)
+    void jsonArrayKeyValueBegin(const char * json_key)
     {
         jsonKey(json_key);
         jsonArrayBegin();
@@ -195,8 +195,8 @@ public:
     {
         if (outputsJSON())
         {
-            JE_ASSERT(nesting_depth > 0);
-            nestDec();
+            ALLOCATOR_ASSERT(nesting_depth > 0);
+            nestDecrement();
             if (output != EmitterOutput::JSONCompact)
             {
                 print("\n");
@@ -213,13 +213,13 @@ public:
         {
             jsonKeyPrefix();
             print("{");
-            nestInc();
+            nestIncrement();
         }
     }
 
     /// Shorthand for calling `jsonKey` and then `jsonObjectBegin`.
     /// jemalloc: emitter_json_object_kv_begin
-    void jsonObjectKvBegin(const char * json_key)
+    void jsonObjectKeyValueBegin(const char * json_key)
     {
         jsonKey(json_key);
         jsonObjectBegin();
@@ -230,8 +230,8 @@ public:
     {
         if (outputsJSON())
         {
-            JE_ASSERT(nesting_depth > 0);
-            nestDec();
+            ALLOCATOR_ASSERT(nesting_depth > 0);
+            nestDecrement();
             if (output != EmitterOutput::JSONCompact)
             {
                 print("\n");
@@ -250,7 +250,7 @@ public:
         {
             indent();
             print("%s\n", table_key);
-            nestInc();
+            nestIncrement();
         }
     }
 
@@ -258,11 +258,11 @@ public:
     void tableDictEnd()
     {
         if (output == EmitterOutput::Table)
-            nestDec();
+            nestDecrement();
     }
 
     /// jemalloc: emitter_table_kv_note
-    void tableKvNote(
+    void tableKeyValueNote(
         const char * table_key,
         EmitterType value_type,
         const void * value,
@@ -287,21 +287,21 @@ public:
     }
 
     /// jemalloc: emitter_table_kv
-    void tableKv(const char * table_key, EmitterType value_type, const void * value)
+    void tableKeyValue(const char * table_key, EmitterType value_type, const void * value)
     {
-        tableKvNote(table_key, value_type, value, nullptr, EmitterType::Bool, nullptr);
+        tableKeyValueNote(table_key, value_type, value, nullptr, EmitterType::Bool, nullptr);
     }
 
     /// Write to the emitter the given string, but only in table mode.
     /// jemalloc: emitter_table_printf
-    void tablePrintf(const char * fmt, ...) JE_FORMAT_PRINTF(2, 3)
+    void tablePrintf(const char * format_string, ...) ALLOCATOR_FORMAT_PRINTF(2, 3)
     {
         if (output == EmitterOutput::Table)
         {
-            va_list ap;
-            va_start(ap, fmt);
-            printToCallbackV(write_cb, cbopaque, fmt, ap);
-            va_end(ap);
+            va_list args;
+            va_start(args, format_string);
+            printToCallbackV(write_callback, callback_argument, format_string, args);
+            va_end(args);
         }
     }
 
@@ -310,8 +310,8 @@ public:
     {
         if (output != EmitterOutput::Table)
             return;
-        for (EmitterCol * col : row.cols)
-            printValue(col->justify, col->width, col->type, static_cast<const void *>(&col->bool_val));
+        for (EmitterColumn * column : row.columns)
+            printValue(column->justify, column->width, column->type, static_cast<const void *>(&column->bool_value));
         tablePrintf("\n");
     }
 
@@ -319,7 +319,7 @@ public:
 
     /// Note emits a different kv pair as well, but only in table mode. Omits the note if `table_note_key` is null.
     /// jemalloc: emitter_kv_note
-    void kvNote(
+    void keyValueNote(
         const char * json_key,
         const char * table_key,
         EmitterType value_type,
@@ -335,15 +335,15 @@ public:
         }
         else
         {
-            tableKvNote(table_key, value_type, value, table_note_key, table_note_value_type, table_note_value);
+            tableKeyValueNote(table_key, value_type, value, table_note_key, table_note_value_type, table_note_value);
         }
         item_at_depth = true;
     }
 
     /// jemalloc: emitter_kv
-    void kv(const char * json_key, const char * table_key, EmitterType value_type, const void * value)
+    void keyValue(const char * json_key, const char * table_key, EmitterType value_type, const void * value)
     {
-        kvNote(json_key, table_key, value_type, value, nullptr, EmitterType::Bool, nullptr);
+        keyValueNote(json_key, table_key, value_type, value, nullptr, EmitterType::Bool, nullptr);
     }
 
     /// jemalloc: emitter_dict_begin
@@ -374,14 +374,14 @@ public:
     {
         if (outputsJSON())
         {
-            JE_ASSERT(nesting_depth == 0);
+            ALLOCATOR_ASSERT(nesting_depth == 0);
             print("{");
-            nestInc();
+            nestIncrement();
         }
         else
         {
-            /// This guarantees that we always call write_cb at least once. This is useful if some invariant is
-            /// established by each call to write_cb, but doesn't hold initially: e.g., some buffer holds a
+            /// This guarantees that we always call write_callback at least once. This is useful if some invariant is
+            /// established by each call to write_callback, but doesn't hold initially: e.g., some buffer holds a
             /// null-terminated string.
             print("%s", "");
         }
@@ -392,8 +392,8 @@ public:
     {
         if (outputsJSON())
         {
-            JE_ASSERT(nesting_depth == 1);
-            nestDec();
+            ALLOCATOR_ASSERT(nesting_depth == 1);
+            nestDecrement();
             print("%s", output == EmitterOutput::JSONCompact ? "}" : "\n}\n");
         }
     }
@@ -401,8 +401,8 @@ public:
 private:
     EmitterOutput output;
     /// The output information.
-    WriteCallback * write_cb;
-    void * cbopaque;
+    WriteCallback * write_callback;
+    void * callback_argument;
     int nesting_depth = 0;
     /// True if we've already emitted a value at the given depth.
     bool item_at_depth = false;
@@ -411,41 +411,42 @@ private:
 
     /// Write to the emitter the given string.
     /// jemalloc: emitter_printf
-    void print(const char * fmt, ...) JE_FORMAT_PRINTF(2, 3)
+    void print(const char * format_string, ...) ALLOCATOR_FORMAT_PRINTF(2, 3)
     {
-        va_list ap;
-        va_start(ap, fmt);
-        printToCallbackV(write_cb, cbopaque, fmt, ap);
-        va_end(ap);
+        va_list args;
+        va_start(args, format_string);
+        printToCallbackV(write_callback, callback_argument, format_string, args);
+        va_end(args);
     }
 
-    /// Builds a format string from `fmt_specifier` (e.g. `"%zu"`) with the given justification and width.
+    /// Builds a format string from `format_specifier` (e.g. `"%zu"`) with the given justification and width.
     /// jemalloc: emitter_gen_fmt
-    static const char * genFmt(char * out_fmt, size_t out_size, const char * fmt_specifier, EmitterJustify justify, int width)
+    static const char *
+    generateFormatString(char * out_format_string, size_t out_size, const char * format_specifier, EmitterJustify justify, int width)
     {
         [[maybe_unused]] size_t written;
-        fmt_specifier++;
+        format_specifier++;
         if (justify == EmitterJustify::None)
-            written = format(out_fmt, out_size, "%%%s", fmt_specifier);
+            written = format(out_format_string, out_size, "%%%s", format_specifier);
         else if (justify == EmitterJustify::Left)
-            written = format(out_fmt, out_size, "%%-%d%s", width, fmt_specifier);
+            written = format(out_format_string, out_size, "%%-%d%s", width, format_specifier);
         else
-            written = format(out_fmt, out_size, "%%%d%s", width, fmt_specifier);
+            written = format(out_format_string, out_size, "%%%d%s", width, format_specifier);
         /// Only happens in case of bad format string, which *we* choose.
-        JE_ASSERT(written < out_size);
-        return out_fmt;
+        ALLOCATOR_ASSERT(written < out_size);
+        return out_format_string;
     }
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wformat-nonliteral"
 
     /// jemalloc: emitter_emit_str
-    void emitStr(EmitterJustify justify, int width, char * fmt, size_t fmt_size, const char * str)
+    void emitStr(EmitterJustify justify, int width, char * format_string, size_t format_size, const char * str)
     {
         static constexpr size_t BUF_SIZE = 256;
         char buf[BUF_SIZE];
         size_t str_written = format(buf, BUF_SIZE, "\"%s\"", str);
-        print(genFmt(fmt, fmt_size, "%s", justify, width), buf);
+        print(generateFormatString(format_string, format_size, "%s", justify, width), buf);
         if (str_written < BUF_SIZE)
             return;
         /// There is no support for long string justification at the moment as we output them partially with
@@ -459,7 +460,7 @@ private:
         {
             str_written = format(buf, BUF_SIZE, "%s\"", str);
             str += str_written >= BUF_SIZE ? BUF_SIZE - 1 : str_written;
-            print(genFmt(fmt, fmt_size, "%s", justify, width), buf);
+            print(generateFormatString(format_string, format_size, "%s", justify, width), buf);
         } while (str_written >= BUF_SIZE);
     }
 
@@ -468,41 +469,46 @@ private:
     /// jemalloc: emitter_print_value
     void printValue(EmitterJustify justify, int width, EmitterType value_type, const void * value)
     {
-        static constexpr size_t FMT_SIZE = 10;
+        static constexpr size_t FORMAT_SIZE = 10;
         /// We dynamically generate a format string to emit, to let us use the snprintf machinery.
-        char fmt[FMT_SIZE];
+        char format_string[FORMAT_SIZE];
 
         switch (value_type)
         {
             case EmitterType::Bool:
-                print(genFmt(fmt, FMT_SIZE, "%s", justify, width), *static_cast<const bool *>(value) ? "true" : "false");
+                print(
+                    generateFormatString(format_string, FORMAT_SIZE, "%s", justify, width),
+                    *static_cast<const bool *>(value) ? "true" : "false");
                 break;
             case EmitterType::Int:
-                print(genFmt(fmt, FMT_SIZE, "%d", justify, width), *static_cast<const int *>(value));
+                print(generateFormatString(format_string, FORMAT_SIZE, "%d", justify, width), *static_cast<const int *>(value));
                 break;
             case EmitterType::Int64:
-                print(genFmt(fmt, FMT_SIZE, "%" FMTd64, justify, width), *static_cast<const int64_t *>(value));
+                print(
+                    generateFormatString(format_string, FORMAT_SIZE, "%" FORMAT_D64, justify, width), *static_cast<const int64_t *>(value));
                 break;
             case EmitterType::Unsigned:
-                print(genFmt(fmt, FMT_SIZE, "%u", justify, width), *static_cast<const unsigned *>(value));
+                print(generateFormatString(format_string, FORMAT_SIZE, "%u", justify, width), *static_cast<const unsigned *>(value));
                 break;
             case EmitterType::Ssize:
-                print(genFmt(fmt, FMT_SIZE, "%zd", justify, width), *static_cast<const ssize_t *>(value));
+                print(generateFormatString(format_string, FORMAT_SIZE, "%zd", justify, width), *static_cast<const ssize_t *>(value));
                 break;
             case EmitterType::Size:
-                print(genFmt(fmt, FMT_SIZE, "%zu", justify, width), *static_cast<const size_t *>(value));
+                print(generateFormatString(format_string, FORMAT_SIZE, "%zu", justify, width), *static_cast<const size_t *>(value));
                 break;
-            case EmitterType::String:
-                emitStr(justify, width, fmt, FMT_SIZE, *static_cast<const char * const *>(value));
-                break;
+            case EmitterType::String: emitStr(justify, width, format_string, FORMAT_SIZE, *static_cast<const char * const *>(value)); break;
             case EmitterType::Uint32:
-                print(genFmt(fmt, FMT_SIZE, "%" FMTu32, justify, width), *static_cast<const uint32_t *>(value));
+                print(
+                    generateFormatString(format_string, FORMAT_SIZE, "%" FORMAT_U32, justify, width),
+                    *static_cast<const uint32_t *>(value));
                 break;
             case EmitterType::Uint64:
-                print(genFmt(fmt, FMT_SIZE, "%" FMTu64, justify, width), *static_cast<const uint64_t *>(value));
+                print(
+                    generateFormatString(format_string, FORMAT_SIZE, "%" FORMAT_U64, justify, width),
+                    *static_cast<const uint64_t *>(value));
                 break;
             case EmitterType::Title:
-                print(genFmt(fmt, FMT_SIZE, "%s", justify, width), *static_cast<const char * const *>(value));
+                print(generateFormatString(format_string, FORMAT_SIZE, "%s", justify, width), *static_cast<const char * const *>(value));
                 break;
         }
     }
@@ -511,14 +517,14 @@ private:
 
     /// In json mode, tracks nesting state.
     /// jemalloc: emitter_nest_inc
-    void nestInc()
+    void nestIncrement()
     {
         nesting_depth++;
         item_at_depth = false;
     }
 
     /// jemalloc: emitter_nest_dec
-    void nestDec()
+    void nestDecrement()
     {
         nesting_depth--;
         item_at_depth = true;
@@ -529,7 +535,7 @@ private:
     {
         int amount = nesting_depth;
         const char * indent_str;
-        JE_ASSERT(output != EmitterOutput::JSONCompact);
+        ALLOCATOR_ASSERT(output != EmitterOutput::JSONCompact);
         if (output == EmitterOutput::JSON)
         {
             indent_str = "\t";
@@ -546,7 +552,7 @@ private:
     /// jemalloc: emitter_json_key_prefix
     void jsonKeyPrefix()
     {
-        JE_ASSERT(outputsJSON());
+        ALLOCATOR_ASSERT(outputsJSON());
         if (emitted_key)
         {
             emitted_key = false;

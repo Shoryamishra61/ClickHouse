@@ -17,24 +17,23 @@
 
 using namespace jemalloc;
 
-extern "C"
-{
+extern "C" {
 size_t ref_constant(int which);
-void ref_level(unsigned level, unsigned * bits, unsigned * cumbits);
-uintptr_t ref_leafkey(uintptr_t key);
+void ref_level(unsigned level, unsigned * bits, unsigned * cumulative_bits);
+uintptr_t ref_leaf_key(uintptr_t key);
 uintptr_t ref_subkey(uintptr_t key, unsigned level);
 size_t ref_direct_map(uintptr_t key);
-void ref_encode(uintptr_t edata, unsigned szind, unsigned state, int is_head, int slab, uintptr_t * out);
+void ref_encode(uintptr_t extent, unsigned size_class_idx, unsigned state, int is_head, int slab, uintptr_t * out);
 void ref_decode(uintptr_t bits, uintptr_t * out);
 int ref_init();
-void ref_ctx_get(uintptr_t * leafkeys, uintptr_t * leaves);
+void ref_context_get(uintptr_t * leaf_keys, uintptr_t * leaves);
 uintptr_t ref_lookup(uintptr_t key, int dependent, int init_missing);
-int ref_write(uintptr_t key, uintptr_t edata, unsigned szind, unsigned state, int is_head, int slab);
+int ref_write(uintptr_t key, uintptr_t extent, unsigned size_class_idx, unsigned state, int is_head, int slab);
 void ref_read(uintptr_t key, uintptr_t * out);
 int ref_read_independent(uintptr_t key, uintptr_t * out);
 int ref_metadata_try_read_fast(uintptr_t key, uintptr_t * out);
 void ref_clear(uintptr_t key);
-void ref_write_range(uintptr_t base, uintptr_t end, uintptr_t edata, unsigned szind, unsigned state, int is_head, int slab);
+void ref_write_range(uintptr_t base, uintptr_t end, uintptr_t extent, unsigned size_class_idx, unsigned state, int is_head, int slab);
 void ref_clear_range(uintptr_t base, uintptr_t end);
 void ref_state_update(uintptr_t key1, uintptr_t key2, unsigned state);
 
@@ -64,82 +63,91 @@ struct Rng
     uint64_t below(uint64_t n) { return next() % n; }
 };
 
-RadixTreeContents makeContents(uintptr_t edata, unsigned szind, unsigned state, bool is_head, bool slab)
+RadixTreeContents makeContents(uintptr_t extent, unsigned size_class_idx, unsigned state, bool is_head, bool slab)
 {
-    return {reinterpret_cast<Extent *>(edata), {szind, ExtentState(state), is_head, slab}};
+    return {reinterpret_cast<Extent *>(extent), {size_class_idx, ExtentState(state), is_head, slab}};
 }
 
 void splitContents(const RadixTreeContents & contents, uintptr_t * out)
 {
-    out[0] = reinterpret_cast<uintptr_t>(contents.edata);
-    out[1] = contents.metadata.szind;
+    out[0] = reinterpret_cast<uintptr_t>(contents.extent);
+    out[1] = contents.metadata.size_class_idx;
     out[2] = contents.metadata.state;
     out[3] = contents.metadata.is_head;
     out[4] = contents.metadata.slab;
 }
 
 /// A random 128-aligned fake edata address in the user half of the address space (or null).
-uintptr_t randomEdata(Rng & rng)
+uintptr_t randomExtent(Rng & rng)
 {
     if (rng.below(8) == 0)
         return 0;
-    return (rng.next() & ((uintptr_t(1) << (LG_VADDR - 1)) - 1)) & ~uintptr_t(EDATA_ALIGNMENT - 1);
+    return (rng.next() & ((uintptr_t(1) << (LOG2_VIRTUAL_ADDRESS - 1)) - 1)) & ~uintptr_t(EXTENT_ALIGNMENT - 1);
 }
 
 }
 
 TEST(RadixTree, Geometry)
 {
-    CHECK_EQ(size_t(RTREE_NHIB), ref_constant(0));
-    CHECK_EQ(size_t(RTREE_NLIB), ref_constant(1));
-    CHECK_EQ(size_t(RTREE_NSB), ref_constant(2));
-    CHECK_EQ(size_t(RTREE_HEIGHT), ref_constant(3));
-    CHECK_EQ(size_t(RTREE_LEAF_COMPACT), ref_constant(4));
-    CHECK_EQ(size_t(rtreeLeafMaskbits()), ref_constant(5));
+    CHECK_EQ(size_t(RADIX_TREE_NUM_HIGH_INSIGNIFICANT_BITS), ref_constant(0));
+    CHECK_EQ(size_t(RADIX_TREE_NUM_LOW_INSIGNIFICANT_BITS), ref_constant(1));
+    CHECK_EQ(size_t(RADIX_TREE_NUM_SIGNIFICANT_BITS), ref_constant(2));
+    CHECK_EQ(size_t(RADIX_TREE_HEIGHT), ref_constant(3));
+    CHECK_EQ(size_t(RADIX_TREE_LEAF_COMPACT), ref_constant(4));
+    CHECK_EQ(size_t(radixTreeLeafMaskBits()), ref_constant(5));
     CHECK_EQ(sizeof(RadixTreeContext), ref_constant(6));
     CHECK_EQ(sizeof(RadixTree), ref_constant(7));
-    CHECK_EQ(sizeof(RadixTreeLeafElm), ref_constant(8));
-    CHECK_EQ(sizeof(RadixTreeNodeElm), ref_constant(9));
-    CHECK_EQ(size_t(RTREE_CTX_NCACHE), ref_constant(10));
-    CHECK_EQ(size_t(RTREE_CTX_NCACHE_L2), ref_constant(11));
+    CHECK_EQ(sizeof(RadixTreeLeafElement), ref_constant(8));
+    CHECK_EQ(sizeof(RadixTreeNodeElement), ref_constant(9));
+    CHECK_EQ(size_t(RADIX_TREE_CONTEXT_NUM_CACHE), ref_constant(10));
+    CHECK_EQ(size_t(RADIX_TREE_CONTEXT_NUM_CACHE_L2), ref_constant(11));
     CHECK_EQ(offsetof(RadixTree, root), ref_constant(12));
     CHECK_EQ(RadixTree::root_size, ref_constant(13));
-    for (unsigned level = 0; level < RTREE_HEIGHT; ++level)
+    for (unsigned level = 0; level < RADIX_TREE_HEIGHT; ++level)
     {
         unsigned bits;
-        unsigned cumbits;
-        ref_level(level, &bits, &cumbits);
-        CHECK_EQ(rtree_levels[level].bits, bits);
-        CHECK_EQ(rtree_levels[level].cumbits, cumbits);
+        unsigned cumulative_bits;
+        ref_level(level, &bits, &cumulative_bits);
+        CHECK_EQ(radix_tree_levels[level].bits, bits);
+        CHECK_EQ(radix_tree_levels[level].cumulative_bits, cumulative_bits);
     }
 }
 
 TEST(RadixTree, ExtentLayout)
 {
     CHECK_EQ(sizeof(Extent), ref_constant(20));
-    CHECK_EQ(offsetof(Extent, e_addr), ref_constant(21));
-    CHECK_EQ(offsetof(Extent, e_size_esn), ref_constant(22));
-    CHECK_EQ(offsetof(Extent, e_ps), ref_constant(23));
-    CHECK_EQ(offsetof(Extent, e_sn), ref_constant(24));
-    CHECK_EQ(offsetof(Extent, ql_link_active), ref_constant(25));
+    CHECK_EQ(offsetof(Extent, address), ref_constant(21));
+    CHECK_EQ(offsetof(Extent, size_and_serial_number), ref_constant(22));
+    CHECK_EQ(offsetof(Extent, unused_page_slab), ref_constant(23));
+    CHECK_EQ(offsetof(Extent, serial_number), ref_constant(24));
+    CHECK_EQ(offsetof(Extent, list_link_active), ref_constant(25));
     CHECK_EQ(offsetof(Extent, heap_link), ref_constant(26));
-    CHECK_EQ(offsetof(Extent, ql_link_inactive), ref_constant(27));
-    CHECK_EQ(offsetof(Extent, e_slab_data), ref_constant(28));
-    CHECK_EQ(offsetof(Extent, e_prof_info), ref_constant(29));
+    CHECK_EQ(offsetof(Extent, list_link_inactive), ref_constant(27));
+    CHECK_EQ(offsetof(Extent, slab_data), ref_constant(28));
+    CHECK_EQ(offsetof(Extent, profiling_info), ref_constant(29));
     CHECK_EQ(sizeof(SlabData), ref_constant(30));
-    CHECK_EQ(sizeof(ExtentProfInfo), ref_constant(31));
-    CHECK_EQ(offsetof(ExtentProfInfo, e_prof_frag_link), ref_constant(32));
-    CHECK_EQ(offsetof(ExtentProfInfo, e_prof_frag_tracked), ref_constant(33));
-    CHECK_EQ(EDATA_ALIGNMENT, ref_constant(34));
-    CHECK_EQ(size_t(ESET_ENUMERATE_MAX_NUM), ref_constant(35));
+    CHECK_EQ(sizeof(ExtentProfilingInfo), ref_constant(31));
+    CHECK_EQ(offsetof(ExtentProfilingInfo, fragmentation_link), ref_constant(32));
+    CHECK_EQ(offsetof(ExtentProfilingInfo, fragmentation_tracked), ref_constant(33));
+    CHECK_EQ(EXTENT_ALIGNMENT, ref_constant(34));
+    CHECK_EQ(size_t(EXTENT_SET_ENUMERATE_MAX_NUM), ref_constant(35));
 
-    const ExtentBitField fields[] = {extent_bits::arena, extent_bits::slab, extent_bits::committed, extent_bits::pai,
-        extent_bits::zeroed, extent_bits::guarded, extent_bits::state, extent_bits::szind, extent_bits::nfree,
-        extent_bits::binshard, extent_bits::is_head};
+    const ExtentBitField fields[]
+        = {extent_bits::arena,
+           extent_bits::slab,
+           extent_bits::committed,
+           extent_bits::allocator_kind,
+           extent_bits::zeroed,
+           extent_bits::guarded,
+           extent_bits::state,
+           extent_bits::size_class_idx,
+           extent_bits::num_free,
+           extent_bits::bin_shard,
+           extent_bits::is_head};
     for (int i = 0; i < 11; ++i)
         CHECK_EQ(size_t(fields[i].shift), ref_constant(40 + i));
-    CHECK_EQ(size_t(extent_bits::szind.width), ref_constant(51));
-    CHECK_EQ(size_t(extent_bits::nfree.width), ref_constant(52));
+    CHECK_EQ(size_t(extent_bits::size_class_idx.width), ref_constant(51));
+    CHECK_EQ(size_t(extent_bits::num_free.width), ref_constant(52));
 }
 
 TEST(RadixTree, KeyFunctions)
@@ -149,13 +157,13 @@ TEST(RadixTree, KeyFunctions)
     {
         uintptr_t key = rng.next();
         if (i % 2)
-            key &= (uintptr_t(1) << LG_VADDR) - 1;
+            key &= (uintptr_t(1) << LOG2_VIRTUAL_ADDRESS) - 1;
         if (key == 0)
             continue;
-        CHECK_EQ(rtreeLeafkey(key), ref_leafkey(key));
-        CHECK_EQ(rtreeCacheDirectMap(key), ref_direct_map(key));
-        for (unsigned level = 0; level < RTREE_HEIGHT; ++level)
-            CHECK_EQ(rtreeSubkey(key, level), ref_subkey(key, level));
+        CHECK_EQ(radixTreeLeafKey(key), ref_leaf_key(key));
+        CHECK_EQ(radixTreeCacheDirectMap(key), ref_direct_map(key));
+        for (unsigned level = 0; level < RADIX_TREE_HEIGHT; ++level)
+            CHECK_EQ(radixTreeSubkey(key, level), ref_subkey(key, level));
     }
 }
 
@@ -164,39 +172,39 @@ TEST(RadixTree, Encoding)
     Rng rng;
     for (int i = 0; i < 200000; ++i)
     {
-        uintptr_t edata = randomEdata(rng);
-        if (i % 3 == 0 && edata != 0)
-            edata |= ~((uintptr_t(1) << (LG_VADDR - 1)) - 1); /// Kernel half: tests sign/zero extension.
-        unsigned szind = unsigned(rng.below(SC_NSIZES + 1));
+        uintptr_t extent = randomExtent(rng);
+        if (i % 3 == 0 && extent != 0)
+            extent |= ~((uintptr_t(1) << (LOG2_VIRTUAL_ADDRESS - 1)) - 1); /// Kernel half: tests sign/zero extension.
+        unsigned size_class_idx = unsigned(rng.below(SIZE_CLASS_NUM_SIZES + 1));
         unsigned state = unsigned(rng.below(extent_state_max + 1));
         bool is_head = rng.below(2);
         bool slab = rng.below(2);
 
         uintptr_t ref[5];
-        ref_encode(edata, szind, state, is_head, slab, ref);
-        RadixTreeEncoded encoded = rtreeContentsEncode(makeContents(edata, szind, state, is_head, slab));
+        ref_encode(extent, size_class_idx, state, is_head, slab, ref);
+        RadixTreeEncoded encoded = radixTreeContentsEncode(makeContents(extent, size_class_idx, state, is_head, slab));
         CHECK_EQ(encoded.bits, ref[0]);
         CHECK_EQ(uintptr_t(encoded.additional), ref[1]);
 
-        if constexpr (RTREE_LEAF_COMPACT)
+        if constexpr (RADIX_TREE_LEAF_COMPACT)
         {
             uintptr_t decoded_ref[5];
             uintptr_t decoded[5];
             ref_decode(encoded.bits, decoded_ref);
-            splitContents(rtreeLeafElmBitsDecode(encoded.bits), decoded);
+            splitContents(radixTreeLeafElementBitsDecode(encoded.bits), decoded);
             for (int j = 0; j < 5; ++j)
                 CHECK_EQ(decoded[j], decoded_ref[j]);
         }
     }
 
-    CHECK_EQ(rtree_contents_cleared.metadata.szind, SC_NSIZES);
+    CHECK_EQ(radix_tree_contents_cleared.metadata.size_class_idx, SIZE_CLASS_NUM_SIZES);
 }
 
 namespace
 {
 
 constinit RadixTree tree;
-RadixTreeContext ctx;
+RadixTreeContext context;
 
 /// C leaf pointer -> C++ leaf pointer.
 std::map<uintptr_t, uintptr_t> leaf_bijection;
@@ -222,33 +230,34 @@ void checkLeaf(uintptr_t ref_leaf, uintptr_t leaf)
 
 void compareCache()
 {
-    uintptr_t ref_leafkeys[RTREE_CTX_NCACHE + RTREE_CTX_NCACHE_L2];
-    uintptr_t ref_leaves[RTREE_CTX_NCACHE + RTREE_CTX_NCACHE_L2];
-    ref_ctx_get(ref_leafkeys, ref_leaves);
-    for (unsigned i = 0; i < RTREE_CTX_NCACHE + RTREE_CTX_NCACHE_L2; ++i)
+    uintptr_t ref_leaf_keys[RADIX_TREE_CONTEXT_NUM_CACHE + RADIX_TREE_CONTEXT_NUM_CACHE_L2];
+    uintptr_t ref_leaves[RADIX_TREE_CONTEXT_NUM_CACHE + RADIX_TREE_CONTEXT_NUM_CACHE_L2];
+    ref_context_get(ref_leaf_keys, ref_leaves);
+    for (unsigned i = 0; i < RADIX_TREE_CONTEXT_NUM_CACHE + RADIX_TREE_CONTEXT_NUM_CACHE_L2; ++i)
     {
-        const RadixTreeCacheElm & elm = i < RTREE_CTX_NCACHE ? ctx.cache[i] : ctx.l2_cache[i - RTREE_CTX_NCACHE];
-        if (elm.leafkey != ref_leafkeys[i])
+        const RadixTreeCacheElement & element
+            = i < RADIX_TREE_CONTEXT_NUM_CACHE ? context.cache[i] : context.l2_cache[i - RADIX_TREE_CONTEXT_NUM_CACHE];
+        if (element.leaf_key != ref_leaf_keys[i])
         {
-            CHECK_EQ(elm.leafkey, ref_leafkeys[i]);
+            CHECK_EQ(element.leaf_key, ref_leaf_keys[i]);
             ++mismatches;
         }
-        checkLeaf(ref_leaves[i], reinterpret_cast<uintptr_t>(elm.leaf));
+        checkLeaf(ref_leaves[i], reinterpret_cast<uintptr_t>(element.leaf));
     }
 }
 
 /// The element pointer, as its leaf and index.
-void compareElm(uintptr_t key, uintptr_t ref_elm, RadixTreeLeafElm * elm)
+void compareElement(uintptr_t key, uintptr_t ref_element, RadixTreeLeafElement * element)
 {
-    uintptr_t offset = rtreeSubkey(key, RTREE_HEIGHT - 1) * sizeof(RadixTreeLeafElm);
-    if ((ref_elm == 0) != (elm == nullptr))
+    uintptr_t offset = radixTreeSubkey(key, RADIX_TREE_HEIGHT - 1) * sizeof(RadixTreeLeafElement);
+    if ((ref_element == 0) != (element == nullptr))
     {
-        CHECK_EQ(ref_elm == 0, elm == nullptr);
+        CHECK_EQ(ref_element == 0, element == nullptr);
         ++mismatches;
         return;
     }
-    if (ref_elm != 0)
-        checkLeaf(ref_elm - offset, reinterpret_cast<uintptr_t>(elm) - offset);
+    if (ref_element != 0)
+        checkLeaf(ref_element - offset, reinterpret_cast<uintptr_t>(element) - offset);
 }
 
 void compareContents(const uintptr_t * ref, const RadixTreeContents & contents)
@@ -271,30 +280,30 @@ TEST(RadixTree, RandomizedTrace)
 {
     REQUIRE(!pages::boot());
     REQUIRE(ref_init() == 0);
-    Base * base = Base::create(nullptr, 0, &ehooks_default_extent_hooks, true);
+    Base * base = Base::create(nullptr, 0, &extent_hooks_default_extent_hooks, true);
     REQUIRE(base != nullptr);
     REQUIRE(!tree.init(base, true));
-    ctx.init();
+    context.init();
     compareCache();
 
     /// A pool of leaves: many share an L1 slot, so that both cache levels are exercised.
-    const unsigned maskbits = rtreeLeafMaskbits();
-    const uintptr_t leaf_span = uintptr_t(1) << maskbits;
-    const uintptr_t pages_per_leaf = leaf_span >> LG_PAGE;
+    const unsigned mask_bits = radixTreeLeafMaskBits();
+    const uintptr_t leaf_span = uintptr_t(1) << mask_bits;
+    const uintptr_t pages_per_leaf = leaf_span >> LOG2_PAGE;
     std::vector<uintptr_t> leaf_bases;
     for (uintptr_t i = 1; i <= 24; ++i)
         leaf_bases.push_back(i * leaf_span);
     for (uintptr_t i = 1; i <= 24; ++i)
-        leaf_bases.push_back((i * RTREE_CTX_NCACHE + 5) * leaf_span);
+        leaf_bases.push_back((i * RADIX_TREE_CONTEXT_NUM_CACHE + 5) * leaf_span);
     for (uintptr_t i = 1; i <= 8; ++i)
-        leaf_bases.push_back(((uintptr_t(1) << (LG_VADDR - maskbits)) - i) * leaf_span);
+        leaf_bases.push_back(((uintptr_t(1) << (LOG2_VIRTUAL_ADDRESS - mask_bits)) - i) * leaf_span);
 
     std::set<uintptr_t> existing_leaves; /// Leaf bases that were created by a write.
-    std::map<uintptr_t, bool> nonnull; /// Page -> the element has a non-null edata.
+    std::map<uintptr_t, bool> non_null; /// Page -> the element has a non-null edata.
 
     Rng rng;
-    auto random_key_in = [&](uintptr_t leaf_base)
-    { return leaf_base + rng.below(pages_per_leaf) * PAGE + (rng.below(4) == 0 ? rng.below(PAGE) : 0); };
+    auto random_key_in
+        = [&](uintptr_t leaf_base) { return leaf_base + rng.below(pages_per_leaf) * PAGE + (rng.below(4) == 0 ? rng.below(PAGE) : 0); };
     auto random_existing_leaf = [&]() -> uintptr_t
     {
         auto it = existing_leaves.begin();
@@ -314,16 +323,16 @@ TEST(RadixTree, RandomizedTrace)
             /// write (init_missing)
             uintptr_t leaf_base = leaf_bases[rng.below(leaf_bases.size())];
             uintptr_t key = random_key_in(leaf_base);
-            uintptr_t edata = randomEdata(rng);
-            unsigned szind = unsigned(rng.below(SC_NSIZES + 1));
+            uintptr_t extent = randomExtent(rng);
+            unsigned size_class_idx = unsigned(rng.below(SIZE_CLASS_NUM_SIZES + 1));
             unsigned state = unsigned(rng.below(extent_state_max + 1));
             bool is_head = rng.below(2);
             bool slab = rng.below(2);
-            int ref_err = ref_write(key, edata, szind, state, is_head, slab);
-            bool err = tree.write(nullptr, &ctx, key, makeContents(edata, szind, state, is_head, slab));
-            CHECK_EQ(bool(ref_err), err);
+            int ref_error = ref_write(key, extent, size_class_idx, state, is_head, slab);
+            bool error = tree.write(nullptr, &context, key, makeContents(extent, size_class_idx, state, is_head, slab));
+            CHECK_EQ(bool(ref_error), error);
             existing_leaves.insert(leaf_base);
-            nonnull[pageFloor(key)] = edata != 0;
+            non_null[pageFloor(key)] = extent != 0;
         }
         else if (op < 45)
         {
@@ -331,7 +340,7 @@ TEST(RadixTree, RandomizedTrace)
             uintptr_t key = random_key_in(random_existing_leaf());
             uintptr_t ref[5];
             ref_read(key, ref);
-            compareContents(ref, tree.read(nullptr, &ctx, key));
+            compareContents(ref, tree.read(nullptr, &context, key));
         }
         else if (op < 60)
         {
@@ -339,10 +348,10 @@ TEST(RadixTree, RandomizedTrace)
             uintptr_t key = random_key_in(leaf_bases[rng.below(leaf_bases.size())]);
             uintptr_t ref[5];
             RadixTreeContents contents;
-            int ref_err = ref_read_independent(key, ref);
-            bool err = tree.readIndependent(nullptr, &ctx, key, &contents);
-            CHECK_EQ(bool(ref_err), err);
-            if (!ref_err && !err)
+            int ref_error = ref_read_independent(key, ref);
+            bool error = tree.readIndependent(nullptr, &context, key, &contents);
+            CHECK_EQ(bool(ref_error), error);
+            if (!ref_error && !error)
                 compareContents(ref, contents);
         }
         else if (op < 70)
@@ -351,11 +360,11 @@ TEST(RadixTree, RandomizedTrace)
             uintptr_t key = random_key_in(leaf_bases[rng.below(leaf_bases.size())]);
             bool dependent = false;
             bool init_missing = rng.below(2);
-            uintptr_t ref_elm = ref_lookup(key, dependent, init_missing);
-            RadixTreeLeafElm * elm = tree.leafElmLookup(nullptr, &ctx, key, dependent, init_missing);
-            compareElm(key, ref_elm, elm);
+            uintptr_t ref_element = ref_lookup(key, dependent, init_missing);
+            RadixTreeLeafElement * element = tree.leafElementLookup(nullptr, &context, key, dependent, init_missing);
+            compareElement(key, ref_element, element);
             if (init_missing)
-                existing_leaves.insert(rtreeLeafkey(key));
+                existing_leaves.insert(radixTreeLeafKey(key));
         }
         else if (op < 78)
         {
@@ -364,11 +373,11 @@ TEST(RadixTree, RandomizedTrace)
             uintptr_t ref[4];
             RadixTreeMetadata metadata;
             int ref_miss = ref_metadata_try_read_fast(key, ref);
-            bool miss = tree.metadataTryReadFast(nullptr, &ctx, key, &metadata);
+            bool miss = tree.metadataTryReadFast(nullptr, &context, key, &metadata);
             CHECK_EQ(bool(ref_miss), miss);
             if (!ref_miss && !miss)
             {
-                CHECK_EQ(uintptr_t(metadata.szind), ref[0]);
+                CHECK_EQ(uintptr_t(metadata.size_class_idx), ref[0]);
                 CHECK_EQ(uintptr_t(metadata.state), ref[1]);
                 CHECK_EQ(uintptr_t(metadata.is_head), ref[2]);
                 CHECK_EQ(uintptr_t(metadata.slab), ref[3]);
@@ -377,16 +386,16 @@ TEST(RadixTree, RandomizedTrace)
         else if (op < 84)
         {
             /// clear an element with non-null edata (pick a random tracked page, then the next non-null one)
-            if (nonnull.empty())
+            if (non_null.empty())
                 continue;
-            auto it = nonnull.lower_bound(random_key_in(random_existing_leaf()));
-            while (it != nonnull.end() && !it->second)
+            auto it = non_null.lower_bound(random_key_in(random_existing_leaf()));
+            while (it != non_null.end() && !it->second)
                 ++it;
-            if (it == nonnull.end())
+            if (it == non_null.end())
                 continue;
             uintptr_t key = it->first;
             ref_clear(key);
-            tree.clear(nullptr, &ctx, key);
+            tree.clear(nullptr, &context, key);
             it->second = false;
         }
         else if (op < 92)
@@ -397,14 +406,14 @@ TEST(RadixTree, RandomizedTrace)
             uintptr_t count = 1 + rng.below(minOf<uintptr_t>(64, pages_per_leaf - first));
             uintptr_t range_base = leaf_base + first * PAGE;
             uintptr_t range_end = range_base + (count - 1) * PAGE;
-            uintptr_t edata = randomEdata(rng) | EDATA_ALIGNMENT; /// Non-null.
-            unsigned szind = unsigned(rng.below(SC_NSIZES));
+            uintptr_t extent = randomExtent(rng) | EXTENT_ALIGNMENT; /// Non-null.
+            unsigned size_class_idx = unsigned(rng.below(SIZE_CLASS_NUM_SIZES));
             unsigned state = unsigned(rng.below(extent_state_max + 1));
             bool slab = rng.below(2);
-            ref_write_range(range_base, range_end, edata, szind, state, false, slab);
-            tree.writeRange(nullptr, &ctx, range_base, range_end, makeContents(edata, szind, state, false, slab));
+            ref_write_range(range_base, range_end, extent, size_class_idx, state, false, slab);
+            tree.writeRange(nullptr, &context, range_base, range_end, makeContents(extent, size_class_idx, state, false, slab));
             for (uintptr_t page = range_base; page <= range_end; page += PAGE)
-                nonnull[page] = true;
+                non_null[page] = true;
             if (rng.below(2))
             {
                 uintptr_t clear_first = rng.below(count);
@@ -412,9 +421,9 @@ TEST(RadixTree, RandomizedTrace)
                 uintptr_t clear_base = range_base + clear_first * PAGE;
                 uintptr_t clear_end = clear_base + (clear_count - 1) * PAGE;
                 ref_clear_range(clear_base, clear_end);
-                tree.clearRange(nullptr, &ctx, clear_base, clear_end);
+                tree.clearRange(nullptr, &context, clear_base, clear_end);
                 for (uintptr_t page = clear_base; page <= clear_end; page += PAGE)
-                    nonnull[page] = false;
+                    non_null[page] = false;
             }
         }
         else
@@ -424,13 +433,13 @@ TEST(RadixTree, RandomizedTrace)
             uintptr_t key2 = rng.below(3) == 0 ? 0 : random_key_in(random_existing_leaf());
             unsigned state = unsigned(rng.below(extent_state_max + 1));
             ref_state_update(key1, key2, state);
-            RadixTreeLeafElm * elm1 = tree.leafElmLookup(nullptr, &ctx, key1, true, false);
-            RadixTreeLeafElm * elm2 = key2 == 0 ? nullptr : tree.leafElmLookup(nullptr, &ctx, key2, true, false);
-            RadixTree::leafElmStateUpdate(nullptr, elm1, elm2, ExtentState(state));
-            /// The compact encoding copies the whole word of `elm1` (including edata) to `elm2`; the non-compact one
-            /// (LG_VADDR 64) copies only the metadata word.
-            if (key2 != 0 && RTREE_LEAF_COMPACT)
-                nonnull[pageFloor(key2)] = nonnull[pageFloor(key1)];
+            RadixTreeLeafElement * element1 = tree.leafElementLookup(nullptr, &context, key1, true, false);
+            RadixTreeLeafElement * element2 = key2 == 0 ? nullptr : tree.leafElementLookup(nullptr, &context, key2, true, false);
+            RadixTree::leafElementStateUpdate(nullptr, element1, element2, ExtentState(state));
+            /// The compact encoding copies the whole word of `element1` (including edata) to `element2`; the non-compact one
+            /// (LOG2_VIRTUAL_ADDRESS 64) copies only the metadata word.
+            if (key2 != 0 && RADIX_TREE_LEAF_COMPACT)
+                non_null[pageFloor(key2)] = non_null[pageFloor(key1)];
         }
 
         compareCache();
@@ -447,15 +456,15 @@ TEST(RadixTree, RandomizedTrace)
             uintptr_t key = random_key_in(leaf_base);
             uintptr_t ref[5];
             ref_read(key, ref);
-            compareContents(ref, tree.read(nullptr, &ctx, key));
+            compareContents(ref, tree.read(nullptr, &context, key));
         }
     }
-    for (auto [page, is_nonnull] : nonnull)
+    for (auto [page, is_non_null] : non_null)
     {
         uintptr_t ref[5];
         ref_read(page, ref);
-        compareContents(ref, tree.read(nullptr, &ctx, page));
-        CHECK_EQ(ref[0] != 0, is_nonnull);
+        compareContents(ref, tree.read(nullptr, &context, page));
+        CHECK_EQ(ref[0] != 0, is_non_null);
     }
     compareCache();
     CHECK_EQ(mismatches, 0);
@@ -464,20 +473,20 @@ TEST(RadixTree, RandomizedTrace)
 TEST(RadixTree, FallbackContext)
 {
     RadixTreeContext fallback;
-    fallback.cache[3].leafkey = 12345;
+    fallback.cache[3].leaf_key = 12345;
     /// The null tsdn path initializes the fallback (the ThreadState accessor is tested in extent_map).
     fallback.init();
-    for (const auto & elm : fallback.cache)
+    for (const auto & element : fallback.cache)
     {
-        CHECK_EQ(elm.leafkey, RTREE_LEAFKEY_INVALID);
-        CHECK(elm.leaf == nullptr);
+        CHECK_EQ(element.leaf_key, RADIX_TREE_LEAF_KEY_INVALID);
+        CHECK(element.leaf == nullptr);
     }
-    for (const auto & elm : fallback.l2_cache)
+    for (const auto & element : fallback.l2_cache)
     {
-        CHECK_EQ(elm.leafkey, RTREE_LEAFKEY_INVALID);
-        CHECK(elm.leaf == nullptr);
+        CHECK_EQ(element.leaf_key, RADIX_TREE_LEAF_KEY_INVALID);
+        CHECK(element.leaf == nullptr);
     }
     constexpr RadixTreeContext constant;
-    static_assert(constant.cache[15].leafkey == RTREE_LEAFKEY_INVALID);
-    static_assert(constant.l2_cache[7].leafkey == RTREE_LEAFKEY_INVALID);
+    static_assert(constant.cache[15].leaf_key == RADIX_TREE_LEAF_KEY_INVALID);
+    static_assert(constant.l2_cache[7].leaf_key == RADIX_TREE_LEAF_KEY_INVALID);
 }

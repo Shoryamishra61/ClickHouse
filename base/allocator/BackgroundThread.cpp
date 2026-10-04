@@ -11,13 +11,13 @@
 #include <csignal>
 #include <cstdlib>
 #include <ctime>
-#include <dlfcn.h>
 #include <new>
+#include <dlfcn.h>
 #include <pthread.h>
 #include <sched.h>
 
 #if defined(__FreeBSD__)
-#    include <pthread_np.h>
+#include <pthread_np.h>
 #endif
 
 namespace jemalloc
@@ -27,7 +27,7 @@ namespace jemalloc
 
 constinit Mutex background_thread_lock;
 constinit std::atomic<bool> background_thread_enabled_state{false};
-constinit size_t n_background_threads = 0;
+constinit size_t num_background_threads = 0;
 constinit size_t max_background_threads = 0;
 constinit BackgroundThreadInfo * background_thread_info = nullptr;
 
@@ -40,30 +40,30 @@ constinit bool background_thread_enabled_at_fork = false;
 using PthreadCreateFunction = int (*)(pthread_t *, const pthread_attr_t *, void * (*)(void *), void *);
 
 /// jemalloc: pthread_create_fptr
-constinit PthreadCreateFunction pthread_create_fptr = nullptr;
+constinit PthreadCreateFunction pthread_create_function_ptr = nullptr;
 
 /// jemalloc: pthread_create_wrapper_init
 void pthreadCreateWrapperInit()
 {
     if constexpr (config::lazy_lock)
     {
-        if (!isthreaded)
-            isthreaded = true;
+        if (!is_threaded)
+            is_threaded = true;
     }
 }
 
 /// Returns true on error (never: a failed lookup aborts or falls back).
 /// jemalloc: pthread_create_fptr_init
-bool pthreadCreateFptrInit()
+bool pthreadCreateFunctionPtrInit()
 {
-    if (pthread_create_fptr != nullptr)
+    if (pthread_create_function_ptr != nullptr)
         return false;
     /// Try the next symbol first, because 1) when use lazy_lock we have a wrapper for pthread_create; and 2)
     /// application may define its own wrapper as well (and can call malloc within the wrapper).
-    pthread_create_fptr = reinterpret_cast<PthreadCreateFunction>(dlsym(RTLD_NEXT, "pthread_create"));
-    if (pthread_create_fptr == nullptr)
-        pthread_create_fptr = reinterpret_cast<PthreadCreateFunction>(dlsym(RTLD_DEFAULT, "pthread_create"));
-    if (pthread_create_fptr == nullptr)
+    pthread_create_function_ptr = reinterpret_cast<PthreadCreateFunction>(dlsym(RTLD_NEXT, "pthread_create"));
+    if (pthread_create_function_ptr == nullptr)
+        pthread_create_function_ptr = reinterpret_cast<PthreadCreateFunction>(dlsym(RTLD_DEFAULT, "pthread_create"));
+    if (pthread_create_function_ptr == nullptr)
     {
         if constexpr (config::lazy_lock)
         {
@@ -73,50 +73,50 @@ bool pthreadCreateFptrInit()
         else
         {
             /// Fall back to the default symbol.
-            pthread_create_fptr = pthread_create;
+            pthread_create_function_ptr = pthread_create;
         }
     }
 
     return false;
 }
 
-/// Initializes the condition variable of a thread info with the clock of `NsTime` (`CLOCK_MONOTONIC` where
+/// Initializes the condition variable of a thread info with the clock of `Nanoseconds` (`CLOCK_MONOTONIC` where
 /// available). At boot any failure is an error; after fork (`fallback_to_default`) the default attributes
 /// (`CLOCK_REALTIME`) are used if the clock cannot be set (fork patch 861db0b4). Returns the error of
 /// `pthread_cond_init` (non-zero also for an attribute failure at boot).
 /// jemalloc: the condition variable initialization in background_thread_boot1 and background_thread_postfork_child
-int condInit(pthread_cond_t * cond, bool fallback_to_default)
+int conditionInit(pthread_cond_t * condition, bool fallback_to_default)
 {
 #if !defined(__APPLE__)
     static_assert(config::have_clock_monotonic);
-    pthread_condattr_t cond_attr;
-    if (pthread_condattr_init(&cond_attr))
-        return fallback_to_default ? pthread_cond_init(cond, nullptr) : 1;
-    if (pthread_condattr_setclock(&cond_attr, CLOCK_MONOTONIC))
+    pthread_condattr_t condition_attributes;
+    if (pthread_condattr_init(&condition_attributes))
+        return fallback_to_default ? pthread_cond_init(condition, nullptr) : 1;
+    if (pthread_condattr_setclock(&condition_attributes, CLOCK_MONOTONIC))
     {
         /// Fall back to default (CLOCK_REALTIME) attributes if setclock fails.
-        pthread_condattr_destroy(&cond_attr);
-        return fallback_to_default ? pthread_cond_init(cond, nullptr) : 1;
+        pthread_condattr_destroy(&condition_attributes);
+        return fallback_to_default ? pthread_cond_init(condition, nullptr) : 1;
     }
-    int ret = pthread_cond_init(cond, &cond_attr);
-    pthread_condattr_destroy(&cond_attr);
-    return ret;
+    int result = pthread_cond_init(condition, &condition_attributes);
+    pthread_condattr_destroy(&condition_attributes);
+    return result;
 #else
     static_assert(!config::have_clock_monotonic);
     (void)fallback_to_default;
-    return pthread_cond_init(cond, nullptr);
+    return pthread_cond_init(condition, nullptr);
 #endif
 }
 
 /// jemalloc: background_thread_info_init
-void backgroundThreadInfoInit(ThreadState * tsdn, BackgroundThreadInfo * info)
+void backgroundThreadInfoInit(ThreadState * thread_state, BackgroundThreadInfo * info)
 {
-    info->wakeupTimeSet(tsdn, 0);
-    info->npages_to_purge_new = 0;
+    info->wakeupTimeSet(thread_state, 0);
+    info->num_pages_to_purge_new = 0;
     if constexpr (config::stats)
     {
-        info->tot_n_runs = 0;
-        info->tot_sleep_time.initZero();
+        info->total_num_runs = 0;
+        info->total_sleep_time.initZero();
     }
 }
 
@@ -151,82 +151,82 @@ void setCurrentThreadName()
 /// `pthread_cond_wait` drops and re-acquires the mutex internally, without going through our wrapper. Update the
 /// locked state explicitly.
 /// jemalloc: background_thread_cond_wait
-int backgroundThreadCondWait(BackgroundThreadInfo * info, const struct timespec * ts)
+int backgroundThreadConditionWait(BackgroundThreadInfo * info, const struct timespec * time_spec)
 {
-    int ret;
+    int result;
 
-    info->mtx.setLockedFlag(false);
-    if (ts == nullptr)
-        ret = pthread_cond_wait(&info->cond, info->mtx.nativeHandle());
+    info->mutex.setLockedFlag(false);
+    if (time_spec == nullptr)
+        result = pthread_cond_wait(&info->condition, info->mutex.nativeHandle());
     else
-        ret = pthread_cond_timedwait(&info->cond, info->mtx.nativeHandle(), ts);
-    info->mtx.setLockedFlag(true);
+        result = pthread_cond_timedwait(&info->condition, info->mutex.nativeHandle(), time_spec);
+    info->mutex.setLockedFlag(true);
 
-    return ret;
+    return result;
 }
 
 /// jemalloc: background_thread_sleep
-void backgroundThreadSleep(ThreadState * tsdn, BackgroundThreadInfo * info, uint64_t interval)
+void backgroundThreadSleep(ThreadState * thread_state, BackgroundThreadInfo * info, uint64_t interval)
 {
     if constexpr (config::stats)
-        ++info->tot_n_runs;
-    info->npages_to_purge_new = 0;
+        ++info->total_num_runs;
+    info->num_pages_to_purge_new = 0;
 
-    NsTime before_sleep;
+    Nanoseconds before_sleep;
     before_sleep.initUpdate();
 
-    [[maybe_unused]] int ret;
+    [[maybe_unused]] int result;
     if (interval == BACKGROUND_THREAD_INDEFINITE_SLEEP)
     {
-        info->wakeupTimeSet(tsdn, BACKGROUND_THREAD_INDEFINITE_SLEEP);
-        ret = backgroundThreadCondWait(info, nullptr);
-        JE_ASSERT(ret == 0);
+        info->wakeupTimeSet(thread_state, BACKGROUND_THREAD_INDEFINITE_SLEEP);
+        result = backgroundThreadConditionWait(info, nullptr);
+        ALLOCATOR_ASSERT(result == 0);
     }
     else
     {
-        JE_ASSERT(interval >= BACKGROUND_THREAD_MIN_INTERVAL_NS && interval <= BACKGROUND_THREAD_INDEFINITE_SLEEP);
+        ALLOCATOR_ASSERT(interval >= BACKGROUND_THREAD_MIN_INTERVAL_NS && interval <= BACKGROUND_THREAD_INDEFINITE_SLEEP);
         /// We need malloc clock (can be different from tv).
-        NsTime next_wakeup;
+        Nanoseconds next_wakeup;
         next_wakeup.initUpdate();
-        next_wakeup.iadd(interval);
-        JE_ASSERT(next_wakeup.ns() < BACKGROUND_THREAD_INDEFINITE_SLEEP);
-        info->wakeupTimeSet(tsdn, next_wakeup.ns());
+        next_wakeup.addNanoseconds(interval);
+        ALLOCATOR_ASSERT(next_wakeup.ns() < BACKGROUND_THREAD_INDEFINITE_SLEEP);
+        info->wakeupTimeSet(thread_state, next_wakeup.ns());
 
         /// The deadline is computed from the first clock read; the condition variable uses the same clock.
-        NsTime ts_wakeup;
-        ts_wakeup.copy(before_sleep);
-        ts_wakeup.iadd(interval);
-        struct timespec ts;
-        ts.tv_sec = static_cast<time_t>(static_cast<size_t>(ts_wakeup.sec()));
-        ts.tv_nsec = static_cast<long>(static_cast<size_t>(ts_wakeup.nsec()));
+        Nanoseconds wakeup_time;
+        wakeup_time.copy(before_sleep);
+        wakeup_time.addNanoseconds(interval);
+        struct timespec time_spec;
+        time_spec.tv_sec = static_cast<time_t>(static_cast<size_t>(wakeup_time.seconds()));
+        time_spec.tv_nsec = static_cast<long>(static_cast<size_t>(wakeup_time.nsec()));
 
-        JE_ASSERT(!info->indefiniteSleep());
-        ret = backgroundThreadCondWait(info, &ts);
-        JE_ASSERT(ret == ETIMEDOUT || ret == 0);
+        ALLOCATOR_ASSERT(!info->indefiniteSleep());
+        result = backgroundThreadConditionWait(info, &time_spec);
+        ALLOCATOR_ASSERT(result == ETIMEDOUT || result == 0);
     }
     if constexpr (config::stats)
     {
-        NsTime after_sleep;
+        Nanoseconds after_sleep;
         after_sleep.initUpdate();
         if (after_sleep.compare(before_sleep) > 0)
         {
             after_sleep.subtract(before_sleep);
-            info->tot_sleep_time.add(after_sleep);
+            info->total_sleep_time.add(after_sleep);
         }
     }
 }
 
 /// Returns true if the thread was paused (and has waited for the global lock).
 /// jemalloc: background_thread_pause_check
-bool backgroundThreadPauseCheck(ThreadState * tsdn, BackgroundThreadInfo * info)
+bool backgroundThreadPauseCheck(ThreadState * thread_state, BackgroundThreadInfo * info)
 {
-    if (JE_UNLIKELY(info->state == BackgroundThreadState::Paused))
+    if (ALLOCATOR_UNLIKELY(info->state == BackgroundThreadState::Paused))
     {
-        info->mtx.unlock(tsdn);
+        info->mutex.unlock(thread_state);
         /// Wait on global lock to update status.
-        background_thread_lock.lock(tsdn);
-        background_thread_lock.unlock(tsdn);
-        info->mtx.lock(tsdn);
+        background_thread_lock.lock(thread_state);
+        background_thread_lock.unlock(thread_state);
+        info->mutex.lock(thread_state);
         return true;
     }
 
@@ -236,291 +236,288 @@ bool backgroundThreadPauseCheck(ThreadState * tsdn, BackgroundThreadInfo * info)
 /// The arena operations of a work pass of a background thread.
 struct BackgroundWorkArenaOps
 {
-    ThreadState * tsdn;
+    ThreadState * thread_state;
 
-    Arena * get(unsigned i) const { return arenaGet(tsdn, i, false); }
-    void doWork(Arena * arena) const { arenaDoDeferredWork(tsdn, arena); }
-    uint64_t timeUntilDeferredWork(Arena * arena) const { return arena->pa_shard.timeUntilDeferredWork(tsdn); }
+    Arena * get(unsigned i) const { return arenaGet(thread_state, i, false); }
+    void doWork(Arena * arena) const { arenaDoDeferredWork(thread_state, arena); }
+    uint64_t timeUntilDeferredWork(Arena * arena) const { return arena->page_allocator_shard.timeUntilDeferredWork(thread_state); }
 };
 
 /// jemalloc: background_work_sleep_once
-void backgroundWorkSleepOnce(ThreadState * tsdn, BackgroundThreadInfo * info, unsigned ind)
+void backgroundWorkSleepOnce(ThreadState * thread_state, BackgroundThreadInfo * info, unsigned idx)
 {
-    unsigned narenas = narenasTotalGet();
+    unsigned num_arenas = numArenasTotalGet();
     bool slept_indefinitely = info->indefiniteSleep();
 
-    uint64_t sleep_ns = backgroundWorkPass(ind, narenas, max_background_threads, slept_indefinitely, BackgroundWorkArenaOps{tsdn});
+    uint64_t sleep_ns
+        = backgroundWorkPass(idx, num_arenas, max_background_threads, slept_indefinitely, BackgroundWorkArenaOps{thread_state});
 
-    backgroundThreadSleep(tsdn, info, sleep_ns);
+    backgroundThreadSleep(thread_state, info, sleep_ns);
 }
 
 /// Returns true if joining the thread failed.
 /// jemalloc: background_threads_disable_single
-bool backgroundThreadsDisableSingle(ThreadState & tsd, BackgroundThreadInfo * info)
+bool backgroundThreadsDisableSingle(ThreadState & thread_state, BackgroundThreadInfo * info)
 {
     if (info == &background_thread_info[0])
-        background_thread_lock.assertOwner(&tsd);
+        background_thread_lock.assertOwner(&thread_state);
     else
-        background_thread_lock.assertNotOwner(&tsd);
+        background_thread_lock.assertNotOwner(&thread_state);
 
-    preReentrancy(tsd, nullptr);
-    info->mtx.lock(&tsd);
+    preReentrancy(thread_state, nullptr);
+    info->mutex.lock(&thread_state);
     bool has_thread;
-    JE_ASSERT(info->state != BackgroundThreadState::Paused);
+    ALLOCATOR_ASSERT(info->state != BackgroundThreadState::Paused);
     if (info->state == BackgroundThreadState::Started)
     {
         has_thread = true;
         info->state = BackgroundThreadState::Stopped;
-        pthread_cond_signal(&info->cond);
+        pthread_cond_signal(&info->condition);
     }
     else
     {
         has_thread = false;
     }
-    info->mtx.unlock(&tsd);
+    info->mutex.unlock(&thread_state);
 
     if (!has_thread)
     {
-        postReentrancy(tsd);
+        postReentrancy(thread_state);
         return false;
     }
-    void * ret;
-    if (pthread_join(info->thread, &ret))
+    void * result;
+    if (pthread_join(info->thread, &result))
     {
-        postReentrancy(tsd);
+        postReentrancy(thread_state);
         return true;
     }
-    JE_ASSERT(ret == nullptr);
-    --n_background_threads;
-    postReentrancy(tsd);
+    ALLOCATOR_ASSERT(result == nullptr);
+    --num_background_threads;
+    postReentrancy(thread_state);
 
     return false;
 }
 
-void * backgroundThreadEntry(void * ind_arg);
+void * backgroundThreadEntry(void * idx_arg);
 
 /// Mask signals during thread creation so that the thread inherits an empty signal set.
 /// jemalloc: background_thread_create_signals_masked
-int backgroundThreadCreateSignalsMasked(
-    pthread_t * thread, const pthread_attr_t * attr, void * (*start_routine)(void *), void * arg)
+int backgroundThreadCreateSignalsMasked(pthread_t * thread, const pthread_attr_t * attributes, void * (*start_routine)(void *), void * arg)
 {
     sigset_t set;
     sigfillset(&set);
-    sigset_t oldset;
-    int mask_err = pthread_sigmask(SIG_SETMASK, &set, &oldset);
-    if (mask_err != 0)
-        return mask_err;
-    int create_err = pthreadCreateWrapper(thread, attr, start_routine, arg);
+    sigset_t old_set;
+    int mask_error = pthread_sigmask(SIG_SETMASK, &set, &old_set);
+    if (mask_error != 0)
+        return mask_error;
+    int create_error = pthreadCreateWrapper(thread, attributes, start_routine, arg);
     /// Restore the signal mask. Failure to restore the signal mask here changes program behavior.
-    int restore_err = pthread_sigmask(SIG_SETMASK, &oldset, nullptr);
-    if (restore_err != 0)
+    int restore_error = pthread_sigmask(SIG_SETMASK, &old_set, nullptr);
+    if (restore_error != 0)
     {
         printMessage(
-            "<jemalloc>: background thread creation failed (%d), and signal mask restoration failed (%d)\n",
-            create_err,
-            restore_err);
-        if (opt.abort)
+            "<jemalloc>: background thread creation failed (%d), and signal mask restoration failed (%d)\n", create_error, restore_error);
+        if (options.abort)
             abort();
     }
-    return create_err;
+    return create_error;
 }
 
 /// Run by thread 0 holding `background_thread_info[0].mtx`: creates (at most) one of the started but not yet
 /// created threads. Returns true if it unlocked the mutex (the caller restarts its loop).
 /// jemalloc: check_background_thread_creation
 bool checkBackgroundThreadCreation(
-    ThreadState & tsd, const size_t const_max_background_threads, unsigned * n_created, bool * created_threads)
+    ThreadState & thread_state, const size_t const_max_background_threads, unsigned * num_created, bool * created_threads)
 {
-    bool ret = false;
-    if (JE_LIKELY(*n_created == n_background_threads))
-        return ret;
+    bool result = false;
+    if (ALLOCATOR_LIKELY(*num_created == num_background_threads))
+        return result;
 
-    ThreadState * tsdn = &tsd;
-    background_thread_info[0].mtx.unlock(tsdn);
+    ThreadState * thread_state_ptr = &thread_state;
+    background_thread_info[0].mutex.unlock(thread_state_ptr);
     for (unsigned i = 1; i < const_max_background_threads; ++i)
     {
         if (created_threads[i])
             continue;
         BackgroundThreadInfo * info = &background_thread_info[i];
-        info->mtx.lock(tsdn);
+        info->mutex.lock(thread_state_ptr);
         /// In case of the background_thread_paused state because of arena reset, delay the creation.
         bool create = (info->state == BackgroundThreadState::Started);
-        info->mtx.unlock(tsdn);
+        info->mutex.unlock(thread_state_ptr);
         if (!create)
             continue;
 
-        preReentrancy(tsd, nullptr);
-        int err = backgroundThreadCreateSignalsMasked(
+        preReentrancy(thread_state, nullptr);
+        int error = backgroundThreadCreateSignalsMasked(
             &info->thread, nullptr, backgroundThreadEntry, reinterpret_cast<void *>(static_cast<uintptr_t>(i)));
-        postReentrancy(tsd);
+        postReentrancy(thread_state);
 
-        if (err == 0)
+        if (error == 0)
         {
-            ++(*n_created);
+            ++(*num_created);
             created_threads[i] = true;
         }
         else
         {
-            printMessage("<jemalloc>: background thread creation failed (%d)\n", err);
-            if (opt.abort)
+            printMessage("<jemalloc>: background thread creation failed (%d)\n", error);
+            if (options.abort)
                 abort();
         }
         /// Return to restart the loop since we unlocked.
-        ret = true;
+        result = true;
         break;
     }
-    background_thread_info[0].mtx.lock(tsdn);
+    background_thread_info[0].mutex.lock(thread_state_ptr);
 
-    return ret;
+    return result;
 }
 
 /// Thread 0 is also responsible for launching / terminating threads.
 /// jemalloc: background_thread0_work
-void backgroundThread0Work(ThreadState & tsd)
+void backgroundThread0Work(ThreadState & thread_state)
 {
     /// `max_background_threads` does not change underneath us.
     const size_t const_max_background_threads = max_background_threads;
-    JE_ASSERT(const_max_background_threads > 0);
+    ALLOCATOR_ASSERT(const_max_background_threads > 0);
     /// jemalloc uses a variable-length array of `max_background_threads` (at most `MAX_BACKGROUND_THREAD_LIMIT`).
     std::array<bool, MAX_BACKGROUND_THREAD_LIMIT> created_threads;
     unsigned i;
     for (i = 1; i < const_max_background_threads; ++i)
         created_threads[i] = false;
     /// Start working, and create more threads when asked.
-    unsigned n_created = 1;
+    unsigned num_created = 1;
     while (background_thread_info[0].state != BackgroundThreadState::Stopped)
     {
-        if (backgroundThreadPauseCheck(&tsd, &background_thread_info[0]))
+        if (backgroundThreadPauseCheck(&thread_state, &background_thread_info[0]))
             continue;
-        if (checkBackgroundThreadCreation(tsd, const_max_background_threads, &n_created, created_threads.data()))
+        if (checkBackgroundThreadCreation(thread_state, const_max_background_threads, &num_created, created_threads.data()))
             continue;
-        backgroundWorkSleepOnce(&tsd, &background_thread_info[0], 0);
+        backgroundWorkSleepOnce(&thread_state, &background_thread_info[0], 0);
     }
 
     /// Shut down other threads at exit. Note that the ctl thread is holding the global background_thread mutex (and is
     /// waiting) for us.
-    JE_ASSERT(!backgroundThreadEnabled());
+    ALLOCATOR_ASSERT(!backgroundThreadEnabled());
     for (i = 1; i < const_max_background_threads; ++i)
     {
         BackgroundThreadInfo * info = &background_thread_info[i];
-        JE_ASSERT(info->state != BackgroundThreadState::Paused);
+        ALLOCATOR_ASSERT(info->state != BackgroundThreadState::Paused);
         if (created_threads[i])
         {
-            backgroundThreadsDisableSingle(tsd, info);
+            backgroundThreadsDisableSingle(thread_state, info);
         }
         else
         {
-            info->mtx.lock(&tsd);
+            info->mutex.lock(&thread_state);
             if (info->state != BackgroundThreadState::Stopped)
             {
                 /// The thread was not created.
-                JE_ASSERT(info->state == BackgroundThreadState::Started);
-                --n_background_threads;
+                ALLOCATOR_ASSERT(info->state == BackgroundThreadState::Started);
+                --num_background_threads;
                 info->state = BackgroundThreadState::Stopped;
             }
-            info->mtx.unlock(&tsd);
+            info->mutex.unlock(&thread_state);
         }
     }
     background_thread_info[0].state = BackgroundThreadState::Stopped;
-    JE_ASSERT(n_background_threads == 1);
+    ALLOCATOR_ASSERT(num_background_threads == 1);
 }
 
 /// jemalloc: background_work
-void backgroundWork(ThreadState & tsd, unsigned ind)
+void backgroundWork(ThreadState & thread_state, unsigned idx)
 {
-    BackgroundThreadInfo * info = &background_thread_info[ind];
+    BackgroundThreadInfo * info = &background_thread_info[idx];
 
-    info->mtx.lock(&tsd);
+    info->mutex.lock(&thread_state);
     /// The first pass is treated as a wakeup from an indefinite sleep: it does no work, only scheduling.
-    info->wakeupTimeSet(&tsd, BACKGROUND_THREAD_INDEFINITE_SLEEP);
-    if (ind == 0)
+    info->wakeupTimeSet(&thread_state, BACKGROUND_THREAD_INDEFINITE_SLEEP);
+    if (idx == 0)
     {
-        backgroundThread0Work(tsd);
+        backgroundThread0Work(thread_state);
     }
     else
     {
         while (info->state != BackgroundThreadState::Stopped)
         {
-            if (backgroundThreadPauseCheck(&tsd, info))
+            if (backgroundThreadPauseCheck(&thread_state, info))
                 continue;
-            backgroundWorkSleepOnce(&tsd, info, ind);
+            backgroundWorkSleepOnce(&thread_state, info, idx);
         }
     }
-    JE_ASSERT(info->state == BackgroundThreadState::Stopped);
-    info->wakeupTimeSet(&tsd, 0);
-    info->mtx.unlock(&tsd);
+    ALLOCATOR_ASSERT(info->state == BackgroundThreadState::Stopped);
+    info->wakeupTimeSet(&thread_state, 0);
+    info->mutex.unlock(&thread_state);
 }
 
 /// jemalloc: background_thread_entry
-void * backgroundThreadEntry(void * ind_arg)
+void * backgroundThreadEntry(void * idx_arg)
 {
-    unsigned thread_ind = static_cast<unsigned>(reinterpret_cast<uintptr_t>(ind_arg));
-    JE_ASSERT(thread_ind < max_background_threads);
+    unsigned thread_idx = static_cast<unsigned>(reinterpret_cast<uintptr_t>(idx_arg));
+    ALLOCATOR_ASSERT(thread_idx < max_background_threads);
     setCurrentThreadName();
-    if (opt.percpu_arena != PercpuArenaMode::Disabled)
-        setCurrentThreadAffinity(static_cast<int>(thread_ind));
+    if (options.per_cpu_arena != PerCPUArenaMode::Disabled)
+        setCurrentThreadAffinity(static_cast<int>(thread_idx));
     /// Start periodic background work. We use internal tsd which avoids side effects, for example triggering new
     /// arena creation (which in turn triggers another background thread creation).
-    backgroundWork(ThreadState::internalFetch(), thread_ind);
-    JE_ASSERT(pthread_equal(pthread_self(), background_thread_info[thread_ind].thread));
+    backgroundWork(ThreadState::internalFetch(), thread_idx);
+    ALLOCATOR_ASSERT(pthread_equal(pthread_self(), background_thread_info[thread_idx].thread));
 
     return nullptr;
 }
 
-/// Requires `background_thread_lock` and `info->mtx`.
+/// Requires `background_thread_lock` and `info->mutex`.
 /// jemalloc: background_thread_init
-void backgroundThreadInit(ThreadState & tsd, BackgroundThreadInfo * info)
+void backgroundThreadInit(ThreadState & thread_state, BackgroundThreadInfo * info)
 {
-    background_thread_lock.assertOwner(&tsd);
+    background_thread_lock.assertOwner(&thread_state);
     info->state = BackgroundThreadState::Started;
-    backgroundThreadInfoInit(&tsd, info);
-    ++n_background_threads;
+    backgroundThreadInfoInit(&thread_state, info);
+    ++num_background_threads;
 }
 
 /// jemalloc: background_thread_create_locked
-bool backgroundThreadCreateLocked(ThreadState & tsd, unsigned arena_ind)
+bool backgroundThreadCreateLocked(ThreadState & thread_state, unsigned arena_idx)
 {
-    background_thread_lock.assertOwner(&tsd);
+    background_thread_lock.assertOwner(&thread_state);
 
     /// We create at most NCPUs threads.
-    size_t thread_ind = arena_ind % max_background_threads;
-    BackgroundThreadInfo * info = &background_thread_info[thread_ind];
+    size_t thread_idx = arena_idx % max_background_threads;
+    BackgroundThreadInfo * info = &background_thread_info[thread_idx];
 
     bool need_new_thread;
-    info->mtx.lock(&tsd);
+    info->mutex.lock(&thread_state);
     /// The last check is there to leave Thread 0 creation entirely to the initializing thread (arena 0).
-    need_new_thread = backgroundThreadEnabled() && (info->state == BackgroundThreadState::Stopped)
-        && (thread_ind != 0 || arena_ind == 0);
+    need_new_thread = backgroundThreadEnabled() && (info->state == BackgroundThreadState::Stopped) && (thread_idx != 0 || arena_idx == 0);
     if (need_new_thread)
-        backgroundThreadInit(tsd, info);
-    info->mtx.unlock(&tsd);
+        backgroundThreadInit(thread_state, info);
+    info->mutex.unlock(&thread_state);
     if (!need_new_thread)
         return false;
-    if (arena_ind != 0)
+    if (arena_idx != 0)
     {
         /// Threads are created asynchronously by Thread 0.
         BackgroundThreadInfo * t0 = &background_thread_info[0];
-        t0->mtx.lock(&tsd);
-        pthread_cond_signal(&t0->cond);
-        t0->mtx.unlock(&tsd);
+        t0->mutex.lock(&thread_state);
+        pthread_cond_signal(&t0->condition);
+        t0->mutex.unlock(&thread_state);
 
         return false;
     }
 
-    preReentrancy(tsd, nullptr);
+    preReentrancy(thread_state, nullptr);
     /// To avoid complications (besides reentrancy), create internal background threads with the underlying
     /// pthread_create.
-    int err = backgroundThreadCreateSignalsMasked(&info->thread, nullptr, backgroundThreadEntry, reinterpret_cast<void *>(thread_ind));
-    postReentrancy(tsd);
+    int error = backgroundThreadCreateSignalsMasked(&info->thread, nullptr, backgroundThreadEntry, reinterpret_cast<void *>(thread_idx));
+    postReentrancy(thread_state);
 
-    if (err != 0)
+    if (error != 0)
     {
         /// ClickHouse filters this exact message (`programs/main.cpp`).
-        printMessage("<jemalloc>: arena 0 background thread creation failed (%d)\n", err);
-        info->mtx.lock(&tsd);
+        printMessage("<jemalloc>: arena 0 background thread creation failed (%d)\n", error);
+        info->mutex.lock(&thread_state);
         info->state = BackgroundThreadState::Stopped;
-        --n_background_threads;
-        info->mtx.unlock(&tsd);
+        --num_background_threads;
+        info->mutex.unlock(&thread_state);
 
         return true;
     }
@@ -533,76 +530,76 @@ bool backgroundThreadCreateLocked(ThreadState & tsd, unsigned arena_ind)
 /// --- Public functions ----------------------------------------------------------------------------------------------
 
 /// jemalloc: background_thread_create
-bool backgroundThreadCreate(ThreadState & tsd, unsigned arena_ind)
+bool backgroundThreadCreate(ThreadState & thread_state, unsigned arena_idx)
 {
     static_assert(config::background_thread);
 
-    background_thread_lock.lock(&tsd);
-    bool ret = backgroundThreadCreateLocked(tsd, arena_ind);
-    background_thread_lock.unlock(&tsd);
+    background_thread_lock.lock(&thread_state);
+    bool result = backgroundThreadCreateLocked(thread_state, arena_idx);
+    background_thread_lock.unlock(&thread_state);
 
-    return ret;
+    return result;
 }
 
 /// jemalloc: background_threads_enable
-bool backgroundThreadsEnable(ThreadState & tsd)
+bool backgroundThreadsEnable(ThreadState & thread_state)
 {
-    JE_ASSERT(n_background_threads == 0);
-    JE_ASSERT(backgroundThreadEnabled());
-    background_thread_lock.assertOwner(&tsd);
+    ALLOCATOR_ASSERT(num_background_threads == 0);
+    ALLOCATOR_ASSERT(backgroundThreadEnabled());
+    background_thread_lock.assertOwner(&thread_state);
 
     /// jemalloc uses a variable-length array of `max_background_threads` (at most `MAX_BACKGROUND_THREAD_LIMIT`).
     std::array<bool, MAX_BACKGROUND_THREAD_LIMIT> marked;
-    unsigned nmarked;
+    unsigned num_marked;
     for (size_t i = 0; i < max_background_threads; ++i)
         marked[i] = false;
-    nmarked = 0;
+    num_marked = 0;
     /// Thread 0 is required and created at the end.
     marked[0] = true;
     /// Mark the threads we need to create for thread 0.
-    unsigned narenas = narenasTotalGet();
-    for (unsigned i = 1; i < narenas; ++i)
+    unsigned num_arenas = numArenasTotalGet();
+    for (unsigned i = 1; i < num_arenas; ++i)
     {
-        if (marked[i % max_background_threads] || arenaGet(&tsd, i, false) == nullptr)
+        if (marked[i % max_background_threads] || arenaGet(&thread_state, i, false) == nullptr)
             continue;
         BackgroundThreadInfo * info = &background_thread_info[i % max_background_threads];
-        info->mtx.lock(&tsd);
-        JE_ASSERT(info->state == BackgroundThreadState::Stopped);
-        backgroundThreadInit(tsd, info);
-        info->mtx.unlock(&tsd);
+        info->mutex.lock(&thread_state);
+        ALLOCATOR_ASSERT(info->state == BackgroundThreadState::Stopped);
+        backgroundThreadInit(thread_state, info);
+        info->mutex.unlock(&thread_state);
         marked[i % max_background_threads] = true;
-        if (++nmarked == max_background_threads)
+        if (++num_marked == max_background_threads)
             break;
     }
 
-    bool err = backgroundThreadCreateLocked(tsd, 0);
-    if (err)
+    bool error = backgroundThreadCreateLocked(thread_state, 0);
+    if (error)
         return true;
-    for (unsigned i = 0; i < narenas; ++i)
+    for (unsigned i = 0; i < num_arenas; ++i)
     {
-        Arena * arena = arenaGet(&tsd, i, false);
+        Arena * arena = arenaGet(&thread_state, i, false);
         if (arena != nullptr)
-            arena->pa_shard.setDeferralAllowed(&tsd, true);
+            arena->page_allocator_shard.setDeferralAllowed(&thread_state, true);
     }
     return false;
 }
 
 /// jemalloc: background_threads_disable
-bool backgroundThreadsDisable(ThreadState & tsd)
+bool backgroundThreadsDisable(ThreadState & thread_state)
 {
-    JE_ASSERT(!backgroundThreadEnabled());
-    background_thread_lock.assertOwner(&tsd);
+    ALLOCATOR_ASSERT(!backgroundThreadEnabled());
+    background_thread_lock.assertOwner(&thread_state);
 
     /// Thread 0 will be responsible for terminating other threads.
-    if (backgroundThreadsDisableSingle(tsd, &background_thread_info[0]))
+    if (backgroundThreadsDisableSingle(thread_state, &background_thread_info[0]))
         return true;
-    JE_ASSERT(n_background_threads == 0);
-    unsigned narenas = narenasTotalGet();
-    for (unsigned i = 0; i < narenas; ++i)
+    ALLOCATOR_ASSERT(num_background_threads == 0);
+    unsigned num_arenas = numArenasTotalGet();
+    for (unsigned i = 0; i < num_arenas; ++i)
     {
-        Arena * arena = arenaGet(&tsd, i, false);
+        Arena * arena = arenaGet(&thread_state, i, false);
         if (arena != nullptr)
-            arena->pa_shard.setDeferralAllowed(&tsd, false);
+            arena->page_allocator_shard.setDeferralAllowed(&thread_state, false);
     }
 
     return false;
@@ -615,99 +612,99 @@ bool backgroundThreadIsStarted(BackgroundThreadInfo * info)
 }
 
 /// jemalloc: background_thread_wakeup_early
-void backgroundThreadWakeupEarly(BackgroundThreadInfo * info, NsTime * remaining_sleep)
+void backgroundThreadWakeupEarly(BackgroundThreadInfo * info, Nanoseconds * remaining_sleep)
 {
     /// This is an optimization to increase batching. At this point we know that background thread wakes up soon, so
     /// the time to cache the just freed memory is bounded and low.
     if (remaining_sleep != nullptr && remaining_sleep->ns() < BACKGROUND_THREAD_MIN_INTERVAL_NS)
         return;
-    pthread_cond_signal(&info->cond);
+    pthread_cond_signal(&info->condition);
 }
 
 /// jemalloc: background_thread_prefork0
-void backgroundThreadPrefork0(ThreadState * tsdn)
+void backgroundThreadPrefork0(ThreadState * thread_state)
 {
-    background_thread_lock.prefork(tsdn);
+    background_thread_lock.prefork(thread_state);
     background_thread_enabled_at_fork = backgroundThreadEnabled();
 }
 
 /// jemalloc: background_thread_prefork1
-void backgroundThreadPrefork1(ThreadState * tsdn)
+void backgroundThreadPrefork1(ThreadState * thread_state)
 {
     for (unsigned i = 0; i < max_background_threads; ++i)
-        background_thread_info[i].mtx.prefork(tsdn);
+        background_thread_info[i].mutex.prefork(thread_state);
 }
 
 /// jemalloc: background_thread_postfork_parent
-void backgroundThreadPostforkParent(ThreadState * tsdn)
+void backgroundThreadPostforkParent(ThreadState * thread_state)
 {
     for (unsigned i = 0; i < max_background_threads; ++i)
-        background_thread_info[i].mtx.postforkParent(tsdn);
-    background_thread_lock.postforkParent(tsdn);
+        background_thread_info[i].mutex.postforkParent(thread_state);
+    background_thread_lock.postforkParent(thread_state);
 }
 
 /// jemalloc: background_thread_postfork_child
-void backgroundThreadPostforkChild(ThreadState * tsdn)
+void backgroundThreadPostforkChild(ThreadState * thread_state)
 {
     for (unsigned i = 0; i < max_background_threads; ++i)
-        background_thread_info[i].mtx.postforkChild(tsdn);
-    background_thread_lock.postforkChild(tsdn);
+        background_thread_info[i].mutex.postforkChild(thread_state);
+    background_thread_lock.postforkChild(thread_state);
     if (!background_thread_enabled_at_fork)
         return;
 
     /// Clear background_thread state (reset to disabled for child).
-    background_thread_lock.lock(tsdn);
-    n_background_threads = 0;
-    backgroundThreadEnabledSet(tsdn, false);
+    background_thread_lock.lock(thread_state);
+    num_background_threads = 0;
+    backgroundThreadEnabledSet(thread_state, false);
     for (unsigned i = 0; i < max_background_threads; ++i)
     {
         BackgroundThreadInfo * info = &background_thread_info[i];
-        info->mtx.lock(tsdn);
+        info->mutex.lock(thread_state);
         info->state = BackgroundThreadState::Stopped;
-        [[maybe_unused]] int ret = condInit(&info->cond, /* fallback_to_default */ true);
-        JE_ASSERT(ret == 0);
-        backgroundThreadInfoInit(tsdn, info);
-        info->mtx.unlock(tsdn);
+        [[maybe_unused]] int result = conditionInit(&info->condition, /* fallback_to_default */ true);
+        ALLOCATOR_ASSERT(result == 0);
+        backgroundThreadInfoInit(thread_state, info);
+        info->mutex.unlock(thread_state);
     }
-    background_thread_lock.unlock(tsdn);
+    background_thread_lock.unlock(thread_state);
 }
 
 /// jemalloc: background_thread_stats_read
-bool backgroundThreadStatsRead(ThreadState * tsdn, BackgroundThreadStats * stats)
+bool backgroundThreadStatsRead(ThreadState * thread_state, BackgroundThreadStats * stats)
 {
     static_assert(config::stats);
-    background_thread_lock.lock(tsdn);
+    background_thread_lock.lock(thread_state);
     if (!backgroundThreadEnabled())
     {
-        background_thread_lock.unlock(tsdn);
+        background_thread_lock.unlock(thread_state);
         return true;
     }
 
     stats->run_interval.initZero();
-    stats->max_counter_per_bg_thd.reset();
+    stats->max_counter_per_background_thread.reset();
 
     uint64_t num_runs = 0;
-    stats->num_threads = n_background_threads;
+    stats->num_threads = num_background_threads;
     for (unsigned i = 0; i < max_background_threads; ++i)
     {
         BackgroundThreadInfo * info = &background_thread_info[i];
-        if (!info->mtx.tryLock(tsdn))
+        if (!info->mutex.tryLock(thread_state))
         {
             /// Each background thread run may take a long time; avoid waiting on the stats if the thread is active.
             continue;
         }
         if (info->state != BackgroundThreadState::Stopped)
         {
-            num_runs += info->tot_n_runs;
-            stats->run_interval.add(info->tot_sleep_time);
-            info->mtx.profMaxUpdate(tsdn, stats->max_counter_per_bg_thd);
+            num_runs += info->total_num_runs;
+            stats->run_interval.add(info->total_sleep_time);
+            info->mutex.profilingMaxUpdate(thread_state, stats->max_counter_per_background_thread);
         }
-        info->mtx.unlock(tsdn);
+        info->mutex.unlock(thread_state);
     }
     stats->num_runs = num_runs;
     if (num_runs > 0)
-        stats->run_interval.idivide(num_runs);
-    background_thread_lock.unlock(tsdn);
+        stats->run_interval.divideBy(num_runs);
+    background_thread_lock.unlock(thread_state);
 
     return false;
 }
@@ -716,19 +713,19 @@ bool backgroundThreadStatsRead(ThreadState * tsdn, BackgroundThreadStats * stats
 /// is called early in ctl (instead of wait for the pthread_create calls to trigger) because the mutex is required
 /// before creating background threads.
 /// jemalloc: background_thread_ctl_init
-void backgroundThreadCtlInit(ThreadState * tsdn)
+void backgroundThreadMallctlInit(ThreadState * thread_state)
 {
-    background_thread_lock.assertNotOwner(tsdn);
-    pthreadCreateFptrInit();
+    background_thread_lock.assertNotOwner(thread_state);
+    pthreadCreateFunctionPtrInit();
     pthreadCreateWrapperInit();
 }
 
 /// jemalloc: pthread_create_wrapper
-int pthreadCreateWrapper(pthread_t * thread, const pthread_attr_t * attr, void * (*start_routine)(void *), void * arg)
+int pthreadCreateWrapper(pthread_t * thread, const pthread_attr_t * attributes, void * (*start_routine)(void *), void * arg)
 {
     pthreadCreateWrapperInit();
 
-    return pthread_create_fptr(thread, attr, start_routine, arg);
+    return pthread_create_function_ptr(thread, attributes, start_routine, arg);
 }
 
 /// jemalloc: background_thread_boot0
@@ -738,25 +735,25 @@ bool backgroundThreadBoot0()
     /// only") cannot happen: background threads are supported on all platforms.
     static_assert(config::background_thread);
     /// `JEMALLOC_PTHREAD_CREATE_WRAPPER` is defined everywhere (`JEMALLOC_BACKGROUND_THREAD`).
-    if ((config::lazy_lock || opt.background_thread) && pthreadCreateFptrInit())
+    if ((config::lazy_lock || options.background_thread) && pthreadCreateFunctionPtrInit())
         return true;
     return false;
 }
 
 /// jemalloc: background_thread_boot1
-bool backgroundThreadBoot1(ThreadState * tsdn, Base * base)
+bool backgroundThreadBoot1(ThreadState * thread_state, Base * base)
 {
-    JE_ASSERT(narenasTotalGet() > 0);
+    ALLOCATOR_ASSERT(numArenasTotalGet() > 0);
 
-    if (opt.max_background_threads > MAX_BACKGROUND_THREAD_LIMIT)
-        opt.max_background_threads = DEFAULT_NUM_BACKGROUND_THREAD;
-    max_background_threads = opt.max_background_threads;
+    if (options.max_background_threads > MAX_BACKGROUND_THREAD_LIMIT)
+        options.max_background_threads = DEFAULT_NUM_BACKGROUND_THREAD;
+    max_background_threads = options.max_background_threads;
 
     if (background_thread_lock.init("background_thread_global", MutexRank::BACKGROUND_THREAD_GLOBAL, MutexLockOrder::RankExclusive))
         return true;
 
     background_thread_info = static_cast<BackgroundThreadInfo *>(
-        base->alloc(tsdn, opt.max_background_threads * sizeof(BackgroundThreadInfo), CACHELINE));
+        base->alloc(thread_state, options.max_background_threads * sizeof(BackgroundThreadInfo), CACHE_LINE));
     if (background_thread_info == nullptr)
         return true;
 
@@ -764,17 +761,17 @@ bool backgroundThreadBoot1(ThreadState * tsdn, Base * base)
     {
         BackgroundThreadInfo * info = new (&background_thread_info[i]) BackgroundThreadInfo;
         /// Thread mutex is rank_inclusive because of thread0.
-        if (info->mtx.init("background_thread", MutexRank::BACKGROUND_THREAD, MutexLockOrder::AddressOrdered))
+        if (info->mutex.init("background_thread", MutexRank::BACKGROUND_THREAD, MutexLockOrder::AddressOrdered))
             return true;
-        if (condInit(&info->cond, /* fallback_to_default */ false))
+        if (conditionInit(&info->condition, /* fallback_to_default */ false))
             return true;
-        info->mtx.lock(tsdn);
+        info->mutex.lock(thread_state);
         info->state = BackgroundThreadState::Stopped;
-        backgroundThreadInfoInit(tsdn, info);
-        info->mtx.unlock(tsdn);
+        backgroundThreadInfoInit(thread_state, info);
+        info->mutex.unlock(thread_state);
     }
     /// Using `Impl` to bypass the locking check during init.
-    backgroundThreadEnabledSetImpl(opt.background_thread);
+    backgroundThreadEnabledSetImpl(options.background_thread);
     return false;
 }
 
@@ -783,14 +780,14 @@ bool backgroundThreadBoot1(ThreadState * tsdn, Base * base)
 /// jemalloc: arena_background_thread_info_get
 BackgroundThreadInfo * arenaBackgroundThreadInfoGet(Arena * arena)
 {
-    unsigned arena_ind = arenaIndGet(arena);
-    return &background_thread_info[arena_ind % max_background_threads];
+    unsigned arena_idx = arenaIdxGet(arena);
+    return &background_thread_info[arena_idx % max_background_threads];
 }
 
-/// `&info->mtx`
+/// `&info->mutex`
 Mutex & backgroundThreadInfoMutex(BackgroundThreadInfo * info)
 {
-    return info->mtx;
+    return info->mutex;
 }
 
 /// jemalloc: background_thread_indefinite_sleep
@@ -805,22 +802,22 @@ uint64_t backgroundThreadWakeupTimeGet(BackgroundThreadInfo * info)
     return info->wakeupTimeGet();
 }
 
-/// `info->npages_to_purge_new`
-size_t & backgroundThreadNpagesToPurgeNew(BackgroundThreadInfo * info)
+/// `info->num_pages_to_purge_new`
+size_t & backgroundThreadNumPagesToPurgeNew(BackgroundThreadInfo * info)
 {
-    return info->npages_to_purge_new;
+    return info->num_pages_to_purge_new;
 }
 
 }
 
 #if defined(__FreeBSD__)
 static_assert(jemalloc::config::lazy_lock);
-/// We intercept `pthread_create` calls in order to toggle `isthreaded` if the process goes multi-threaded
+/// We intercept `pthread_create` calls in order to toggle `is_threaded` if the process goes multi-threaded
 /// (`JEMALLOC_LAZY_LOCK`). jemalloc: pthread_create (`src/mutex.c`)
-extern "C" __attribute__((visibility("default"))) int
-pthread_create(pthread_t * __restrict thread, const pthread_attr_t * __restrict attr, void * (*start_routine)(void *), void * __restrict arg)
+extern "C" __attribute__((visibility("default"))) int pthread_create(
+    pthread_t * __restrict thread, const pthread_attr_t * __restrict attributes, void * (*start_routine)(void *), void * __restrict arg)
 {
-    return jemalloc::pthreadCreateWrapper(thread, attr, start_routine, arg);
+    return jemalloc::pthreadCreateWrapper(thread, attributes, start_routine, arg);
 }
 #else
 static_assert(!jemalloc::config::lazy_lock);

@@ -11,40 +11,40 @@ static_assert(sizeof(ExtentPool) == 16 + 8 + sizeof(Mutex) + 8);
 /// jemalloc: edata_cache_init
 bool ExtentPool::init(Base * base_)
 {
-    avail.init();
+    available.init();
     /// This is not strictly necessary, since the `ExtentPool` is only created inside an arena, which is zeroed on
     /// creation. But this is handy as a safety measure.
     count_.store(0, std::memory_order_relaxed);
-    if (mtx.init("edata_cache", MutexRank::EDATA_CACHE, MutexLockOrder::RankExclusive))
+    if (mutex.init("edata_cache", MutexRank::EXTENT_POOL, MutexLockOrder::RankExclusive))
         return true;
     base = base_;
     return false;
 }
 
 /// jemalloc: edata_cache_get
-Extent * ExtentPool::get(ThreadState * tsdn)
+Extent * ExtentPool::get(ThreadState * thread_state)
 {
-    mtx.lock(tsdn);
-    Extent * edata = avail.first();
-    if (edata == nullptr)
+    mutex.lock(thread_state);
+    Extent * extent = available.first();
+    if (extent == nullptr)
     {
-        mtx.unlock(tsdn);
-        return base->allocExtent(tsdn);
+        mutex.unlock(thread_state);
+        return base->allocExtent(thread_state);
     }
-    avail.remove(edata);
+    available.remove(extent);
     /// jemalloc: atomic_load_sub_store_zu (not an atomic RMW: a relaxed load and store under the mutex).
     count_.store(count_.load(std::memory_order_relaxed) - 1, std::memory_order_relaxed);
-    mtx.unlock(tsdn);
-    return edata;
+    mutex.unlock(thread_state);
+    return extent;
 }
 
 /// jemalloc: edata_cache_put
-void ExtentPool::put(ThreadState * tsdn, Extent * edata)
+void ExtentPool::put(ThreadState * thread_state, Extent * extent)
 {
-    mtx.lock(tsdn);
-    avail.insert(edata);
+    mutex.lock(thread_state);
+    available.insert(extent);
     count_.store(count_.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
-    mtx.unlock(tsdn);
+    mutex.unlock(thread_state);
 }
 
 }

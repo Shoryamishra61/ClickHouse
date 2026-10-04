@@ -2,11 +2,12 @@
 
 /// Compile-time size class constants (jemalloc: the macros of `sc.h`).
 ///
-/// Separated from `SizeClasses.h` so that `Bitmap.h` (which needs `SC_LG_SLAB_MAXREGS` and `SC_NSIZES`) can be included
+/// Separated from `SizeClasses.h` so that `Bitmap.h` (which needs `SIZE_CLASS_LOG2_SLAB_MAX_REGIONS` and `SIZE_CLASS_NUM_SIZES`) can be
+/// included
 /// by `SizeClasses.h` (which needs `BitmapInfo` for `BinInfo`).
 ///
-/// Size classes are of the form `(1 << lg_base) + (ndelta << lg_delta)`; groups of `SC_NGROUP` classes share
-/// `lg_base` and `lg_delta`, and the size doubles every `SC_NGROUP` classes. See the comment at the top of `sc.h`.
+/// Size classes are of the form `(1 << log2_base) + (num_delta << log2_delta)`; groups of `SIZE_CLASS_GROUP_SIZE` classes share
+/// `log2_base` and `log2_delta`, and the size doubles every `SIZE_CLASS_GROUP_SIZE` classes. See the comment at the top of `sc.h`.
 
 #include <allocator/Common.h>
 
@@ -15,69 +16,71 @@
 namespace jemalloc
 {
 
-/// Size class N + (1 << SC_LG_NGROUP) is twice the size of size class N.
-inline constexpr int SC_LG_NGROUP = 2;
-inline constexpr int SC_LG_TINY_MIN = 3;
+/// Size class N + (1 << SIZE_CLASS_LOG2_GROUP_SIZE) is twice the size of size class N.
+inline constexpr int SIZE_CLASS_LOG2_GROUP_SIZE = 2;
+inline constexpr int SIZE_CLASS_LOG2_TINY_MIN = 3;
 
-static_assert(SC_LG_TINY_MIN != 0, "The div module doesn't support division by 1");
+static_assert(SIZE_CLASS_LOG2_TINY_MIN != 0, "The div module doesn't support division by 1");
 
-inline constexpr size_t SC_NGROUP = size_t(1) << SC_LG_NGROUP;
-inline constexpr unsigned SC_PTR_BITS = (1u << LG_SIZEOF_PTR) * 8;
-inline constexpr unsigned SC_NTINY = LG_QUANTUM - SC_LG_TINY_MIN;
-inline constexpr int SC_LG_TINY_MAXCLASS = int(LG_QUANTUM) > SC_LG_TINY_MIN ? int(LG_QUANTUM) - 1 : -1;
-inline constexpr unsigned SC_NPSEUDO = SC_NGROUP;
-inline constexpr unsigned SC_LG_FIRST_REGULAR_BASE = LG_QUANTUM + SC_LG_NGROUP;
+inline constexpr size_t SIZE_CLASS_GROUP_SIZE = size_t(1) << SIZE_CLASS_LOG2_GROUP_SIZE;
+inline constexpr unsigned SIZE_CLASS_PTR_BITS = (1u << LG_SIZEOF_PTR) * 8;
+inline constexpr unsigned SIZE_CLASS_NUM_TINY = LOG2_QUANTUM - SIZE_CLASS_LOG2_TINY_MIN;
+inline constexpr int SIZE_CLASS_LOG2_TINY_MAX_CLASS = int(LOG2_QUANTUM) > SIZE_CLASS_LOG2_TINY_MIN ? int(LOG2_QUANTUM) - 1 : -1;
+inline constexpr unsigned SIZE_CLASS_NUM_PSEUDO = SIZE_CLASS_GROUP_SIZE;
+inline constexpr unsigned SIZE_CLASS_LOG2_FIRST_REGULAR_BASE = LOG2_QUANTUM + SIZE_CLASS_LOG2_GROUP_SIZE;
 
 /// Allocations are capped below 2 ** (ptr_bits - 1), so the highest base is 2 ** (ptr_bits - 2), and the last group
 /// is one class shorter than the others.
-inline constexpr unsigned SC_LG_BASE_MAX = SC_PTR_BITS - 2;
-inline constexpr unsigned SC_NREGULAR = SC_NGROUP * (SC_LG_BASE_MAX - SC_LG_FIRST_REGULAR_BASE + 1) - 1;
-inline constexpr unsigned SC_NSIZES = SC_NTINY + SC_NPSEUDO + SC_NREGULAR;
+inline constexpr unsigned SIZE_CLASS_LOG2_BASE_MAX = SIZE_CLASS_PTR_BITS - 2;
+inline constexpr unsigned SIZE_CLASS_NUM_REGULAR
+    = SIZE_CLASS_GROUP_SIZE * (SIZE_CLASS_LOG2_BASE_MAX - SIZE_CLASS_LOG2_FIRST_REGULAR_BASE + 1) - 1;
+inline constexpr unsigned SIZE_CLASS_NUM_SIZES = SIZE_CLASS_NUM_TINY + SIZE_CLASS_NUM_PSEUDO + SIZE_CLASS_NUM_REGULAR;
 
 /// The number of size classes that are a multiple of the page size.
-inline constexpr unsigned SC_NPSIZES
-    = SC_NGROUP + (SC_LG_BASE_MAX - (LG_PAGE + SC_LG_NGROUP)) * SC_NGROUP + SC_NGROUP - 1;
+inline constexpr unsigned SIZE_CLASS_NUM_PAGE_SIZES = SIZE_CLASS_GROUP_SIZE
+    + (SIZE_CLASS_LOG2_BASE_MAX - (LOG2_PAGE + SIZE_CLASS_LOG2_GROUP_SIZE)) * SIZE_CLASS_GROUP_SIZE + SIZE_CLASS_GROUP_SIZE - 1;
 
 /// A size class is binnable (small, slab-allocated) if size < page size * group.
-inline constexpr unsigned SC_NBINS = SC_NTINY + SC_NPSEUDO + SC_NGROUP * (LG_PAGE + SC_LG_NGROUP - SC_LG_FIRST_REGULAR_BASE) - 1;
+inline constexpr unsigned SIZE_CLASS_NUM_BINS = SIZE_CLASS_NUM_TINY + SIZE_CLASS_NUM_PSEUDO
+    + SIZE_CLASS_GROUP_SIZE * (LOG2_PAGE + SIZE_CLASS_LOG2_GROUP_SIZE - SIZE_CLASS_LOG2_FIRST_REGULAR_BASE) - 1;
 
 /// The size2index table uses uint8_t to encode each bin index.
-static_assert(SC_NBINS <= 256, "Too many small size classes");
+static_assert(SIZE_CLASS_NUM_BINS <= 256, "Too many small size classes");
 
 /// The largest size class in the lookup table, and its binary log.
-inline constexpr unsigned SC_LG_MAX_LOOKUP = 12;
-inline constexpr size_t SC_LOOKUP_MAXCLASS = size_t(1) << SC_LG_MAX_LOOKUP;
+inline constexpr unsigned SIZE_CLASS_LOG2_MAX_LOOKUP = 12;
+inline constexpr size_t SIZE_CLASS_LOOKUP_MAX_CLASS = size_t(1) << SIZE_CLASS_LOG2_MAX_LOOKUP;
 
-/// Internal, only used for the definition of SC_SMALL_MAXCLASS.
-inline constexpr size_t SC_SMALL_MAX_BASE = size_t(1) << (LG_PAGE + SC_LG_NGROUP - 1);
-inline constexpr size_t SC_SMALL_MAX_DELTA = size_t(1) << (LG_PAGE - 1);
+/// Internal, only used for the definition of SIZE_CLASS_SMALL_MAX_CLASS.
+inline constexpr size_t SIZE_CLASS_SMALL_MAX_BASE = size_t(1) << (LOG2_PAGE + SIZE_CLASS_LOG2_GROUP_SIZE - 1);
+inline constexpr size_t SIZE_CLASS_SMALL_MAX_DELTA = size_t(1) << (LOG2_PAGE - 1);
 
 /// The largest size class allocated out of a slab.
-inline constexpr size_t SC_SMALL_MAXCLASS = SC_SMALL_MAX_BASE + (SC_NGROUP - 1) * SC_SMALL_MAX_DELTA;
+inline constexpr size_t SIZE_CLASS_SMALL_MAX_CLASS = SIZE_CLASS_SMALL_MAX_BASE + (SIZE_CLASS_GROUP_SIZE - 1) * SIZE_CLASS_SMALL_MAX_DELTA;
 
 /// The fast path assumes all lookup-able sizes are small.
-static_assert(SC_SMALL_MAXCLASS >= SC_LOOKUP_MAXCLASS, "Lookup table sizes must be small");
+static_assert(SIZE_CLASS_SMALL_MAX_CLASS >= SIZE_CLASS_LOOKUP_MAX_CLASS, "Lookup table sizes must be small");
 
 /// The smallest size class not allocated out of a slab.
-inline constexpr size_t SC_LARGE_MINCLASS = size_t(1) << (LG_PAGE + SC_LG_NGROUP);
-inline constexpr unsigned SC_LG_LARGE_MINCLASS = LG_PAGE + SC_LG_NGROUP;
+inline constexpr size_t SIZE_CLASS_LARGE_MIN_CLASS = size_t(1) << (LOG2_PAGE + SIZE_CLASS_LOG2_GROUP_SIZE);
+inline constexpr unsigned SIZE_CLASS_LOG2_LARGE_MIN_CLASS = LOG2_PAGE + SIZE_CLASS_LOG2_GROUP_SIZE;
 
-/// Internal; only used for the definition of SC_LARGE_MAXCLASS.
-inline constexpr size_t SC_MAX_BASE = size_t(1) << (SC_PTR_BITS - 2);
-inline constexpr size_t SC_MAX_DELTA = size_t(1) << (SC_PTR_BITS - 2 - SC_LG_NGROUP);
+/// Internal; only used for the definition of SIZE_CLASS_LARGE_MAX_CLASS.
+inline constexpr size_t SIZE_CLASS_MAX_BASE = size_t(1) << (SIZE_CLASS_PTR_BITS - 2);
+inline constexpr size_t SIZE_CLASS_MAX_DELTA = size_t(1) << (SIZE_CLASS_PTR_BITS - 2 - SIZE_CLASS_LOG2_GROUP_SIZE);
 
 /// The largest size class supported.
-inline constexpr size_t SC_LARGE_MAXCLASS = SC_MAX_BASE + (SC_NGROUP - 1) * SC_MAX_DELTA;
+inline constexpr size_t SIZE_CLASS_LARGE_MAX_CLASS = SIZE_CLASS_MAX_BASE + (SIZE_CLASS_GROUP_SIZE - 1) * SIZE_CLASS_MAX_DELTA;
 
 /// The allocation fast path relies on it to subtract sizes from a ssize_t.
-static_assert(SC_LARGE_MAXCLASS < size_t(std::numeric_limits<ssize_t>::max()));
+static_assert(SIZE_CLASS_LARGE_MAX_CLASS < size_t(std::numeric_limits<ssize_t>::max()));
 
 /// Maximum number of regions in one slab (`CONFIG_LG_SLAB_MAXREGS` is never set by ClickHouse).
-inline constexpr unsigned SC_LG_SLAB_MAXREGS = LG_PAGE - SC_LG_TINY_MIN;
-inline constexpr unsigned SC_SLAB_MAXREGS = 1u << SC_LG_SLAB_MAXREGS;
+inline constexpr unsigned SIZE_CLASS_LOG2_SLAB_MAX_REGIONS = LOG2_PAGE - SIZE_CLASS_LOG2_TINY_MIN;
+inline constexpr unsigned SIZE_CLASS_SLAB_MAX_REGIONS = 1u << SIZE_CLASS_LOG2_SLAB_MAX_REGIONS;
 
 /// With large size classes disabled, the tcache still caches sizes up to this threshold (see `sc.h`).
-inline constexpr unsigned LG_USIZE_GROW_SLOW_THRESHOLD = SC_LG_NGROUP + LG_PAGE + 1;
-inline constexpr unsigned USIZE_GROW_SLOW_THRESHOLD = 1u << LG_USIZE_GROW_SLOW_THRESHOLD;
+inline constexpr unsigned LOG2_USABLE_SIZE_GROW_SLOW_THRESHOLD = SIZE_CLASS_LOG2_GROUP_SIZE + LOG2_PAGE + 1;
+inline constexpr unsigned USABLE_SIZE_GROW_SLOW_THRESHOLD = 1u << LOG2_USABLE_SIZE_GROW_SLOW_THRESHOLD;
 
 }

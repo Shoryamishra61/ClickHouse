@@ -1,7 +1,7 @@
 /// Compares `ExtentSet` with jemalloc's `eset.c` (linked from the reference `lib_jemalloc.a`): both sets receive
 /// identical randomized sequences of insert / remove / fit operations on extents with identical (fake) addresses,
 /// sizes and serial numbers, and must return the same extent from every `fit` (various sizes, alignments, `exact_only`
-/// and `lg_max_fit` values, with large size classes disabled and enabled). After every operation the stats, the
+/// and `log2_max_fit` values, with large size classes disabled and enabled). After every operation the stats, the
 /// bitmap, the cached heap minimums, the heap roots and the LRU order are compared too.
 
 #include <allocator/ExtentSet.h>
@@ -15,28 +15,27 @@
 #include <random>
 #include <vector>
 
-extern "C"
-{
+extern "C" {
 void ref_boot(void);
 void ref_set_disable_large_size_classes(bool value);
-size_t ref_sizeof_eset(void);
-void * ref_eset_new(unsigned state);
-void ref_eset_delete(void * eset);
-void * ref_edata_new(void * addr, size_t size, uint64_t sn, unsigned state);
-void ref_edata_delete(void * edata);
-void ref_edata_set_state(void * edata, unsigned state);
-void ref_eset_insert(void * eset, void * edata);
-void ref_eset_remove(void * eset, void * edata);
-void * ref_eset_fit(void * eset, size_t esize, size_t alignment, bool exact_only, unsigned lg_max_fit);
-size_t ref_eset_npages(void * eset);
-size_t ref_eset_nextents(void * eset, unsigned pind);
-size_t ref_eset_nbytes(void * eset, unsigned pind);
-unsigned ref_eset_npsizes(void);
-void ref_eset_heap_min(void * eset, unsigned pind, uint64_t * sn, uintptr_t * addr);
-bool ref_eset_bin_empty(void * eset, unsigned pind);
-size_t ref_eset_bitmap(void * eset, unsigned long * out, size_t max);
-size_t ref_eset_lru(void * eset, void ** out, size_t max);
-void * ref_eset_heap_root(void * eset, unsigned pind, size_t * auxcount);
+size_t ref_sizeof_extent_set(void);
+void * ref_extent_set_new(unsigned state);
+void ref_extent_set_delete(void * extent_set);
+void * ref_extent_new(void * addr, size_t size, uint64_t serial_number, unsigned state);
+void ref_extent_delete(void * extent);
+void ref_extent_set_state(void * extent, unsigned state);
+void ref_extent_set_insert(void * extent_set, void * extent);
+void ref_extent_set_remove(void * extent_set, void * extent);
+void * ref_extent_set_fit(void * extent_set, size_t extent_size, size_t alignment, bool exact_only, unsigned log2_max_fit);
+size_t ref_extent_set_num_pages(void * extent_set);
+size_t ref_extent_set_num_extents(void * extent_set, unsigned page_size_class_idx);
+size_t ref_extent_set_num_bytes(void * extent_set, unsigned page_size_class_idx);
+unsigned ref_extent_set_num_page_sizes(void);
+void ref_extent_set_heap_min(void * extent_set, unsigned page_size_class_idx, uint64_t * serial_number, uintptr_t * addr);
+bool ref_extent_set_bin_empty(void * extent_set, unsigned page_size_class_idx);
+size_t ref_extent_set_bitmap(void * extent_set, unsigned long * out, size_t max);
+size_t ref_extent_set_lru(void * extent_set, void ** out, size_t max);
+void * ref_extent_set_heap_root(void * extent_set, unsigned page_size_class_idx, size_t * auxiliary_count);
 
 /// `eset.o` pulls in the rest of the reference jemalloc, including the libunwind-based profiler backtrace, which is
 /// never called here.
@@ -69,12 +68,13 @@ struct Pair
     bool present;
 };
 
-Extent * newExtent(void * addr, size_t size, uint64_t sn, ExtentState state)
+Extent * newExtent(void * addr, size_t size, uint64_t serial_number, ExtentState state)
 {
-    void * p = std::aligned_alloc(EDATA_ALIGNMENT, (sizeof(Extent) + EDATA_ALIGNMENT - 1) / EDATA_ALIGNMENT * EDATA_ALIGNMENT);
+    void * p = std::aligned_alloc(EXTENT_ALIGNMENT, (sizeof(Extent) + EXTENT_ALIGNMENT - 1) / EXTENT_ALIGNMENT * EXTENT_ALIGNMENT);
     std::memset(p, 0, sizeof(Extent));
     Extent * e = static_cast<Extent *>(p);
-    e->init(0, addr, size, false, SC_NSIZES, sn, state, false, true, EXTENT_PAI_PAC, EXTENT_NOT_HEAD);
+    e->init(
+        0, addr, size, false, SIZE_CLASS_NUM_SIZES, serial_number, state, false, true, EXTENT_ALLOCATOR_PAGE_ALLOCATOR, EXTENT_NOT_HEAD);
     return e;
 }
 
@@ -86,7 +86,7 @@ struct Harness
 
     Harness()
     {
-        ref_set = ref_eset_new(extent_state_dirty);
+        ref_set = ref_extent_set_new(extent_state_dirty);
         our_set = static_cast<ExtentSet *>(std::aligned_alloc(64, (sizeof(ExtentSet) + 63) / 64 * 64));
         std::memset(static_cast<void *>(our_set), 0, sizeof(ExtentSet));
         our_set->init(extent_state_dirty);
@@ -96,10 +96,10 @@ struct Harness
     {
         for (auto & pair : pairs)
         {
-            ref_edata_delete(pair.ref);
+            ref_extent_delete(pair.ref);
             std::free(pair.our);
         }
-        ref_eset_delete(ref_set);
+        ref_extent_set_delete(ref_set);
         std::free(our_set);
     }
 
@@ -121,9 +121,9 @@ struct Harness
 
     void insert(size_t i)
     {
-        ref_edata_set_state(pairs[i].ref, extent_state_dirty);
+        ref_extent_set_state(pairs[i].ref, extent_state_dirty);
         pairs[i].our->setState(extent_state_dirty);
-        ref_eset_insert(ref_set, pairs[i].ref);
+        ref_extent_set_insert(ref_set, pairs[i].ref);
         our_set->insert(pairs[i].our);
         pairs[i].present = true;
     }
@@ -133,10 +133,10 @@ struct Harness
     {
         if (merging)
         {
-            ref_edata_set_state(pairs[i].ref, extent_state_merging);
+            ref_extent_set_state(pairs[i].ref, extent_state_merging);
             pairs[i].our->setState(extent_state_merging);
         }
-        ref_eset_remove(ref_set, pairs[i].ref);
+        ref_extent_set_remove(ref_set, pairs[i].ref);
         our_set->remove(pairs[i].our);
         pairs[i].present = false;
     }
@@ -145,53 +145,56 @@ struct Harness
     bool compareState(int step) const
     {
         bool ok = true;
-        if (ref_eset_npages(ref_set) != our_set->npagesGet())
+        if (ref_extent_set_num_pages(ref_set) != our_set->numPagesGet())
         {
-            std::fprintf(stderr, "step %d: npages %zu vs %zu\n", step, ref_eset_npages(ref_set), our_set->npagesGet());
+            std::fprintf(stderr, "step %d: npages %zu vs %zu\n", step, ref_extent_set_num_pages(ref_set), our_set->numPagesGet());
             ok = false;
         }
-        for (unsigned pind = 0; pind < ESET_NPSIZES; ++pind)
+        for (unsigned page_size_class_idx = 0; page_size_class_idx < EXTENT_SET_NUM_PAGE_SIZES; ++page_size_class_idx)
         {
-            if (ref_eset_nextents(ref_set, pind) != our_set->nextentsGet(pind) || ref_eset_nbytes(ref_set, pind) != our_set->nbytesGet(pind))
+            if (ref_extent_set_num_extents(ref_set, page_size_class_idx) != our_set->numExtentsGet(page_size_class_idx)
+                || ref_extent_set_num_bytes(ref_set, page_size_class_idx) != our_set->numBytesGet(page_size_class_idx))
             {
-                std::fprintf(stderr, "step %d: bin %u stats mismatch\n", step, pind);
+                std::fprintf(stderr, "step %d: bin %u stats mismatch\n", step, page_size_class_idx);
                 ok = false;
             }
-            bool ref_empty = ref_eset_bin_empty(ref_set, pind);
-            if (ref_empty != our_set->bins[pind].heap.empty())
+            bool ref_empty = ref_extent_set_bin_empty(ref_set, page_size_class_idx);
+            if (ref_empty != our_set->bins[page_size_class_idx].heap.empty())
             {
-                std::fprintf(stderr, "step %d: bin %u emptiness mismatch\n", step, pind);
+                std::fprintf(stderr, "step %d: bin %u emptiness mismatch\n", step, page_size_class_idx);
                 ok = false;
                 continue;
             }
             if (ref_empty)
                 continue;
-            uint64_t sn;
+            uint64_t serial_number;
             uintptr_t addr;
-            ref_eset_heap_min(ref_set, pind, &sn, &addr);
-            if (sn != our_set->bins[pind].heap_min.sn || addr != our_set->bins[pind].heap_min.addr)
+            ref_extent_set_heap_min(ref_set, page_size_class_idx, &serial_number, &addr);
+            if (serial_number != our_set->bins[page_size_class_idx].heap_min.serial_number
+                || addr != our_set->bins[page_size_class_idx].heap_min.addr)
             {
-                std::fprintf(stderr, "step %d: bin %u heap_min mismatch\n", step, pind);
+                std::fprintf(stderr, "step %d: bin %u heap_min mismatch\n", step, page_size_class_idx);
                 ok = false;
             }
-            size_t ref_auxcount;
-            void * ref_root = ref_eset_heap_root(ref_set, pind, &ref_auxcount);
-            if (indexOfRef(ref_root) != indexOfOur(our_set->bins[pind].heap.rootNode()) || ref_auxcount != our_set->bins[pind].heap.auxCount())
+            size_t ref_auxiliary_count;
+            void * ref_root = ref_extent_set_heap_root(ref_set, page_size_class_idx, &ref_auxiliary_count);
+            if (indexOfRef(ref_root) != indexOfOur(our_set->bins[page_size_class_idx].heap.rootNode())
+                || ref_auxiliary_count != our_set->bins[page_size_class_idx].heap.auxiliaryCount())
             {
-                std::fprintf(stderr, "step %d: bin %u heap root/auxcount mismatch\n", step, pind);
+                std::fprintf(stderr, "step %d: bin %u heap root/auxcount mismatch\n", step, page_size_class_idx);
                 ok = false;
             }
         }
         unsigned long words[16];
-        size_t nwords = ref_eset_bitmap(ref_set, words, 16);
-        if (nwords != our_set->bitmap.ngroups)
+        size_t num_words = ref_extent_set_bitmap(ref_set, words, 16);
+        if (num_words != our_set->bitmap.num_groups)
         {
-            std::fprintf(stderr, "bitmap size %zu vs %zu\n", nwords, our_set->bitmap.ngroups);
+            std::fprintf(stderr, "bitmap size %zu vs %zu\n", num_words, our_set->bitmap.num_groups);
             ok = false;
         }
         else
         {
-            for (size_t i = 0; i < nwords; ++i)
+            for (size_t i = 0; i < num_words; ++i)
                 if (words[i] != our_set->bitmap.groups[i])
                 {
                     std::fprintf(stderr, "step %d: bitmap word %zu mismatch\n", step, i);
@@ -199,7 +202,7 @@ struct Harness
                 }
         }
         static void * lru[100000];
-        size_t n = ref_eset_lru(ref_set, lru, 100000);
+        size_t n = ref_extent_set_lru(ref_set, lru, 100000);
         size_t k = 0;
         for (Extent * e = our_set->lru.first(); e != nullptr; e = our_set->lru.next(e), ++k)
         {
@@ -237,9 +240,9 @@ size_t pickPages(std::mt19937_64 & rng)
 
 size_t pickSize(std::mt19937_64 & rng)
 {
-    /// Rarely, an extent larger than SC_LARGE_MAXCLASS (the last bin).
+    /// Rarely, an extent larger than SIZE_CLASS_LARGE_MAX_CLASS (the last bin).
     if (rng() % 500 == 0)
-        return SC_LARGE_MAXCLASS + PAGE * (1 + rng() % 4);
+        return SIZE_CLASS_LARGE_MAX_CLASS + PAGE * (1 + rng() % 4);
     return pickPages(rng) * PAGE;
 }
 
@@ -253,36 +256,36 @@ size_t pickAlignment(std::mt19937_64 & rng)
     return PAGE << (1 + rng() % 12);
 }
 
-unsigned pickLgMaxFit(std::mt19937_64 & rng)
+unsigned pickLog2MaxFit(std::mt19937_64 & rng)
 {
     unsigned kind = rng() % 10;
     if (kind < 4)
         return 6;
     if (kind < 7)
-        return SC_PTR_BITS;
-    return unsigned(rng() % (SC_PTR_BITS + 1));
+        return SIZE_CLASS_PTR_BITS;
+    return unsigned(rng() % (SIZE_CLASS_PTR_BITS + 1));
 }
 
-void runSequence(uint64_t seed, int steps, bool disable_large_size_classes, unsigned sn_range)
+void runSequence(uint64_t seed, int steps, bool disable_large_size_classes, unsigned serial_number_range)
 {
     ref_set_disable_large_size_classes(disable_large_size_classes);
-    opt.disable_large_size_classes = disable_large_size_classes;
+    options.disable_large_size_classes = disable_large_size_classes;
 
     Harness h;
     std::mt19937_64 rng(seed);
     int failures = 0;
-    size_t nfits = 0;
-    size_t nfound = 0;
+    size_t num_fits = 0;
+    size_t num_found = 0;
 
     for (int step = 0; step < steps && failures < 5; ++step)
     {
         unsigned op = rng() % 100;
         bool ok = true;
-        size_t npresent = 0;
+        size_t num_present = 0;
         for (auto & pair : h.pairs)
-            npresent += pair.present;
+            num_present += pair.present;
 
-        if (op < 40 || npresent < 4)
+        if (op < 40 || num_present < 4)
         {
             /// Insert a new extent, or re-insert a removed one.
             size_t index;
@@ -304,10 +307,13 @@ void runSequence(uint64_t seed, int steps, bool disable_large_size_classes, unsi
                     offset &= ~((uintptr_t(PAGE) << (rng() % 14)) - 1);
                 void * addr = reinterpret_cast<void *>(slot + offset);
                 size_t size = pickSize(rng);
-                if (size > SC_LARGE_MAXCLASS)
+                if (size > SIZE_CLASS_LARGE_MAX_CLASS)
                     addr = reinterpret_cast<void *>(uintptr_t(PAGE) * (1 + rng() % 1024));
-                uint64_t sn = rng() % sn_range;
-                h.pairs.push_back({ref_edata_new(addr, size, sn, extent_state_dirty), newExtent(addr, size, sn, extent_state_dirty), false});
+                uint64_t serial_number = rng() % serial_number_range;
+                h.pairs.push_back(
+                    {ref_extent_new(addr, size, serial_number, extent_state_dirty),
+                     newExtent(addr, size, serial_number, extent_state_dirty),
+                     false});
                 index = h.pairs.size() - 1;
             }
             h.insert(index);
@@ -324,52 +330,52 @@ void runSequence(uint64_t seed, int steps, bool disable_large_size_classes, unsi
         else
         {
             /// Fit; usually the request is related to an existing extent's size.
-            size_t esize;
+            size_t extent_size;
             if (rng() % 2 == 0 && !h.pairs.empty())
             {
                 const Pair & pair = h.pairs[rng() % h.pairs.size()];
                 size_t base_size = pair.our->size();
-                if (base_size > SC_LARGE_MAXCLASS)
+                if (base_size > SIZE_CLASS_LARGE_MAX_CLASS)
                     base_size = PAGE;
                 long delta = long(rng() % 5) - 2;
-                esize = base_size + size_t(delta) * PAGE;
-                if (esize == 0 || esize > SC_LARGE_MAXCLASS)
-                    esize = base_size;
+                extent_size = base_size + size_t(delta) * PAGE;
+                if (extent_size == 0 || extent_size > SIZE_CLASS_LARGE_MAX_CLASS)
+                    extent_size = base_size;
             }
             else
             {
-                esize = pickPages(rng) * PAGE;
+                extent_size = pickPages(rng) * PAGE;
             }
             size_t alignment = pickAlignment(rng);
             bool exact_only = rng() % 5 == 0;
-            unsigned lg_max_fit = pickLgMaxFit(rng);
+            unsigned log2_max_fit = pickLog2MaxFit(rng);
 
-            void * r = ref_eset_fit(h.ref_set, esize, alignment, exact_only, lg_max_fit);
-            Extent * o = h.our_set->fit(esize, alignment, exact_only, lg_max_fit);
-            ++nfits;
-            int ri = r ? h.indexOfRef(r) : -1;
-            int oi = o ? h.indexOfOur(o) : -1;
-            if (ri != oi)
+            void * r = ref_extent_set_fit(h.ref_set, extent_size, alignment, exact_only, log2_max_fit);
+            Extent * o = h.our_set->fit(extent_size, alignment, exact_only, log2_max_fit);
+            ++num_fits;
+            int ref_idx = r ? h.indexOfRef(r) : -1;
+            int our_idx = o ? h.indexOfOur(o) : -1;
+            if (ref_idx != our_idx)
             {
                 std::fprintf(
                     stderr,
                     "seed %llu step %d: fit(esize=%zu, alignment=%zu, exact_only=%d, lg_max_fit=%u): %d vs %d\n",
                     static_cast<unsigned long long>(seed),
                     step,
-                    esize,
+                    extent_size,
                     alignment,
                     int(exact_only),
-                    lg_max_fit,
-                    ri,
-                    oi);
+                    log2_max_fit,
+                    ref_idx,
+                    our_idx);
                 ok = false;
             }
-            else if (ri >= 0)
+            else if (ref_idx >= 0)
             {
-                ++nfound;
+                ++num_found;
                 /// As `extentActivateLocked` does, usually.
                 if (rng() % 3 != 0)
-                    h.remove(size_t(ri), false);
+                    h.remove(size_t(ref_idx), false);
             }
         }
 
@@ -381,9 +387,9 @@ void runSequence(uint64_t seed, int steps, bool disable_large_size_classes, unsi
         }
     }
     /// Sanity check that the workload is meaningful.
-    CHECK_GT(nfits, size_t(steps / 5));
-    CHECK_GT(nfound, size_t(0));
-    CHECK_LT(nfound, nfits);
+    CHECK_GT(num_fits, size_t(steps / 5));
+    CHECK_GT(num_found, size_t(0));
+    CHECK_LT(num_found, num_fits);
 }
 
 }
@@ -391,8 +397,8 @@ void runSequence(uint64_t seed, int steps, bool disable_large_size_classes, unsi
 TEST(ExtentSetOracle, Layout)
 {
     bootOnce();
-    CHECK_EQ(ref_sizeof_eset(), sizeof(ExtentSet));
-    CHECK_EQ(ref_eset_npsizes(), ESET_NPSIZES);
+    CHECK_EQ(ref_sizeof_extent_set(), sizeof(ExtentSet));
+    CHECK_EQ(ref_extent_set_num_page_sizes(), EXTENT_SET_NUM_PAGE_SIZES);
 }
 
 TEST(ExtentSetOracle, RandomizedLargeSizeClassesDisabled)
@@ -407,7 +413,7 @@ TEST(ExtentSetOracle, RandomizedLargeSizeClassesEnabled)
     bootOnce();
     for (uint64_t seed = 100; seed < 108; ++seed)
         runSequence(seed, 4000, /* disable_large_size_classes */ false, seed % 2 == 0 ? 3 : 1000000);
-    opt.disable_large_size_classes = true;
+    options.disable_large_size_classes = true;
     ref_set_disable_large_size_classes(true);
 }
 
@@ -416,7 +422,7 @@ TEST(ExtentSetOracle, DeepHeaps)
 {
     bootOnce();
     ref_set_disable_large_size_classes(true);
-    opt.disable_large_size_classes = true;
+    options.disable_large_size_classes = true;
 
     Harness h;
     std::mt19937_64 rng(42);
@@ -426,29 +432,32 @@ TEST(ExtentSetOracle, DeepHeaps)
     {
         size_t size = (16 + rng() % 8) * PAGE;
         void * addr = reinterpret_cast<void *>((uintptr_t(1) << 40) + uintptr_t(i) * (uintptr_t(1) << 30) + (rng() % 1024) * PAGE);
-        uint64_t sn = rng() % 50;
-        h.pairs.push_back({ref_edata_new(addr, size, sn, extent_state_dirty), newExtent(addr, size, sn, extent_state_dirty), false});
+        uint64_t serial_number = rng() % 50;
+        h.pairs.push_back(
+            {ref_extent_new(addr, size, serial_number, extent_state_dirty),
+             newExtent(addr, size, serial_number, extent_state_dirty),
+             false});
         h.insert(h.pairs.size() - 1);
     }
     REQUIRE(h.compareState(-1));
     for (int step = 0; step < 2000 && failures < 5; ++step)
     {
-        size_t esize = (14 + rng() % 12) * PAGE;
+        size_t extent_size = (14 + rng() % 12) * PAGE;
         size_t alignment = rng() % 4 == 0 ? (PAGE << (1 + rng() % 4)) : PAGE;
         bool exact_only = rng() % 4 == 0;
-        unsigned lg_max_fit = rng() % 2 ? 6 : SC_PTR_BITS;
-        void * r = ref_eset_fit(h.ref_set, esize, alignment, exact_only, lg_max_fit);
-        Extent * o = h.our_set->fit(esize, alignment, exact_only, lg_max_fit);
-        int ri = r ? h.indexOfRef(r) : -1;
-        int oi = o ? h.indexOfOur(o) : -1;
-        bool ok = ri == oi;
-        if (ok && ri >= 0)
+        unsigned log2_max_fit = rng() % 2 ? 6 : SIZE_CLASS_PTR_BITS;
+        void * r = ref_extent_set_fit(h.ref_set, extent_size, alignment, exact_only, log2_max_fit);
+        Extent * o = h.our_set->fit(extent_size, alignment, exact_only, log2_max_fit);
+        int ref_idx = r ? h.indexOfRef(r) : -1;
+        int our_idx = o ? h.indexOfOur(o) : -1;
+        bool ok = ref_idx == our_idx;
+        if (ok && ref_idx >= 0)
         {
-            h.remove(size_t(ri), rng() % 2 == 0);
+            h.remove(size_t(ref_idx), rng() % 2 == 0);
             /// Re-insert another removed extent to keep the heaps deep.
             for (size_t k = 0; k < h.pairs.size(); ++k)
             {
-                size_t j = (size_t(ri) + 1 + k) % h.pairs.size();
+                size_t j = (size_t(ref_idx) + 1 + k) % h.pairs.size();
                 if (!h.pairs[j].present)
                 {
                     h.insert(j);

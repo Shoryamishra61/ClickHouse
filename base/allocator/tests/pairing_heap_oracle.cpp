@@ -7,20 +7,19 @@
 
 using namespace jemalloc;
 
-extern "C"
-{
-void ref_ph_init(int n, const uint64_t * keys);
-void ref_ph_insert(int id);
-int ref_ph_empty();
-int ref_ph_first();
-int ref_ph_any();
-int ref_ph_remove_first();
-int ref_ph_remove_any();
-void ref_ph_remove(int id);
-int ref_ph_enumerate(uint16_t max_visit_num, uint16_t max_queue_size, int * out);
-int ref_ph_root();
-size_t ref_ph_auxcount();
-void ref_ph_links(int id, int * out);
+extern "C" {
+void ref_pairing_heap_init(int n, const uint64_t * keys);
+void ref_pairing_heap_insert(int id);
+int ref_pairing_heap_empty();
+int ref_pairing_heap_first();
+int ref_pairing_heap_any();
+int ref_pairing_heap_remove_first();
+int ref_pairing_heap_remove_any();
+void ref_pairing_heap_remove(int id);
+int ref_pairing_heap_enumerate(uint16_t max_visit_num, uint16_t max_queue_size, int * out);
+int ref_pairing_heap_root();
+size_t ref_pairing_heap_auxiliary_count();
+void ref_pairing_heap_links(int id, int * out);
 }
 
 namespace
@@ -90,20 +89,28 @@ void removeMember(int id)
 
 bool compareStructure(int n)
 {
-    if (idOf(heap.rootNode()) != ref_ph_root() || heap.auxCount() != ref_ph_auxcount())
+    if (idOf(heap.rootNode()) != ref_pairing_heap_root() || heap.auxiliaryCount() != ref_pairing_heap_auxiliary_count())
     {
-        CHECK_EQ(idOf(heap.rootNode()), ref_ph_root());
-        CHECK_EQ(heap.auxCount(), ref_ph_auxcount());
+        CHECK_EQ(idOf(heap.rootNode()), ref_pairing_heap_root());
+        CHECK_EQ(heap.auxiliaryCount(), ref_pairing_heap_auxiliary_count());
         return false;
     }
     for (int i = 0; i < n; ++i)
     {
         int ref[3];
-        ref_ph_links(i, ref);
-        if (idOf(nodes[i].link.prev) != ref[0] || idOf(nodes[i].link.next) != ref[1] || idOf(nodes[i].link.lchild) != ref[2])
+        ref_pairing_heap_links(i, ref);
+        if (idOf(nodes[i].link.prev) != ref[0] || idOf(nodes[i].link.next) != ref[1] || idOf(nodes[i].link.left_child) != ref[2])
         {
-            std::fprintf(stderr, "Links of node %d differ: (%d %d %d) vs (%d %d %d)\n", i, idOf(nodes[i].link.prev),
-                idOf(nodes[i].link.next), idOf(nodes[i].link.lchild), ref[0], ref[1], ref[2]);
+            std::fprintf(
+                stderr,
+                "Links of node %d differ: (%d %d %d) vs (%d %d %d)\n",
+                i,
+                idOf(nodes[i].link.prev),
+                idOf(nodes[i].link.next),
+                idOf(nodes[i].link.left_child),
+                ref[0],
+                ref[1],
+                ref[2]);
             CHECK(false);
             return false;
         }
@@ -125,7 +132,7 @@ bool runTrace(uint64_t seed, int n, uint64_t key_range, int steps, unsigned inse
     }
     num_members = 0;
     heap.init();
-    ref_ph_init(n, keys);
+    ref_pairing_heap_init(n, keys);
 
     for (int step = 0; step < steps; ++step)
     {
@@ -146,27 +153,27 @@ bool runTrace(uint64_t seed, int n, uint64_t key_range, int steps, unsigned inse
                     id = static_cast<int>(randomBelow(n));
                 while (member[id]);
                 heap.insert(&nodes[id]);
-                ref_ph_insert(id);
+                ref_pairing_heap_insert(id);
                 addMember(id);
                 break;
             }
             case 1:
                 mine = idOf(heap.first());
-                ref = ref_ph_first();
+                ref = ref_pairing_heap_first();
                 break;
             case 2:
                 mine = idOf(heap.any());
-                ref = ref_ph_any();
+                ref = ref_pairing_heap_any();
                 break;
             case 3:
                 mine = idOf(heap.removeFirst());
-                ref = ref_ph_remove_first();
+                ref = ref_pairing_heap_remove_first();
                 if (mine >= 0 && mine == ref)
                     removeMember(mine);
                 break;
             case 4:
                 mine = idOf(heap.removeAny());
-                ref = ref_ph_remove_any();
+                ref = ref_pairing_heap_remove_any();
                 if (mine >= 0 && mine == ref)
                     removeMember(mine);
                 break;
@@ -176,13 +183,13 @@ bool runTrace(uint64_t seed, int n, uint64_t key_range, int steps, unsigned inse
                     break;
                 int id = members[randomBelow(num_members)];
                 heap.remove(&nodes[id]);
-                ref_ph_remove(id);
+                ref_pairing_heap_remove(id);
                 removeMember(id);
                 break;
             }
             case 6: /// enumerate
             {
-                if (heap.empty() != (ref_ph_empty() != 0))
+                if (heap.empty() != (ref_pairing_heap_empty() != 0))
                 {
                     CHECK(false);
                     return false;
@@ -194,10 +201,10 @@ bool runTrace(uint64_t seed, int n, uint64_t key_range, int steps, unsigned inse
                 uint16_t max_visit = static_cast<uint16_t>(1 + randomBelow(queue_size));
                 uint16_t max_queue = static_cast<uint16_t>(max_visit + randomBelow(queue_size - max_visit + 1));
                 if (randomBelow(2))
-                    max_visit = max_queue = queue_size; /// As used by `eset`.
+                    max_visit = max_queue = queue_size; /// As used by `extent_set`.
 
                 int ref_out[2 * queue_size];
-                int ref_count = ref_ph_enumerate(max_visit, max_queue, ref_out);
+                int ref_count = ref_pairing_heap_enumerate(max_visit, max_queue, ref_out);
                 Heap::EnumerateHelper<queue_size> helper;
                 heap.enumeratePrepare(helper, max_visit, max_queue);
                 int count = 0;

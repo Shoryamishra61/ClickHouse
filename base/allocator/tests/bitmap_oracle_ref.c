@@ -1,7 +1,7 @@
 /* The reference: jemalloc's own bitmap (`bitmap.h` inline functions and `bitmap.c`). */
 
-#include "jemalloc/internal/jemalloc_preamble.h"
 #include "jemalloc/internal/bitmap.h"
+#include "jemalloc/internal/jemalloc_preamble.h"
 
 static bitmap_info_t ref_info;
 
@@ -10,8 +10,8 @@ static void info_fields(const bitmap_info_t * info, size_t * out, int all_levels
     out[0] = info->nbits;
 #ifdef BITMAP_USE_TREE
     out[1] = info->nlevels;
-    unsigned nlevels = all_levels ? BITMAP_MAX_LEVELS : info->nlevels;
-    for (unsigned l = 0; l <= nlevels; l++)
+    unsigned num_levels = all_levels ? BITMAP_MAX_LEVELS : info->nlevels;
+    for (unsigned l = 0; l <= num_levels; l++)
         out[2 + l] = info->levels[l].group_offset;
 #else
     (void)all_levels;
@@ -33,30 +33,30 @@ size_t ref_bitmap_groups_max(void)
     return BITMAP_GROUPS_MAX;
 }
 
-size_t ref_bitmap_maxbits(void)
+size_t ref_bitmap_max_bits(void)
 {
     return BITMAP_MAXBITS;
 }
 
 /* Fields of BITMAP_INFO_INITIALIZER(nbits) (all levels). */
-void ref_bitmap_info_initializer(size_t nbits, size_t * out)
+void ref_bitmap_info_initializer(size_t num_bits, size_t * out)
 {
-    bitmap_info_t info = BITMAP_INFO_INITIALIZER(nbits);
+    bitmap_info_t info = BITMAP_INFO_INITIALIZER(num_bits);
     info_fields(&info, out, 1);
 }
 
 /* Fields of bitmap_info_init (only the used levels). */
-void ref_bitmap_info_init(size_t nbits, size_t * out)
+void ref_bitmap_info_init(size_t num_bits, size_t * out)
 {
     bitmap_info_t info;
-    bitmap_info_init(&info, nbits);
+    bitmap_info_init(&info, num_bits);
     info_fields(&info, out, 0);
 }
 
 /* Selects the bitmap info used by the following operations. */
-void ref_bitmap_select(size_t nbits)
+void ref_bitmap_select(size_t num_bits)
 {
-    bitmap_info_t info = BITMAP_INFO_INITIALIZER(nbits);
+    bitmap_info_t info = BITMAP_INFO_INITIALIZER(num_bits);
     ref_info = info;
 }
 
@@ -90,12 +90,12 @@ void ref_bitmap_unset(bitmap_t * bitmap, size_t bit)
     bitmap_unset(bitmap, &ref_info, bit);
 }
 
-size_t ref_bitmap_sfu(bitmap_t * bitmap)
+size_t ref_bitmap_set_first_unset(bitmap_t * bitmap)
 {
     return bitmap_sfu(bitmap, &ref_info);
 }
 
-size_t ref_bitmap_ffu(bitmap_t * bitmap, size_t min_bit)
+size_t ref_bitmap_find_first_unset(bitmap_t * bitmap, size_t min_bit)
 {
     return bitmap_ffu(bitmap, &ref_info, min_bit);
 }

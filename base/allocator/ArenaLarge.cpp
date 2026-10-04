@@ -13,148 +13,152 @@ namespace jemalloc
 {
 
 /// jemalloc: large_malloc
-void * largeMalloc(ThreadState * tsdn, Arena * arena, size_t usize, bool zero)
+void * largeMalloc(ThreadState * thread_state, Arena * arena, size_t usable_size, bool zero)
 {
-    JE_ASSERT(usize == sz::s2u(usize));
+    ALLOCATOR_ASSERT(usable_size == size_classes::sizeToUsableSize(usable_size));
 
-    return largePalloc(tsdn, arena, usize, CACHELINE, zero);
+    return largeAllocateAligned(thread_state, arena, usable_size, CACHE_LINE, zero);
 }
 
 /// jemalloc: large_palloc
-void * largePalloc(ThreadState * tsdn, Arena * arena, size_t usize, size_t alignment, bool zero)
+void * largeAllocateAligned(ThreadState * thread_state, Arena * arena, size_t usable_size, size_t alignment, bool zero)
 {
-    Extent * edata;
+    Extent * extent;
 
-    JE_ASSERT(tsdn != nullptr || arena != nullptr);
+    ALLOCATOR_ASSERT(thread_state != nullptr || arena != nullptr);
 
-    size_t ausize = sz::sa2u(usize, alignment);
-    if (JE_UNLIKELY(ausize == 0 || ausize > SC_LARGE_MAXCLASS))
+    size_t aligned_usable_size = size_classes::alignedSizeToUsableSize(usable_size, alignment);
+    if (ALLOCATOR_UNLIKELY(aligned_usable_size == 0 || aligned_usable_size > SIZE_CLASS_LARGE_MAX_CLASS))
         return nullptr;
 
-    if (JE_LIKELY(tsdn != nullptr))
-        arena = arenaChooseMaybeHuge(*tsdn, arena, usize);
-    if (JE_UNLIKELY(arena == nullptr) || (edata = arenaExtentAllocLarge(tsdn, arena, usize, alignment, zero)) == nullptr)
+    if (ALLOCATOR_LIKELY(thread_state != nullptr))
+        arena = arenaChooseMaybeHuge(*thread_state, arena, usable_size);
+    if (ALLOCATOR_UNLIKELY(arena == nullptr)
+        || (extent = arenaExtentAllocLarge(thread_state, arena, usable_size, alignment, zero)) == nullptr)
         return nullptr;
 
     /// See comments in `Bin::slabsFullInsert`.
     if (!arenaIsAuto(arena))
     {
         /// Insert edata into large.
-        arena->large_mtx.lock(tsdn);
-        arena->large.append(edata);
-        arena->large_mtx.unlock(tsdn);
+        arena->large_mutex.lock(thread_state);
+        arena->large.append(extent);
+        arena->large_mutex.unlock(thread_state);
     }
 
-    arenaDecayTick(tsdn, arena);
-    return edata->addr();
+    arenaDecayTick(thread_state, arena);
+    return extent->addr();
 }
 
 /// jemalloc: large_ralloc_no_move_shrink
-static bool largeRallocNoMoveShrink(ThreadState * tsdn, Extent * edata, size_t usize)
+static bool largeReallocateNoMoveShrink(ThreadState * thread_state, Extent * extent, size_t usable_size)
 {
-    Arena * arena = arenaGetFromEdata(edata);
-    ExtentHooks * ehooks = arenaGetEhooks(arena);
-    size_t old_size = edata->size();
-    size_t old_usize = edata->usize();
+    Arena * arena = arenaGetFromExtent(extent);
+    ExtentHooks * extent_hooks = arenaGetExtentHooks(arena);
+    size_t old_size = extent->size();
+    size_t old_usable_size = extent->usableSize();
 
-    JE_ASSERT(old_usize > usize);
+    ALLOCATOR_ASSERT(old_usable_size > usable_size);
 
-    if (ehooks->splitWillFail())
+    if (extent_hooks->splitWillFail())
         return true;
 
     bool deferred_work_generated = false;
-    bool err = arena->pa_shard.shrink(tsdn, edata, old_size, usize + sz_large_pad, sz::sizeToIndex(usize), &deferred_work_generated);
-    if (err)
+    bool error = arena->page_allocator_shard.shrink(
+        thread_state, extent, old_size, usable_size + large_pad, size_classes::sizeToIndex(usable_size), &deferred_work_generated);
+    if (error)
         return true;
     if (deferred_work_generated)
-        arenaHandleDeferredWork(tsdn, arena);
-    arenaExtentRallocLargeShrink(tsdn, arena, edata, old_usize);
+        arenaHandleDeferredWork(thread_state, arena);
+    arenaExtentReallocateLargeShrink(thread_state, arena, extent, old_usable_size);
 
     return false;
 }
 
 /// jemalloc: large_ralloc_no_move_expand
-static bool largeRallocNoMoveExpand(ThreadState * tsdn, Extent * edata, size_t usize, bool zero)
+static bool largeReallocateNoMoveExpand(ThreadState * thread_state, Extent * extent, size_t usable_size, bool zero)
 {
-    Arena * arena = arenaGetFromEdata(edata);
+    Arena * arena = arenaGetFromExtent(extent);
 
-    size_t old_size = edata->size();
-    size_t old_usize = edata->usize();
-    size_t new_size = usize + sz_large_pad;
+    size_t old_size = extent->size();
+    size_t old_usable_size = extent->usableSize();
+    size_t new_size = usable_size + large_pad;
 
-    szind_t szind = sz::sizeToIndex(usize);
+    SizeClassIdx size_class_idx = size_classes::sizeToIndex(usable_size);
 
     bool deferred_work_generated = false;
-    bool err = arena->pa_shard.expand(tsdn, edata, old_size, new_size, szind, zero, &deferred_work_generated);
+    bool error
+        = arena->page_allocator_shard.expand(thread_state, extent, old_size, new_size, size_class_idx, zero, &deferred_work_generated);
 
     if (deferred_work_generated)
-        arenaHandleDeferredWork(tsdn, arena);
+        arenaHandleDeferredWork(thread_state, arena);
 
-    if (err)
+    if (error)
         return true;
 
     if (zero)
     {
-        if (opt.cache_oblivious)
+        if (options.cache_oblivious)
         {
-            JE_ASSERT(sz_large_pad == PAGE);
+            ALLOCATOR_ASSERT(large_pad == PAGE);
             /// Zero the trailing bytes of the original allocation's last page, since they are in an indeterminate
             /// state. There will always be trailing bytes, because ptr's offset from the beginning of the extent is a
             /// multiple of CACHELINE in [0 .. PAGE).
-            std::byte * zbase = static_cast<std::byte *>(edata->addr()) + old_usize;
-            std::byte * zpast = static_cast<std::byte *>(pageAddrToBase(zbase + PAGE));
-            size_t nzero = size_t(zpast - zbase);
-            JE_ASSERT(nzero > 0);
-            memset(zbase, 0, nzero);
+            std::byte * zero_begin = static_cast<std::byte *>(extent->addr()) + old_usable_size;
+            std::byte * zero_end = static_cast<std::byte *>(pageAddrToBase(zero_begin + PAGE));
+            size_t zero_size = size_t(zero_end - zero_begin);
+            ALLOCATOR_ASSERT(zero_size > 0);
+            memset(zero_begin, 0, zero_size);
         }
     }
-    arenaExtentRallocLargeExpand(tsdn, arena, edata, old_usize);
+    arenaExtentReallocateLargeExpand(thread_state, arena, extent, old_usable_size);
 
     return false;
 }
 
 /// jemalloc: large_ralloc_no_move
-bool largeRallocNoMove(ThreadState * tsdn, Extent * edata, size_t usize_min, size_t usize_max, bool zero)
+bool largeReallocateNoMove(ThreadState * thread_state, Extent * extent, size_t usable_size_min, size_t usable_size_max, bool zero)
 {
-    size_t oldusize = edata->usize();
+    size_t old_usable_size = extent->usableSize();
 
     /// The following should have been caught by callers.
-    JE_ASSERT(usize_min > 0 && usize_max <= SC_LARGE_MAXCLASS);
+    ALLOCATOR_ASSERT(usable_size_min > 0 && usable_size_max <= SIZE_CLASS_LARGE_MAX_CLASS);
     /// Both allocation sizes must be large to avoid a move.
-    JE_ASSERT(oldusize >= SC_LARGE_MINCLASS && usize_max >= SC_LARGE_MINCLASS);
+    ALLOCATOR_ASSERT(old_usable_size >= SIZE_CLASS_LARGE_MIN_CLASS && usable_size_max >= SIZE_CLASS_LARGE_MIN_CLASS);
 
-    if (usize_max > oldusize)
+    if (usable_size_max > old_usable_size)
     {
         /// Attempt to expand the allocation in-place.
-        if (!largeRallocNoMoveExpand(tsdn, edata, usize_max, zero))
+        if (!largeReallocateNoMoveExpand(thread_state, extent, usable_size_max, zero))
         {
-            arenaDecayTick(tsdn, arenaGetFromEdata(edata));
+            arenaDecayTick(thread_state, arenaGetFromExtent(extent));
             return false;
         }
         /// Try again, this time with usize_min.
         /// jemalloc compatibility: the result of the second expansion attempt is inverted: when it FAILS (returns
         /// true), the reallocation is reported as done in place (returns false) although the extent was not resized;
         /// when it succeeds, we fall through to the checks below. Reproduced as is.
-        if (usize_min < usize_max && usize_min > oldusize && largeRallocNoMoveExpand(tsdn, edata, usize_min, zero))
+        if (usable_size_min < usable_size_max && usable_size_min > old_usable_size
+            && largeReallocateNoMoveExpand(thread_state, extent, usable_size_min, zero))
         {
-            arenaDecayTick(tsdn, arenaGetFromEdata(edata));
+            arenaDecayTick(thread_state, arenaGetFromExtent(extent));
             return false;
         }
     }
 
     /// Avoid moving the allocation if the existing extent size accommodates the new size.
-    if (oldusize >= usize_min && oldusize <= usize_max)
+    if (old_usable_size >= usable_size_min && old_usable_size <= usable_size_max)
     {
-        arenaDecayTick(tsdn, arenaGetFromEdata(edata));
+        arenaDecayTick(thread_state, arenaGetFromExtent(extent));
         return false;
     }
 
     /// Attempt to shrink the allocation in-place.
-    if (oldusize > usize_max)
+    if (old_usable_size > usable_size_max)
     {
-        if (!largeRallocNoMoveShrink(tsdn, edata, usize_max))
+        if (!largeReallocateNoMoveShrink(thread_state, extent, usable_size_max))
         {
-            arenaDecayTick(tsdn, arenaGetFromEdata(edata));
+            arenaDecayTick(thread_state, arenaGetFromExtent(extent));
             return false;
         }
     }
@@ -162,58 +166,59 @@ bool largeRallocNoMove(ThreadState * tsdn, Extent * edata, size_t usize_min, siz
 }
 
 /// jemalloc: large_ralloc_move_helper
-static void * largeRallocMoveHelper(ThreadState * tsdn, Arena * arena, size_t usize, size_t alignment, bool zero)
+static void * largeReallocateMoveHelper(ThreadState * thread_state, Arena * arena, size_t usable_size, size_t alignment, bool zero)
 {
-    if (alignment <= CACHELINE)
-        return largeMalloc(tsdn, arena, usize, zero);
-    return largePalloc(tsdn, arena, usize, alignment, zero);
+    if (alignment <= CACHE_LINE)
+        return largeMalloc(thread_state, arena, usable_size, zero);
+    return largeAllocateAligned(thread_state, arena, usable_size, alignment, zero);
 }
 
 /// jemalloc: large_ralloc
-void * largeRalloc(ThreadState * tsdn, Arena * arena, void * ptr, size_t usize, size_t alignment, bool zero, ThreadCache * tcache)
+void * largeReallocate(
+    ThreadState * thread_state, Arena * arena, void * ptr, size_t usable_size, size_t alignment, bool zero, ThreadCache * thread_cache)
 {
-    Extent * edata = arena_emap_global.edataLookup(tsdn, ptr);
+    Extent * extent = arena_extent_map_global.extentLookup(thread_state, ptr);
 
-    size_t oldusize = edata->usize();
+    size_t old_usable_size = extent->usableSize();
     /// The following should have been caught by callers.
-    JE_ASSERT(usize > 0 && usize <= SC_LARGE_MAXCLASS);
+    ALLOCATOR_ASSERT(usable_size > 0 && usable_size <= SIZE_CLASS_LARGE_MAX_CLASS);
     /// Both allocation sizes must be large to avoid a move.
-    JE_ASSERT(oldusize >= SC_LARGE_MINCLASS && usize >= SC_LARGE_MINCLASS);
+    ALLOCATOR_ASSERT(old_usable_size >= SIZE_CLASS_LARGE_MIN_CLASS && usable_size >= SIZE_CLASS_LARGE_MIN_CLASS);
 
     /// Try to avoid moving the allocation.
-    if (!largeRallocNoMove(tsdn, edata, usize, usize, zero))
+    if (!largeReallocateNoMove(thread_state, extent, usable_size, usable_size, zero))
     {
         /// hook_invoke_expand: hooks are dropped.
-        return edata->addr();
+        return extent->addr();
     }
 
     /// usize and old size are different enough that we need to use a different size class. In that case, fall back
     /// to allocating new space and copying.
-    void * ret = largeRallocMoveHelper(tsdn, arena, usize, alignment, zero);
-    if (ret == nullptr)
+    void * result = largeReallocateMoveHelper(thread_state, arena, usable_size, alignment, zero);
+    if (result == nullptr)
         return nullptr;
 
     /// hook_invoke_alloc, hook_invoke_dalloc: hooks are dropped.
 
-    size_t copysize = (usize < oldusize) ? usize : oldusize;
-    memcpy(ret, edata->addr(), copysize);
+    size_t copy_size = (usable_size < old_usable_size) ? usable_size : old_usable_size;
+    memcpy(result, extent->addr(), copy_size);
     /// isdalloct(tsdn, edata_addr_get(edata), oldusize, tcache, NULL, true)
-    arenaSdalloc(tsdn, edata->addr(), oldusize, tcache, nullptr, true);
-    return ret;
+    arenaSizedDeallocate(thread_state, extent->addr(), old_usable_size, thread_cache, nullptr, true);
+    return result;
 }
 
-/// `locked` indicates whether the arena's `large_mtx` is currently held.
+/// `locked` indicates whether the arena's `large_mutex` is currently held.
 /// jemalloc: large_dalloc_prep_impl
-static void largeDallocPrepImpl(ThreadState * tsdn, Arena * arena, Extent * edata, bool locked)
+static void largeDeallocatePrepareImpl(ThreadState * thread_state, Arena * arena, Extent * extent, bool locked)
 {
     if (!locked)
     {
         /// See comments in `Bin::slabsFullInsert`.
         if (!arenaIsAuto(arena))
         {
-            arena->large_mtx.lock(tsdn);
-            arena->large.remove(edata);
-            arena->large_mtx.unlock(tsdn);
+            arena->large_mutex.lock(thread_state);
+            arena->large.remove(extent);
+            arena->large_mutex.unlock(thread_state);
         }
     }
     else
@@ -221,89 +226,89 @@ static void largeDallocPrepImpl(ThreadState * tsdn, Arena * arena, Extent * edat
         /// Only hold the large_mtx if necessary.
         if (!arenaIsAuto(arena))
         {
-            arena->large_mtx.assertOwner(tsdn);
-            arena->large.remove(edata);
+            arena->large_mutex.assertOwner(thread_state);
+            arena->large.remove(extent);
         }
     }
-    arenaExtentDallocLargePrep(tsdn, arena, edata);
+    arenaExtentDeallocateLargePrepare(thread_state, arena, extent);
 }
 
 /// jemalloc: large_dalloc_finish_impl
-static void largeDallocFinishImpl(ThreadState * tsdn, Arena * arena, Extent * edata)
+static void largeDeallocateFinishImpl(ThreadState * thread_state, Arena * arena, Extent * extent)
 {
     bool deferred_work_generated = false;
-    arena->pa_shard.dalloc(tsdn, edata, &deferred_work_generated);
+    arena->page_allocator_shard.deallocate(thread_state, extent, &deferred_work_generated);
     if (deferred_work_generated)
-        arenaHandleDeferredWork(tsdn, arena);
+        arenaHandleDeferredWork(thread_state, arena);
 }
 
 /// jemalloc: large_dalloc_prep_locked
-void largeDallocPrepLocked(ThreadState * tsdn, Extent * edata)
+void largeDeallocatePrepareLocked(ThreadState * thread_state, Extent * extent)
 {
-    largeDallocPrepImpl(tsdn, arenaGetFromEdata(edata), edata, true);
+    largeDeallocatePrepareImpl(thread_state, arenaGetFromExtent(extent), extent, true);
 }
 
 /// jemalloc: large_dalloc_finish
-void largeDallocFinish(ThreadState * tsdn, Extent * edata)
+void largeDeallocateFinish(ThreadState * thread_state, Extent * extent)
 {
-    largeDallocFinishImpl(tsdn, arenaGetFromEdata(edata), edata);
+    largeDeallocateFinishImpl(thread_state, arenaGetFromExtent(extent), extent);
 }
 
 /// jemalloc: large_dalloc
-void largeDalloc(ThreadState * tsdn, Extent * edata)
+void largeDeallocate(ThreadState * thread_state, Extent * extent)
 {
-    Arena * arena = arenaGetFromEdata(edata);
-    largeDallocPrepImpl(tsdn, arena, edata, false);
-    largeDallocFinishImpl(tsdn, arena, edata);
-    arenaDecayTick(tsdn, arena);
+    Arena * arena = arenaGetFromExtent(extent);
+    largeDeallocatePrepareImpl(thread_state, arena, extent, false);
+    largeDeallocateFinishImpl(thread_state, arena, extent);
+    arenaDecayTick(thread_state, arena);
 }
 
 /// jemalloc: large_prof_info_get
-void largeProfInfoGet(ThreadState & tsd, Extent * edata, ProfInfo * prof_info, bool reset_recent)
+void largeProfilingInfoGet(ThreadState & thread_state, Extent * extent, ProfilingInfo * profiling_info, bool reset_recent)
 {
-    JE_ASSERT(prof_info != nullptr);
+    ALLOCATOR_ASSERT(profiling_info != nullptr);
 
-    ProfThreadContext * alloc_tctx = edata->profTctx();
-    prof_info->alloc_tctx = alloc_tctx;
+    ProfilingThreadContext * alloc_thread_context = extent->profilingThreadContext();
+    profiling_info->alloc_thread_context = alloc_thread_context;
 
-    if (profTctxIsValid(alloc_tctx))
+    if (profilingThreadContextIsValid(alloc_thread_context))
     {
-        prof_info->alloc_time.copy(*edata->profAllocTime());
-        prof_info->alloc_size = edata->profAllocSize();
+        profiling_info->alloc_time.copy(*extent->profilingAllocTime());
+        profiling_info->alloc_size = extent->profilingAllocSize();
         if (reset_recent)
         {
-            profFragUntrack(tsd, edata, alloc_tctx);
+            profilingFragmentationUntrack(thread_state, extent, alloc_thread_context);
             /// Reset the pointer on the recent allocation record, so that this allocation is recorded as released.
-            profRecentAllocReset(tsd, edata);
+            profilingRecentAllocReset(thread_state, extent);
         }
     }
 }
 
 /// jemalloc: large_prof_tctx_set
-static void largeProfTctxSet(Extent * edata, ProfThreadContext * tctx)
+static void largeProfilingThreadContextSet(Extent * extent, ProfilingThreadContext * thread_context)
 {
-    edata->setProfTctx(tctx);
+    extent->setProfilingThreadContext(thread_context);
 }
 
 /// jemalloc: large_prof_tctx_reset
-void largeProfTctxReset(Extent * edata)
+void largeProfilingThreadContextReset(Extent * extent)
 {
-    largeProfTctxSet(edata, PROF_TCTX_SENTINEL);
+    largeProfilingThreadContextSet(extent, PROFILING_THREAD_CONTEXT_SENTINEL);
 }
 
 /// jemalloc: large_prof_info_set
-void largeProfInfoSet(Extent * edata, ProfThreadContext * tctx, size_t size)
+void largeProfilingInfoSet(Extent * extent, ProfilingThreadContext * thread_context, size_t size)
 {
-    NsTime t = NsTime::zero();
-    t.profInitUpdate();
-    edata->setProfAllocTime(&t);
-    edata->setProfAllocSize(size);
+    Nanoseconds t = Nanoseconds::zero();
+    t.profilingInitUpdate();
+    extent->setProfilingAllocTime(&t);
+    extent->setProfilingAllocSize(size);
     /// jemalloc: edata_prof_recent_alloc_init
-    edata->setProfRecentAllocDontCallDirectly(nullptr);
+    extent->setProfilingRecentAllocDontCallDirectly(nullptr);
     /// The flag may hold garbage from a previous (slab) use of this extent; it must be cleared before the tctx is
-    /// published below, which is what makes the allocation reachable by `profFragUntrack`.
-    edata->setProfFragTracked(false);
-    largeProfTctxSet(edata, tctx);
+    /// published below, which is what makes the allocation reachable by `profilingFragmentationUntrack`.
+    extent->setProfilingFragmentationTracked(false);
+    largeProfilingThreadContextSet(extent, thread_context);
 }
 
 }

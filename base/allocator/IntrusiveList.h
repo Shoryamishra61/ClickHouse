@@ -26,27 +26,27 @@ struct RingLink
 };
 
 /// Operations on rings: every element is in exactly one ring (a single element is a ring of itself).
-template <typename T, RingLink<T> T::*link>
+template <typename T, RingLink<T> T::* link>
 struct Ring
 {
     /// Initialize a link. Every link must be initialized before being used, even if it is about to be overwritten.
     /// jemalloc: qr_new
-    JE_ALWAYS_INLINE static void init(T * elm)
+    ALLOCATOR_ALWAYS_INLINE static void init(T * element)
     {
-        (elm->*link).next = elm;
-        (elm->*link).prev = elm;
+        (element->*link).next = element;
+        (element->*link).prev = element;
     }
 
     /// jemalloc: qr_next
-    JE_ALWAYS_INLINE static T * next(const T * elm) { return (elm->*link).next; }
+    ALLOCATOR_ALWAYS_INLINE static T * next(const T * element) { return (element->*link).next; }
 
     /// jemalloc: qr_prev
-    JE_ALWAYS_INLINE static T * prev(const T * elm) { return (elm->*link).prev; }
+    ALLOCATOR_ALWAYS_INLINE static T * prev(const T * element) { return (element->*link).prev; }
 
     /// Given rings `a -> a_1 -> ... -> a_n` and `b -> b_1 -> ... -> b_n`, results in the ring
     /// `a -> a_1 -> ... -> a_n -> b -> b_1 -> ... -> b_n`.
     /// jemalloc: qr_meld
-    JE_ALWAYS_INLINE static void meld(T * a, T * b)
+    ALLOCATOR_ALWAYS_INLINE static void meld(T * a, T * b)
     {
         ((b->*link).prev->*link).next = (a->*link).prev;
         (a->*link).prev = (b->*link).prev;
@@ -55,45 +55,46 @@ struct Ring
         ((b->*link).prev->*link).next = b;
     }
 
-    /// Logically a meld; `elm` is intended to be a single-element ring that gets inserted before `ringelm`.
+    /// Logically a meld; `element` is intended to be a single-element ring that gets inserted before `ring_element`.
     /// jemalloc: qr_before_insert
-    JE_ALWAYS_INLINE static void beforeInsert(T * ringelm, T * elm) { meld(ringelm, elm); }
+    ALLOCATOR_ALWAYS_INLINE static void beforeInsert(T * ring_element, T * element) { meld(ring_element, element); }
 
     /// jemalloc: qr_after_insert
-    JE_ALWAYS_INLINE static void afterInsert(T * ringelm, T * elm) { beforeInsert(next(ringelm), elm); }
+    ALLOCATOR_ALWAYS_INLINE static void afterInsert(T * ring_element, T * element) { beforeInsert(next(ring_element), element); }
 
     /// Inverts meld: given the ring `a -> ... -> a_n -> b -> ... -> b_n`, results in the rings `a -> ... -> a_n` and
     /// `b -> ... -> b_n`.
     /// jemalloc: qr_split
-    JE_ALWAYS_INLINE static void split(T * a, T * b) { meld(a, b); }
+    ALLOCATOR_ALWAYS_INLINE static void split(T * a, T * b) { meld(a, b); }
 
-    /// Splits `elm` off the rest of its ring, so that it becomes a single-element ring.
+    /// Splits `element` off the rest of its ring, so that it becomes a single-element ring.
     /// jemalloc: qr_remove
-    JE_ALWAYS_INLINE static void remove(T * elm) { split(next(elm), elm); }
+    ALLOCATOR_ALWAYS_INLINE static void remove(T * element) { split(next(element), element); }
 
-    /// Calls `f(elm)` for every element of the ring exactly once, starting with `start`. `start` may be null.
+    /// Calls `f(element)` for every element of the ring exactly once, starting with `start`. `start` may be null.
     /// jemalloc: qr_foreach
     template <typename F>
-    JE_ALWAYS_INLINE static void forEach(T * start, F && f)
+    ALLOCATOR_ALWAYS_INLINE static void forEach(T * start, F && f)
     {
-        for (T * var = start; var != nullptr; var = (next(var) != start) ? next(var) : nullptr)
-            f(var);
+        for (T * variable = start; variable != nullptr; variable = (next(variable) != start) ? next(variable) : nullptr)
+            f(variable);
     }
 
     /// The same in the opposite order, ending with `start`.
     /// jemalloc: qr_reverse_foreach
     template <typename F>
-    JE_ALWAYS_INLINE static void reverseForEach(T * start, F && f)
+    ALLOCATOR_ALWAYS_INLINE static void reverseForEach(T * start, F && f)
     {
-        for (T * var = (start != nullptr) ? prev(start) : nullptr; var != nullptr; var = (var != start) ? prev(var) : nullptr)
-            f(var);
+        for (T * variable = (start != nullptr) ? prev(start) : nullptr; variable != nullptr;
+             variable = (variable != start) ? prev(variable) : nullptr)
+            f(variable);
     }
 };
 
 /// A list built on top of a ring: the head points to the first element (or is null), advancing past the tail does
 /// not wrap around.
 /// jemalloc: ql_head(a_type)
-template <typename T, RingLink<T> T::*link>
+template <typename T, RingLink<T> T::* link>
 class IntrusiveList
 {
 public:
@@ -107,17 +108,17 @@ public:
 
     /// Dynamically initializes a list.
     /// jemalloc: ql_new
-    JE_ALWAYS_INLINE void init() { head = nullptr; }
+    ALLOCATOR_ALWAYS_INLINE void init() { head = nullptr; }
 
     /// jemalloc: ql_first
-    JE_ALWAYS_INLINE T * first() const { return head; }
+    ALLOCATOR_ALWAYS_INLINE T * first() const { return head; }
 
     /// jemalloc: ql_empty
-    JE_ALWAYS_INLINE bool empty() const { return head == nullptr; }
+    ALLOCATOR_ALWAYS_INLINE bool empty() const { return head == nullptr; }
 
     /// Sets this list to the contents of `src` (overwriting any elements here), leaving `src` empty.
     /// jemalloc: ql_move
-    JE_ALWAYS_INLINE void moveFrom(IntrusiveList & src)
+    ALLOCATOR_ALWAYS_INLINE void moveFrom(IntrusiveList & src)
     {
         head = src.head;
         src.init();
@@ -125,52 +126,52 @@ public:
 
     /// Initializes an element link. Must be called even if the link is about to be overwritten.
     /// jemalloc: ql_elm_new
-    JE_ALWAYS_INLINE static void elementInit(T * elm) { RingOps::init(elm); }
+    ALLOCATOR_ALWAYS_INLINE static void elementInit(T * element) { RingOps::init(element); }
 
     /// jemalloc: ql_last
-    JE_ALWAYS_INLINE T * last() const { return empty() ? nullptr : RingOps::prev(head); }
+    ALLOCATOR_ALWAYS_INLINE T * last() const { return empty() ? nullptr : RingOps::prev(head); }
 
     /// jemalloc: ql_next
-    JE_ALWAYS_INLINE T * next(const T * elm) const { return (last() != elm) ? RingOps::next(elm) : nullptr; }
+    ALLOCATOR_ALWAYS_INLINE T * next(const T * element) const { return (last() != element) ? RingOps::next(element) : nullptr; }
 
     /// jemalloc: ql_prev
-    JE_ALWAYS_INLINE T * prev(const T * elm) const { return (head != elm) ? RingOps::prev(elm) : nullptr; }
+    ALLOCATOR_ALWAYS_INLINE T * prev(const T * element) const { return (head != element) ? RingOps::prev(element) : nullptr; }
 
-    /// Inserts `elm` before `listelm`.
+    /// Inserts `element` before `list_element`.
     /// jemalloc: ql_before_insert
-    JE_ALWAYS_INLINE void beforeInsert(T * listelm, T * elm)
+    ALLOCATOR_ALWAYS_INLINE void beforeInsert(T * list_element, T * element)
     {
-        RingOps::beforeInsert(listelm, elm);
-        if (head == listelm)
-            head = elm;
+        RingOps::beforeInsert(list_element, element);
+        if (head == list_element)
+            head = element;
     }
 
-    /// Inserts `elm` after `listelm`.
+    /// Inserts `element` after `list_element`.
     /// jemalloc: ql_after_insert
-    JE_ALWAYS_INLINE static void afterInsert(T * listelm, T * elm) { RingOps::afterInsert(listelm, elm); }
+    ALLOCATOR_ALWAYS_INLINE static void afterInsert(T * list_element, T * element) { RingOps::afterInsert(list_element, element); }
 
-    /// Inserts `elm` as the first item.
+    /// Inserts `element` as the first item.
     /// jemalloc: ql_head_insert
-    JE_ALWAYS_INLINE void headInsert(T * elm)
+    ALLOCATOR_ALWAYS_INLINE void headInsert(T * element)
     {
         if (!empty())
-            RingOps::beforeInsert(head, elm);
-        head = elm;
+            RingOps::beforeInsert(head, element);
+        head = element;
     }
 
-    /// Inserts `elm` as the last item.
+    /// Inserts `element` as the last item.
     /// jemalloc: ql_tail_insert
-    JE_ALWAYS_INLINE void tailInsert(T * elm)
+    ALLOCATOR_ALWAYS_INLINE void tailInsert(T * element)
     {
         if (!empty())
-            RingOps::beforeInsert(head, elm);
-        head = RingOps::next(elm);
+            RingOps::beforeInsert(head, element);
+        head = RingOps::next(element);
     }
 
     /// Given lists a = [a_1, ..., a_n] (this) and b = [b_1, ..., b_n], results in a = [a_1, ..., a_n, b_1, ..., b_n]
     /// and b = [].
     /// jemalloc: ql_concat
-    JE_ALWAYS_INLINE void concat(IntrusiveList & b)
+    ALLOCATOR_ALWAYS_INLINE void concat(IntrusiveList & b)
     {
         if (empty())
         {
@@ -184,25 +185,25 @@ public:
     }
 
     /// jemalloc: ql_remove
-    JE_ALWAYS_INLINE void remove(T * elm)
+    ALLOCATOR_ALWAYS_INLINE void remove(T * element)
     {
-        if (head == elm)
+        if (head == element)
             head = RingOps::next(head);
-        if (head != elm)
-            RingOps::remove(elm);
+        if (head != element)
+            RingOps::remove(element);
         else
             init();
     }
 
     /// jemalloc: ql_head_remove
-    JE_ALWAYS_INLINE void headRemove()
+    ALLOCATOR_ALWAYS_INLINE void headRemove()
     {
         T * t = first();
         remove(t);
     }
 
     /// jemalloc: ql_tail_remove
-    JE_ALWAYS_INLINE void tailRemove()
+    ALLOCATOR_ALWAYS_INLINE void tailRemove()
     {
         T * t = last();
         remove(t);
@@ -211,27 +212,27 @@ public:
     /// Given a = [a_1, ..., a_n-1, a_n, a_n+1, ...] (this), results in a = [a_1, ..., a_n-1] and replaces the
     /// contents of b with [a_n, a_n+1, ...].
     /// jemalloc: ql_split
-    JE_ALWAYS_INLINE void split(T * elm, IntrusiveList & b)
+    ALLOCATOR_ALWAYS_INLINE void split(T * element, IntrusiveList & b)
     {
-        if (head == elm)
+        if (head == element)
         {
             b.moveFrom(*this);
         }
         else
         {
-            RingOps::split(head, elm);
-            b.head = elm;
+            RingOps::split(head, element);
+            b.head = element;
         }
     }
 
     /// An optimized version of: remove the first element and insert it at the tail.
     /// jemalloc: ql_rotate
-    JE_ALWAYS_INLINE void rotate() { head = RingOps::next(head); }
+    ALLOCATOR_ALWAYS_INLINE void rotate() { head = RingOps::next(head); }
 
     /// Iterates from the head. The callback must not modify the list.
     /// jemalloc: ql_foreach
     template <typename F>
-    JE_ALWAYS_INLINE void forEach(F && f) const
+    ALLOCATOR_ALWAYS_INLINE void forEach(F && f) const
     {
         RingOps::forEach(head, static_cast<F &&>(f));
     }
@@ -239,7 +240,7 @@ public:
     /// Iterates from the tail. The callback must not modify the list.
     /// jemalloc: ql_reverse_foreach
     template <typename F>
-    JE_ALWAYS_INLINE void reverseForEach(F && f) const
+    ALLOCATOR_ALWAYS_INLINE void reverseForEach(F && f) const
     {
         RingOps::reverseForEach(head, static_cast<F &&>(f));
     }
@@ -248,7 +249,11 @@ public:
     class Iterator
     {
     public:
-        Iterator(T * start_, T * current_) : start(start_), current(current_) { }
+        Iterator(T * start_, T * current_)
+            : start(start_)
+            , current(current_)
+        {
+        }
         T * operator*() const { return current; }
         Iterator & operator++()
         {
@@ -272,7 +277,7 @@ private:
 
 /// A list class that handles `ql_elm_new` calls itself (jemalloc: `TYPED_LIST(list_type, el_type, linkage)`, e.g.
 /// `edata_list_active_t`, `edata_list_inactive_t`).
-template <typename T, RingLink<T> T::*link>
+template <typename T, RingLink<T> T::* link>
 class TypedList
 {
 public:
@@ -284,33 +289,33 @@ public:
     TypedList & operator=(const TypedList &) = delete;
 
     /// jemalloc: <list_type>_init
-    JE_ALWAYS_INLINE void init() { head.init(); }
+    ALLOCATOR_ALWAYS_INLINE void init() { head.init(); }
 
     /// jemalloc: <list_type>_first
-    JE_ALWAYS_INLINE T * first() const { return head.first(); }
+    ALLOCATOR_ALWAYS_INLINE T * first() const { return head.first(); }
 
     /// jemalloc: <list_type>_last
-    JE_ALWAYS_INLINE T * last() const { return head.last(); }
+    ALLOCATOR_ALWAYS_INLINE T * last() const { return head.last(); }
 
     /// jemalloc: <list_type>_next
-    JE_ALWAYS_INLINE T * next(T * item) const { return head.next(item); }
+    ALLOCATOR_ALWAYS_INLINE T * next(T * item) const { return head.next(item); }
 
     /// jemalloc: <list_type>_append
-    JE_ALWAYS_INLINE void append(T * item)
+    ALLOCATOR_ALWAYS_INLINE void append(T * item)
     {
         List::elementInit(item);
         head.tailInsert(item);
     }
 
     /// jemalloc: <list_type>_prepend
-    JE_ALWAYS_INLINE void prepend(T * item)
+    ALLOCATOR_ALWAYS_INLINE void prepend(T * item)
     {
         List::elementInit(item);
         head.headInsert(item);
     }
 
     /// jemalloc: <list_type>_replace
-    JE_ALWAYS_INLINE void replace(T * to_remove, T * to_insert)
+    ALLOCATOR_ALWAYS_INLINE void replace(T * to_remove, T * to_insert)
     {
         List::elementInit(to_insert);
         List::afterInsert(to_remove, to_insert);
@@ -318,22 +323,22 @@ public:
     }
 
     /// jemalloc: <list_type>_remove
-    JE_ALWAYS_INLINE void remove(T * item) { head.remove(item); }
+    ALLOCATOR_ALWAYS_INLINE void remove(T * item) { head.remove(item); }
 
     /// jemalloc: <list_type>_empty
-    JE_ALWAYS_INLINE bool empty() const { return head.empty(); }
+    ALLOCATOR_ALWAYS_INLINE bool empty() const { return head.empty(); }
 
     /// jemalloc: <list_type>_concat
-    JE_ALWAYS_INLINE void concat(TypedList & other) { head.concat(other.head); }
+    ALLOCATOR_ALWAYS_INLINE void concat(TypedList & other) { head.concat(other.head); }
 
     template <typename F>
-    JE_ALWAYS_INLINE void forEach(F && f) const
+    ALLOCATOR_ALWAYS_INLINE void forEach(F && f) const
     {
         head.forEach(static_cast<F &&>(f));
     }
 
     template <typename F>
-    JE_ALWAYS_INLINE void reverseForEach(F && f) const
+    ALLOCATOR_ALWAYS_INLINE void reverseForEach(F && f) const
     {
         head.reverseForEach(static_cast<F &&>(f));
     }

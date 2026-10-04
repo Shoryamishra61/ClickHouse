@@ -1,4 +1,4 @@
-/// Tests of `Ticker` and `TickerGeom`; the geometric ticker sequence is pinned to jemalloc's `ticker.h`.
+/// Tests of `Ticker` and `TickerGeometric`; the geometric ticker sequence is pinned to jemalloc's `ticker.h`.
 
 #include <allocator/Ticker.h>
 
@@ -54,23 +54,23 @@ TEST(Ticker, TryTick)
     Ticker copy;
     copy.copyFrom(ticker);
     CHECK_EQ(copy.read(), -1);
-    CHECK_EQ(copy.nticks, 1);
+    CHECK_EQ(copy.num_ticks, 1);
 }
 
-TEST(TickerGeom, Table)
+TEST(TickerGeometric, Table)
 {
-    CHECK_EQ(ticker_geom_table[0], 254u);
-    CHECK_EQ(ticker_geom_table[63], 0u);
+    CHECK_EQ(ticker_geometric_table[0], 254u);
+    CHECK_EQ(ticker_geometric_table[63], 0u);
     unsigned sum = 0;
-    for (uint8_t value : ticker_geom_table)
+    for (uint8_t value : ticker_geometric_table)
         sum += value;
     CHECK_EQ(sum, 3720u);
 }
 
-TEST(TickerGeom, Sequence)
+TEST(TickerGeometric, Sequence)
 {
     constexpr int32_t expected[] = {2081, 1327, 114, 163, 1114, 573, 229, 901, 196, 1590};
-    TickerGeom ticker = tickerGeomInit(1000);
+    TickerGeometric ticker = tickerGeometricInit(1000);
     uint64_t prng_state = 12345;
     int fires = 0;
     for (int i = 0; i < 100000; ++i)
@@ -87,9 +87,9 @@ TEST(TickerGeom, Sequence)
     CHECK_EQ(prng_state, 2704952026396713569ull);
 }
 
-TEST(TickerGeom, TicksWithDelay)
+TEST(TickerGeometric, TicksWithDelay)
 {
-    TickerGeom ticker;
+    TickerGeometric ticker;
     ticker.init(1000);
     uint64_t prng_state = 99;
     int fires = 0;
