@@ -21,6 +21,8 @@
 #include "Poco/File.h"
 #include "Poco/Path.h"
 #include "Poco/String.h"
+#include <cwchar>
+#include <map>
 
 
 namespace Poco {
@@ -200,52 +202,55 @@ ProcessHandleImpl* ProcessImpl::launchImpl(const std::string& command, const Arg
 	startupInfo.cbReserved2 = 0;
 	startupInfo.lpReserved2 = NULL;
 
+	// `GetStartupInfoW` filled these with the current process's own handles. Clear them, so that
+	// only handles duplicated below are ever passed to the child or closed afterwards.
+	startupInfo.hStdInput = 0;
+	startupInfo.hStdOutput = 0;
+	startupInfo.hStdError = 0;
+
 	HANDLE hProc = GetCurrentProcess();
 	bool mustInheritHandles = false;
+	auto closeStdHandles = [&startupInfo]()
+	{
+		if (startupInfo.hStdInput) CloseHandle(startupInfo.hStdInput);
+		if (startupInfo.hStdOutput) CloseHandle(startupInfo.hStdOutput);
+		if (startupInfo.hStdError) CloseHandle(startupInfo.hStdError);
+	};
+	auto inheritHandle = [&](HANDLE source, HANDLE& target)
+	{
+		if (!DuplicateHandle(hProc, source, hProc, &target, 0, 1, DUPLICATE_SAME_ACCESS))
+		{
+			target = 0;
+			closeStdHandles();
+			throw SystemException("Cannot duplicate a standard handle for the child process", command);
+		}
+		mustInheritHandles = true;
+	};
+	// `GetStdHandle` returns `INVALID_HANDLE_VALUE` on failure and NULL when there is no such handle.
+	auto stdHandle = [](DWORD which)
+	{
+		HANDLE h = GetStdHandle(which);
+		return h == INVALID_HANDLE_VALUE ? HANDLE(0) : h;
+	};
+
 	if (inPipe)
 	{
-		DuplicateHandle(hProc, inPipe->readHandle(), hProc, &startupInfo.hStdInput, 0, 1, DUPLICATE_SAME_ACCESS);
-		mustInheritHandles = true;
+		inheritHandle(inPipe->readHandle(), startupInfo.hStdInput);
 		inPipe->close(Pipe::CLOSE_READ);
 	}
-	else if (GetStdHandle(STD_INPUT_HANDLE))
+	else if (HANDLE h = stdHandle(STD_INPUT_HANDLE))
 	{
-		DuplicateHandle(hProc, GetStdHandle(STD_INPUT_HANDLE), hProc, &startupInfo.hStdInput, 0, 1, DUPLICATE_SAME_ACCESS);
-		mustInheritHandles = true;
-	}
-	else
-	{
-		startupInfo.hStdInput = 0;
+		inheritHandle(h, startupInfo.hStdInput);
 	}
 	// outPipe may be the same as errPipe, so we duplicate first and close later.
 	if (outPipe)
-	{
-		DuplicateHandle(hProc, outPipe->writeHandle(), hProc, &startupInfo.hStdOutput, 0, 1, DUPLICATE_SAME_ACCESS);
-		mustInheritHandles = true;
-	}
-	else if (GetStdHandle(STD_OUTPUT_HANDLE))
-	{
-		DuplicateHandle(hProc, GetStdHandle(STD_OUTPUT_HANDLE), hProc, &startupInfo.hStdOutput, 0, 1, DUPLICATE_SAME_ACCESS);
-		mustInheritHandles = true;
-	}
-	else
-	{
-		startupInfo.hStdOutput = 0;
-	}
+		inheritHandle(outPipe->writeHandle(), startupInfo.hStdOutput);
+	else if (HANDLE h = stdHandle(STD_OUTPUT_HANDLE))
+		inheritHandle(h, startupInfo.hStdOutput);
 	if (errPipe)
-	{
-		DuplicateHandle(hProc, errPipe->writeHandle(), hProc, &startupInfo.hStdError, 0, 1, DUPLICATE_SAME_ACCESS);
-		mustInheritHandles = true;
-	}
-	else if (GetStdHandle(STD_ERROR_HANDLE))
-	{
-		DuplicateHandle(hProc, GetStdHandle(STD_ERROR_HANDLE), hProc, &startupInfo.hStdError, 0, 1, DUPLICATE_SAME_ACCESS);
-		mustInheritHandles = true;
-	}
-	else
-	{
-		startupInfo.hStdError = 0;
-	}
+		inheritHandle(errPipe->writeHandle(), startupInfo.hStdError);
+	else if (HANDLE h = stdHandle(STD_ERROR_HANDLE))
+		inheritHandle(h, startupInfo.hStdError);
 	if (outPipe) outPipe->close(Pipe::CLOSE_WRITE);
 	if (errPipe) errPipe->close(Pipe::CLOSE_WRITE);
 
@@ -261,15 +266,52 @@ ProcessHandleImpl* ProcessImpl::launchImpl(const std::string& command, const Arg
 	/// `POCO_WIN32_UTF8` makes `Process::Env` UTF-8, so the environment block has to be handed to
 	/// `CreateProcessW` as UTF-16 together with `CREATE_UNICODE_ENVIRONMENT`. A narrow block would
 	/// be decoded in the active ANSI code page and mangle every non-ASCII name or value.
+	///
+	/// A block passed to `CreateProcessW` replaces the whole environment of the child, while the
+	/// POSIX implementation inherits the current one and applies `env` on top of it. To keep that
+	/// contract, the block starts from the current environment. Variable names are case-insensitive
+	/// on Windows, and `CreateProcessW` wants the block sorted by name the same way.
 	std::wstring uenv;
 	if (!env.empty())
 	{
+		struct NameLess
+		{
+			bool operator()(const std::wstring& lhs, const std::wstring& rhs) const
+			{
+				return CompareStringOrdinal(lhs.c_str(), static_cast<int>(lhs.size()), rhs.c_str(), static_cast<int>(rhs.size()), 1) == CSTR_LESS_THAN;
+			}
+		};
+		std::map<std::wstring, std::wstring, NameLess> variables;
+
+		if (wchar_t* current = GetEnvironmentStringsW())
+		{
+			for (const wchar_t* entry = current; *entry; entry += wcslen(entry) + 1)
+			{
+				// Skip the first character when looking for the separator: the hidden per-drive
+				// current directories are stored as variables whose names start with `=`.
+				const wchar_t* separator = wcschr(entry + 1, L'=');
+				if (!separator)
+					continue;
+				variables.emplace(std::wstring(entry, separator), std::wstring(separator + 1));
+			}
+			FreeEnvironmentStringsW(current);
+		}
+		else
+		{
+			throw SystemException("Cannot get the environment of the current process", command);
+		}
+
 		for (Poco::Process::Env::const_iterator it = env.begin(); it != env.end(); ++it)
 		{
 			std::wstring uname;
 			std::wstring uvalue;
 			UnicodeConverter::toUTF16(it->first, uname);
 			UnicodeConverter::toUTF16(it->second, uvalue);
+			variables[uname] = uvalue;
+		}
+
+		for (const auto& [uname, uvalue] : variables)
+		{
 			uenv.append(uname);
 			uenv.append(1, L'=');
 			uenv.append(uvalue);
@@ -293,9 +335,7 @@ ProcessHandleImpl* ProcessImpl::launchImpl(const std::string& command, const Arg
 		&startupInfo,
 		&processInfo
 	);
-	if (startupInfo.hStdInput) CloseHandle(startupInfo.hStdInput);
-	if (startupInfo.hStdOutput) CloseHandle(startupInfo.hStdOutput);
-	if (startupInfo.hStdError) CloseHandle(startupInfo.hStdError);
+	closeStdHandles();
 	if (rc)
 	{
 		CloseHandle(processInfo.hThread);
