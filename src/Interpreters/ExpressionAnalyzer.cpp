@@ -72,6 +72,7 @@
 #include <QueryPipeline/SizeLimits.h>
 #include <Storages/StorageDictionary.h>
 #include <Storages/StorageDistributed.h>
+#include <Storages/StorageProxy.h>
 #include <Storages/StorageJoin.h>
 #include <Common/StringUtils.h>
 #include <Common/logger_useful.h>
@@ -2122,7 +2123,7 @@ ExpressionAnalysisResult::ExpressionAnalysisResult(
             additional_required_columns_after_prewhere.insert(additional_required_columns_after_prewhere.end(),
                 columns_for_final.begin(), columns_for_final.end());
 
-            if (const auto * merge_tree = dynamic_cast<const MergeTreeData *>(storage.get()))
+            if (const auto merge_tree = castStorage<const MergeTreeData>(storage, DeferredTable::Load))
             {
                 const auto columns_for_merging_final
                     = getColumnsRequiredForMergingFinal(metadata_snapshot, merge_tree->merging_params);
