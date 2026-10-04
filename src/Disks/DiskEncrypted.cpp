@@ -69,6 +69,17 @@ namespace
         Strings config_keys;
         config.keys(config_prefix, config_keys);
 
+        /// The keys are picked by a pattern of their names (`key`, `key[1]`, ...). Look up the bare names,
+        /// so that a configuration tracking the read keys (`ConfigurationWithUsageTracking`, used for
+        /// a definition of a disk) knows that the elements with these names are read even when they are absent.
+        config.has(config_prefix + ".key");
+        config.has(config_prefix + ".key_hex");
+#if CLICKHOUSE_CLOUD
+        config.has(config_prefix + ".key_aws");
+        config.has(config_prefix + ".key_gcp");
+        config.has(config_prefix + ".key_azure");
+#endif
+
         for (const std::string & config_key : config_keys)
         {
             Key key;

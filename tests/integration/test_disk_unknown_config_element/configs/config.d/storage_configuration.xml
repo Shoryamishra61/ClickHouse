@@ -18,6 +18,12 @@
                     </main>
                 </locations>
             </locations_disk>
+            <encrypted_disk>
+                <type>encrypted</type>
+                <disk>checked_disk</disk>
+                <path>encrypted/</path>
+                <key>firstfirstfirstf</key>
+            </encrypted_disk>
         </disks>
     </storage_configuration>
 </clickhouse>

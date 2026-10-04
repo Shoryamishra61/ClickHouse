@@ -29,6 +29,12 @@ CONFIG_TEMPLATE = """<clickhouse>
                     </main>
                 </locations>
             </locations_disk>
+            <encrypted_disk>
+                <type>encrypted</type>
+                <disk>checked_disk</disk>
+                <path>encrypted/</path>
+                {encrypted_keys}
+            </encrypted_disk>
         </disks>
     </storage_configuration>
 </clickhouse>
@@ -49,7 +55,16 @@ def start_cluster():
         cluster.shutdown()
 
 
-def write_disk_configuration(node, extra, default_disk="", location_extra=""):
+DEFAULT_ENCRYPTED_KEYS = "<key>firstfirstfirstf</key>"
+
+
+def write_disk_configuration(
+    node,
+    extra,
+    default_disk="",
+    location_extra="",
+    encrypted_keys=DEFAULT_ENCRYPTED_KEYS,
+):
     node.exec_in_container(
         [
             "bash",
@@ -60,6 +75,7 @@ def write_disk_configuration(node, extra, default_disk="", location_extra=""):
                     extra=extra,
                     default_disk=default_disk,
                     location_extra=location_extra,
+                    encrypted_keys=encrypted_keys,
                 ),
             ),
         ]
@@ -168,3 +184,40 @@ def test_unknown_element_inside_existing_section(start_cluster):
     )
     node.query("SYSTEM RELOAD CONFIG")
     assert "locations_disk" in node.query("SELECT name FROM system.disks")
+
+
+def test_unknown_element_next_to_encryption_keys(start_cluster):
+    node = cluster.instances["node"]
+    assert "encrypted_disk" in node.query("SELECT name FROM system.disks")
+
+    rotated_keys = (
+        '<key id="0">firstfirstfirstf</key>'
+        '<key_hex id="1">00112233445566778899aabbccddeeff</key_hex>'
+        "<current_key_id>1</current_key_id>"
+    )
+
+    # The keys of an `encrypted` disk are picked by a pattern of their names, but an element
+    # that matches no pattern is reported before the reload is applied, together with a key rotation.
+    write_disk_configuration(
+        node,
+        "<keep_free_space_bytes>1024</keep_free_space_bytes>",
+        encrypted_keys=rotated_keys + "<typo>1</typo>",
+    )
+    error = node.query_and_get_error("SYSTEM RELOAD CONFIG")
+    assert "UNKNOWN_ELEMENT_IN_CONFIG" in error
+    assert "encrypted_disk" in error
+    assert "typo" in error
+
+    # A key rotation alone, with a key of a form that was not used before, is accepted.
+    write_disk_configuration(
+        node,
+        "<keep_free_space_bytes>1024</keep_free_space_bytes>",
+        encrypted_keys=rotated_keys,
+    )
+    node.query("SYSTEM RELOAD CONFIG")
+    assert "encrypted_disk" in node.query("SELECT name FROM system.disks")
+
+    write_disk_configuration(
+        node, "<keep_free_space_bytes>1024</keep_free_space_bytes>"
+    )
+    node.query("SYSTEM RELOAD CONFIG")

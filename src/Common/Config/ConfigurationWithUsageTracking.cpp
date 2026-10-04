@@ -42,15 +42,44 @@ String unescapeDots(const String & key)
     return result;
 }
 
-/// The key of the section containing `key`, skipping the escaped dots (see `unescapeDots`).
-String getParentKey(const String & key)
+/// The position of the last component of `key` (the name of the element inside its section),
+/// skipping the escaped dots (see `unescapeDots`).
+size_t getNamePosition(const String & key)
 {
     for (size_t pos = key.size(); pos > 0; --pos)
     {
         if (key[pos - 1] == '.' && (pos < 2 || key[pos - 2] != '\\'))
-            return key.substr(0, pos - 1);
+            return pos;
     }
-    return {};
+    return 0;
+}
+
+/// The key of the section containing `key`.
+String getParentKey(const String & key)
+{
+    const size_t pos = getNamePosition(key);
+    return pos == 0 ? String{} : key.substr(0, pos - 1);
+}
+
+/// Whether `key` (normalized) may be read by the code that enumerated its section and picked
+/// the elements by a pattern of their names: the names of a repeated element (`key`, `key[1]`, ...)
+/// or the names with a common prefix (`header`, `header_x`, ...). Such code looks up the bare name
+/// as well (see `getKeysFromConfig` of an `encrypted` disk), so the name is known from `used`.
+bool matchesNameReadInSection(const String & key, const std::unordered_set<String> & used)
+{
+    const String parent = getParentKey(key);
+    const std::string_view name = std::string_view(key).substr(getNamePosition(key));
+    for (const auto & used_key : used)
+    {
+        const size_t used_name_pos = getNamePosition(used_key);
+        if (used_name_pos == used_key.size())
+            continue;
+        if (getParentKey(used_key) != parent)
+            continue;
+        if (name.starts_with(std::string_view(used_key).substr(used_name_pos)))
+            return true;
+    }
+    return false;
 }
 
 }
@@ -151,15 +180,20 @@ void ConfigurationWithUsageTracking::collectUnusedKeys(
     /// as a section (with `has`), which says nothing about the keys inside it.
     /// The parent of `key` is an enumerated section of the previous configuration.
     bool in_enumerated_section = false;
+    String normalized_key;
     if (previous && !relative_key.empty())
     {
-        String normalized_key = normalizeKey(key);
+        normalized_key = normalizeKey(key);
         in_enumerated_section = previous->enumerated.contains(getParentKey(normalized_key));
     }
 
     if (children.empty())
     {
-        if (!relative_key.empty() && !isUsed(key) && !in_enumerated_section)
+        /// A leaf of an enumerated section is not judged only if the enumerating code may pick it
+        /// by a pattern of its name. Any other leaf there is unknown as well, otherwise an element
+        /// with a typo next to the keys of an `encrypted` disk would let a reload be applied partially.
+        if (!relative_key.empty() && !isUsed(key)
+            && !(in_enumerated_section && matchesNameReadInSection(normalized_key, previous->used)))
             result.push_back(unescapeDots(relative_key));
         return;
     }

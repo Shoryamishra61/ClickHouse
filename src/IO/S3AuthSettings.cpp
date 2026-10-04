@@ -96,6 +96,8 @@ S3AuthSettings::S3AuthSettings(
 
     Poco::Util::AbstractConfiguration::Keys keys;
     config.keys(config_prefix, keys);
+    /// See the comment in `getHTTPHeaders`.
+    config.has(config_prefix + ".user");
     for (const auto & key : keys)
     {
         if (startsWith(key, "user"))

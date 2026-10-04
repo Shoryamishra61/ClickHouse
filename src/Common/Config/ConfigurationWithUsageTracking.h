@@ -61,7 +61,9 @@ public:
     /// The leaf keys inside `prefix` that are unknown for sure, judging only by how another configuration
     /// was read before (`previous`, the usage of the configuration a disk was created from). It is done
     /// before the code that reads this configuration runs, so everything that code may read is not reported:
-    /// - a leaf inside an enumerated section: it may be read by a pattern of its name (such as `key[1]`);
+    /// - a leaf inside an enumerated section whose name starts with the name of an element of that section
+    ///   that was read before: it may be read by a pattern of its name (such as `key[1]` or `header_x`),
+    ///   so the code picking the elements by a pattern has to look up the bare name (such as `key`) as well;
     /// - the inside of a section that was not present before but was looked at (such as `proxy`) or listed
     ///   in an enumerated section (such as a new location): nothing has read its keys yet.
     /// The keys used through this object (including the ones marked from `previous`) count as read.
