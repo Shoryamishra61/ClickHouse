@@ -803,6 +803,8 @@ A função &#39;geoToH3&#39; aceita (lon, lat) quando definida como &#39;lon&#95
 
 Número máximo de endereços permitidos (para armazenamento externo, funções de tabela etc.).
 
+A função de tabela `url` e o motor de tabela `URL` geram os endereços de um pattern um a um; portanto, para eles, esta configuração limita quantos endereços uma única consulta pode gerar, e não o tamanho do pattern. Uma consulta que termina antecipadamente, por exemplo devido a um `LIMIT`, pode usar um pattern que descreve muito mais endereços do que esse limite. Um predicado sobre `_path` ou `_file` é aplicado a cada endereço gerado, de modo que os endereços rejeitados por ele também são contabilizados.
+
 ## h3togeo_lon_lat_result_order {#h3togeo_lon_lat_result_order}
 
 <SettingsInfoBlock type="Bool" default_value="0" />

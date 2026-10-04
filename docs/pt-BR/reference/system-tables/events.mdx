@@ -4190,6 +4190,10 @@ O número total de grupos de linhas lidos dos dados Parquet
 
 O número total de linhas que passaram pelo filtro
 
+### ParquetTopKSkippedRowGroups {#parquettopkskippedrowgroups}
+
+Número de grupos de linhas Parquet ignorados durante a leitura porque suas estatísticas de mínimo/máximo indicaram que eles não podem conter linhas do resultado de `ORDER BY ... LIMIT` (consulte `use_top_k_dynamic_filtering`)
+
 ### PartsLockHoldMicroseconds {#partslockholdmicroseconds}
 
 Tempo total em que o bloqueio das partes de dados foi mantido em tabelas MergeTree
@@ -4897,6 +4901,10 @@ Número de grânulos examinados para pruning em tempo de leitura pelos JOIN Runt
 ### RuntimeFilterGranulesDropped {#runtimefiltergranulesdropped}
 
 Número de grânulos descartados durante a leitura pelos JOIN Runtime Filters
+
+### RuntimeFilterLookupsBeforeBuildFinished {#runtimefilterlookupsbeforebuildfinished}
+
+Número de blocos consultados em um JOIN Runtime Filter cujo lado de compilação ainda não havia sido concluído e que, por isso, passam sem filtragem
 
 ### RuntimeFilterRowsChecked {#runtimefilterrowschecked}
 
@@ -5989,6 +5997,10 @@ Número de segmentos totalmente densos preenchidos de uma só vez (`memset` para
 ### TextIndexLazySegmentsSkippedResolved {#textindexlazysegmentsskippedresolved}
 
 Número de segmentos ignorados porque a região de saída já havia sido determinada (todos 1s para OR, todos 0s para AND) no modo preguiçoso de lista de postings.
+
+### TextIndexPatternBypassCacheHits {#textindexpatternbypasscachehits}
+
+Número de vezes em que uma varredura de dicionário por pattern do índice de texto foi ignorada porque uma varredura anterior da mesma parte excedeu o limiar da lista de postings.
 
 ### TextIndexPhraseCandidates {#textindexphrasecandidates}
 

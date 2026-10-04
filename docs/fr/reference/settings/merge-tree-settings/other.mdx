@@ -222,7 +222,7 @@ conserver tous.
 
 <SettingsInfoBlock type="Bool" default_value="0" />
 
-Forcer la lecture via le cache du système de fichiers pour les opérations de fusion
+Contrôle la manière dont les lectures effectuées par les fusions en arrière-plan et les mutations gèrent les défauts de cache. Lorsque ce paramètre est désactivé, les plages déjà présentes dans le cache sont utilisées, mais les plages manquantes sont lues directement depuis le stockage sous-jacent, sans alimenter le cache. Lorsqu&#39;il est activé, les plages manquantes sont lues en passant par le cache et stockées dans le cache du système de fichiers, ainsi que dans le Distributed Cache si celui-ci est activé. Cela permet de préchauffer les données pour les lectures ultérieures, mais consomme également de la capacité de cache.
 
 ## initialization_retry_period {#initialization_retry_period}
 

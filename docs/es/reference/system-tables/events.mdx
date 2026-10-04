@@ -4190,6 +4190,10 @@ El número total de grupos de filas leídos de datos en formato Parquet
 
 El número total de filas que pasaron a través del filtro
 
+### ParquetTopKSkippedRowGroups {#parquettopkskippedrowgroups}
+
+Número de grupos de filas de Parquet omitidos durante la lectura porque sus estadísticas de mínimo/máximo indicaban que no podían contener filas del resultado de `ORDER BY ... LIMIT` (consulte `use_top_k_dynamic_filtering`)
+
 ### PartsLockHoldMicroseconds {#partslockholdmicroseconds}
 
 Tiempo total durante el que se mantuvo el bloqueo de las partes de datos en tablas MergeTree
@@ -4897,6 +4901,10 @@ Número de gránulos examinados para el pruning en tiempo de lectura por los JOI
 ### RuntimeFilterGranulesDropped {#runtimefiltergranulesdropped}
 
 Número de gránulos descartados en el momento de la lectura por los filtros en tiempo de ejecución de JOIN
+
+### RuntimeFilterLookupsBeforeBuildFinished {#runtimefilterlookupsbeforebuildfinished}
+
+Número de bloques consultados en un filtro en tiempo de ejecución de JOIN cuyo lado de build aún no había terminado, por lo que pasan sin filtrarse
 
 ### RuntimeFilterRowsChecked {#runtimefilterrowschecked}
 
@@ -5989,6 +5997,10 @@ Número de segmentos totalmente densos rellenados de una sola vez (memset para O
 ### TextIndexLazySegmentsSkippedResolved {#textindexlazysegmentsskippedresolved}
 
 Número de segmentos omitidos porque la región de salida ya se había resuelto (todos unos para OR, todos ceros para AND) en el modo diferido de posting list.
+
+### TextIndexPatternBypassCacheHits {#textindexpatternbypasscachehits}
+
+Número de veces que se omitió el escaneo del diccionario para un patrón de índice de texto porque un escaneo anterior de la misma parte superó el umbral de la lista de postings (posting list).
 
 ### TextIndexPhraseCandidates {#textindexphrasecandidates}
 

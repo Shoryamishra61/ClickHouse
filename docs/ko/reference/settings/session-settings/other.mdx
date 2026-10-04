@@ -792,6 +792,8 @@ false인 경우 h3 함수(예: h3CellAreaM2)는 입력이 유효하지 않으면
 
 허용되는 주소의 최대 개수입니다(외부 스토리지, 테이블 함수 등).
 
+`url` 테이블 함수와 `URL` 테이블 엔진은 패턴에 해당하는 주소를 하나씩 생성하므로, 이 설정은 패턴의 크기가 아니라 단일 쿼리가 생성할 수 있는 주소의 개수를 제한합니다. 예를 들어 `LIMIT` 때문에 조기에 종료되는 쿼리는 이 값보다 훨씬 많은 주소를 나타내는 패턴을 사용할 수 있습니다. `_path` 또는 `_file` 프레디케이트는 생성된 모든 주소에 적용되므로, 프레디케이트로 걸러진 주소도 개수에 포함됩니다.
+
 ## h3togeo_lon_lat_result_order {#h3togeo_lon_lat_result_order}
 
 <SettingsInfoBlock type="Bool" default_value="0" />

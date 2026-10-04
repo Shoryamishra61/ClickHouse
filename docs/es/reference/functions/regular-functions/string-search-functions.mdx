@@ -2953,6 +2953,47 @@ SELECT notMatchCaseInsensitive('Hello World', 'hello.*'), 'Hello World' !~* 'GOO
 └───────────────────────────────────────────────────┴─────────────────────────────────────────────────────┘
 ```
 
+## notSimilarTo {#notSimilarTo}
+
+Introducido en: v26.10.0
+
+Similar a [`similarTo`](#similarTo), pero niega el resultado.
+
+Al igual que `similarTo`, admite una cláusula `ESCAPE` opcional que especifica un carácter de escape personalizado (un
+único carácter ASCII) en sustitución de la barra invertida predeterminada. Consulte [`similarTo`](#similarTo) para conocer la
+gramática de patrones y las reglas de escape.
+
+**Sintaxis**
+
+```sql
+notSimilarTo(haystack, pattern[, escape_character])
+-- haystack NOT SIMILAR TO pattern [ESCAPE 'escape_character']
+```
+
+**Argumentos**
+
+* `haystack` — Cadena en la que se realiza la búsqueda. [`String`](/es/reference/data-types/string) o [`FixedString`](/es/reference/data-types/fixedstring)
+* `pattern` — Patrón `SIMILAR TO` con el que se compara la cadena. Puede contener `%` (partido con cualquier número de caracteres), `_` (partido con un solo carácter), `\` para escapar caracteres y metacaracteres de expresiones regulares, excepto `^`, `$` y `.`, que se interpretan literalmente fuera de las expresiones entre corchetes (un `^` inicial dentro de `[...]` sigue negando la clase). [`String`](/es/reference/data-types/string)
+* `escape_character` — Cadena opcional de un solo carácter que se utiliza como carácter de escape en lugar de `\`. Valor predeterminado: `\`. [`String`](/es/reference/data-types/string)
+
+**Valor devuelto**
+
+Devuelve `1` si la cadena no coincide con el patrón `SIMILAR TO`; en caso contrario, `0`. [`UInt8`](/es/reference/data-types/int-uint)
+
+**Ejemplos**
+
+**Ejemplo de uso**
+
+```sql title=Query
+SELECT notSimilarTo('ClickHouse', 'Cl_ck[0-9]ouse');
+```
+
+```response title=Response
+┌─notSimilarTo('ClickHouse', 'Cl_ck[0-9]ouse')─┐
+│                                            1 │
+└──────────────────────────────────────────────┘
+```
+
 ## position {#position}
 
 Introducido en: v1.1.0
@@ -3142,6 +3183,72 @@ SELECT positionUTF8('Motörhead', 'r')
 ┌─positionUTF8('Motörhead', 'r')─┐
 │                              5 │
 └────────────────────────────────┘
+```
+
+## similarTo {#similarTo}
+
+Introducido en: v26.10.0
+
+Devuelve si la cadena `haystack` forma un partido con la expresión `SIMILAR TO` `pattern`.
+
+Una expresión `SIMILAR TO` puede contener caracteres normales y los siguientes metasímbolos:
+
+* `%` representa un número arbitrario de caracteres cualesquiera (incluido ninguno).
+* `_` representa un único carácter cualquiera.
+* `|`, `*`, `+`, `?`, `{`, `}`, `(`, `)`, `[` y `]` tienen el significado habitual que poseen en las expresiones regulares.
+* `\` sirve para escapar cualquiera de los anteriores, así como a sí mismo.
+
+Los metacaracteres de expresiones regulares `^`, `$` y `.` no forman parte de la gramática de `SIMILAR TO` y,
+fuera de las expresiones entre corchetes, representan los caracteres literales correspondientes. Dentro de una expresión entre corchetes,
+un `^` inicial conserva su significado habitual y niega la clase; por ejemplo, `[^aeiou]` forma un partido con un único
+carácter que no sea una vocal. El patrón debe coincidir con la cadena `haystack` completa, no con una subcadena de ella.
+
+## Cláusula ESCAPE {#escape-clause}
+
+La cláusula opcional `ESCAPE` especifica un carácter de escape personalizado (debe ser un único carácter ASCII).
+Si se indica, el carácter de escape personalizado sustituye a la barra invertida predeterminada para escapar los
+metasímbolos enumerados anteriormente, y la barra invertida pierde su significado especial (es decir, se trata como un
+carácter literal).
+
+Un carácter de escape personalizado debe ir seguido de un carácter especial de `SIMILAR TO` (`%`, `_`, `|`, `*`, `+`,
+`?`, `{`, `}`, `(`, `)`, `[`, `]`) o de sí mismo; cualquier otro carácter (incluidos `^`, `$`, `.` y la barra invertida,
+que son caracteres ordinarios fuera de las expresiones entre corchetes) produce un error, ya que escapar un
+carácter ordinario no tendría ningún efecto. Esta estrictez
+se aplica únicamente a los caracteres de escape personalizados: la barra invertida predeterminada conserva el comportamiento heredado de `LIKE`
+y representa una barra invertida literal cuando precede a un carácter ordinario, por lo que `'\\mabc' SIMILAR TO
+'%\\mabc%'` devuelve `1`, mientras que `'mabc' SIMILAR TO '%#mabc%' ESCAPE '#'` se rechaza. Dentro de una expresión
+entre corchetes como `[...]`, el carácter de escape no tiene significado especial y se representa a sí mismo, de acuerdo con el
+comportamiento de POSIX y PostgreSQL.
+
+**Sintaxis**
+
+```sql
+similarTo(haystack, pattern[, escape_character])
+-- haystack SIMILAR TO pattern [ESCAPE 'escape_character']
+```
+
+**Argumentos**
+
+* `haystack` — Cadena en la que se realiza la búsqueda. [`String`](/es/reference/data-types/string) o [`FixedString`](/es/reference/data-types/fixedstring)
+* `pattern` — Patrón `SIMILAR TO` con el que se compara. Puede contener `%` (forma un partido con cualquier número de caracteres), `_` (forma un partido con un único carácter), `\` para el escape y metacaracteres de expresiones regulares, excepto `^`, `$` y `.`, que se interpretan literalmente fuera de las expresiones entre corchetes (un `^` inicial dentro de `[...]` sigue negando la clase). [`String`](/es/reference/data-types/string)
+* `escape_character` — Cadena opcional de un solo carácter que se usa como carácter de escape en lugar de `\`. Valor predeterminado: `\`. [`String`](/es/reference/data-types/string)
+
+**Valor devuelto**
+
+Devuelve `1` si la cadena forma un partido con el patrón `SIMILAR TO`; en caso contrario, `0`. [`UInt8`](/es/reference/data-types/int-uint)
+
+**Ejemplos**
+
+**Ejemplo de uso**
+
+```sql title=Query
+SELECT similarTo('ClickHouse', 'Cl_ck[hH]ouse');
+```
+
+```response title=Response
+┌─similarTo('ClickHouse', 'Cl_ck[hH]ouse')─┐
+│                                        1 │
+└──────────────────────────────────────────┘
 ```
 
 {/*AUTOGENERATED_END*/}

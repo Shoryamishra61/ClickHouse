@@ -223,7 +223,7 @@ todos.
 
 <SettingsInfoBlock type="Bool" default_value="0" />
 
-Forzar la lectura a través de la caché del sistema de archivos para las fusiones
+Controla cómo gestionan los fallos de caché las lecturas que realizan las fusiones en segundo plano y las mutaciones. Cuando está deshabilitado, se utilizan los rangos que ya están almacenados en caché, pero los rangos que faltan se leen directamente del almacenamiento subyacente sin rellenar la caché. Cuando está habilitado, los rangos que faltan se leen a través de la caché y se almacenan en la caché del sistema de archivos y, si está habilitada, también en la Distributed Cache. Esto permite precalentar los datos para lecturas posteriores, aunque también consume capacidad de la caché.
 
 ## initialization_retry_period {#initialization_retry_period}
 

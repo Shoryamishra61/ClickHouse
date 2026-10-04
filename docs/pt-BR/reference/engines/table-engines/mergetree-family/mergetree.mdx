@@ -738,7 +738,7 @@ TTL date_time + INTERVAL 15 HOUR
 
 Quando os valores de uma coluna expiram, o ClickHouse os substitui pelos valores padrão do tipo de dados da coluna. Se todos os valores da coluna em uma parte de dados expirarem, o ClickHouse exclui essa coluna da parte de dados no sistema de arquivos.
 
-A cláusula `TTL` não pode ser usada para colunas de chave.
+A cláusula `TTL` não pode ser usada para colunas de chave, nem para colunas cujas subcolunas sejam usadas na chave de ordenação ou de partição.
 
 **Exemplos**
 

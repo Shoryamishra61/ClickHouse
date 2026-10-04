@@ -182,6 +182,7 @@ Contém o histórico dos valores das métricas das tabelas `system.metrics` e `s
 * `ProfileEvent_TextIndexLazySegmentsSkippedResolved` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de segmentos ignorados porque a região de saída já havia sido resolvida (todos uns para OR, todos zeros para AND) no modo de lista de postings lazy.
 * `ProfileEvent_TextIndexLazyBlocksSkippedResolved` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de blocos compactados ignorados porque a região de saída já havia sido resolvida (todos uns para OR, todos zeros para AND) no modo de lista de postings lazy.
 * `ProfileEvent_TextIndexDiscardPatternScan` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de vezes em que uma varredura de dicionário baseada em padrão em um índice de texto foi descartada porque o número de listas de postings a serem lidas excedeu o limite.
+* `ProfileEvent_TextIndexPatternBypassCacheHits` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de vezes em que uma varredura do dicionário por padrão em um índice de texto foi ignorada porque uma varredura anterior da mesma parte excedeu o limite de listas de postings.
 * `ProfileEvent_TextIndexGenericExclusionSearchAlgorithm` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de vezes que o algoritmo genérico de busca por exclusão é usado no índice de texto.
 * `ProfileEvent_TextIndexGenericExclusionSearchStepLimitReached` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de vezes que a busca genérica por exclusão no índice de texto atingiu merge&#95;tree&#95;generic&#95;exclusion&#95;search&#95;max&#95;steps e aceitou os intervalos de marcas restantes sem dividi-los mais.
 * `ProfileEvent_QueryConditionCacheHits` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de vezes em que uma entrada foi encontrada no cache de condições de consulta (e a leitura de marcas pode ser ignorada). Atualizado apenas para consultas SELECT com SETTING use&#95;query&#95;condition&#95;cache = 1.
@@ -1042,8 +1043,8 @@ Contém o histórico dos valores das métricas das tabelas `system.metrics` e `s
 * `ProfileEvent_SchemaInferenceCacheMisses` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de vezes em que a origem solicitada não está no cache de esquema
 * `ProfileEvent_SchemaInferenceCacheSchemaMisses` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de vezes em que a origem solicitada está no cache, mas o esquema não está no cache durante a inferência de esquema
 * `ProfileEvent_SchemaInferenceCacheNumRowsMisses` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de vezes em que a origem solicitada está no cache, mas o número de linhas não está no cache durante a contagem a partir de arquivos
-* `ProfileEvent_SchemaInferenceCacheEvictions` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de vezes em que um esquema foi removido do cache devido a overflow
-* `ProfileEvent_SchemaInferenceCacheInvalidations` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de vezes em que um esquema no cache se tornou inválido devido a alterações nos dados
+* `ProfileEvent_SchemaInferenceCacheEvictions` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de vezes em que um schema foi removido do cache devido a overflow
+* `ProfileEvent_SchemaInferenceCacheInvalidations` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de vezes em que um schema no cache se tornou inválido devido a alterações nos dados
 * `ProfileEvent_KeeperPacketsSent` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Pacotes enviados pelo servidor Keeper
 * `ProfileEvent_KeeperPacketsReceived` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Pacotes recebidos pelo servidor Keeper
 * `ProfileEvent_KeeperRequestTotal` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número total de requisições no servidor Keeper
@@ -1064,8 +1065,8 @@ Contém o histórico dos valores das métricas das tabelas `system.metrics` e `s
 * `ProfileEvent_KeeperBatchMaxTotalSize` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de lotes que atingiram o limite max&#95;requests&#95;batch&#95;bytes&#95;size
 * `ProfileEvent_KeeperBatchMaxReadCount` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de lotes que atingiram o limite max&#95;read&#95;batch&#95;size
 * `ProfileEvent_KeeperBatchMaxReadTotalSize` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de lotes que atingiram o limite max&#95;read&#95;batch&#95;bytes&#95;size
-* `ProfileEvent_KeeperReadBatchCount` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de batches de requisições de leitura processados pelo Keeper
-* `ProfileEvent_KeeperReadBatchTotalRequests` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número total de requisições de leitura processadas em batches pelo Keeper
+* `ProfileEvent_KeeperReadBatchCount` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de lotes de requisições de leitura processados pelo Keeper
+* `ProfileEvent_KeeperReadBatchTotalRequests` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número total de requisições de leitura processadas em lotes pelo Keeper
 * `ProfileEvent_KeeperWriteBatchCount` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de batches de requisições de escrita processados pelo Keeper
 * `ProfileEvent_KeeperWriteBatchTotalRequests` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número total de requisições de escrita processadas em batches pelo Keeper
 * `ProfileEvent_KeeperCommits` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de commits bem-sucedidos
@@ -1532,15 +1533,16 @@ Contém o histórico dos valores das métricas das tabelas `system.metrics` e `s
 * `ProfileEvent_WasmTotalExecuteMicroseconds` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Tempo gasto executando código WebAssembly
 * `ProfileEvent_WasmModuleInstatiate` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de compartimentos WebAssembly criados
 * `ProfileEvent_ExecutableUserDefinedFunctionInvocations` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de invocações de funções definidas pelo usuário executáveis e executable&#95;pool.
-* `ProfileEvent_ExecutableUserDefinedFunctionElapsedMicroseconds` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Tempo de relógio gasto na execução de funções definidas pelo usuário executáveis e executable&#95;pool, em microssegundos.
-* `ProfileEvent_ExecutableUserDefinedFunctionUserTimeMicroseconds` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Tempo de CPU em modo de usuário consumido pelos processos filhos de funções definidas pelo usuário executáveis e executable&#95;pool, em microssegundos.
-* `ProfileEvent_ExecutableUserDefinedFunctionSystemTimeMicroseconds` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Tempo de CPU em modo kernel consumido pelos processos filhos de funções definidas pelo usuário executáveis e executable&#95;pool, em microssegundos.
-* `ProfileEvent_ExecutableUserDefinedFunctionPeakMemoryByteSeconds` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Pico de memória por processo usado pelos processos filhos de funções definidas pelo usuário executáveis e executable&#95;pool, integrado ao longo do tempo de relógio, em bytes-segundos.
-* `ProfileEvent_ExecutableUserDefinedFunctionInputBytes` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Total de bytes gravados no stdin dos processos filhos de funções definidas pelo usuário executáveis e executable&#95;pool.
-* `ProfileEvent_ExecutableUserDefinedFunctionOutputBytes` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Total de bytes lidos do stdout dos processos filhos de funções definidas pelo usuário executáveis e executable&#95;pool.
+* `ProfileEvent_ExecutableUserDefinedFunctionElapsedMicroseconds` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Tempo de relógio gasto na execução de funções definidas pelo usuário executable e executable&#95;pool, em microssegundos.
+* `ProfileEvent_ExecutableUserDefinedFunctionUserTimeMicroseconds` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Tempo de CPU em modo de usuário consumido pelos processos filhos de funções definidas pelo usuário executable e executable&#95;pool, em microssegundos.
+* `ProfileEvent_ExecutableUserDefinedFunctionSystemTimeMicroseconds` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Tempo de CPU em modo kernel consumido pelos processos filhos de funções definidas pelo usuário executable e executable&#95;pool, em microssegundos.
+* `ProfileEvent_ExecutableUserDefinedFunctionPeakMemoryByteSeconds` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Pico de memória por processo usado pelos processos filhos de funções definidas pelo usuário executable e executable&#95;pool, integrado ao longo do tempo de relógio, em bytes-segundos.
+* `ProfileEvent_ExecutableUserDefinedFunctionInputBytes` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Total de bytes gravados no stdin dos processos filhos de funções definidas pelo usuário executable e executable&#95;pool.
+* `ProfileEvent_ExecutableUserDefinedFunctionOutputBytes` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Total de bytes lidos do stdout dos processos filhos de funções definidas pelo usuário executable e executable&#95;pool.
 * `ProfileEvent_ExecutableUserDefinedFunctionPoolWaitMicroseconds` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Tempo gasto aguardando em tryBorrowObject quando o pool de funções definidas pelo usuário executable&#95;pool está esgotado, em microssegundos.
 * `ProfileEvent_ParquetReadRowGroups` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número total de grupos de linhas lidos de dados Parquet
 * `ProfileEvent_ParquetPrunedRowGroups` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número total de grupos de linhas podados dos dados Parquet
+* `ProfileEvent_ParquetTopKSkippedRowGroups` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de grupos de linhas Parquet ignorados durante a leitura porque suas estatísticas de mínimo/máximo indicaram que não podem conter linhas do resultado de `ORDER BY ... LIMIT` (consulte `use_top_k_dynamic_filtering`)
 * `ProfileEvent_ParquetReadPages` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número total de páginas de dados Parquet lidas
 * `ProfileEvent_ParquetPrunedPages` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número total de páginas podadas dos dados Parquet por meio do índice de colunas
 * `ProfileEvent_ParquetDecodingTasks` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Tarefas emitidas pelo leitor de Parquet
@@ -1594,6 +1596,7 @@ Contém o histórico dos valores das métricas das tabelas `system.metrics` e `s
 * `ProfileEvent_RuntimeFilterBloomFilterBuildsSkipped` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de criações de filtro de Bloom do JOIN Runtime Filter ignoradas porque a contagem de chaves do lado de build nas estatísticas da tabela hash previu que o filtro excederia a razão máxima de bits definidos
 * `ProfileEvent_RuntimeFilterGranulesConsidered` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de grânulos examinados para poda durante a leitura pelos JOIN Runtime Filters
 * `ProfileEvent_RuntimeFilterGranulesDropped` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de grânulos podados durante a leitura pelos JOIN Runtime Filters
+* `ProfileEvent_RuntimeFilterLookupsBeforeBuildFinished` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de blocos consultados em um JOIN Runtime Filter cuja construção do lado de build ainda não havia sido concluída e que, por isso, passam sem filtragem
 * `ProfileEvent_JoinBuildPostProcessingMicroseconds` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Tempo decorrido nas etapas de pós-processamento após a construção do lado direito do JOIN.
 * `ProfileEvent_JoinBuildRowStoreMicroseconds` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Tempo decorrido para transformar o payload do lado direito do JOIN em formato orientado a linhas.
 * `ProfileEvent_AIInputTokens` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Total de tokens de prompt consumidos em todas as chamadas da função de IA na consulta.

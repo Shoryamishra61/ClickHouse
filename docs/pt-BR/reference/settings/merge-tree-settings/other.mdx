@@ -224,7 +224,7 @@ todos eles.
 
 <SettingsInfoBlock type="Bool" default_value="0" />
 
-Forçar a leitura por meio do cache do sistema de arquivos para mesclagens
+Controla como as leituras de mesclagens e mutações em segundo plano tratam as falhas de cache (cache misses). Quando desabilitado, os intervalos já armazenados em cache são utilizados, mas os intervalos ausentes são lidos diretamente do armazenamento subjacente, sem preencher o cache. Quando habilitado, os intervalos ausentes são lidos por meio do cache e armazenados no cache do sistema de arquivos e também no distributed cache, se este estiver habilitado. Isso pode aquecer os dados para leituras posteriores, mas também consome capacidade do cache.
 
 ## initialization_retry_period {#initialization_retry_period}
 

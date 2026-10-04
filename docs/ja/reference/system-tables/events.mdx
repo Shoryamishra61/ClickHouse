@@ -4189,6 +4189,10 @@ Parquet データから読み込まれた行グループの総数
 
 フィルタを通過した行の合計数
 
+### ParquetTopKSkippedRowGroups {#parquettopkskippedrowgroups}
+
+読み取り時にスキップされた Parquet の行グループ数。min/max 統計情報から、`ORDER BY ... LIMIT` の結果に該当する行を含み得ないと判断された行グループが対象です (`use_top_k_dynamic_filtering` を参照) 。
+
 ### PartsLockHoldMicroseconds {#partslockholdmicroseconds}
 
 MergeTree テーブルでデータパーツのロックを保持していた合計時間
@@ -4896,6 +4900,10 @@ JOINランタイムフィルタ による読み取り時のプルーニングの
 ### RuntimeFilterGranulesDropped {#runtimefiltergranulesdropped}
 
 JOINランタイムフィルタ により読み取り時にプルーニングされたグラニュール数
+
+### RuntimeFilterLookupsBeforeBuildFinished {#runtimefilterlookupsbeforebuildfinished}
+
+ビルド側の処理が未完了の状態でJOINランタイムフィルタによりルックアップされたブロックの数。これらのブロックはフィルタされずにそのまま通過します。
 
 ### RuntimeFilterRowsChecked {#runtimefilterrowschecked}
 
@@ -5988,6 +5996,10 @@ lazy posting list モードで、ブロックをデコードせずに、完全�
 ### TextIndexLazySegmentsSkippedResolved {#textindexlazysegmentsskippedresolved}
 
 lazy posting list モードで、出力領域の値がすでに確定していたため (OR では全ビットが 1、AND では全ビットが 0) スキップされたセグメント数。
+
+### TextIndexPatternBypassCacheHits {#textindexpatternbypasscachehits}
+
+同じパーツに対する以前のスキャンでポスティングリストのしきい値を超えていたため、テキスト索引のパターンに対する辞書スキャンがスキップされた回数。
 
 ### TextIndexPhraseCandidates {#textindexphrasecandidates}
 

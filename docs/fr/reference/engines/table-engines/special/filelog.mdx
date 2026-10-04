@@ -48,11 +48,13 @@ Paramètres facultatifs :
 * `poll_directory_watch_events_backoff_init` - Temporisation initiale du thread de surveillance du répertoire. Par défaut : `500`.
 * `poll_directory_watch_events_backoff_max` - Temporisation maximale du thread de surveillance du répertoire. Par défaut : `32000`.
 * `poll_directory_watch_events_backoff_factor` - Vitesse du backoff, exponentielle par défaut. Par défaut : `2`.
-* `handle_error_mode` — Mode de gestion des erreurs du moteur FileLog. Valeurs possibles : default (une exception sera levée si l&#39;analyse d&#39;un message échoue), stream (le message d&#39;exception et le message brut seront enregistrés dans les colonnes virtuelles `_error` et `_raw_message`).
+* `handle_error_mode` — Mode de gestion des erreurs du moteur FileLog. Valeurs possibles : default (un `SELECT` direct lève une exception si l&#39;analyse d&#39;un enregistrement échoue ; lorsque la table alimente des vues matérialisées en flux, cet enregistrement est ignoré et l&#39;erreur est consignée dans le journal du serveur), stream (le message d&#39;exception et l&#39;enregistrement brut seront enregistrés dans les colonnes virtuelles `_error` et `_raw_record`).
 
 ## Description {#description}
 
 Les enregistrements reçus sont suivis automatiquement, de sorte que chaque enregistrement d’un fichier de log n’est compté qu’une seule fois. Si, lors de sa lecture suivante, un fichier est plus court que la position enregistrée pour lui, comme après un `logrotate` avec `copytruncate`, il est relu depuis le début. Une troncature n’est pas détectée si le fichier atteint de nouveau au moins cette position avant sa prochaine lecture.
+
+Un fichier qui ne peut pas être ouvert (un lien symbolique dont la cible a été supprimée, un fichier non lisible par le serveur ou le fichier d’une table à fichier unique qui a été supprimé) est ignoré, une erreur est consignée dans le journal du serveur, et l’ouverture est retentée tant que la table est chargée, jusqu’à ce qu’elle réussisse ; un fichier qui était manquant est alors lu depuis le début. Un lien symbolique n’est lu que si sa cible existe au moment où la table le détecte.
 
 `SELECT` n’est pas particulièrement utile pour lire des enregistrements (sauf pour le débogage), car chaque enregistrement ne peut être lu qu’une seule fois. Il est plus pratique de créer des flux en temps réel à l’aide de [vues matérialisées](/fr/reference/statements/create/view). Pour ce faire :
 

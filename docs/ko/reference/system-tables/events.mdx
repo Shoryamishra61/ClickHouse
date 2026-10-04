@@ -4189,6 +4189,10 @@ Parquet 데이터에서 읽은 row groups의 총수
 
 필터를 통과한 전체 행 수
 
+### ParquetTopKSkippedRowGroups {#parquettopkskippedrowgroups}
+
+min/max 통계상 `ORDER BY ... LIMIT` 결과에 해당하는 행을 포함할 수 없다고 판단되어 읽기 중에 건너뛴 Parquet row group의 수입니다(`use_top_k_dynamic_filtering` 참조).
+
 ### PartsLockHoldMicroseconds {#partslockholdmicroseconds}
 
 MergeTree 테이블에서 데이터 파트 잠금을 유지한 총 시간
@@ -4896,6 +4900,10 @@ JOIN Runtime Filters가 읽기 시점 프루닝을 위해 검사한 그래뉼 �
 ### RuntimeFilterGranulesDropped {#runtimefiltergranulesdropped}
 
 JOIN Runtime Filters에 의해 읽기 시점에 프루닝된 그래뉼 수
+
+### RuntimeFilterLookupsBeforeBuildFinished {#runtimefilterlookupsbeforebuildfinished}
+
+빌드 측이 아직 완료되지 않은 상태에서 JOIN 런타임 필터(JOIN Runtime Filter)를 조회하여 필터링되지 않고 그대로 통과한 블록 수
 
 ### RuntimeFilterRowsChecked {#runtimefilterrowschecked}
 
@@ -5988,6 +5996,10 @@ OS kernel 모드에서 CPU 명령어를 실행하는 처리(쿼리 및 기타 �
 ### TextIndexLazySegmentsSkippedResolved {#textindexlazysegmentsskippedresolved}
 
 지연 포스팅 리스트 모드에서 출력 영역이 이미 확정되어(OR는 모두 1, AND는 모두 0) 건너뛴 세그먼트 수입니다.
+
+### TextIndexPatternBypassCacheHits {#textindexpatternbypasscachehits}
+
+동일한 파트에 대한 이전 스캔이 포스팅 리스트(posting list) 임계값을 초과하여 텍스트 인덱스 패턴의 딕셔너리 스캔(dictionary scan)을 건너뛴 횟수입니다.
 
 ### TextIndexPhraseCandidates {#textindexphrasecandidates}
 

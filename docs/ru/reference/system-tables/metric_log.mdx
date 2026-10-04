@@ -182,6 +182,7 @@ import SystemTableCloud from '/snippets/ru/_system_table_cloud.mdx';
 * `ProfileEvent_TextIndexLazySegmentsSkippedResolved` ([UInt64](/ru/reference/data-types/int-uint)) — Количество сегментов, пропущенных, поскольку выходная область уже была определена (все единицы для OR, все нули для AND) в режиме ленивого списка вхождений.
 * `ProfileEvent_TextIndexLazyBlocksSkippedResolved` ([UInt64](/ru/reference/data-types/int-uint)) — Количество упакованных блоков, пропущенных, поскольку выходная область уже была определена (все единицы для OR, все нули для AND) в режиме ленивого списка вхождений.
 * `ProfileEvent_TextIndexDiscardPatternScan` ([UInt64](/ru/reference/data-types/int-uint)) — Количество раз, когда сканирование словаря по шаблону регулярного выражения в текстовом индексе было отброшено, поскольку число списков вхождений для чтения превысило порог.
+* `ProfileEvent_TextIndexPatternBypassCacheHits` ([UInt64](/ru/reference/data-types/int-uint)) — Количество случаев, когда сканирование словаря текстового индекса по шаблону было пропущено, поскольку предыдущее сканирование той же части превысило порог по числу списков вхождений.
 * `ProfileEvent_TextIndexGenericExclusionSearchAlgorithm` ([UInt64](/ru/reference/data-types/int-uint)) — Количество использований универсального алгоритма поиска с исключением по текстовому индексу.
 * `ProfileEvent_TextIndexGenericExclusionSearchStepLimitReached` ([UInt64](/ru/reference/data-types/int-uint)) — Количество случаев, когда универсальный алгоритм поиска с исключением по текстовому индексу достигал merge&#95;tree&#95;generic&#95;exclusion&#95;search&#95;max&#95;steps и принимал оставшиеся диапазоны меток без дальнейшего разбиения.
 * `ProfileEvent_QueryConditionCacheHits` ([UInt64](/ru/reference/data-types/int-uint)) — Количество раз, когда запись была найдена в кэше условий запроса (и чтение меток можно было пропустить). Обновляется только для запросов SELECT с SETTING use&#95;query&#95;condition&#95;cache = 1.
@@ -691,17 +692,17 @@ import SystemTableCloud from '/snippets/ru/_system_table_cloud.mdx';
 * `ProfileEvent_ParallelReplicasHandleAnnouncementMicroseconds` ([UInt64](/ru/reference/data-types/int-uint)) — Время, затраченное на обработку уведомлений от реплик
 * `ProfileEvent_ParallelReplicasAnnouncementMicroseconds` ([UInt64](/ru/reference/data-types/int-uint)) — Время, затраченное на отправку уведомления
 * `ProfileEvent_ParallelReplicasReadRequestMicroseconds` ([UInt64](/ru/reference/data-types/int-uint)) — Время, затраченное на запросы чтения
-* `ProfileEvent_ParallelReplicasReadAssignedMarks` ([UInt64](/ru/reference/data-types/int-uint)) — Суммарное по всем репликам количество запланированных марок, назначенных с помощью consistent hash
-* `ProfileEvent_ParallelReplicasReadUnassignedMarks` ([UInt64](/ru/reference/data-types/int-uint)) — Суммарное по всем репликам количество неназначенных марок, поставленных в план
-* `ProfileEvent_ParallelReplicasReadAssignedForStealingMarks` ([UInt64](/ru/reference/data-types/int-uint)) — Суммарное по всем репликам количество запланированных марок, назначенных для stealing с помощью consistent hash
-* `ProfileEvent_ParallelReplicasReadMarks` ([UInt64](/ru/reference/data-types/int-uint)) — Сколько марок было прочитано данной репликой
-* `ProfileEvent_ReadPoolRangeRefinerDroppedMarks` ([UInt64](/ru/reference/data-types/int-uint)) — Количество марок, исключённых уточнителем диапазонов из задач чтения в пулах чтения MergeTree (например, марок, полностью отфильтрованных индексом проекции)
+* `ProfileEvent_ParallelReplicasReadAssignedMarks` ([UInt64](/ru/reference/data-types/int-uint)) — Суммарное по всем репликам количество запланированных меток, назначенных с помощью consistent hash
+* `ProfileEvent_ParallelReplicasReadUnassignedMarks` ([UInt64](/ru/reference/data-types/int-uint)) — Суммарное по всем репликам количество неназначенных меток, поставленных в план
+* `ProfileEvent_ParallelReplicasReadAssignedForStealingMarks` ([UInt64](/ru/reference/data-types/int-uint)) — Суммарное по всем репликам количество запланированных меток, назначенных для перехвата с помощью consistent hash
+* `ProfileEvent_ParallelReplicasReadMarks` ([UInt64](/ru/reference/data-types/int-uint)) — Сколько меток было прочитано данной репликой
+* `ProfileEvent_ReadPoolRangeRefinerDroppedMarks` ([UInt64](/ru/reference/data-types/int-uint)) — Количество меток, исключённых уточнителем диапазонов из задач чтения в пулах чтения MergeTree (например, меток, полностью отфильтрованных индексом-проекцией)
 * `ProfileEvent_ReadPoolRangeRefinerDroppedCuts` ([UInt64](/ru/reference/data-types/int-uint)) — Количество случаев, когда уточнитель диапазонов полностью исключал диапазоны, выделенные из части пулом чтения MergeTree, поэтому задачи чтения для них не создавались
-* `ProfileEvent_ParallelReplicasStealingByHashMicroseconds` ([UInt64](/ru/reference/data-types/int-uint)) — Время, затраченное на сбор Segment, предназначенных для stealing по hash
-* `ProfileEvent_ParallelReplicasProcessingPartsMicroseconds` ([UInt64](/ru/reference/data-types/int-uint)) — Время, затраченное на обработку data parts
+* `ProfileEvent_ParallelReplicasStealingByHashMicroseconds` ([UInt64](/ru/reference/data-types/int-uint)) — Время, затраченное на сбор сегментов, предназначенных для перехвата по hash
+* `ProfileEvent_ParallelReplicasProcessingPartsMicroseconds` ([UInt64](/ru/reference/data-types/int-uint)) — Время, затраченное на обработку частей данных
 * `ProfileEvent_ParallelReplicasStealingLeftoversMicroseconds` ([UInt64](/ru/reference/data-types/int-uint)) — Время, затраченное на сбор осиротевших сегментов
 * `ProfileEvent_ParallelReplicasCollectingOwnedSegmentsMicroseconds` ([UInt64](/ru/reference/data-types/int-uint)) — Время, затраченное на сбор сегментов, назначенных по hash
-* `ProfileEvent_ParallelReplicasNumRequests` ([UInt64](/ru/reference/data-types/int-uint)) — Количество запросов к инициатору.
+* `ProfileEvent_ParallelReplicasNumRequests` ([UInt64](/ru/reference/data-types/int-uint)) — Количество запросов к initiator.
 * `ProfileEvent_CacheWarmerBytesDownloaded` ([UInt64](/ru/reference/data-types/int-uint)) — Объём данных, загруженных в файловый кэш выделенными фоновыми потоками.
 * `ProfileEvent_CacheWarmerDataPartsDownloaded` ([UInt64](/ru/reference/data-types/int-uint)) — Количество частей данных, полностью загруженных CacheWarmer.
 * `ProfileEvent_IgnoredColdParts` ([UInt64](/ru/reference/data-types/int-uint)) — См. настройку ignore&#95;cold&#95;parts&#95;seconds. Количество случаев, когда запросы на чтение игнорировали очень новые части, которые CacheWarmer ещё не успел загрузить в кэш.
@@ -1541,6 +1542,7 @@ import SystemTableCloud from '/snippets/ru/_system_table_cloud.mdx';
 * `ProfileEvent_ExecutableUserDefinedFunctionPoolWaitMicroseconds` ([UInt64](/ru/reference/data-types/int-uint)) — Время ожидания в tryBorrowObject, когда пул пользовательских функций executable&#95;pool исчерпан, в микросекундах.
 * `ProfileEvent_ParquetReadRowGroups` ([UInt64](/ru/reference/data-types/int-uint)) — Общее количество групп строк, прочитанных из данных Parquet
 * `ProfileEvent_ParquetPrunedRowGroups` ([UInt64](/ru/reference/data-types/int-uint)) — Общее количество групп строк, исключённых из данных Parquet
+* `ProfileEvent_ParquetTopKSkippedRowGroups` ([UInt64](/ru/reference/data-types/int-uint)) — Количество групп строк Parquet, пропущенных при чтении, поскольку их статистика min/max показала, что они не могут содержать строки результата `ORDER BY ... LIMIT` (см. `use_top_k_dynamic_filtering`)
 * `ProfileEvent_ParquetReadPages` ([UInt64](/ru/reference/data-types/int-uint)) — Общее количество прочитанных страниц данных Parquet
 * `ProfileEvent_ParquetPrunedPages` ([UInt64](/ru/reference/data-types/int-uint)) — Общее количество страниц, исключённых из данных Parquet с помощью индекса столбцов
 * `ProfileEvent_ParquetDecodingTasks` ([UInt64](/ru/reference/data-types/int-uint)) — Задачи, выданные ридером Parquet
@@ -1594,6 +1596,7 @@ import SystemTableCloud from '/snippets/ru/_system_table_cloud.mdx';
 * `ProfileEvent_RuntimeFilterBloomFilterBuildsSkipped` ([UInt64](/ru/reference/data-types/int-uint)) — Количество пропущенных построений фильтра Блума JOIN Runtime Filter, поскольку число ключей на стороне построения согласно статистике хеш-таблицы указывало, что фильтр превысит максимальную долю установленных битов
 * `ProfileEvent_RuntimeFilterGranulesConsidered` ([UInt64](/ru/reference/data-types/int-uint)) — Количество гранул, проверенных JOIN Runtime Filters для отсечения во время чтения
 * `ProfileEvent_RuntimeFilterGranulesDropped` ([UInt64](/ru/reference/data-types/int-uint)) — Количество гранул, отсечённых JOIN Runtime Filters во время чтения
+* `ProfileEvent_RuntimeFilterLookupsBeforeBuildFinished` ([UInt64](/ru/reference/data-types/int-uint)) — Количество блоков, проверенных по JOIN Runtime Filter до завершения его построения на стороне построения; такие блоки пропускаются без фильтрации
 * `ProfileEvent_JoinBuildPostProcessingMicroseconds` ([UInt64](/ru/reference/data-types/int-uint)) — Затраченное время на этапы постобработки после построения правой части JOIN.
 * `ProfileEvent_JoinBuildRowStoreMicroseconds` ([UInt64](/ru/reference/data-types/int-uint)) — Затраченное время на преобразование полезной нагрузки правой части JOIN в построчный формат.
 * `ProfileEvent_AIInputTokens` ([UInt64](/ru/reference/data-types/int-uint)) — Общее число токенов промпта, использованных во всех вызовах функции ИИ в рамках запроса.

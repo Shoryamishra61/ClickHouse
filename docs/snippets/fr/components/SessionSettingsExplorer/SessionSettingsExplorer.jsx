@@ -305,7 +305,7 @@ const SessionSettingsExplorer = ({ href: baseRoute }) => {
     },
     {
       label: "azure_*",
-      count: 13,
+      count: 14,
       settings: [
         { name: "azure_allow_parallel_part_upload", path: "/azure#azure_allow_parallel_part_upload", default: "1" },
         { name: "azure_check_objects_after_upload", path: "/azure#azure_check_objects_after_upload", default: "0" },
@@ -319,7 +319,8 @@ const SessionSettingsExplorer = ({ href: baseRoute }) => {
         { name: "azure_strict_upload_part_size", path: "/azure#azure_strict_upload_part_size", default: "0" },
         { name: "azure_throw_on_zero_files_match", path: "/azure#azure_throw_on_zero_files_match", default: "0" },
         { name: "azure_truncate_on_insert", path: "/azure#azure_truncate_on_insert", default: "0" },
-        { name: "azure_use_adaptive_timeouts", path: "/azure#azure_use_adaptive_timeouts", default: "1" }
+        { name: "azure_use_adaptive_timeouts", path: "/azure#azure_use_adaptive_timeouts", default: "1" },
+        { name: "azure_validate_etag_on_read", path: "/azure#azure_validate_etag_on_read", default: "1" }
       ],
       children: []
     },
@@ -2968,11 +2969,12 @@ const SessionSettingsExplorer = ({ href: baseRoute }) => {
     },
     {
       label: "use_text_*",
-      count: 5,
+      count: 6,
       settings: [
         { name: "use_text_index_header_cache", path: "/use-text#use_text_index_header_cache", default: "1" },
         { name: "use_text_index_like_evaluation_by_dictionary_scan", path: "/use-text#use_text_index_like_evaluation_by_dictionary_scan", default: "1" },
         { name: "use_text_index_negative_tokens_cache", path: "/use-text#use_text_index_negative_tokens_cache", default: "1" },
+        { name: "use_text_index_pattern_bypass_cache", path: "/use-text#use_text_index_pattern_bypass_cache", default: "1" },
         { name: "use_text_index_postings_cache", path: "/use-text#use_text_index_postings_cache", default: "1" },
         { name: "use_text_index_tokens_cache", path: "/use-text#use_text_index_tokens_cache", default: "1" }
       ],

@@ -804,6 +804,8 @@ La función &#39;geoToH3&#39; acepta (lon, lat) si se establece en &#39;lon&#95;
 
 Máximo número de direcciones permitidas (para almacenamiento externo, funciones de tabla, etc.).
 
+La función de tabla `url` y el motor de tabla `URL` generan las direcciones de un patrón una a una, por lo que, en estos casos, esta configuración limita cuántas direcciones puede generar una sola consulta, y no el tamaño del patrón. Una consulta que termina antes de tiempo, por ejemplo debido a un `LIMIT`, puede usar un patrón que describa muchas más direcciones que este valor. Un predicado sobre `_path` o `_file` se aplica a cada dirección generada, por lo que las direcciones que descarta también se contabilizan.
+
 ## h3togeo_lon_lat_result_order {#h3togeo_lon_lat_result_order}
 
 <SettingsInfoBlock type="Bool" default_value="0" />

@@ -2953,6 +2953,47 @@ SELECT notMatchCaseInsensitive('Hello World', 'hello.*'), 'Hello World' !~* 'GOO
 └───────────────────────────────────────────────────┴─────────────────────────────────────────────────────┘
 ```
 
+## notSimilarTo {#notSimilarTo}
+
+Introduit dans : v26.10.0
+
+Similaire à [`similarTo`](#similarTo), mais inverse le résultat.
+
+Comme `similarTo`, elle accepte une clause `ESCAPE` facultative qui définit un caractère d&#39;échappement personnalisé (un
+seul caractère ASCII) remplaçant l&#39;antislash par défaut. Consultez [`similarTo`](#similarTo) pour la
+grammaire des motifs et les règles d&#39;échappement.
+
+**Syntaxe**
+
+```sql
+notSimilarTo(haystack, pattern[, escape_character])
+-- haystack NOT SIMILAR TO pattern [ESCAPE 'escape_character']
+```
+
+**Arguments**
+
+* `haystack` — String dans laquelle la recherche est effectuée. [`String`](/fr/reference/data-types/string) ou [`FixedString`](/fr/reference/data-types/fixedstring)
+* `pattern` — Motif `SIMILAR TO` auquel comparer la string. Peut contenir `%` (correspond à un nombre quelconque de caractères), `_` (correspond à un seul caractère), `\` pour l&#39;échappement, ainsi que les métacaractères d&#39;expression régulière, à l&#39;exception de `^`, `$` et `.`, qui sont interprétés littéralement en dehors des expressions entre crochets (un `^` placé en tête à l&#39;intérieur de `[...]` sert toujours à inverser la classe). [`String`](/fr/reference/data-types/string)
+* `escape_character` — String facultative d&#39;un seul caractère à utiliser comme caractère d&#39;échappement à la place de `\`. Valeur par défaut : `\`. [`String`](/fr/reference/data-types/string)
+
+**Valeur renvoyée**
+
+Renvoie `1` si la string ne correspond pas au motif `SIMILAR TO`, sinon `0`. [`UInt8`](/fr/reference/data-types/int-uint)
+
+**Exemples**
+
+**Exemple d&#39;utilisation**
+
+```sql title=Query
+SELECT notSimilarTo('ClickHouse', 'Cl_ck[0-9]ouse');
+```
+
+```response title=Response
+┌─notSimilarTo('ClickHouse', 'Cl_ck[0-9]ouse')─┐
+│                                            1 │
+└──────────────────────────────────────────────┘
+```
+
 ## position {#position}
 
 Introduit dans : v1.1.0
@@ -3110,9 +3151,9 @@ SELECT positionCaseInsensitiveUTF8('Привет мир', 'МИР')
 
 ## positionUTF8 {#positionUTF8}
 
-Introduit dans : v1.1.0
+Introduit dans : v1.1.0
 
-Comme [`position`](#position), mais suppose que `haystack` et `needle` sont des chaînes codées en UTF-8.
+Comme [`position`](#position), mais suppose que `haystack` et `needle` sont des strings codées en UTF-8.
 
 **Syntaxe**
 
@@ -3122,7 +3163,7 @@ positionUTF8(haystack, needle[, start_pos])
 
 **Arguments**
 
-* `haystack` — Chaîne dans laquelle la recherche est effectuée. [`String`](/fr/reference/data-types/string) ou [`Enum`](/fr/reference/data-types/enum)
+* `haystack` — String dans laquelle la recherche est effectuée. [`String`](/fr/reference/data-types/string) ou [`Enum`](/fr/reference/data-types/enum)
 * `needle` — Sous-chaîne à rechercher. [`String`](/fr/reference/data-types/string)
 * `start_pos` — Facultatif. Position (indexée à partir de 1) dans `haystack` à partir de laquelle la recherche commence. [`UInt*`](/fr/reference/data-types/int-uint)
 
@@ -3142,6 +3183,72 @@ SELECT positionUTF8('Motörhead', 'r')
 ┌─positionUTF8('Motörhead', 'r')─┐
 │                              5 │
 └────────────────────────────────┘
+```
+
+## similarTo {#similarTo}
+
+Introduit dans : v26.10.0
+
+Indique si la string `haystack` correspond à l&#39;expression `SIMILAR TO` `pattern`.
+
+Une expression `SIMILAR TO` peut contenir des caractères ordinaires ainsi que les métasymboles suivants :
+
+* `%` représente un nombre quelconque de caractères quelconques (y compris aucun caractère).
+* `_` représente un seul caractère quelconque.
+* `|`, `*`, `+`, `?`, `{`, `}`, `(`, `)`, `[` et `]` ont leur signification habituelle dans les expressions régulières.
+* `\` permet d&#39;échapper n&#39;importe lequel des caractères ci-dessus, ainsi que lui-même.
+
+Les métacaractères d&#39;expression régulière `^`, `$` et `.` ne font pas partie de la grammaire `SIMILAR TO` et
+désignent les caractères littéraux correspondants en dehors des expressions entre crochets. À l&#39;intérieur d&#39;une expression entre crochets,
+un `^` placé en tête conserve sa signification habituelle et inverse la classe ; par exemple, `[^aeiou]` correspond à un seul
+caractère qui n&#39;est pas une voyelle. Le motif doit correspondre à l&#39;intégralité de `haystack`, et non à une simple sous-chaîne de celle-ci.
+
+## Clause ESCAPE {#escape-clause}
+
+La clause facultative `ESCAPE` définit un caractère d&#39;échappement personnalisé (qui doit être un unique caractère ASCII).
+Lorsqu&#39;il est spécifié, ce caractère d&#39;échappement personnalisé remplace l&#39;antislash par défaut pour l&#39;échappement des
+métasymboles listés ci-dessus, et l&#39;antislash perd sa signification particulière (c&#39;est-à-dire qu&#39;il est traité comme un
+caractère littéral).
+
+Un caractère d&#39;échappement personnalisé doit être suivi d&#39;un caractère spécial de `SIMILAR TO` (`%`, `_`, `|`, `*`, `+`,
+`?`, `{`, `}`, `(`, `)`, `[`, `]`) ou de lui-même ; tout autre caractère — y compris `^`, `$`, `.` et l&#39;antislash,
+qui sont des caractères ordinaires en dehors des expressions entre crochets — provoque une erreur, car un échappement placé devant un
+caractère ordinaire n&#39;aurait aucun effet. Cette règle stricte
+ne s&#39;applique qu&#39;à un caractère d&#39;échappement personnalisé : l&#39;antislash par défaut conserve le comportement legacy de `LIKE`
+et désigne un antislash littéral lorsqu&#39;il précède un caractère ordinaire. Ainsi, `'\\mabc' SIMILAR TO
+'%\\mabc%'` renvoie `1`, tandis que `'mabc' SIMILAR TO '%#mabc%' ESCAPE '#'` est rejeté. À l&#39;intérieur d&#39;une expression
+entre crochets telle que `[...]`, le caractère d&#39;échappement n&#39;a pas de rôle spécial et se désigne lui-même, conformément au
+comportement de POSIX et de PostgreSQL.
+
+**Syntaxe**
+
+```sql
+similarTo(haystack, pattern[, escape_character])
+-- haystack SIMILAR TO pattern [ESCAPE 'escape_character']
+```
+
+**Arguments**
+
+* `haystack` — String dans laquelle la recherche est effectuée. [`String`](/fr/reference/data-types/string) ou [`FixedString`](/fr/reference/data-types/fixedstring)
+* `pattern` — Motif `SIMILAR TO` auquel comparer la string. Peut contenir `%` (correspond à un nombre quelconque de caractères), `_` (correspond à un seul caractère), `\` pour l&#39;échappement, ainsi que les métacaractères d&#39;expression régulière, à l&#39;exception de `^`, `$` et `.`, qui sont interprétés littéralement en dehors des expressions entre crochets (un `^` placé en tête à l&#39;intérieur de `[...]` sert toujours à nier la classe). [`String`](/fr/reference/data-types/string)
+* `escape_character` — String facultative d&#39;un seul caractère à utiliser comme caractère d&#39;échappement à la place de `\`. Valeur par défaut : `\`. [`String`](/fr/reference/data-types/string)
+
+**Valeur renvoyée**
+
+Renvoie `1` si la string correspond au motif `SIMILAR TO`, sinon `0`. [`UInt8`](/fr/reference/data-types/int-uint)
+
+**Exemples**
+
+**Exemple d&#39;utilisation**
+
+```sql title=Query
+SELECT similarTo('ClickHouse', 'Cl_ck[hH]ouse');
+```
+
+```response title=Response
+┌─similarTo('ClickHouse', 'Cl_ck[hH]ouse')─┐
+│                                        1 │
+└──────────────────────────────────────────┘
 ```
 
 {/*AUTOGENERATED_END*/}

@@ -182,6 +182,7 @@ import SystemTableCloud from '/snippets/zh/_system_table_cloud.mdx';
 * `ProfileEvent_TextIndexLazySegmentsSkippedResolved` ([UInt64](/zh/reference/data-types/int-uint)) — 在惰性倒排列表模式下，因输出区域已确定 (OR 为全 1，AND 为全 0) 而跳过的分段数量。
 * `ProfileEvent_TextIndexLazyBlocksSkippedResolved` ([UInt64](/zh/reference/data-types/int-uint)) — 在惰性倒排列表模式下，因输出区域已确定 (OR 为全 1，AND 为全 0) 而跳过的打包块数量。
 * `ProfileEvent_TextIndexDiscardPatternScan` ([UInt64](/zh/reference/data-types/int-uint)) — 在文本索引中，基于模式的字典扫描因待读取的倒排列表数量超过阈值而被丢弃的次数。
+* `ProfileEvent_TextIndexPatternBypassCacheHits` ([UInt64](/zh/reference/data-types/int-uint)) — 因先前对同一分区片段的扫描已超过倒排列表阈值，而跳过文本索引模式字典扫描的次数。
 * `ProfileEvent_TextIndexGenericExclusionSearchAlgorithm` ([UInt64](/zh/reference/data-types/int-uint)) — 在文本索引上使用通用排除搜索算法的次数。
 * `ProfileEvent_TextIndexGenericExclusionSearchStepLimitReached` ([UInt64](/zh/reference/data-types/int-uint)) — 文本索引上的通用排除搜索达到 merge&#95;tree&#95;generic&#95;exclusion&#95;search&#95;max&#95;steps 并在不再进一步拆分的情况下接受剩余标记范围的次数。
 * `ProfileEvent_QueryConditionCacheHits` ([UInt64](/zh/reference/data-types/int-uint)) — 在查询条件缓存中找到条目的次数 (因此可跳过读取标记) 。仅对设置了 SETTING use&#95;query&#95;condition&#95;cache = 1 的 SELECT 查询更新。
@@ -1541,6 +1542,7 @@ import SystemTableCloud from '/snippets/zh/_system_table_cloud.mdx';
 * `ProfileEvent_ExecutableUserDefinedFunctionPoolWaitMicroseconds` ([UInt64](/zh/reference/data-types/int-uint)) — executable&#95;pool 用户自定义函数池耗尽时，等待 tryBorrowObject 所花费的时间，单位为微秒。
 * `ProfileEvent_ParquetReadRowGroups` ([UInt64](/zh/reference/data-types/int-uint)) — 从 Parquet 数据中读取的行组总数
 * `ProfileEvent_ParquetPrunedRowGroups` ([UInt64](/zh/reference/data-types/int-uint)) — 从 Parquet 数据中被剪枝的行组总数
+* `ProfileEvent_ParquetTopKSkippedRowGroups` ([UInt64](/zh/reference/data-types/int-uint)) — 读取过程中，因最小值/最大值统计信息表明行组不可能包含 `ORDER BY ... LIMIT` 结果中的行而跳过的 Parquet 行组数量 (参见 `use_top_k_dynamic_filtering`)
 * `ProfileEvent_ParquetReadPages` ([UInt64](/zh/reference/data-types/int-uint)) — 从 Parquet 数据中读取的数据页总数
 * `ProfileEvent_ParquetPrunedPages` ([UInt64](/zh/reference/data-types/int-uint)) — 通过列索引从 Parquet 数据中剪枝的页总数
 * `ProfileEvent_ParquetDecodingTasks` ([UInt64](/zh/reference/data-types/int-uint)) — 由 Parquet reader 发出的任务数
@@ -1594,6 +1596,7 @@ import SystemTableCloud from '/snippets/zh/_system_table_cloud.mdx';
 * `ProfileEvent_RuntimeFilterBloomFilterBuildsSkipped` ([UInt64](/zh/reference/data-types/int-uint)) — 由于哈希表统计信息中的构建侧键数预测过滤器将超过最大置位比率而跳过的 JOIN 运行时过滤器 Bloom 过滤器构建次数
 * `ProfileEvent_RuntimeFilterGranulesConsidered` ([UInt64](/zh/reference/data-types/int-uint)) — JOIN 运行时过滤器为读取时剪枝而检查的粒度数
 * `ProfileEvent_RuntimeFilterGranulesDropped` ([UInt64](/zh/reference/data-types/int-uint)) — JOIN 运行时过滤器在读取时剪枝的粒度数
+* `ProfileEvent_RuntimeFilterLookupsBeforeBuildFinished` ([UInt64](/zh/reference/data-types/int-uint)) — 在构建侧尚未完成的 JOIN 运行时过滤器中查找的块数，这些块会未经过滤直接通过
 * `ProfileEvent_JoinBuildPostProcessingMicroseconds` ([UInt64](/zh/reference/data-types/int-uint)) — 构建 JOIN 右侧后所执行后处理步骤的耗时
 * `ProfileEvent_JoinBuildRowStoreMicroseconds` ([UInt64](/zh/reference/data-types/int-uint)) — 将 JOIN 右侧载荷转换为行主序格式所花费的时间。
 * `ProfileEvent_AIInputTokens` ([UInt64](/zh/reference/data-types/int-uint)) — 查询中所有 AI 函数调用消耗的 prompt 标记总数

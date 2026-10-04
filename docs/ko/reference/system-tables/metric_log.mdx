@@ -181,6 +181,7 @@ import SystemTableCloud from '/snippets/ko/_system_table_cloud.mdx';
 * `ProfileEvent_TextIndexLazySegmentsSkippedResolved` ([UInt64](/ko/reference/data-types/int-uint)) — 지연 포스팅 리스트 모드에서 출력 영역이 이미 결정되어 건너뛴 세그먼트 수입니다(OR의 경우 모든 비트가 1, AND의 경우 모든 비트가 0).
 * `ProfileEvent_TextIndexLazyBlocksSkippedResolved` ([UInt64](/ko/reference/data-types/int-uint)) — 지연 포스팅 리스트 모드에서 출력 영역이 이미 결정되어 건너뛴 패킹된 블록 수입니다(OR의 경우 모든 비트가 1, AND의 경우 모든 비트가 0).
 * `ProfileEvent_TextIndexDiscardPatternScan` ([UInt64](/ko/reference/data-types/int-uint)) — 읽어야 할 포스팅 리스트 수가 임계값을 초과하여 텍스트 인덱스의 패턴 기반 딕셔너리 스캔이 폐기된 횟수입니다.
+* `ProfileEvent_TextIndexPatternBypassCacheHits` ([UInt64](/ko/reference/data-types/int-uint)) — 동일한 파트의 이전 스캔에서 포스팅 리스트 수가 임계값을 초과하여 텍스트 인덱스의 패턴 기반 딕셔너리 스캔을 건너뛴 횟수입니다.
 * `ProfileEvent_TextIndexGenericExclusionSearchAlgorithm` ([UInt64](/ko/reference/data-types/int-uint)) — 텍스트 인덱스에서 일반 제외 검색 알고리즘이 사용된 횟수입니다.
 * `ProfileEvent_TextIndexGenericExclusionSearchStepLimitReached` ([UInt64](/ko/reference/data-types/int-uint)) — 텍스트 인덱스의 일반 제외 검색이 merge&#95;tree&#95;generic&#95;exclusion&#95;search&#95;max&#95;steps에 도달하여 추가 분할 없이 남은 마크 범위를 허용한 횟수입니다.
 * `ProfileEvent_QueryConditionCacheHits` ([UInt64](/ko/reference/data-types/int-uint)) — 엔트리가 쿼리 조건 캐시에서 발견된 횟수입니다(따라서 마크 읽기를 건너뛸 수 있습니다). SETTING use&#95;query&#95;condition&#95;cache = 1인 SELECT 쿼리에 대해서만 업데이트됩니다.
@@ -358,7 +359,7 @@ import SystemTableCloud from '/snippets/ko/_system_table_cloud.mdx';
 * `ProfileEvent_InsertedRows` ([UInt64](/ko/reference/data-types/int-uint)) — 모든 테이블에 INSERT된 행 수입니다.
 * `ProfileEvent_InsertedBytes` ([UInt64](/ko/reference/data-types/int-uint)) — 모든 테이블에 INSERT된 바이트 수입니다(비압축 기준이며, 컬럼이 메모리에 저장된 형태 기준).
 * `ProfileEvent_DelayedInserts` ([UInt64](/ko/reference/data-types/int-uint)) — 파티션의 활성 데이터 파트 수가 많아 MergeTree 테이블에 대한 블록 INSERT가 제한된 횟수입니다.
-* `ProfileEvent_RejectedInserts` ([UInt64](/ko/reference/data-types/int-uint)) — 파티션의 활성 데이터 파트 수가 많아 MergeTree 테이블에 대한 블록 INSERT가 &#39;Too many parts&#39; Exception과 함께 거부된 횟수입니다.
+* `ProfileEvent_RejectedInserts` ([UInt64](/ko/reference/data-types/int-uint)) — 파티션의 활성 데이터 파트 수가 많아 MergeTree 테이블에 대한 블록 INSERT가 &#39;Too many parts&#39; 예외와 함께 거부된 횟수입니다.
 * `ProfileEvent_DelayedInsertsMilliseconds` ([UInt64](/ko/reference/data-types/int-uint)) — 파티션의 활성 데이터 파트 수가 많아 MergeTree 테이블에 대한 블록 INSERT가 제한되는 동안 소요된 총 밀리초 수입니다.
 * `ProfileEvent_DelayedMutations` ([UInt64](/ko/reference/data-types/int-uint)) — 테이블에 완료되지 않은 뮤테이션이 너무 많아 MergeTree 테이블의 뮤테이션이 스로틀링된 횟수입니다.
 * `ProfileEvent_RejectedMutations` ([UInt64](/ko/reference/data-types/int-uint)) — 테이블에 완료되지 않은 뮤테이션이 너무 많아 MergeTree 테이블의 뮤테이션이 &#39;Too many mutations&#39; 예외와 함께 거부된 횟수입니다.
@@ -1540,6 +1541,7 @@ import SystemTableCloud from '/snippets/ko/_system_table_cloud.mdx';
 * `ProfileEvent_ExecutableUserDefinedFunctionPoolWaitMicroseconds` ([UInt64](/ko/reference/data-types/int-uint)) — executable&#95;pool 사용자 정의 함수 풀이 소진되었을 때 tryBorrowObject에서 대기한 시간(마이크로초)입니다.
 * `ProfileEvent_ParquetReadRowGroups` ([UInt64](/ko/reference/data-types/int-uint)) — Parquet 데이터에서 읽은 row group의 총 개수
 * `ProfileEvent_ParquetPrunedRowGroups` ([UInt64](/ko/reference/data-types/int-uint)) — Parquet 데이터에서 가지치기된 row group의 총 개수
+* `ProfileEvent_ParquetTopKSkippedRowGroups` ([UInt64](/ko/reference/data-types/int-uint)) — min/max 통계상 `ORDER BY ... LIMIT` 결과에 포함될 행이 없는 것으로 확인되어 읽기 중 건너뛴 Parquet row group 수(`use_top_k_dynamic_filtering` 참조)
 * `ProfileEvent_ParquetReadPages` ([UInt64](/ko/reference/data-types/int-uint)) — 읽은 Parquet 데이터 페이지의 총 개수
 * `ProfileEvent_ParquetPrunedPages` ([UInt64](/ko/reference/data-types/int-uint)) — 컬럼 인덱스를 통해 Parquet 데이터에서 프루닝된 페이지의 총 개수
 * `ProfileEvent_ParquetDecodingTasks` ([UInt64](/ko/reference/data-types/int-uint)) — Parquet 리더가 생성한 작업 수
@@ -1593,6 +1595,7 @@ import SystemTableCloud from '/snippets/ko/_system_table_cloud.mdx';
 * `ProfileEvent_RuntimeFilterBloomFilterBuildsSkipped` ([UInt64](/ko/reference/data-types/int-uint)) — 해시 테이블 통계의 빌드 측 키 수를 기준으로 필터의 설정된 비트 비율이 최대 허용 비율을 초과할 것으로 예측되어 건너뛴 JOIN Runtime Filter 블룸 필터 빌드 수
 * `ProfileEvent_RuntimeFilterGranulesConsidered` ([UInt64](/ko/reference/data-types/int-uint)) — JOIN Runtime Filters가 읽기 시점 프루닝을 위해 검사한 그래뉼 수
 * `ProfileEvent_RuntimeFilterGranulesDropped` ([UInt64](/ko/reference/data-types/int-uint)) — JOIN Runtime Filters가 읽기 시점에 프루닝한 그래뉼 수
+* `ProfileEvent_RuntimeFilterLookupsBeforeBuildFinished` ([UInt64](/ko/reference/data-types/int-uint)) — 빌드 측이 아직 완료되지 않은 JOIN Runtime Filter에서 조회되어 필터링 없이 통과한 블록 수
 * `ProfileEvent_JoinBuildPostProcessingMicroseconds` ([UInt64](/ko/reference/data-types/int-uint)) — 오른쪽 JOIN 측을 빌드한 후 수행되는 후처리 단계의 경과 시간
 * `ProfileEvent_JoinBuildRowStoreMicroseconds` ([UInt64](/ko/reference/data-types/int-uint)) — 오른쪽 JOIN 측 페이로드를 행 우선 형식으로 변환하는 데 소요된 시간입니다.
 * `ProfileEvent_AIInputTokens` ([UInt64](/ko/reference/data-types/int-uint)) — 쿼리의 모든 AI 함수 호출에서 소비된 전체 프롬프트 토큰 수

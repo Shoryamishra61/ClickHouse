@@ -48,11 +48,13 @@ CREATE TABLE [IF NOT EXISTS] [db.]table_name [ON CLUSTER cluster]
 * `poll_directory_watch_events_backoff_init` - 目录监视线程的初始休眠时间。默认值：`500`。
 * `poll_directory_watch_events_backoff_max` - 目录监视线程的最大休眠时间。默认值：`32000`。
 * `poll_directory_watch_events_backoff_factor` - 退避速度，默认采用指数退避。默认值：`2`。
-* `handle_error_mode` — FileLog 引擎 的错误处理方式。可能的值：default (如果消息解析失败，将抛出异常) ，stream (异常消息和原始消息将保存在虚拟列 `_error` 和 `_raw_message` 中) 。
+* `handle_error_mode` — FileLog 引擎 的错误处理方式。可选值：default (若某条记录解析失败，直接执行的 `SELECT` 会抛出异常；而当表以流式方式写入 materialized view 时，该记录会被跳过，错误则写入服务器日志) ，stream (异常消息和原始记录将保存在虚拟列 `_error` 和 `_raw_record` 中) 。
 
 ## 说明 {#description}
 
 已传递的记录会被自动跟踪，因此日志文件中的每条记录都只会被统计一次。如果某个文件在下次读取时的长度小于为其记录的偏移量 (例如使用 `copytruncate` 方式执行 `logrotate` 之后) ，则会从头重新读取该文件。如果文件在下次读取之前又增长到不小于该偏移量的长度，则无法检测到截断。
+
+无法打开的文件 (目标已被删除的符号链接、服务器无法读取的文件，或已被删除的单文件表所对应的文件) 会被跳过，并在服务器日志中记录一条错误；在表加载期间，系统会持续重试，直到该文件能够打开为止。之前缺失的文件随后将从头开始读取。只有在表发现符号链接时其目标已存在，才会读取该符号链接。
 
 `SELECT` 并不特别适合用来读取记录 (`调试` 除外) ，因为每条记录只能读取一次。更实用的做法是使用 [materialized views](/zh/reference/statements/create/view) 创建实时流。为此，请执行以下操作：
 

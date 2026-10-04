@@ -182,6 +182,7 @@ Es seguro truncar o eliminar esta tabla en cualquier momento.
 * `ProfileEvent_TextIndexLazySegmentsSkippedResolved` ([UInt64](/es/reference/data-types/int-uint)) — Número de segmentos omitidos porque la región de salida ya estaba resuelta (todos unos para OR, todos ceros para AND) en modo de listas de postings diferidas.
 * `ProfileEvent_TextIndexLazyBlocksSkippedResolved` ([UInt64](/es/reference/data-types/int-uint)) — Número de bloques empaquetados omitidos porque la región de salida ya estaba resuelta (todos unos para OR, todos ceros para AND) en modo de listas de postings diferidas.
 * `ProfileEvent_TextIndexDiscardPatternScan` ([UInt64](/es/reference/data-types/int-uint)) — Número de veces que se descartó una exploración del diccionario basada en patrones en un índice de texto porque el número de listas de postings que debían leerse superó el umbral.
+* `ProfileEvent_TextIndexPatternBypassCacheHits` ([UInt64](/es/reference/data-types/int-uint)) — Número de veces que se omitió un escaneo del diccionario basado en patrones en un índice de texto porque un escaneo anterior de la misma parte superó el umbral de listas de postings.
 * `ProfileEvent_TextIndexGenericExclusionSearchAlgorithm` ([UInt64](/es/reference/data-types/int-uint)) — Número de veces que se usa el algoritmo genérico de búsqueda por exclusión sobre el índice de texto.
 * `ProfileEvent_TextIndexGenericExclusionSearchStepLimitReached` ([UInt64](/es/reference/data-types/int-uint)) — Número de veces que la búsqueda genérica por exclusión sobre el índice de texto alcanzó merge&#95;tree&#95;generic&#95;exclusion&#95;search&#95;max&#95;steps y aceptó los rangos de marcas restantes sin dividirlos más.
 * `ProfileEvent_QueryConditionCacheHits` ([UInt64](/es/reference/data-types/int-uint)) — Número de veces que se ha encontrado una entrada en la caché de condiciones de consulta (y se puede omitir la lectura de marcas). Solo se actualiza para consultas SELECT con SETTING use&#95;query&#95;condition&#95;cache = 1.
@@ -701,7 +702,7 @@ Es seguro truncar o eliminar esta tabla en cualquier momento.
 * `ProfileEvent_ParallelReplicasProcessingPartsMicroseconds` ([UInt64](/es/reference/data-types/int-uint)) — Tiempo dedicado a procesar partes de datos
 * `ProfileEvent_ParallelReplicasStealingLeftoversMicroseconds` ([UInt64](/es/reference/data-types/int-uint)) — Tiempo dedicado a recopilar segmentos huérfanos
 * `ProfileEvent_ParallelReplicasCollectingOwnedSegmentsMicroseconds` ([UInt64](/es/reference/data-types/int-uint)) — Tiempo dedicado a recopilar segmentos asignados por hash
-* `ProfileEvent_ParallelReplicasNumRequests` ([UInt64](/es/reference/data-types/int-uint)) — Número de solicitudes al iniciador.
+* `ProfileEvent_ParallelReplicasNumRequests` ([UInt64](/es/reference/data-types/int-uint)) — Número de solicitudes al initiator.
 * `ProfileEvent_CacheWarmerBytesDownloaded` ([UInt64](/es/reference/data-types/int-uint)) — Cantidad de datos descargados en la caché del sistema de archivos por hilos en segundo plano dedicados.
 * `ProfileEvent_CacheWarmerDataPartsDownloaded` ([UInt64](/es/reference/data-types/int-uint)) — Número de partes de datos que CacheWarmer descargó por completo.
 * `ProfileEvent_IgnoredColdParts` ([UInt64](/es/reference/data-types/int-uint)) — Consulte la configuración ignore&#95;cold&#95;parts&#95;seconds. Número de veces que las consultas de lectura ignoraron partes muy nuevas que CacheWarmer aún no había cargado en la caché.
@@ -922,7 +923,7 @@ Es seguro truncar o eliminar esta tabla en cualquier momento.
 * `ProfileEvent_MergeTreePrefetchedReadPoolInit` ([UInt64](/es/reference/data-types/int-uint)) — Tiempo dedicado a preparar tareas en MergeTreePrefetchedReadPool
 * `ProfileEvent_WaitPrefetchTaskMicroseconds` ([UInt64](/es/reference/data-types/int-uint)) — Tiempo dedicado a esperar al lector con precarga
 * `ProfileEvent_ThreadpoolReaderTaskMicroseconds` ([UInt64](/es/reference/data-types/int-uint)) — Tiempo dedicado a obtener los datos en la lectura asíncrona
-* `ProfileEvent_ThreadpoolReaderPrepareMicroseconds` ([UInt64](/es/reference/data-types/int-uint)) — Tiempo dedicado a la preparación (p. ej., llamada al método `seek()` del lector)
+* `ProfileEvent_ThreadpoolReaderPrepareMicroseconds` ([UInt64](/es/reference/data-types/int-uint)) — Tiempo dedicado a la preparación (p. ej., llamada al método seek() del lector)
 * `ProfileEvent_ThreadpoolReaderReadBytes` ([UInt64](/es/reference/data-types/int-uint)) — Bytes leídos por una tarea del thread pool en la lectura asíncrona
 * `ProfileEvent_ThreadpoolReaderSubmit` ([UInt64](/es/reference/data-types/int-uint)) — Bytes leídos por una tarea del thread pool en la lectura asíncrona
 * `ProfileEvent_ThreadpoolReaderSubmitReadSynchronously` ([UInt64](/es/reference/data-types/int-uint)) — Número de veces que no se programó una tarea en el thread pool y se leyó de forma síncrona en su lugar
@@ -931,9 +932,9 @@ Es seguro truncar o eliminar esta tabla en cualquier momento.
 * `ProfileEvent_ThreadpoolReaderSubmitLookupInCacheMicroseconds` ([UInt64](/es/reference/data-types/int-uint)) — Tiempo dedicado a comprobar si el contenido está en caché
 * `ProfileEvent_AsynchronousReaderIgnoredBytes` ([UInt64](/es/reference/data-types/int-uint)) — Número de bytes ignorados durante la lectura asíncrona
 * `ProfileEvent_ReadBufferSeekCancelConnection` ([UInt64](/es/reference/data-types/int-uint)) — Número de reposicionamientos que provocan una nueva conexión (S3, HTTP)
-* `ProfileEvent_SleepFunctionCalls` ([UInt64](/es/reference/data-types/int-uint)) — Número de veces que se ha llamado a una función de suspensión (`sleep`, `sleepEachRow`).
-* `ProfileEvent_SleepFunctionMicroseconds` ([UInt64](/es/reference/data-types/int-uint)) — Tiempo de suspensión configurado en una función de suspensión (`sleep`, `sleepEachRow`).
-* `ProfileEvent_SleepFunctionElapsedMicroseconds` ([UInt64](/es/reference/data-types/int-uint)) — Tiempo dedicado a suspender la ejecución en una función de suspensión (`sleep`, `sleepEachRow`).
+* `ProfileEvent_SleepFunctionCalls` ([UInt64](/es/reference/data-types/int-uint)) — Número de veces que se ha llamado a una función de suspensión (sleep, sleepEachRow).
+* `ProfileEvent_SleepFunctionMicroseconds` ([UInt64](/es/reference/data-types/int-uint)) — Tiempo de suspensión configurado en una función de suspensión (sleep, sleepEachRow).
+* `ProfileEvent_SleepFunctionElapsedMicroseconds` ([UInt64](/es/reference/data-types/int-uint)) — Tiempo dedicado a suspender la ejecución en una función de suspensión (sleep, sleepEachRow).
 * `ProfileEvent_SystemPartsEnumerationSlowdownSleeps` ([UInt64](/es/reference/data-types/int-uint)) — Número de suspensiones del failpoint solo para pruebas &#39;slowdown&#95;system&#95;parts&#95;enumeration&#39; mientras se rellenan las tablas de la familia system.parts. Siempre es cero fuera de las pruebas.
 * `ProfileEvent_ThreadPoolReaderPageCacheHit` ([UInt64](/es/reference/data-types/int-uint)) — Número de veces que la lectura dentro de ThreadPoolReader se realizó desde la page cache.
 * `ProfileEvent_ThreadPoolReaderPageCacheHitBytes` ([UInt64](/es/reference/data-types/int-uint)) — Número de bytes leídos dentro de ThreadPoolReader cuando se realizó desde la page cache.
@@ -1096,8 +1097,8 @@ Es seguro truncar o eliminar esta tabla en cualquier momento.
 * `ProfileEvent_KeeperExistsRequest` ([UInt64](/es/reference/data-types/int-uint)) — Número de solicitudes de existencia
 * `ProfileEvent_KeeperSetWatchesRequest` ([UInt64](/es/reference/data-types/int-uint)) — Número de solicitudes de establecimiento de watches
 * `ProfileEvent_KeeperAddWatchRequest` ([UInt64](/es/reference/data-types/int-uint)) — Número de solicitudes de agregado de watches
-* `ProfileEvent_KeeperRemoveWatchRequest` ([UInt64](/es/reference/data-types/int-uint)) — Número de solicitudes de remove watches
-* `ProfileEvent_KeeperCheckWatchRequest` ([UInt64](/es/reference/data-types/int-uint)) — Número de solicitudes de remove watches
+* `ProfileEvent_KeeperRemoveWatchRequest` ([UInt64](/es/reference/data-types/int-uint)) — Número de solicitudes de eliminación de watches
+* `ProfileEvent_KeeperCheckWatchRequest` ([UInt64](/es/reference/data-types/int-uint)) — Número de solicitudes de eliminación de watches
 * `ProfileEvent_KeeperRequestRejectedDueToSoftMemoryLimitCount` ([UInt64](/es/reference/data-types/int-uint)) — Número de solicitudes rechazadas por superar el soft memory limit
 * `ProfileEvent_KeeperStaleRequestsSkipped` ([UInt64](/es/reference/data-types/int-uint)) — Número de solicitudes de Keeper omitidas porque la sesión ya no está activa
 * `ProfileEvent_KeeperTTLRemoveRequestsEnqueued` ([UInt64](/es/reference/data-types/int-uint)) — Número de solicitudes de eliminación por TTL encoladas correctamente
@@ -1541,6 +1542,7 @@ Es seguro truncar o eliminar esta tabla en cualquier momento.
 * `ProfileEvent_ExecutableUserDefinedFunctionPoolWaitMicroseconds` ([UInt64](/es/reference/data-types/int-uint)) — Tiempo de espera en tryBorrowObject cuando se agota el pool de funciones definidas por el usuario executable&#95;pool, en microsegundos.
 * `ProfileEvent_ParquetReadRowGroups` ([UInt64](/es/reference/data-types/int-uint)) — Número total de grupos de filas leídos de datos Parquet
 * `ProfileEvent_ParquetPrunedRowGroups` ([UInt64](/es/reference/data-types/int-uint)) — Número total de grupos de filas descartados de los datos Parquet
+* `ProfileEvent_ParquetTopKSkippedRowGroups` ([UInt64](/es/reference/data-types/int-uint)) — Número de grupos de filas de Parquet omitidos durante la lectura porque sus estadísticas de valores mínimos y máximos indicaron que no podían contener filas del resultado de `ORDER BY ... LIMIT` (consulte `use_top_k_dynamic_filtering`)
 * `ProfileEvent_ParquetReadPages` ([UInt64](/es/reference/data-types/int-uint)) — Número total de páginas de datos Parquet leídas
 * `ProfileEvent_ParquetPrunedPages` ([UInt64](/es/reference/data-types/int-uint)) — Número total de páginas descartadas de los datos Parquet mediante el índice de columnas
 * `ProfileEvent_ParquetDecodingTasks` ([UInt64](/es/reference/data-types/int-uint)) — Tareas emitidas por el lector de Parquet
@@ -1594,6 +1596,7 @@ Es seguro truncar o eliminar esta tabla en cualquier momento.
 * `ProfileEvent_RuntimeFilterBloomFilterBuildsSkipped` ([UInt64](/es/reference/data-types/int-uint)) — Número de creaciones de filtros Bloom de JOIN Runtime Filter omitidas porque el número de claves del lado de compilación, según las estadísticas de la tabla hash, predijo que el filtro superaría la proporción máxima de bits establecidos
 * `ProfileEvent_RuntimeFilterGranulesConsidered` ([UInt64](/es/reference/data-types/int-uint)) — Número de gránulos examinados para la poda durante la lectura por JOIN Runtime Filters
 * `ProfileEvent_RuntimeFilterGranulesDropped` ([UInt64](/es/reference/data-types/int-uint)) — Número de gránulos descartados durante la lectura por JOIN Runtime Filters
+* `ProfileEvent_RuntimeFilterLookupsBeforeBuildFinished` ([UInt64](/es/reference/data-types/int-uint)) — Número de bloques consultados en un filtro en tiempo de ejecución de JOIN cuya fase de construcción aún no había terminado y que pasan sin filtrarse
 * `ProfileEvent_JoinBuildPostProcessingMicroseconds` ([UInt64](/es/reference/data-types/int-uint)) — Tiempo transcurrido en los pasos de posprocesamiento después de construir el lado derecho del JOIN.
 * `ProfileEvent_JoinBuildRowStoreMicroseconds` ([UInt64](/es/reference/data-types/int-uint)) — Tiempo transcurrido al transformar la carga útil del lado derecho del JOIN al formato de filas principales.
 * `ProfileEvent_AIInputTokens` ([UInt64](/es/reference/data-types/int-uint)) — Total de tokens de prompt consumidos en todas las llamadas a funciones de IA de la consulta.

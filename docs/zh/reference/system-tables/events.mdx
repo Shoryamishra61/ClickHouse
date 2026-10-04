@@ -4189,6 +4189,10 @@ DB::Parquet::Prefetcher 以 ReadMode::SeekAndRead 模式进行读取的总次数
 
 经过过滤器的总行数
 
+### ParquetTopKSkippedRowGroups {#parquettopkskippedrowgroups}
+
+读取时跳过的 Parquet 行组数量。这些行组之所以被跳过，是因为其 min/max 统计信息表明它们不可能包含 `ORDER BY ... LIMIT` 结果中的行 (参见 `use_top_k_dynamic_filtering`)
+
 ### PartsLockHoldMicroseconds {#partslockholdmicroseconds}
 
 在 MergeTree 表中持有数据分区片段锁所花费的总时间
@@ -4896,6 +4900,10 @@ JOIN 运行时过滤器为进行读取时裁剪而检查的粒度数
 ### RuntimeFilterGranulesDropped {#runtimefiltergranulesdropped}
 
 读取时被 JOIN 运行时过滤器裁剪掉的粒度数量
+
+### RuntimeFilterLookupsBeforeBuildFinished {#runtimefilterlookupsbeforebuildfinished}
+
+在 JOIN 运行时过滤器的构建端尚未完成时对其执行查找的块数量，这些块将不经过滤直接通过
 
 ### RuntimeFilterRowsChecked {#runtimefilterrowschecked}
 
@@ -5988,6 +5996,10 @@ MergeTree 表中共享数据分区片段锁的获取次数
 ### TextIndexLazySegmentsSkippedResolved {#textindexlazysegmentsskippedresolved}
 
 在惰性倒排列表模式下，由于输出区域已确定 (OR 为全 1，AND 为全 0) 而跳过的分段数量。
+
+### TextIndexPatternBypassCacheHits {#textindexpatternbypasscachehits}
+
+由于先前对同一分片的扫描已超过倒排列表 (posting list) 阈值而跳过文本索引模式 dictionary scan 的次数。
 
 ### TextIndexPhraseCandidates {#textindexphrasecandidates}
 

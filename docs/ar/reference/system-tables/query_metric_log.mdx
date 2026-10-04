@@ -188,6 +188,7 @@ import SystemTableCloud from '/snippets/ar/_system_table_cloud.mdx';
 * `ProfileEvent_TextIndexLazySegmentsSkippedResolved` ([UInt64](/ar/reference/data-types/int-uint)) — عدد المقاطع التي جرى تخطيها لأن منطقة الإخراج حُسمت بالفعل (كلها واحد لـ OR، وكلها أصفار لـ AND) في وضع قوائم الترحيلات الكسول.
 * `ProfileEvent_TextIndexLazyBlocksSkippedResolved` ([UInt64](/ar/reference/data-types/int-uint)) — عدد الكتل المعبأة التي جرى تخطيها لأن منطقة الإخراج حُسمت بالفعل (كلها واحد لـ OR، وكلها أصفار لـ AND) في وضع قوائم الترحيلات الكسول.
 * `ProfileEvent_TextIndexDiscardPatternScan` ([UInt64](/ar/reference/data-types/int-uint)) — عدد المرات التي جرى فيها تجاهل dictionary scan المستند إلى pattern في text index لأن عدد posting lists المطلوب قراءتها تجاوز threshold.
+* `ProfileEvent_TextIndexPatternBypassCacheHits` ([UInt64](/ar/reference/data-types/int-uint)) — عدد المرات التي جرى فيها تخطي فحص القاموس المستند إلى نمط في فهرس نصي لأن فحصًا سابقًا للجزء نفسه تجاوز عتبة قوائم الترحيلات.
 * `ProfileEvent_TextIndexGenericExclusionSearchAlgorithm` ([UInt64](/ar/reference/data-types/int-uint)) — عدد مرات استخدام خوارزمية الاستبعاد العامة للبحث على الفهرس النصي.
 * `ProfileEvent_TextIndexGenericExclusionSearchStepLimitReached` ([UInt64](/ar/reference/data-types/int-uint)) — عدد المرات التي وصل فيها بحث الاستبعاد العام على الفهرس النصي إلى merge&#95;tree&#95;generic&#95;exclusion&#95;search&#95;max&#95;steps وقَبِل نطاقات العلامات المتبقية دون تقسيم إضافي.
 * `ProfileEvent_QueryConditionCacheHits` ([UInt64](/ar/reference/data-types/int-uint)) — عدد المرات التي عُثر فيها على entry في query condition cache (وبالتالي يمكن تخطي قراءة marks). لا يتم تحديثه إلا لاستعلامات SELECT التي تستخدم SETTING use&#95;query&#95;condition&#95;cache = 1.
@@ -706,7 +707,7 @@ import SystemTableCloud from '/snippets/ar/_system_table_cloud.mdx';
 * `ProfileEvent_ParallelReplicasStealingByHashMicroseconds` ([UInt64](/ar/reference/data-types/int-uint)) — الوقت المستغرَق في جمع المقاطع المخصصة للسرقة بحسب التجزئة
 * `ProfileEvent_ParallelReplicasProcessingPartsMicroseconds` ([UInt64](/ar/reference/data-types/int-uint)) — الوقت المستغرَق في معالجة أجزاء البيانات
 * `ProfileEvent_ParallelReplicasStealingLeftoversMicroseconds` ([UInt64](/ar/reference/data-types/int-uint)) — الوقت المستغرَق في جمع المقاطع المتروكة
-* `ProfileEvent_ParallelReplicasCollectingOwnedSegmentsMicroseconds` ([UInt64](/ar/reference/data-types/int-uint)) — الوقت المستغرَق في جمع المقاطع المخصّصة وفقًا لـ `hash`
+* `ProfileEvent_ParallelReplicasCollectingOwnedSegmentsMicroseconds` ([UInt64](/ar/reference/data-types/int-uint)) — الوقت المستغرَق في جمع المقاطع المخصّصة وفقًا للتجزئة
 * `ProfileEvent_ParallelReplicasNumRequests` ([UInt64](/ar/reference/data-types/int-uint)) — عدد الطلبات المرسلة إلى المُبادر.
 * `ProfileEvent_CacheWarmerBytesDownloaded` ([UInt64](/ar/reference/data-types/int-uint)) — مقدار البيانات التي جرى جلبها إلى ذاكرة التخزين المؤقت لنظام الملفات بواسطة خيوط خلفية مخصّصة.
 * `ProfileEvent_CacheWarmerDataPartsDownloaded` ([UInt64](/ar/reference/data-types/int-uint)) — عدد أجزاء البيانات التي جرى جلبها بالكامل بواسطة CacheWarmer.
@@ -714,7 +715,7 @@ import SystemTableCloud from '/snippets/ar/_system_table_cloud.mdx';
 * `ProfileEvent_PreferredWarmedUnmergedParts` ([UInt64](/ar/reference/data-types/int-uint)) — راجع الإعداد prefer&#95;warmed&#95;unmerged&#95;parts&#95;seconds. عدد المرات التي استخدمت فيها استعلامات القراءة الأجزاء القديمة غير المدمجة الموجودة في ذاكرة التخزين المؤقت بدلًا من الجزء المدمج الذي لم يجلبه CacheWarmer إلى ذاكرة التخزين المؤقت بعد.
 * `ProfileEvent_PerfCPUCycles` ([UInt64](/ar/reference/data-types/int-uint)) — إجمالي الدورات. انتبه لما يحدث أثناء تغيير تردد CPU.
 * `ProfileEvent_PerfInstructions` ([UInt64](/ar/reference/data-types/int-uint)) — التعليمات المنفَّذة نهائيًا. انتبه، فقد تتأثر هذه بمشكلات مختلفة، وأبرزها عدد مقاطعات العتاد.
-* `ProfileEvent_PerfCacheReferences` ([UInt64](/ar/reference/data-types/int-uint)) — عمليات الوصول إلى ذاكرة التخزين المؤقت. يشير هذا عادةً إلى عمليات الوصول إلى ذاكرة التخزين المؤقت من المستوى الأخير، لكن قد يختلف ذلك حسب نوع CPU لديك. وقد يشمل ذلك عمليات `prefetch` ورسائل الاتساق؛ ومرة أخرى يعتمد ذلك على تصميم CPU لديك.
+* `ProfileEvent_PerfCacheReferences` ([UInt64](/ar/reference/data-types/int-uint)) — عمليات الوصول إلى ذاكرة التخزين المؤقت. يشير هذا عادةً إلى عمليات الوصول إلى ذاكرة التخزين المؤقت من المستوى الأخير، لكن قد يختلف ذلك حسب نوع CPU لديك. وقد يشمل ذلك عمليات الجلب المسبق ورسائل الاتساق؛ ومرة أخرى يعتمد ذلك على تصميم CPU لديك.
 * `ProfileEvent_PerfCacheMisses` ([UInt64](/ar/reference/data-types/int-uint)) — حالات الإخفاق في ذاكرة التخزين المؤقت. يشير هذا عادةً إلى حالات الإخفاق في ذاكرة التخزين المؤقت من المستوى الأخير؛ ومن المفترض استخدامه مع الحدث PERFCOUNTHWCACHEREFERENCES لحساب معدلات الإخفاق في ذاكرة التخزين المؤقت.
 * `ProfileEvent_PerfBranchInstructions` ([UInt64](/ar/reference/data-types/int-uint)) — تعليمات التفرّع المنفَّذة نهائيًا. قبل Linux 2.6.35، كان هذا يستخدم الحدث الخاطئ على معالجات AMD.
 * `ProfileEvent_PerfBranchMisses` ([UInt64](/ar/reference/data-types/int-uint)) — تعليمات التفرّع التي أُخطئ في التنبؤ بها.
@@ -1518,8 +1519,8 @@ import SystemTableCloud from '/snippets/ar/_system_table_cloud.mdx';
 * `ProfileEvent_CoordinatedMergesMergeCoordinatorSelectMergesMicroseconds` ([UInt64](/ar/reference/data-types/int-uint)) — الوقت الإجمالي المستغرَق في العثور على عمليات دمج باستخدام محددات الدمج داخل منسّق الدمج
 * `ProfileEvent_CoordinatedMergesMergeCoordinatorLockStateForShareCount` ([UInt64](/ar/reference/data-types/int-uint)) — العدد الإجمالي لعمليات الحصول على قفل حالة المنسّق للمشاركة
 * `ProfileEvent_CoordinatedMergesMergeCoordinatorLockStateExclusivelyCount` ([UInt64](/ar/reference/data-types/int-uint)) — العدد الإجمالي لعمليات الحصول الحصري على قفل حالة المنسّق
-* `ProfileEvent_CoordinatedMergesMergeCoordinatorLockStateForShareMicroseconds` ([UInt64](/ar/reference/data-types/int-uint)) — الوقت الإجمالي المستغرَق في قفل `mutex` حالة المنسّق للمشاركة
-* `ProfileEvent_CoordinatedMergesMergeCoordinatorLockStateExclusivelyMicroseconds` ([UInt64](/ar/reference/data-types/int-uint)) — الوقت الإجمالي المستغرَق في قفل `mutex` حالة المنسّق حصريًا
+* `ProfileEvent_CoordinatedMergesMergeCoordinatorLockStateForShareMicroseconds` ([UInt64](/ar/reference/data-types/int-uint)) — الوقت الإجمالي المستغرَق في قفل mutex حالة المنسّق للمشاركة
+* `ProfileEvent_CoordinatedMergesMergeCoordinatorLockStateExclusivelyMicroseconds` ([UInt64](/ar/reference/data-types/int-uint)) — الوقت الإجمالي المستغرَق في قفل mutex حالة المنسّق حصريًا
 * `ProfileEvent_CoordinatedMergesMergeWorkerUpdateCount` ([UInt64](/ar/reference/data-types/int-uint)) — العدد الإجمالي لتحديثات عامل الدمج
 * `ProfileEvent_CoordinatedMergesMergeWorkerUpdateMicroseconds` ([UInt64](/ar/reference/data-types/int-uint)) — الوقت الإجمالي المستغرَق في تحديث الحالة المحلية لعمليات الدمج المُسنَدة على العامل
 * `ProfileEvent_CoordinatedMergesMergeAssignmentRequest` ([UInt64](/ar/reference/data-types/int-uint)) — العدد الإجمالي لطلبات إسناد الدمج
@@ -1531,7 +1532,7 @@ import SystemTableCloud from '/snippets/ar/_system_table_cloud.mdx';
 * `ProfileEvent_SharedCatalogStateFetchFullFallback` ([UInt64](/ar/reference/data-types/int-uint)) — عدد المرات التي فشل فيها الجلب التزايدي لحالة Shared Catalog مرات متتالية كثيرة، فنُفّذ جلب كامل للحالة بدلًا من ذلك
 * `ProfileEvent_MemoryWorkerRun` ([UInt64](/ar/reference/data-types/int-uint)) — عدد مرات التشغيل التي نفّذها MemoryWorker في الخلفية
 * `ProfileEvent_MemoryWorkerRunElapsedMicroseconds` ([UInt64](/ar/reference/data-types/int-uint)) — الوقت الإجمالي الذي استغرقه MemoryWorker في العمل في الخلفية
-* `ProfileEvent_ParquetFetchWaitTimeMicroseconds` ([UInt64](/ar/reference/data-types/int-uint)) — وقت انتظار قراءات ملف Parquet من خيوط فك الترميز (وليس خيوط `prefetch`)
+* `ProfileEvent_ParquetFetchWaitTimeMicroseconds` ([UInt64](/ar/reference/data-types/int-uint)) — وقت انتظار قراءات ملف Parquet من خيوط فك الترميز (وليس خيوط prefetch)
 * `ProfileEvent_WasmSerializationMicroseconds` ([UInt64](/ar/reference/data-types/int-uint)) — الوقت المستغرَق في تنفيذ شيفرة WebAssembly
 * `ProfileEvent_WasmDeserializationMicroseconds` ([UInt64](/ar/reference/data-types/int-uint)) — الوقت المستغرَق في تنفيذ شيفرة WebAssembly
 * `ProfileEvent_WasmGuestExecuteMicroseconds` ([UInt64](/ar/reference/data-types/int-uint)) — الوقت المستغرَق في تنفيذ شيفرة WebAssembly
@@ -1547,6 +1548,7 @@ import SystemTableCloud from '/snippets/ar/_system_table_cloud.mdx';
 * `ProfileEvent_ExecutableUserDefinedFunctionPoolWaitMicroseconds` ([UInt64](/ar/reference/data-types/int-uint)) — الوقت المستغرَق في انتظار tryBorrowObject عند استنفاد مجمع الدالات المعرفة من المستخدم executable&#95;pool، بالميكروثانية.
 * `ProfileEvent_ParquetReadRowGroups` ([UInt64](/ar/reference/data-types/int-uint)) — العدد الإجمالي لمجموعات الصفوف المقروءة من بيانات Parquet
 * `ProfileEvent_ParquetPrunedRowGroups` ([UInt64](/ar/reference/data-types/int-uint)) — العدد الإجمالي لمجموعات الصفوف المستبعَدة من بيانات Parquet
+* `ProfileEvent_ParquetTopKSkippedRowGroups` ([UInt64](/ar/reference/data-types/int-uint)) — عدد مجموعات الصفوف في Parquet التي جرى تخطيها أثناء القراءة لأن إحصاءات القيم الدنيا والعليا الخاصة بها أظهرت أنها لا يمكن أن تحتوي على صفوف ضمن نتيجة `ORDER BY ... LIMIT` (راجع `use_top_k_dynamic_filtering`)
 * `ProfileEvent_ParquetReadPages` ([UInt64](/ar/reference/data-types/int-uint)) — العدد الإجمالي لصفحات بيانات Parquet المقروءة
 * `ProfileEvent_ParquetPrunedPages` ([UInt64](/ar/reference/data-types/int-uint)) — العدد الإجمالي للصفحات المستبعَدة من بيانات Parquet عبر فهرس الأعمدة
 * `ProfileEvent_ParquetDecodingTasks` ([UInt64](/ar/reference/data-types/int-uint)) — المهام الصادرة عن قارئ Parquet
@@ -1600,6 +1602,7 @@ import SystemTableCloud from '/snippets/ar/_system_table_cloud.mdx';
 * `ProfileEvent_RuntimeFilterBloomFilterBuildsSkipped` ([UInt64](/ar/reference/data-types/int-uint)) — عدد عمليات بناء bloom filter الخاصة بمرشحات وقت تشغيل JOIN التي جرى تخطيها لأن عدد مفاتيح جانب البناء المستمد من إحصاءات hash table توقّع أن يتجاوز المرشح الحد الأقصى لنسبة set bits
 * `ProfileEvent_RuntimeFilterGranulesConsidered` ([UInt64](/ar/reference/data-types/int-uint)) — عدد الوحدات الحبيبية التي فُحصت للاستبعاد في وقت القراءة بواسطة مرشحات وقت تشغيل JOIN
 * `ProfileEvent_RuntimeFilterGranulesDropped` ([UInt64](/ar/reference/data-types/int-uint)) — عدد الوحدات الحبيبية المستبعَدة في وقت القراءة بواسطة مرشحات وقت تشغيل JOIN
+* `ProfileEvent_RuntimeFilterLookupsBeforeBuildFinished` ([UInt64](/ar/reference/data-types/int-uint)) — عدد الكتل التي فُحصت باستخدام مرشح وقت تشغيل JOIN قبل اكتمال جانب البناء الخاص به، فمرّت دون تصفية
 * `ProfileEvent_JoinBuildPostProcessingMicroseconds` ([UInt64](/ar/reference/data-types/int-uint)) — الزمن المنقضي لخطوات المعالجة اللاحقة بعد بناء الجانب الأيمن من JOIN.
 * `ProfileEvent_JoinBuildRowStoreMicroseconds` ([UInt64](/ar/reference/data-types/int-uint)) — الزمن المنقضي لتحويل حمولة الجانب الأيمن من JOIN إلى تنسيق الصفوف الرئيسي.
 * `ProfileEvent_AIInputTokens` ([UInt64](/ar/reference/data-types/int-uint)) — إجمالي رموز prompt المستهلَكة عبر جميع استدعاءات AI function في الاستعلام.

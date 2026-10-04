@@ -781,6 +781,8 @@ curl "http://localhost:8123/?framing_output_format=JSONEachPacketString" -d "SEL
 
 允许的地址最大数量 (适用于外部存储、表函数等) 。
 
+`url` 表函数和 `URL` 表引擎会逐个生成模式所对应的地址，因此对它们而言，此设置限制的是单个查询允许生成的地址数量，而非模式本身的规模。对于会提前结束的查询 (例如受 `LIMIT` 限制的查询) ，所用模式描述的地址数量可以远超此值。`_path` 或 `_file` 谓词会作用于每个生成的地址，因此被其过滤掉的地址同样计入该数量。
+
 ## h3togeo_lon_lat_result_order {#h3togeo_lon_lat_result_order}
 
 <SettingsInfoBlock type="Bool" default_value="0" />

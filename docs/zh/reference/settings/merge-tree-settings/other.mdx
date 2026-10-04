@@ -215,7 +215,7 @@ Dynamic 数据类型的序列化版本。兼容性需要此设置。
 
 <SettingsInfoBlock type="Bool" default_value="0" />
 
-强制合并操作通过文件系统缓存读取
+控制后台合并和变更操作在读取时如何处理缓存未命中。禁用时，会使用已缓存的范围，而缺失的范围将直接从底层存储读取，不会填充缓存。启用时，缺失的范围将以读穿 (read-through) 方式读取，并存入文件系统缓存；若已启用分布式缓存，也会同时存入分布式缓存。这样可以为后续读取预热数据，但也会占用缓存容量。
 
 ## initialization_retry_period {#initialization_retry_period}
 

@@ -49,11 +49,13 @@ Parámetros opcionales:
 * `poll_directory_watch_events_backoff_init` - Valor de espera inicial para el hilo de supervisión del directorio. Predeterminado: `500`.
 * `poll_directory_watch_events_backoff_max` - Valor de espera máximo para el hilo de supervisión del directorio. Predeterminado: `32000`.
 * `poll_directory_watch_events_backoff_factor` - Velocidad del backoff; de forma predeterminada, es exponencial. Predeterminado: `2`.
-* `handle_error_mode` — Cómo gestionar los errores del motor FileLog. Valores posibles: default (se lanzará una excepción si no se puede analizar un mensaje), stream (el mensaje de excepción y el mensaje sin procesar se guardarán en las columnas virtuales `_error` y `_raw_message`).
+* `handle_error_mode` — Cómo gestionar los errores del motor FileLog. Valores posibles: default (un `SELECT` directo lanza una excepción si no se puede analizar un registro; cuando la tabla envía datos en streaming a vistas materializadas, ese registro se omite y el error se escribe en el log del servidor), stream (el mensaje de excepción y el registro sin procesar se guardarán en las columnas virtuales `_error` y `_raw_record`).
 
 ## Descripción {#description}
 
 Los registros entregados se controlan automáticamente, de modo que cada registro de un archivo de registro solo se cuenta una vez. Si, en la siguiente lectura, un archivo es más corto que el offset registrado para él, como ocurre después de `logrotate` con `copytruncate`, se vuelve a leer desde el principio. No se detecta un truncamiento si el archivo vuelve a crecer hasta alcanzar al menos ese offset antes de la siguiente lectura.
+
+Un archivo que no se puede abrir (un enlace simbólico cuyo destino se eliminó, un archivo que el servidor no puede leer o el archivo de una tabla de un solo archivo que se eliminó) se omite, se registra un error en el log del servidor y, mientras la tabla esté cargada, se reintenta su apertura hasta que sea posible; en ese momento, un archivo que faltaba se lee desde el principio. Un enlace simbólico solo se lee si su destino existe cuando la tabla lo encuentra.
 
 `SELECT` no resulta especialmente útil para leer registros (excepto para depuración), porque cada registro solo puede leerse una vez. Es más práctico crear hilos en tiempo real mediante [vistas materializadas](/es/reference/statements/create/view). Para ello:
 

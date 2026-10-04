@@ -219,7 +219,7 @@ Possible values:
 
 <SettingsInfoBlock type="Bool" default_value="0" />
 
-머지 시 파일 시스템 캐시를 통한 읽기를 강제합니다
+백그라운드 머지 및 뮤테이션의 읽기 작업에서 캐시 미스(cache miss)를 처리하는 방식을 제어합니다. 비활성화하면 이미 캐시된 범위는 그대로 사용하지만, 캐시에 없는 범위는 캐시를 채우지 않고 기반 저장소에서 직접 읽습니다. 활성화하면 캐시에 없는 범위를 캐시를 거쳐 읽은 뒤 파일 시스템 캐시에 저장하며, Distributed Cache가 활성화되어 있으면 Distributed Cache에도 저장합니다. 이렇게 하면 이후 읽기에 대비해 데이터를 미리 캐시에 적재할 수 있지만, 그만큼 캐시 용량을 차지합니다.
 
 ## initialization_retry_period {#initialization_retry_period}
 

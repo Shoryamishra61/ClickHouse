@@ -2952,6 +2952,47 @@ SELECT notMatchCaseInsensitive('Hello World', 'hello.*'), 'Hello World' !~* 'GOO
 └───────────────────────────────────────────────────┴─────────────────────────────────────────────────────┘
 ```
 
+## notSimilarTo {#notSimilarTo}
+
+Introduzido em: v26.10.0
+
+Semelhante a [`similarTo`](#similarTo), mas nega o resultado.
+
+Assim como `similarTo`, aceita uma cláusula `ESCAPE` opcional que define um caractere de escape personalizado (um
+único caractere ASCII) para substituir a barra invertida padrão. Consulte [`similarTo`](#similarTo) para ver a
+gramática do pattern e as regras de escape.
+
+**Sintaxe**
+
+```sql
+notSimilarTo(haystack, pattern[, escape_character])
+-- haystack NOT SIMILAR TO pattern [ESCAPE 'escape_character']
+```
+
+**Argumentos**
+
+* `haystack` — String na qual a busca é realizada. [`String`](/pt-BR/reference/data-types/string) ou [`FixedString`](/pt-BR/reference/data-types/fixedstring)
+* `pattern` — Pattern `SIMILAR TO` com o qual a string será comparada. Pode conter `%` (corresponde a qualquer número de caracteres), `_` (corresponde a um único caractere), `\` para escape e metacaracteres de expressões regulares, exceto `^`, `$` e `.`, que são tratados como literais fora de expressões entre colchetes (um `^` no início de `[...]` continua negando a classe). [`String`](/pt-BR/reference/data-types/string)
+* `escape_character` — String opcional de um único caractere a ser usada como caractere de escape no lugar de `\`. Padrão: `\`. [`String`](/pt-BR/reference/data-types/string)
+
+**Valor retornado**
+
+Retorna `1` se a string não corresponder ao pattern `SIMILAR TO`; caso contrário, retorna `0`. [`UInt8`](/pt-BR/reference/data-types/int-uint)
+
+**Exemplos**
+
+**Exemplo de uso**
+
+```sql title=Query
+SELECT notSimilarTo('ClickHouse', 'Cl_ck[0-9]ouse');
+```
+
+```response title=Response
+┌─notSimilarTo('ClickHouse', 'Cl_ck[0-9]ouse')─┐
+│                                            1 │
+└──────────────────────────────────────────────┘
+```
+
 ## position {#position}
 
 Introduzido na versão: v1.1.0
@@ -3141,6 +3182,72 @@ SELECT positionUTF8('Motörhead', 'r')
 ┌─positionUTF8('Motörhead', 'r')─┐
 │                              5 │
 └────────────────────────────────┘
+```
+
+## similarTo {#similarTo}
+
+Introduzido em: v26.10.0
+
+Retorna se a string `haystack` corresponde à expressão `SIMILAR TO` `pattern`.
+
+Uma expressão `SIMILAR TO` pode conter caracteres normais e os seguintes metassímbolos:
+
+* `%` representa uma quantidade arbitrária de caracteres quaisquer (incluindo nenhum caractere).
+* `_` representa um único caractere qualquer.
+* `|`, `*`, `+`, `?`, `{`, `}`, `(`, `)`, `[` e `]` têm o significado usual em expressões regulares.
+* `\` serve para escapar qualquer um dos símbolos acima, inclusive ele mesmo.
+
+Os metacaracteres de expressões regulares `^`, `$` e `.` não fazem parte da gramática de `SIMILAR TO` e
+representam os respectivos caracteres literais fora de expressões entre colchetes. Dentro de uma expressão entre colchetes,
+um `^` no início mantém seu significado usual e nega a classe; por exemplo, `[^aeiou]` corresponde a um único
+caractere que não seja vogal. O pattern deve corresponder ao `haystack` inteiro, e não apenas a uma substring dele.
+
+## Cláusula ESCAPE {#escape-clause}
+
+A cláusula opcional `ESCAPE` especifica um caractere de escape personalizado (deve ser um único caractere ASCII).
+Quando fornecido, o caractere de escape personalizado substitui a barra invertida padrão no escape dos
+metassímbolos listados acima, e a barra invertida perde seu significado especial (ou seja, passa a ser tratada como um
+caractere literal).
+
+Um caractere de escape personalizado deve ser seguido por um caractere especial de `SIMILAR TO` (`%`, `_`, `|`, `*`, `+`,
+`?`, `{`, `}`, `(`, `)`, `[`, `]`) ou por ele mesmo; qualquer outra coisa — incluindo `^`, `$`, `.` e a barra invertida,
+que são caracteres comuns fora de expressões entre colchetes — gera um erro, já que um escape antes de um
+caractere comum não teria efeito. Essa rigidez
+vale apenas para caracteres de escape personalizados — a barra invertida padrão mantém o comportamento legado do `LIKE`
+e representa uma barra invertida literal quando precede um caractere comum. Assim, `'\\mabc' SIMILAR TO
+'%\\mabc%'` retorna `1`, enquanto `'mabc' SIMILAR TO '%#mabc%' ESCAPE '#'` é rejeitado. Dentro de uma expressão
+entre colchetes, como `[...]`, o caractere de escape não tem significado especial e representa a si mesmo, seguindo o
+comportamento do POSIX e do PostgreSQL.
+
+**Sintaxe**
+
+```sql
+similarTo(haystack, pattern[, escape_character])
+-- haystack SIMILAR TO pattern [ESCAPE 'escape_character']
+```
+
+**Argumentos**
+
+* `haystack` — String na qual a busca é realizada. [`String`](/pt-BR/reference/data-types/string) ou [`FixedString`](/pt-BR/reference/data-types/fixedstring)
+* `pattern` — Pattern `SIMILAR TO` com o qual comparar. Pode conter `%` (corresponde a qualquer número de caracteres), `_` (corresponde a um único caractere), `\` para escape e metacaracteres de expressão regular, exceto `^`, `$` e `.`, que são tratados literalmente fora de expressões entre colchetes (um `^` no início de `[...]` continua negando a classe). [`String`](/pt-BR/reference/data-types/string)
+* `escape_character` — String opcional de um único caractere a ser usada como caractere de escape no lugar de `\`. Padrão: `\`. [`String`](/pt-BR/reference/data-types/string)
+
+**Valor retornado**
+
+Retorna `1` se a string corresponder ao pattern `SIMILAR TO`; caso contrário, retorna `0`. [`UInt8`](/pt-BR/reference/data-types/int-uint)
+
+**Exemplos**
+
+**Exemplo de uso**
+
+```sql title=Query
+SELECT similarTo('ClickHouse', 'Cl_ck[hH]ouse');
+```
+
+```response title=Response
+┌─similarTo('ClickHouse', 'Cl_ck[hH]ouse')─┐
+│                                        1 │
+└──────────────────────────────────────────┘
 ```
 
 {/*AUTOGENERATED_END*/}

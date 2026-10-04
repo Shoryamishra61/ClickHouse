@@ -182,6 +182,7 @@ import SystemTableCloud from '/snippets/ar/_system_table_cloud.mdx';
 * `ProfileEvent_TextIndexLazySegmentsSkippedResolved` ([UInt64](/ar/reference/data-types/int-uint)) — عدد المقاطع التي تم تخطيها لأن منطقة الإخراج قد حُسمت بالفعل (كلها واحد لـ OR، وكلها أصفار لـ AND) في وضع قائمة الترحيلات الكسول.
 * `ProfileEvent_TextIndexLazyBlocksSkippedResolved` ([UInt64](/ar/reference/data-types/int-uint)) — عدد الكتل المعبأة التي تم تخطيها لأن منطقة الإخراج قد حُسمت بالفعل (كلها واحد لـ OR، وكلها أصفار لـ AND) في وضع قائمة الترحيلات الكسول.
 * `ProfileEvent_TextIndexDiscardPatternScan` ([UInt64](/ar/reference/data-types/int-uint)) — عدد المرات التي جرى فيها استبعاد فحص القاموس المستند إلى النمط في فهرس نصي لأن عدد قوائم الترحيلات المطلوب قراءتها تجاوز العتبة.
+* `ProfileEvent_TextIndexPatternBypassCacheHits` ([UInt64](/ar/reference/data-types/int-uint)) — عدد المرات التي جرى فيها تخطي فحص القاموس المستند إلى النمط في فهرس نصي لأن فحصًا سابقًا للجزء نفسه تجاوز عتبة قوائم الترحيلات.
 * `ProfileEvent_TextIndexGenericExclusionSearchAlgorithm` ([UInt64](/ar/reference/data-types/int-uint)) — عدد مرات استخدام خوارزمية البحث العامة بالاستبعاد على فهرس النص.
 * `ProfileEvent_TextIndexGenericExclusionSearchStepLimitReached` ([UInt64](/ar/reference/data-types/int-uint)) — عدد المرات التي وصل فيها البحث العام بالاستبعاد عبر فهرس النص إلى merge&#95;tree&#95;generic&#95;exclusion&#95;search&#95;max&#95;steps وقبل نطاقات العلامات المتبقية دون تقسيم إضافي.
 * `ProfileEvent_QueryConditionCacheHits` ([UInt64](/ar/reference/data-types/int-uint)) — عدد المرات التي جرى فيها العثور على إدخال في QueryConditionCache (وبالتالي يمكن تخطي قراءة العلامات). يُحدَّث فقط لاستعلامات SELECT التي تتضمن SETTING use&#95;query&#95;condition&#95;cache = 1.
@@ -1541,6 +1542,7 @@ import SystemTableCloud from '/snippets/ar/_system_table_cloud.mdx';
 * `ProfileEvent_ExecutableUserDefinedFunctionPoolWaitMicroseconds` ([UInt64](/ar/reference/data-types/int-uint)) — الوقت المستغرَق في انتظار tryBorrowObject عند استنفاد مجمّع الدوال المعرفة من قبل المستخدم من نوع executable&#95;pool، بالميكروثانية.
 * `ProfileEvent_ParquetReadRowGroups` ([UInt64](/ar/reference/data-types/int-uint)) — العدد الإجمالي لمجموعات الصفوف المقروءة من بيانات Parquet
 * `ProfileEvent_ParquetPrunedRowGroups` ([UInt64](/ar/reference/data-types/int-uint)) — العدد الإجمالي لمجموعات الصفوف التي تم استبعادها من بيانات Parquet
+* `ProfileEvent_ParquetTopKSkippedRowGroups` ([UInt64](/ar/reference/data-types/int-uint)) — عدد مجموعات صفوف Parquet التي تم تخطيها أثناء القراءة لأن إحصاءات الحدين الأدنى والأقصى الخاصة بها أظهرت أنها لا يمكن أن تحتوي على صفوف ضمن نتيجة `ORDER BY ... LIMIT` (راجع `use_top_k_dynamic_filtering`)
 * `ProfileEvent_ParquetReadPages` ([UInt64](/ar/reference/data-types/int-uint)) — العدد الإجمالي لصفحات بيانات Parquet المقروءة
 * `ProfileEvent_ParquetPrunedPages` ([UInt64](/ar/reference/data-types/int-uint)) — العدد الإجمالي للصفحات التي تم استبعادها من بيانات Parquet باستخدام فهرس الأعمدة
 * `ProfileEvent_ParquetDecodingTasks` ([UInt64](/ar/reference/data-types/int-uint)) — المهام التي أصدرها قارئ Parquet
@@ -1594,6 +1596,7 @@ import SystemTableCloud from '/snippets/ar/_system_table_cloud.mdx';
 * `ProfileEvent_RuntimeFilterBloomFilterBuildsSkipped` ([UInt64](/ar/reference/data-types/int-uint)) — عدد عمليات بناء bloom filter الخاصة بـ JOIN Runtime Filter التي تم تخطيها لأن عدد مفاتيح جانب البناء وفقًا لإحصاءات جدول التجزئة تنبأ بأن عامل التصفية سيتجاوز الحد الأقصى لنسبة البتات المضبوطة
 * `ProfileEvent_RuntimeFilterGranulesConsidered` ([UInt64](/ar/reference/data-types/int-uint)) — عدد الحبيبات التي فُحصت للاستبعاد وقت القراءة بواسطة JOIN Runtime Filters
 * `ProfileEvent_RuntimeFilterGranulesDropped` ([UInt64](/ar/reference/data-types/int-uint)) — عدد الحبيبات التي استُبعدت وقت القراءة بواسطة JOIN Runtime Filters
+* `ProfileEvent_RuntimeFilterLookupsBeforeBuildFinished` ([UInt64](/ar/reference/data-types/int-uint)) — عدد الكتل التي جرى فحصها باستخدام مرشح وقت التشغيل الخاص بـ JOIN قبل اكتمال جانب البناء فيه، فمرّت دون تصفية
 * `ProfileEvent_JoinBuildPostProcessingMicroseconds` ([UInt64](/ar/reference/data-types/int-uint)) — الوقت المنقضي في خطوات المعالجة اللاحقة بعد بناء الجانب الأيمن من JOIN.
 * `ProfileEvent_JoinBuildRowStoreMicroseconds` ([UInt64](/ar/reference/data-types/int-uint)) — الوقت المنقضي في تحويل حمولة الجانب الأيمن من JOIN إلى تنسيق الصفوف الرئيسي.
 * `ProfileEvent_AIInputTokens` ([UInt64](/ar/reference/data-types/int-uint)) — إجمالي رموز prompt المستهلَكة عبر جميع استدعاءات AI function في الاستعلام.
@@ -2214,8 +2217,8 @@ import SystemTableCloud from '/snippets/ar/_system_table_cloud.mdx';
 * `CurrentMetric_DropDistributedCacheThreads` ([Int64](/ar/reference/data-types/int-uint)) — عدد مؤشرات الترابط في مجموعة مؤشرات الترابط الخاصة باستعلام drop distributed cache.
 * `CurrentMetric_DropDistributedCacheThreadsActive` ([Int64](/ar/reference/data-types/int-uint)) — عدد مؤشرات الترابط النشطة في مجموعة مؤشرات الترابط الخاصة باستعلام drop distributed cache.
 * `CurrentMetric_DropDistributedCacheThreadsScheduled` ([Int64](/ar/reference/data-types/int-uint)) — عدد الوظائف الموجودة في قائمة الانتظار أو النشطة في مجموعة مؤشرات الترابط الخاصة بـ drop distributed cache.
-* `CurrentMetric_S3CachedCredentialsProviders` ([Int64](/ar/reference/data-types/int-uint)) — إجمالي عدد موفري بيانات الاعتماد المخزّنة مؤقتًا.
-* `CurrentMetric_MergeTreeSnapshotCommitThreads` ([Int64](/ar/reference/data-types/int-uint)) — عدد مؤشرات الترابط المستخدمة لتثبيت اللقطة.
+* `CurrentMetric_S3CachedCredentialsProviders` ([Int64](/ar/reference/data-types/int-uint)) — إجمالي عدد موفري بيانات الاعتماد المخزّنة مؤقتًا
+* `CurrentMetric_MergeTreeSnapshotCommitThreads` ([Int64](/ar/reference/data-types/int-uint)) — عدد مؤشرات الترابط المستخدمة لتثبيت اللقطة
 * `CurrentMetric_MergeTreeSnapshotCommitThreadsActive` ([Int64](/ar/reference/data-types/int-uint)) — عدد مؤشرات الترابط النشطة المستخدمة لتثبيت اللقطة
 * `CurrentMetric_MergeTreeSnapshotCommitThreadsScheduled` ([Int64](/ar/reference/data-types/int-uint)) — عدد مؤشرات الترابط المجدولة المستخدمة لتثبيت اللقطة
 * `histograms.metric` ([Array(LowCardinality(String))](/ar/reference/data-types/array)) — أسماء عائلات المُدرَّجات التكرارية المأخوذة لقطاتها في هذا الصف.

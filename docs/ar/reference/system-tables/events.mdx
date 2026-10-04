@@ -4190,6 +4190,10 @@ Distributed Cache client event. إجمالي عدد حزم SlowDown الوارد
 
 إجمالي عدد الصفوف التي اجتازت عامل التصفية
 
+### ParquetTopKSkippedRowGroups {#parquettopkskippedrowgroups}
+
+عدد مجموعات الصفوف (row groups) في ملفات Parquet التي جرى تخطيها أثناء القراءة لأن إحصاءات القيم الدنيا/القصوى الخاصة بها أظهرت أنها لا يمكن أن تحتوي على أي صفوف من نتيجة `ORDER BY ... LIMIT` (راجع `use_top_k_dynamic_filtering`).
+
 ### PartsLockHoldMicroseconds {#partslockholdmicroseconds}
 
 إجمالي الوقت الذي تم قضاؤه أثناء الاحتفاظ بقفل أجزاء البيانات في جداول MergeTree
@@ -4897,6 +4901,10 @@ Distributed Cache client event. إجمالي عدد حزم SlowDown الوارد
 ### RuntimeFilterGranulesDropped {#runtimefiltergranulesdropped}
 
 عدد الحبيبات التي تم استبعادها عند القراءة بواسطة مرشح وقت التشغيل الخاص بـ JOIN
+
+### RuntimeFilterLookupsBeforeBuildFinished {#runtimefilterlookupsbeforebuildfinished}
+
+عدد الكتل التي جرى البحث عنها في مرشح وقت التشغيل الخاص بـ JOIN لم يكتمل جانب البناء الخاص به بعد، فتمرّ دون تصفية
 
 ### RuntimeFilterRowsChecked {#runtimefilterrowschecked}
 
@@ -5989,6 +5997,10 @@ Distributed Cache client event. إجمالي عدد حزم SlowDown الوارد
 ### TextIndexLazySegmentsSkippedResolved {#textindexlazysegmentsskippedresolved}
 
 عدد المقاطع التي تم تخطيها لأن نطاق الإخراج كان قد حُسم بالفعل (كلها آحاد في OR، وكلها أصفار في AND) في وضع قائمة الترحيلات الكسول.
+
+### TextIndexPatternBypassCacheHits {#textindexpatternbypasscachehits}
+
+عدد المرات التي تم فيها تخطي فحص القاموس لنمط الفهرس النصي، نظرًا لأن فحصًا سابقًا لجزء البيانات نفسه تجاوز الحد الأقصى لقائمة الترحيلات (posting list).
 
 ### TextIndexPhraseCandidates {#textindexphrasecandidates}
 

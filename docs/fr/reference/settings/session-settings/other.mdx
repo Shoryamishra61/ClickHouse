@@ -801,7 +801,9 @@ La fonction `geoToH3` accepte (lon, lat) si le paramètre est réglé sur `lon_l
 
 <SettingsInfoBlock type="UInt64" default_value="1000" />
 
-Nombre maximal d’adresses autorisées (pour les stockages externes, les fonctions table, etc.).
+Nombre maximal d’adresses autorisées (pour les stockages externes, les fonctions de table, etc.).
+
+La fonction de table `url` et le table engine `URL` génèrent les adresses d’un motif une par une : pour eux, ce paramètre limite donc le nombre d’adresses qu’une même requête peut générer, et non la taille du motif. Une requête qui s’interrompt avant la fin, par exemple en raison d’un `LIMIT`, peut utiliser un motif décrivant bien plus d’adresses que cette valeur. Un prédicat sur `_path` ou `_file` est appliqué à chaque adresse générée : les adresses qu’il rejette sont donc elles aussi comptabilisées.
 
 ## h3togeo_lon_lat_result_order {#h3togeo_lon_lat_result_order}
 

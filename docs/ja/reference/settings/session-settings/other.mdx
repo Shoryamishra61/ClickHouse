@@ -788,7 +788,9 @@ Function &#39;geoToH3&#39; は、&#39;lon&#95;lat&#39; に設定すると (lon, 
 
 <SettingsInfoBlock type="UInt64" default_value="1000" />
 
-許可されるアドレス数の上限 (external storage、table function など) 。
+許可されるアドレス数の上限 (external storage、テーブル関数 など) 。
+
+`url` テーブル関数および `URL` テーブルエンジンは、パターンに該当するアドレスを 1 つずつ生成します。そのため、これらの場合にこの設定で制限されるのは、パターンの大きさではなく、1 つのクエリで生成できるアドレスの数です。`LIMIT` などによって途中で終了するクエリであれば、この値よりもはるかに多くのアドレスを表すパターンを使用できます。`_path` や `_file` に対する述語は生成されたすべてのアドレスに適用されるため、述語によって除外されたアドレスも数に含まれます。
 
 ## h3togeo_lon_lat_result_order {#h3togeo_lon_lat_result_order}
 

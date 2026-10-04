@@ -45,15 +45,17 @@ Parâmetros opcionais:
 * `poll_timeout_ms` - Timeout para um único poll do arquivo de log. Padrão: [stream&#95;poll&#95;timeout&#95;ms](/pt-BR/reference/settings/session-settings/stream#stream_poll_timeout_ms).
 * `poll_max_batch_size` — Quantidade máxima de registros a serem obtidos em um único poll. Padrão: [max&#95;block&#95;size](/pt-BR/reference/settings/session-settings/max#max_block_size).
 * `max_block_size` — Tamanho máximo do lote (em registros) para o poll. Padrão: [max&#95;insert&#95;block&#95;size](/pt-BR/reference/settings/session-settings/max-insert#max_insert_block_size).
-* `max_threads` - Número máximo de threads para analisar arquivos; o padrão é 0, o que significa que o número será max(1, physical&#95;cpu&#95;cores / 4).
+* `max_threads` - Número máximo de threads para interpretar arquivos; o padrão é 0, o que significa que o número será max(1, physical&#95;cpu&#95;cores / 4).
 * `poll_directory_watch_events_backoff_init` - Valor inicial de espera para a thread de monitoramento do diretório. Padrão: `500`.
 * `poll_directory_watch_events_backoff_max` - Valor máximo de espera para a thread de monitoramento do diretório. Padrão: `32000`.
 * `poll_directory_watch_events_backoff_factor` - Velocidade do backoff, exponencial por padrão. Padrão: `2`.
-* `handle_error_mode` — Como tratar erros no motor FileLog. Valores possíveis: default (uma exceção será lançada se não for possível analisar uma mensagem), stream (a mensagem da exceção e a mensagem bruta serão salvas nas colunas virtuais `_error` e `_raw_message`).
+* `handle_error_mode` — Como tratar erros no motor FileLog. Valores possíveis: default (um `SELECT` direto lança uma exceção se não for possível interpretar um registro; quando a tabela envia dados em stream para visões materializadas, esse registro é ignorado e o erro é gravado no log do servidor), stream (a mensagem da exceção e o registro bruto serão salvos nas colunas virtuais `_error` e `_raw_record`).
 
 ## Descrição {#description}
 
 Os registros recebidos são rastreados automaticamente, portanto cada registro em um arquivo de log é contabilizado apenas uma vez. Se, na próxima leitura, um arquivo estiver menor do que o deslocamento registrado para ele, como ocorre após o `logrotate` com `copytruncate`, ele será lido novamente desde o início. Um truncamento não é detectado se o arquivo voltar a crescer até pelo menos esse deslocamento antes da próxima leitura.
+
+Um arquivo que não pode ser aberto (um link simbólico cujo destino foi removido, um arquivo sem permissão de leitura para o servidor ou o arquivo de uma tabela de arquivo único que foi removido) é ignorado, com um erro registrado no log do servidor, e a abertura é tentada novamente, enquanto a tabela estiver carregada, até que seja bem-sucedida; um arquivo que estava ausente passa então a ser lido desde o início. Um link simbólico só é lido se o seu destino existir no momento em que a tabela o encontrar.
 
 `SELECT` não é particularmente útil para ler registros (exceto para depuração), porque cada registro só pode ser lido uma vez. É mais prático criar fluxos em tempo real usando [visões materializadas](/pt-BR/reference/statements/create/view). Para fazer isso:
 

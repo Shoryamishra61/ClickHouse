@@ -4190,6 +4190,10 @@ Distributed Cache server event. Время ожидания мьютекса б�
 
 Общее количество строк, пропущенных фильтром
 
+### ParquetTopKSkippedRowGroups {#parquettopkskippedrowgroups}
+
+Количество групп строк Parquet, пропущенных при чтении, поскольку их статистика min/max показала, что в них не может быть строк, входящих в результат `ORDER BY ... LIMIT` (см. `use_top_k_dynamic_filtering`)
+
 ### PartsLockHoldMicroseconds {#partslockholdmicroseconds}
 
 Общее время, в течение которого удерживалась блокировка частей данных в таблицах MergeTree
@@ -4897,6 +4901,10 @@ Distributed Cache server event. Время ожидания мьютекса б�
 ### RuntimeFilterGranulesDropped {#runtimefiltergranulesdropped}
 
 Количество гранул, отсечённых при чтении с помощью JOIN Runtime Filters
+
+### RuntimeFilterLookupsBeforeBuildFinished {#runtimefilterlookupsbeforebuildfinished}
+
+Количество блоков, проверенных по JOIN Runtime Filter до завершения построения его build-стороны; такие блоки пропускаются без фильтрации
 
 ### RuntimeFilterRowsChecked {#runtimefilterrowschecked}
 
@@ -5989,6 +5997,10 @@ Distributed Cache server event. Время ожидания мьютекса б�
 ### TextIndexLazySegmentsSkippedResolved {#textindexlazysegmentsskippedresolved}
 
 Количество сегментов, пропущенных из-за того, что выходная область уже была определена (все единицы для OR, все нули для побитового И) в режиме ленивого списка вхождений.
+
+### TextIndexPatternBypassCacheHits {#textindexpatternbypasscachehits}
+
+Количество случаев, когда сканирование по словарю текстового индекса для шаблона было пропущено, поскольку при предыдущем сканировании той же части был превышен порог для списка вхождений (posting list).
 
 ### TextIndexPhraseCandidates {#textindexphrasecandidates}
 
