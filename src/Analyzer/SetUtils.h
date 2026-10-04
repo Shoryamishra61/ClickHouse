@@ -13,6 +13,8 @@ class IDataType;
 using DataTypePtr = std::shared_ptr<const IDataType>;
 class Set;
 using SetPtr = std::shared_ptr<Set>;
+class Context;
+using ContextPtr = std::shared_ptr<const Context>;
 
 struct GetSetElementParams
 {
@@ -32,6 +34,12 @@ struct GetSetElementParams
   */
 /// `rhs_column` is a size-1 (const) column holding the constant right-hand side of `IN` (a scalar,
 /// Array or Tuple). Values are read column-natively - no `Field` is materialized.
-ColumnsWithTypeAndName getSetElementsForConstantValue(const DataTypePtr & expression_type, const ColumnPtr & rhs_column, const DataTypePtr & rhs_type, GetSetElementParams params);
+ColumnsWithTypeAndName getSetElementsForConstantValue(const DataTypePtr & expression_type, const ColumnPtr & rhs_column, const DataTypePtr & rhs_type, const GetSetElementParams & params);
+
+/// The same, with `GetSetElementParams` taken from the query settings of `context`.
+/// The callers sit in deeply recursive visitors (`CollectSetsVisitor`, `QueryAnalyzer::resolveFunction`,
+/// `ActionsMatcher`), so the large `GetSetElementParams` (it holds `FormatSettings`) is built here,
+/// out of their stack frames, rather than by each caller.
+ColumnsWithTypeAndName getSetElementsForConstantValue(const DataTypePtr & expression_type, const ColumnPtr & rhs_column, const DataTypePtr & rhs_type, const ContextPtr & context);
 
 }

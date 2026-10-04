@@ -61,7 +61,6 @@
 #include <Interpreters/IdentifierSemantic.h>
 #include <Interpreters/Set.h>
 #include <Interpreters/convertFieldToType.h>
-#include <Formats/FormatFactory.h>
 #include <Interpreters/convertColumnToType.h>
 #include <Core/ConstantValue.h>
 #include <Interpreters/evaluateConstantExpression.h>
@@ -82,7 +81,6 @@ namespace Setting
     extern const SettingsBool force_grouping_standard_compatibility;
     extern const SettingsUInt64 max_ast_elements;
     extern const SettingsBool transform_null_in;
-    extern const SettingsBool validate_enum_literals_in_operators;
     extern const SettingsBool use_variant_as_common_type;
 }
 
@@ -204,14 +202,8 @@ ColumnsWithTypeAndName createBlockForSet(
     const auto & right_arg_column = right_value.getColumn();
     const auto & right_arg_type = right_value.getType();
 
-    GetSetElementParams params{
-        .transform_null_in = context->getSettingsRef()[Setting::transform_null_in],
-        .forbid_unknown_enum_values = context->getSettingsRef()[Setting::validate_enum_literals_in_operators],
-        .format_settings = getFormatSettings(context),
-    };
-
     /// Reuse the analyzer logic
-    return getSetElementsForConstantValue(left_arg_type, right_arg_column, right_arg_type, params);
+    return getSetElementsForConstantValue(left_arg_type, right_arg_column, right_arg_type, context);
 }
 
 /** Create a block for set from literal.
@@ -223,16 +215,10 @@ ColumnsWithTypeAndName createBlockForSet(
     const boost::intrusive_ptr<ASTFunction> & right_arg,
     ContextPtr context)
 {
-    GetSetElementParams params{
-        .transform_null_in = context->getSettingsRef()[Setting::transform_null_in],
-        .forbid_unknown_enum_values = context->getSettingsRef()[Setting::validate_enum_literals_in_operators],
-        .format_settings = getFormatSettings(context),
-    };
-
     auto [right_arg_column, right_arg_type] = buildCollectionColumnAndTypeFromASTFunction(right_arg, context);
 
     /// Reuse the analyzer logic
-    return getSetElementsForConstantValue(left_arg_type, right_arg_column, right_arg_type, params);
+    return getSetElementsForConstantValue(left_arg_type, right_arg_column, right_arg_type, context);
 }
 
 bool hasIdentifiers(const ASTPtr & ast)

@@ -1,6 +1,7 @@
 #include <Analyzer/SetUtils.h>
 
 #include <Core/Block.h>
+#include <Core/Settings.h>
 
 #include <Columns/ColumnArray.h>
 #include <Columns/ColumnNullable.h>
@@ -11,6 +12,8 @@
 #include <DataTypes/DataTypeNullable.h>
 #include <DataTypes/DataTypeTuple.h>
 
+#include <Formats/FormatFactory.h>
+#include <Interpreters/Context.h>
 #include <Interpreters/Set.h>
 #include <Interpreters/castColumn.h>
 #include <Interpreters/convertColumnToType.h>
@@ -19,6 +22,12 @@
 
 namespace DB
 {
+
+namespace Setting
+{
+    extern const SettingsBool transform_null_in;
+    extern const SettingsBool validate_enum_literals_in_operators;
+}
 
 namespace ErrorCodes
 {
@@ -197,7 +206,7 @@ const ColumnTuple & getMemberTuple(const ColumnPtr & member_column, ColumnPtr & 
 /// - single-key: [1], [2], [3] (each member a scalar), or Tuple members for a `Nullable(Tuple)` LHS;
 /// - multi-key: each member a Tuple that is unpacked into `lhs_unpacked_types.size()` columns.
 ColumnsWithTypeAndName createBlockFromCollection(
-    const SetMembers & members, const DataTypes & lhs_unpacked_types, GetSetElementParams params)
+    const SetMembers & members, const DataTypes & lhs_unpacked_types, const GetSetElementParams & params)
 {
     size_t num_elements = lhs_unpacked_types.size();
 
@@ -512,7 +521,7 @@ ColumnsWithTypeAndName buildNativeKeysBatch(
 /// outer `Nullable`) and the RHS shape lines up.
 std::optional<ColumnsWithTypeAndName> tryBuildFromNativeArray(
     const ColumnPtr & rhs_column, const DataTypePtr & nested_type, const DataTypes & lhs_unpacked_types,
-    GetSetElementParams params)
+    const GetSetElementParams & params)
 {
     const size_t k = lhs_unpacked_types.size();
 
@@ -660,7 +669,7 @@ bool columnCollectionHasTuple(const ColumnPtr & rhs_column, const DataTypePtr & 
 /// If `transform_null_in` is false, then `SELECT NULL IN (NULL, 1)` returns NULL, otherwise it returns true.
 
 ColumnsWithTypeAndName getSetElementsForConstantValue(
-    const DataTypePtr & lhs_expression_type, const ColumnPtr & rhs_column, const DataTypePtr & rhs_type, GetSetElementParams params)
+    const DataTypePtr & lhs_expression_type, const ColumnPtr & rhs_column, const DataTypePtr & rhs_type, const GetSetElementParams & params)
 {
     DataTypes lhs_unpacked_types = {lhs_expression_type};
 
@@ -860,6 +869,18 @@ ColumnsWithTypeAndName getSetElementsForConstantValue(
         "Unsupported types for IN. First argument type {}. Second argument type {}",
         lhs_expression_type->getName(),
         rhs_type->getName());
+}
+
+NO_INLINE ColumnsWithTypeAndName getSetElementsForConstantValue(
+    const DataTypePtr & lhs_expression_type, const ColumnPtr & rhs_column, const DataTypePtr & rhs_type, const ContextPtr & context)
+{
+    const auto & settings = context->getSettingsRef();
+    GetSetElementParams params{
+        .transform_null_in = settings[Setting::transform_null_in],
+        .forbid_unknown_enum_values = settings[Setting::validate_enum_literals_in_operators],
+        .format_settings = getFormatSettings(context),
+    };
+    return getSetElementsForConstantValue(lhs_expression_type, rhs_column, rhs_type, params);
 }
 
 }
