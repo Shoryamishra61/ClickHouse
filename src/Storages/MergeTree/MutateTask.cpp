@@ -268,6 +268,7 @@ static void splitAndModifyMutationCommands(
     const MutationCommands & commands,
     MutationCommands & for_interpreter,
     MutationCommands & for_file_renames,
+    size_t & num_for_file_renames_from_commands,
     LoggerPtr log)
 {
     auto part_columns = part->getColumnsDescription();
@@ -442,6 +443,8 @@ static void splitAndModifyMutationCommands(
                 }
             }
         }
+
+        num_for_file_renames_from_commands = for_file_renames.size();
 
         /// We don't add renames from commands, instead we take them from rename_map.
         /// It's important because required renames depend not only on part's data version (i.e. mutation version)
@@ -702,6 +705,8 @@ static void splitAndModifyMutationCommands(
                 }
             }
         }
+
+        num_for_file_renames_from_commands = for_file_renames.size();
 
         /// We don't add renames from commands, instead we take them from rename_map.
         /// It's important because required renames depend not only on part's data version (i.e. mutation version)
@@ -1590,8 +1595,9 @@ static NameToNameVector collectFilesForRenames(
   * columns dropped both, each collector being then typed for the other column - while the metadata
   * they were built from had already accounted for every rename and drop. A `CLEAR STATISTICS`
   * (`DROP_STATISTICS`) applies to both kinds: the metadata still declares the statistics it clears,
-  * so a collector built from it has to be removed here. It names the columns by their current names,
-  * so on the source-part path it is applied once the renames have been resolved.
+  * so a collector built from it has to be removed here. On the source-part path the column it names
+  * is followed through the mutation's later renames to its current name, which is cleared once the
+  * renames have been resolved.
   */
 static void processStatisticsChanges(
     NameSet & files_to_skip,
@@ -1600,6 +1606,7 @@ static void processStatisticsChanges(
     bool statistics_are_from_source_part,
     const ColumnsStatistics & stats_to_recalc,
     const MutationCommands & commands_for_renames,
+    size_t num_commands_from_mutation,
     const IMergeTreeDataPart & source_part,
     const NamesAndTypesList & new_part_columns,
     StorageMetadataPtr metadata_snapshot)
@@ -1640,22 +1647,57 @@ static void processStatisticsChanges(
             renamed_statistics.emplace(to_name, std::move(statistics));
     };
 
-    for (const auto & command : commands_for_renames)
+    /** The name a `CLEAR STATISTICS` gives a column is the one the column had when that command ran,
+      * which the mutation's own later `RENAME COLUMN` / `DROP COLUMN` commands can still change or
+      * free for another column (`DROP COLUMN a, RENAME COLUMN b TO a`). Follows `name` through them
+      * and returns the name the column has after them, or nothing if one of them drops it. The first
+      * `num_commands_from_mutation` commands are the mutation's own, in the order they ran; the rest
+      * are the renames from `alter_conversions`' rename map, which translate the names the columns had
+      * in the part and say nothing about when a name was given.
+      */
+    auto resolve_name_after_mutation = [&](size_t command_index, String name) -> std::optional<String>
     {
+        for (size_t i = command_index + 1; i < num_commands_from_mutation; ++i)
+        {
+            const auto & command = commands_for_renames[i];
+            if (command.type == MutationCommand::Type::DROP_COLUMN && !command.clear && command.column_name == name)
+                return {};
+            if (command.type == MutationCommand::Type::RENAME_COLUMN && command.column_name == name)
+                name = command.rename_to;
+        }
+        return name;
+    };
+
+    for (size_t command_index = 0; command_index < commands_for_renames.size(); ++command_index)
+    {
+        const auto & command = commands_for_renames[command_index];
+
         if (command.type == MutationCommand::Type::DROP_STATISTICS)
         {
             auto removed_stats = MutationHelpers::getRemovedStatistics(metadata_snapshot, command);
 
+            /// `CLEAR STATISTICS ALL` is expanded to the names the columns have now.
+            const bool names_are_current = command.clear && command.statistics_columns.empty();
+
             for (const auto & stats_name : removed_stats)
             {
-                /// A name the table has now is a current name, and on the source-part path the entry it
-                /// clears may still be keyed by the name the column had in the part: the renames that
-                /// bring the part up to date (`alter_conversions`' rename map) come after the user's
-                /// commands. Such a name is cleared once every rename has been resolved. A name the
-                /// table no longer has can only be a name the column had before a later rename, so it
-                /// is cleared in place, before that rename moves the entry.
-                if (statistics_are_from_source_part && metadata_snapshot->getColumns().has(stats_name))
-                    statistics_to_clear.insert(stats_name);
+                if (!statistics_are_from_source_part)
+                {
+                    process_rename(stats_name, "");
+                    continue;
+                }
+
+                /// On the source-part path the entry being cleared may still be keyed by the name the
+                /// column had in the part: the renames that bring the part up to date come after the
+                /// mutation's own commands. So a column that still exists is cleared by its current name
+                /// once every rename has been resolved. One that a later command drops is cleared in
+                /// place, before another column can take its name.
+                std::optional<String> current_name = names_are_current
+                    ? std::optional<String>(stats_name)
+                    : resolve_name_after_mutation(command_index, stats_name);
+
+                if (current_name && metadata_snapshot->getColumns().has(*current_name))
+                    statistics_to_clear.insert(*current_name);
                 else
                     process_rename(stats_name, "");
             }
@@ -1989,6 +2031,9 @@ struct MutationContext
     MutationCommands commands_for_part;
     MutationCommands for_interpreter;
     MutationCommands for_file_renames;
+    /// The leading entries of `for_file_renames` that come from the mutation's own commands, in their
+    /// order; the renames from `alter_conversions`' rename map follow them.
+    size_t num_for_file_renames_from_commands = 0;
 
     NamesAndTypesList storage_columns;
     NameSet materialized_indices;
@@ -2972,6 +3017,7 @@ private:
             /*statistics_are_from_source_part=*/ false,
             ctx->stats_to_recalc,
             ctx->for_file_renames,
+            ctx->num_for_file_renames_from_commands,
             *ctx->source_part,
             new_part_columns,
             ctx->metadata_snapshot);
@@ -3097,6 +3143,7 @@ private:
             /*statistics_are_from_source_part=*/ true,
             ctx->stats_to_recalc,
             ctx->for_file_renames,
+            ctx->num_for_file_renames_from_commands,
             *ctx->source_part,
             ctx->new_data_part->getColumns(),
             ctx->metadata_snapshot);
@@ -4233,6 +4280,7 @@ bool MutateTask::prepare()
         ctx->commands_for_part,
         ctx->for_interpreter,
         ctx->for_file_renames,
+        ctx->num_for_file_renames_from_commands,
         ctx->log);
 
     ctx->stage_progress = std::make_unique<MergeStageProgress>(1.0);
