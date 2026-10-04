@@ -477,8 +477,10 @@ QueryPlanPtr CascadesOptimizer::buildBestPlan(GroupId subtree_root_group_id, Exp
 
         result->getRootNode()->cost_estimation = CostEstimationInfo
             {
+                .rows = memo.getGroup(frame.group_id)->statistics->estimated_row_count,
                 .cost = frame.expression->cost->subtree_cost.total(cost_config),
-                .rows = memo.getGroup(frame.group_id)->statistics->estimated_row_count
+                .source = RowEstimateSource::NoSource,
+                .imprecise = false,
             };
         LOG_TEST(getLogger("buildBestPlan"), "Plan for group #{}:\n{}", frame.group_id, dumpQueryPlanShort(*result));
 

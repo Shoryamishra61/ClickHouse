@@ -2372,7 +2372,15 @@ void JoinStepLogical::buildPhysicalJoin(
         std::move(logical_join_info)
     );
 
-    new_node.cost_estimation = node.cost_estimation;
+    /// The estimate of the logical join holds for the physical join step and for the expressions
+    /// stacked on top of it, which keep the row count. A filter between them would change it.
+    for (QueryPlanNode * physical = &new_node;;)
+    {
+        physical->cost_estimation = node.cost_estimation;
+        if (physical->children.size() != 1 || !typeid_cast<const ExpressionStep *>(physical->step.get()))
+            break;
+        physical = physical->children.front();
+    }
 
     node = std::move(new_node);
 }

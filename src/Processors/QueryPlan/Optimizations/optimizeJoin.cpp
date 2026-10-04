@@ -1074,6 +1074,13 @@ static QueryPlan::Node chooseJoinOrder(QueryGraphBuilder query_graph_builder, Qu
             size_t relation_id = safe_cast<size_t>(entry->relation_id);
             if (relation_id >= input_nodes.size())
                 throw Exception(ErrorCodes::LOGICAL_ERROR, "Invalid relation id: {}, input nodes size: {}", relation_id, input_nodes.size());
+            /// `relation_infos` keeps the leaf estimates; the query graph itself was handed to the optimizer above.
+            const auto & leaf_info = relation_infos.at(BitSet().set(relation_id));
+            input_nodes[relation_id]->cost_estimation = CostEstimationInfo{
+                .rows = leaf_info.estimated_rows ? std::optional<Float64>(Float64(*leaf_info.estimated_rows)) : std::nullopt,
+                .cost = std::nullopt,
+                .source = leaf_info.source,
+                .imprecise = leaf_info.imprecise_estimate};
             node_stack.push(input_nodes[relation_id]);
         }
         else
@@ -1318,6 +1325,11 @@ static QueryPlan::Node chooseJoinOrder(QueryGraphBuilder query_graph_builder, Qu
 
             new_node.step = std::move(join_step);
             new_node.children = {left_child_node, right_child_node};
+            new_node.cost_estimation = CostEstimationInfo{
+                .rows = entry->estimated_rows ? std::optional<Float64>(Float64(*entry->estimated_rows)) : std::nullopt,
+                .cost = entry->cost,
+                .source = RowEstimateSource::NoSource,
+                .imprecise = imprecise_estimate};
             node_stack.push(&new_node);
         }
     }

@@ -583,7 +583,10 @@ void tryMakeDistributedJoin(QueryPlan::Node & node, QueryPlan::Nodes & nodes, co
     QueryPlan::Node * source_a = node.children[0];
     QueryPlan::Node * source_b = node.children[1];
 
-    auto row_count_b = estimateReadRowsCount(*source_b).estimated_rows;
+    auto stats_b = estimateReadRowsCount(*source_b);
+    auto row_count_b = stats_b.estimated_rows;
+    if (!source_b->cost_estimation)
+        source_b->cost_estimation = toCostEstimationInfo(stats_b);
 
     enum DistributedJoinStrategy
     {
@@ -765,6 +768,8 @@ void tryMakeDistributedAggregation(QueryPlan::Node & node, QueryPlan::Nodes & no
     if (!aggregation_keys.empty())
     {
         auto input_stats = estimateReadRowsCount(*source);
+        if (!source->cost_estimation)
+            source->cost_estimation = toCostEstimationInfo(input_stats);
 
         /// Use max NDV among GROUP BY keys as a lower-bound estimate for groups.
         std::optional<UInt64> estimated_groups;
@@ -778,6 +783,14 @@ void tryMakeDistributedAggregation(QueryPlan::Node & node, QueryPlan::Nodes & no
         /// Fall back to input row count as an upper bound when NDV is unavailable.
         if (!estimated_groups && input_stats.estimated_rows)
             estimated_groups = input_stats.estimated_rows;
+
+        /// The group count this decision is based on is the aggregation's own row estimate.
+        if (!node.cost_estimation)
+            node.cost_estimation = CostEstimationInfo{
+                .rows = estimated_groups ? std::optional<Float64>(Float64(*estimated_groups)) : std::nullopt,
+                .cost = std::nullopt,
+                .source = input_stats.source,
+                .imprecise = input_stats.imprecise_estimate};
 
         if (estimated_groups && *estimated_groups > optimization_settings.distributed_plan_max_rows_to_broadcast)
             strategy = Shuffle;

@@ -8,7 +8,8 @@
 namespace DB
 {
 
-/// Where the row count estimate used by join reordering came from.
+/// Where the row count estimate used by join reordering came from. `CostEstimationInfo.h` declares
+/// the enum opaque and relies on zero being `NoSource`, so `NoSource` stays first.
 enum class RowEstimateSource : UInt8
 {
     /// The origin of the estimate was not tracked (e.g. it was produced by an already-optimized sub-plan).
@@ -51,6 +52,29 @@ constexpr std::string_view rowEstimateSourceTag(RowEstimateSource source)
         case RowEstimateSource::NoSource:
         case RowEstimateSource::Statistics:
             return "";
+    }
+    return "";
+}
+
+/// Name of the estimate origin for `system.processors_profile_log`; empty for `NoSource`.
+constexpr std::string_view rowEstimateSourceName(RowEstimateSource source)
+{
+    switch (source)
+    {
+        case RowEstimateSource::NoSource:
+            return "";
+        case RowEstimateSource::Statistics:
+            return "statistics";
+        case RowEstimateSource::PrimaryIndex:
+            return "primary_index";
+        case RowEstimateSource::NoStatistics:
+            return "no_statistics";
+        case RowEstimateSource::Hint:
+            return "hint";
+        case RowEstimateSource::Randomized:
+            return "randomized";
+        case RowEstimateSource::HashTableCache:
+            return "hash_table_cache";
     }
     return "";
 }

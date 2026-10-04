@@ -8,6 +8,7 @@
 #include <Columns/IColumn_fwd.h>
 #include <QueryPipeline/QueryPlanResourceHolder.h>
 #include <Processors/QueryPlan/ExchangeLookup.h>
+#include <Processors/QueryPlan/CostEstimationInfo.h>
 #include <Parsers/IAST_fwd.h>
 
 #include <functional>
@@ -97,12 +98,6 @@ struct ExplainPlanOptions
     SettingsChanges toSettingsChanges() const;
 };
 struct DistributedQueryPlan;
-
-struct CostEstimationInfo
-{
-    Float64 cost = 0.0;
-    Float64 rows = 0.0;
-};
 
 /// A tree of query steps.
 /// The goal of QueryPlan is to build QueryPipeline.

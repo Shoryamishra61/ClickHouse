@@ -29,6 +29,7 @@
 #include <Processors/QueryPlan/Optimizations/Optimizations.h>
 #include <Processors/QueryPlan/Optimizations/Utils.h>
 #include <Processors/QueryPlan/QueryPlan.h>
+#include <Processors/QueryPlan/RelationEstimateInfo.h>
 #include <Interpreters/DistributedPlanLocalObject.h>
 #include <Processors/QueryPlan/QueryPlanFormat.h>
 #include <Processors/QueryPlan/QueryPlanVisitor.h>
@@ -279,6 +280,8 @@ QueryPipelineBuilderPtr QueryPlan::buildQueryPipeline(
         if (next_child == frame.node->children.size())
         {
             bool limit_max_threads = frame.pipelines.empty();
+            /// The processors created below copy the step's estimate for `system.processors_profile_log`.
+            frame.node->step->setEstimation(frame.node->cost_estimation);
             last_pipeline = frame.node->step->updatePipeline(std::move(frame.pipelines), build_pipeline_settings);
 
             if (limit_max_threads && max_threads)
@@ -448,7 +451,18 @@ static void explainStep(
     if (options.estimates)
     {
         if (cost_estimation.has_value())
-            settings.out << fmt::format(" (rows: ~{:.1f}, cost: {:.1f})", cost_estimation->rows, cost_estimation->cost);
+        {
+            settings.out << " (rows: ";
+            if (cost_estimation->rows)
+                settings.out << fmt::format("~{:.1f}", *cost_estimation->rows);
+            else
+                settings.out << "<unknown>";
+            if (cost_estimation->cost)
+                settings.out << fmt::format(", cost: {:.1f}", *cost_estimation->cost);
+            if (auto source_name = rowEstimateSourceName(cost_estimation->source); !source_name.empty())
+                settings.out << ", source: " << source_name;
+            settings.out << ')';
+        }
         else
             settings.out << " (rows: <unknown>, cost: <unknown>)";
     }

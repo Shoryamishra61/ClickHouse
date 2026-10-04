@@ -4,6 +4,7 @@
 #include <unordered_map>
 
 #include <Core/Joins.h>
+#include <Processors/QueryPlan/CostEstimationInfo.h>
 #include <Processors/QueryPlan/RelationEstimateInfo.h>
 #include <Storages/Statistics/ConditionSelectivityEstimator.h>
 #include <base/types.h>
@@ -26,6 +27,17 @@ struct RelationStats
     /// `NoSource` means the producer of the estimate did not track it; set it wherever it is known.
     RowEstimateSource source = RowEstimateSource::NoSource;
 };
+
+/// The plan node annotation of a relation estimate, for `EXPLAIN estimates = 1` and the
+/// processors profile log. A missing row count stays missing.
+inline CostEstimationInfo toCostEstimationInfo(const RelationStats & stats)
+{
+    return CostEstimationInfo{
+        .rows = stats.estimated_rows ? std::optional<Float64>(Float64(*stats.estimated_rows)) : std::nullopt,
+        .cost = std::nullopt,
+        .source = stats.source,
+        .imprecise = stats.imprecise_estimate};
+}
 
 namespace QueryPlanOptimizations
 {

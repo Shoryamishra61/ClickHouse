@@ -1,0 +1,59 @@
+-- Every processor records the row estimate of the plan step that created it, so
+-- `system.processors_profile_log` can compare the estimate with the rows the step produced.
+-- A step's output is the sum of `output_rows` over its processors whose consumers belong to
+-- other steps; `parent_ids` lists the consumers of a processor.
+SET enable_analyzer = 1;
+SET enable_parallel_replicas = 0;
+SET query_plan_optimize_join_order_limit = 10;
+SET query_plan_optimize_join_order_randomize = 0;
+SET query_plan_join_swap_table = 0;
+SET use_statistics = 0;
+SET param__internal_join_table_stat_hints = '{"t_est_a": {"cardinality": 1000, "distinct_keys": {"k": 1000}}, "t_est_b": {"cardinality": 100, "distinct_keys": {"k": 100}}}';
+SET log_processors_profiles = 1;
+
+DROP TABLE IF EXISTS t_est_a;
+DROP TABLE IF EXISTS t_est_b;
+
+CREATE TABLE t_est_a (k UInt64, v UInt64) ENGINE = MergeTree ORDER BY k SETTINGS auto_statistics_types = '';
+CREATE TABLE t_est_b (k UInt64, w UInt64) ENGINE = MergeTree ORDER BY k SETTINGS auto_statistics_types = '';
+INSERT INTO t_est_a SELECT number, number FROM numbers(1000);
+INSERT INTO t_est_b SELECT number * 10, number FROM numbers(100);
+
+SELECT count()
+FROM t_est_a AS a
+JOIN t_est_b AS b ON a.k = b.k
+SETTINGS log_comment = '05326_step_estimates';
+
+SYSTEM FLUSH LOGS query_log, processors_profile_log;
+
+WITH
+    log AS
+    (
+        SELECT id, parent_ids, step_uniq_id, plan_step_name, plan_step_estimated_rows, plan_step_estimate_source, output_rows
+        FROM system.processors_profile_log
+        WHERE event_date >= yesterday()
+          AND query_id IN
+          (
+              SELECT query_id FROM system.query_log
+              WHERE event_date >= yesterday() AND current_database = currentDatabase()
+                AND log_comment = '05326_step_estimates' AND type = 'QueryFinish'
+          )
+    ),
+    internal AS
+    (
+        -- processors with at least one consumer inside the same step do not form the step's output
+        SELECT l.id AS id
+        FROM log AS l
+        ARRAY JOIN l.parent_ids AS consumer_id
+        INNER JOIN log AS c ON c.id = consumer_id
+        WHERE c.step_uniq_id = l.step_uniq_id
+        GROUP BY l.id
+    )
+SELECT plan_step_name, plan_step_estimated_rows, plan_step_estimate_source, sum(output_rows) AS actual_rows
+FROM log
+WHERE plan_step_estimated_rows IS NOT NULL AND id NOT IN (SELECT id FROM internal)
+GROUP BY plan_step_name, plan_step_estimated_rows, plan_step_estimate_source
+ORDER BY plan_step_estimated_rows, plan_step_name, plan_step_estimate_source;
+
+DROP TABLE t_est_a;
+DROP TABLE t_est_b;
