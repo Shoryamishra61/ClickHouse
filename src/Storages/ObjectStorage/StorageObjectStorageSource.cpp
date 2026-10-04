@@ -397,13 +397,17 @@ std::string StorageObjectStorageSource::getUniqueStoragePathIdentifier(
 /// avoids disabling the cache for data lakes whose object metadata does not carry an ETag).
 /// The path is relative to the storage, which the table UUID identifies. Without a table UUID the
 /// entries of all such tables share one namespace (see `QueryConditionCache::getTableIdForFileEntries`),
-/// so the path is qualified by the storage it is in (endpoint, bucket, container, ...) instead.
+/// so the path is qualified by the storage it is in (endpoint, bucket, container, ...) instead. The
+/// connection info can carry secrets (a signed URL, userinfo in an HDFS URI), and the `part_name` is
+/// visible in `system.query_condition_cache` and in the logs, so only a hash of the qualified path
+/// goes into the key. The hash has a fixed length at the end, so the key stays unambiguous.
 std::optional<String> StorageObjectStorageSource::makeQueryConditionCacheKey(
     const StorageObjectStorageConfiguration & configuration, const ObjectInfo & object_info, const UUID & table_uuid)
 {
-    String identifier = table_uuid != UUIDHelpers::Nil
-        ? object_info.getIdentifier(/*include_file_bucket_info=*/false)
-        : getUniqueStoragePathIdentifier(configuration, object_info, /*include_connection_info=*/true);
+    String identifier = object_info.getIdentifier(/*include_file_bucket_info=*/false);
+    if (table_uuid == UUIDHelpers::Nil)
+        identifier += "#storage="
+            + sipHash128String(getUniqueStoragePathIdentifier(configuration, object_info, /*include_connection_info=*/true));
     return makeQueryConditionCacheKey(identifier, object_info, configuration.isDataLakeConfiguration());
 }
 
