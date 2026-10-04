@@ -127,6 +127,7 @@
 #include <Storages/MergeTree/MergeTreeData.h>
 #include <Storages/MergeTree/MergeTreeVirtualColumns.h>
 #include <Storages/MergeTree/MergeTreeSettings.h>
+#include <Storages/StorageProxy.h>
 #include <Interpreters/IInterpreter.h>
 #include <Interpreters/MaterializedColumnDependencies.h>
 #include <Interpreters/MutationsInterpreter.h>
@@ -1960,7 +1961,7 @@ bool mutationPartitionClauseCanBeRejected(
 
     /// The resolution also accepts `StorageFromMergeTreeDataPart`, an internal wrapper that a statement's
     /// target never resolves to.
-    const auto * merge_tree_data = dynamic_cast<const MergeTreeData *>(table.get());
+    const auto merge_tree_data = castStorage<const MergeTreeData>(table, DeferredTable::Load);
     if (!merge_tree_data)
         return true;
 
@@ -2069,7 +2070,7 @@ bool deleteQueryStopsBeforeSources(const ASTDeleteQuery & delete_query, const Co
             return true;
 
         if (const auto metadata_snapshot = table->getInMemoryMetadataPtr(context, false); metadata_snapshot->hasProjections())
-            if (const auto * merge_tree_data = dynamic_cast<const MergeTreeData *>(table.get());
+            if (const auto merge_tree_data = castStorage<const MergeTreeData>(table, DeferredTable::Load);
                 merge_tree_data
                 && (*merge_tree_data->getSettings())[MergeTreeSetting::lightweight_mutation_projection_mode]
                     == LightweightMutationProjectionMode::THROW)
@@ -2146,7 +2147,7 @@ bool updateColumnsCanBeRejected(const StoragePtr & table, const NameSet & update
 
         /// `getKeyColumns`: only a `MergeTree`-family target has key columns to protect.
         NameSet key_columns;
-        if (const auto * merge_tree_data = dynamic_cast<const MergeTreeData *>(table.get()))
+        if (const auto merge_tree_data = castStorage<const MergeTreeData>(table, DeferredTable::Load))
         {
             for (const auto & column : metadata_snapshot->getColumnsRequiredForPartitionKey())
                 key_columns.insert(column);
@@ -3226,7 +3227,7 @@ static void reattachTablesUsedInQuery(const ASTPtr & query, ContextMutablePtr co
         /// parts that fail the next server startup. Until that is hardened, skip tables having any
         /// active part involved in a transaction. Like the action-lock check above, this is a
         /// best-effort, point-in-time check.
-        if (const auto * merge_tree = dynamic_cast<const MergeTreeData *>(table.get()))
+        if (const auto merge_tree = castStorage<const MergeTreeData>(table, DeferredTable::Load))
         {
             bool has_transactional_parts = false;
             for (const auto & part : merge_tree->getDataPartsVectorForInternalUsage())
