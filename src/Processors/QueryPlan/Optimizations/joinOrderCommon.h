@@ -77,10 +77,10 @@ inline double computeSelectivity(
 }
 
 /// Rows a join cannot exceed, from the bounds of its inputs: an inner or cross join at most the
-/// product, an outer join at most the product plus the preserved rows that may stay unmatched,
-/// a semi or anti join at most its preserved input. Unknown when a needed input bound is unknown.
-/// The product saturates at the maximum `UInt64` instead of wrapping; a saturated bound is still
-/// a bound.
+/// product; an outer join at most one row per preserved row times the matches it can have, at
+/// least one, plus every row of the other side for a full join; a semi or anti join at most its
+/// preserved input. Unknown when a needed input bound is unknown. The arithmetic saturates at the
+/// maximum `UInt64` instead of wrapping; a saturated bound is still a bound.
 inline std::optional<UInt64> estimateJoinRowsUpperBound(
     std::optional<UInt64> left_max, std::optional<UInt64> right_max, JoinKind join_kind, JoinStrictness strictness)
 {
@@ -94,12 +94,17 @@ inline std::optional<UInt64> estimateJoinRowsUpperBound(
     if (!left_max || !right_max)
         return {};
 
-    UInt64 bound = saturating_mul(*left_max, *right_max);
-    if (join_kind == JoinKind::Left || join_kind == JoinKind::Full)
-        bound = saturating_add(bound, *left_max);
-    if (join_kind == JoinKind::Right || join_kind == JoinKind::Full)
-        bound = saturating_add(bound, *right_max);
-    return bound;
+    switch (join_kind)
+    {
+        case JoinKind::Left:
+            return saturating_mul(*left_max, std::max<UInt64>(1, *right_max));
+        case JoinKind::Right:
+            return saturating_mul(*right_max, std::max<UInt64>(1, *left_max));
+        case JoinKind::Full:
+            return saturating_add(saturating_mul(*left_max, std::max<UInt64>(1, *right_max)), *right_max);
+        default:
+            return saturating_mul(*left_max, *right_max);
+    }
 }
 
 /// Rows the cost of an entry counts: the estimate when there is one, otherwise the upper bound,

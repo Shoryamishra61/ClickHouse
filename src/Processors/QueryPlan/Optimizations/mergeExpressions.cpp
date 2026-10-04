@@ -75,6 +75,10 @@ size_t tryMergeExpressions(QueryPlan::Node * parent_node, QueryPlan::Nodes &, co
         if (prevent_input_removal)
             expr->setPreventInputRemoval();
 
+        /// An expression keeps the row count of its input, so an estimate recorded on the child is
+        /// also the estimate of the merged step.
+        if (!parent_node->cost_estimation)
+            parent_node->cost_estimation = child_node->cost_estimation;
         parent_node->step = std::move(expr);
         parent_node->children.swap(child_node->children);
         return 1;

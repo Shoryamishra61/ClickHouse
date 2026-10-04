@@ -10,6 +10,7 @@
 #include <Interpreters/Context.h>
 #include <Processors/QueryPlan/AggregatingStep.h>
 #include <Processors/QueryPlan/CommonSubplanReferenceStep.h>
+#include <Processors/QueryPlan/DistinctStep.h>
 #include <Processors/QueryPlan/ExpressionStep.h>
 #include <Processors/QueryPlan/FilterStep.h>
 #include <Processors/QueryPlan/ITransformingStep.h>
@@ -21,6 +22,7 @@
 #include <Processors/QueryPlan/ReadFromMergeTree.h>
 #include <Processors/QueryPlan/ReadFromObjectStorageStep.h>
 #include <Processors/QueryPlan/SortingStep.h>
+#include <Processors/QueryPlan/UnionStep.h>
 #include <Common/logger_useful.h>
 #include <Common/typeid_cast.h>
 
@@ -54,51 +56,53 @@ String dumpStatsForLogs(const RelationStats & stats)
             ", "));
 }
 
-RelationStats estimateAggregatingStepStats(const AggregatingStep & aggregating_step, const RelationStats & input_stats)
+/// Rows of an aggregation or a `DISTINCT` over `keys`, by the shared group count formula; the output
+/// columns are the keys with their NDVs, zero for a key without one.
+RelationStats estimateGroupStats(const Names & keys, const RelationStats & input_stats)
 {
-    const auto & aggregator_params = aggregating_step.getAggregatorParameters();
-    std::optional<Float64> total_number_of_distinct_values = 1;
     RelationStats aggregation_stats;
     /// Carry imprecision and source from the input, or the annotation is lost for aggregation subqueries.
     aggregation_stats.imprecise_estimate = input_stats.imprecise_estimate;
     aggregation_stats.source = input_stats.source;
-    for (const auto & key : aggregator_params.keys)
+    std::vector<UInt64> key_distinct_values;
+    for (const auto & key : keys)
     {
         auto key_stats = input_stats.column_stats.find(key);
-        if (key_stats == input_stats.column_stats.end())
+        UInt64 distinct_values = key_stats == input_stats.column_stats.end() ? 0 : key_stats->second.num_distinct_values;
+        if (distinct_values && input_stats.estimated_rows)
+            distinct_values = std::min(distinct_values, *input_stats.estimated_rows);
+        if (distinct_values == 0)
         {
-            /// Cannot calculate total number of groups if we don't know NDV of any of the aggregation columns.
-            /// The estimate then falls back to the input row count (an over-count of groups), so it is no longer
-            /// precise. Flag it and surface a missing-statistics source so the EXPLAIN label and the
-            /// join-reordering diagnostic reflect that the fallback was caused by missing column statistics.
-            total_number_of_distinct_values.reset();
+            /// A key without an NDV leaves the group count to the other keys, or unknown, and marks
+            /// the estimate as missing statistics.
             aggregation_stats.imprecise_estimate = true;
             if (aggregation_stats.source == RowEstimateSource::Statistics || aggregation_stats.source == RowEstimateSource::NoSource)
                 aggregation_stats.source = RowEstimateSource::NoStatistics;
-            continue;
         }
-
-        UInt64 key_number_of_distinct_values = key_stats->second.num_distinct_values;
-
-        if (input_stats.estimated_rows)
-            key_number_of_distinct_values = std::min(key_number_of_distinct_values, *input_stats.estimated_rows);
-
-        aggregation_stats.column_stats[key].num_distinct_values = key_number_of_distinct_values;
-
-        /// For now assume that aggregation columns are independent, so multiply their NDVs
-        if (total_number_of_distinct_values)
-            *total_number_of_distinct_values *= static_cast<Float64>(key_number_of_distinct_values);
+        aggregation_stats.column_stats[key].num_distinct_values = distinct_values;
+        key_distinct_values.push_back(distinct_values);
     }
 
-    if (total_number_of_distinct_values && input_stats.estimated_rows)
-        total_number_of_distinct_values = std::min(*total_number_of_distinct_values, Float64(*input_stats.estimated_rows));
-    else
-        total_number_of_distinct_values = input_stats.estimated_rows;
-
-    aggregation_stats.estimated_rows = total_number_of_distinct_values;
-    aggregation_stats.max_rows = aggregator_params.keys.empty() ? std::optional<UInt64>(1) : input_stats.max_rows;
-
+    auto groups = estimateGroupCount(key_distinct_values, input_stats.estimated_rows, input_stats.max_rows);
+    aggregation_stats.estimated_rows = groups.estimated_rows;
+    aggregation_stats.max_rows = groups.max_rows;
     return aggregation_stats;
+}
+
+RelationStats estimateAggregatingStepStats(const AggregatingStep & aggregating_step, const RelationStats & input_stats)
+{
+    return estimateGroupStats(aggregating_step.getAggregatorParameters().keys, input_stats);
+}
+
+/// Sum of two row counts, unknown when either is; saturates instead of wrapping.
+std::optional<UInt64> addRows(std::optional<UInt64> left, std::optional<UInt64> right)
+{
+    if (!left || !right)
+        return {};
+    UInt64 sum = 0;
+    if (__builtin_add_overflow(*left, *right, &sum))
+        return std::numeric_limits<UInt64>::max();
+    return sum;
 }
 
 /// Rows dropped by a limit are not a value-uniform sample (e.g. a TopN keeps one end of the
@@ -146,7 +150,7 @@ RelationStats estimateReadRowsCount(QueryPlan::Node & node, const ActionsDAG::No
         /// analysis results can be placeholders for deferred work, so only propagate zero
         /// when `has_exact_ranges` is set.
         if (analyzed_result && analyzed_result->has_exact_ranges && analyzed_result->selected_rows == 0)
-            return RelationStats{.estimated_rows = 0, .table_name = table_display_name};
+            return RelationStats{.estimated_rows = 0, .max_rows = 0, .table_name = table_display_name};
 
         /// `STREAM` defers range analysis until execution. Its placeholder result has zero
         /// selected rows but does not mean that the relation is empty.
@@ -170,8 +174,10 @@ RelationStats estimateReadRowsCount(QueryPlan::Node & node, const ActionsDAG::No
                           prewhere_info->prewhere_actions.tryFindInOutputs(prewhere_info->prewhere_column_name))
                     : nullptr;
                 auto relation_profile = estimator->estimateRelationProfile(reading->getStorageMetadata(), filter, prewhere_node);
+                /// A selectivity estimate that rounds to zero rows does not prove the relation empty;
+                /// one row keeps the joins above from taking it as empty.
                 RelationStats stats{
-                    .estimated_rows = relation_profile.rows,
+                    .estimated_rows = std::max<UInt64>(relation_profile.rows, 1),
                     .max_rows = analyzed_result ? std::optional<UInt64>(analyzed_result->selected_rows) : std::nullopt,
                     .column_stats = relation_profile.column_stats,
                     .table_name = table_display_name,
@@ -257,8 +263,47 @@ RelationStats estimateReadRowsCount(QueryPlan::Node & node, const ActionsDAG::No
         return estimateReadRowsCount(*reading->getSubplanReferenceRoot(), filter);
     }
 
+    if (const auto * join_step = typeid_cast<const JoinStepLogical *>(step); join_step && join_step->isOptimized())
+    {
+        /// The origin of a sub-join's estimate is not tracked (`NoSource`), so the parent graph does not
+        /// re-report its tables as missing statistics; `imprecise_estimate` still records reliability.
+        return RelationStats{
+            .estimated_rows = join_step->getResultRowsEstimation(),
+            .max_rows = join_step->getResultRowsUpperBound(),
+            .column_stats = join_step->getResultColumnStats(),
+            .table_name = join_step->getReadableRelationName(),
+            .imprecise_estimate = join_step->hasImpreciseEstimate()};
+    }
+
+    if (typeid_cast<const UnionStep *>(step))
+    {
+        /// `UNION ALL`: the rows and the bounds of the inputs add up, each unknown when an input's
+        /// is. Column statistics are not combined, so a column of the union has no NDV.
+        RelationStats stats;
+        stats.estimated_rows = 0;
+        stats.max_rows = 0;
+        for (auto * child : node.children)
+        {
+            auto child_stats = estimateReadRowsCount(*child, filter);
+            stats.estimated_rows = addRows(stats.estimated_rows, child_stats.estimated_rows);
+            stats.max_rows = addRows(stats.max_rows, child_stats.max_rows);
+            stats.imprecise_estimate |= child_stats.imprecise_estimate;
+        }
+        return stats;
+    }
+
     if (node.children.size() != 1)
         return {};
+
+    if (const auto * distinct_step = typeid_cast<const DistinctStep *>(step))
+    {
+        /// A preliminary `DISTINCT` only reduces the rows the final one sees; the estimate is the
+        /// final one's.
+        auto stats = estimateReadRowsCount(*node.children.front(), filter);
+        if (distinct_step->isPreliminary())
+            return stats;
+        return estimateGroupStats(distinct_step->getColumnNames(), stats);
+    }
 
     if (const auto * limit_step = typeid_cast<const LimitStep *>(step))
     {
@@ -294,18 +339,6 @@ RelationStats estimateReadRowsCount(QueryPlan::Node & node, const ActionsDAG::No
         auto stats = estimateReadRowsCount(*node.children.front(), filter);
         auto aggregation_stats = estimateAggregatingStepStats(*aggregating_step, stats);
         return aggregation_stats;
-    }
-
-    if (const auto * join_step = typeid_cast<const JoinStepLogical *>(step); join_step && join_step->isOptimized())
-    {
-        /// The origin of a sub-join's estimate is not tracked (`NoSource`), so the parent graph does not
-        /// re-report its tables as missing statistics; `imprecise_estimate` still records reliability.
-        return RelationStats{
-            .estimated_rows = join_step->getResultRowsEstimation(),
-            .max_rows = join_step->getResultRowsUpperBound(),
-            .column_stats = join_step->getResultColumnStats(),
-            .table_name = join_step->getReadableRelationName(),
-            .imprecise_estimate = join_step->hasImpreciseEstimate()};
     }
 
     if (const auto * sorting_step = typeid_cast<const SortingStep *>(step))

@@ -542,9 +542,11 @@ static size_t addChildQueryGraph(QueryGraphBuilder & graph, QueryPlan::Node * no
     if (graph.context->join_settings.use_hash_table_stats_for_join_reordering && num_rows_from_cache
         && (!stats.estimated_rows || num_rows_from_cache.value() < stats.estimated_rows.value()))
     {
-        /// A measured row count beats statistics: take the minimum and mark it a precise cache value.
-        stats.estimated_rows = num_rows_from_cache;
-        stats.imprecise_estimate = false;
+        /// The row count a past execution built the hash table from beats a larger statistics
+        /// estimate, but it describes that execution's input, not this one's, so it stays imprecise,
+        /// and a past count of zero does not prove the input empty.
+        stats.estimated_rows = std::max<size_t>(1, *num_rows_from_cache);
+        stats.imprecise_estimate = true;
         stats.source = RowEstimateSource::HashTableCache;
     }
 

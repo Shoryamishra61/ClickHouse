@@ -634,6 +634,10 @@ bool tryAddJoinRuntimeFilter(QueryPlan::Node & node, QueryPlan::Nodes & nodes, c
         apply_filter_node->step->getOutputHeader(), std::move(filter_dag), filter_column_name, true);
     new_apply_filter_node->step->setStepDescription("Apply runtime join filter");
     new_apply_filter_node->children = {apply_filter_node};
+    /// A runtime filter only drops rows the join would drop anyway, so the logical row count of the
+    /// input is also the row count of this step; without the copy the estimate recorded on the input
+    /// is lost when the two steps are merged.
+    new_apply_filter_node->cost_estimation = apply_filter_node->cost_estimation;
     apply_filter_node = new_apply_filter_node;
 
     node.children = {apply_filter_node, build_filter_node};

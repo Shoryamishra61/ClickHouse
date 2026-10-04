@@ -9,6 +9,39 @@
 namespace DB::QueryPlanOptimizations
 {
 
+GroupCountEstimate estimateGroupCount(const std::vector<UInt64> & key_distinct_values, std::optional<UInt64> rows, std::optional<UInt64> max_rows)
+{
+    /// No keys: one group.
+    if (key_distinct_values.empty())
+        return GroupCountEstimate{.estimated_rows = 1, .max_rows = 1};
+
+    std::optional<UInt64> largest;
+    std::optional<UInt64> product = 1;
+    for (UInt64 distinct_values : key_distinct_values)
+    {
+        if (distinct_values == 0)
+        {
+            product.reset();
+            continue;
+        }
+        largest = std::max(largest.value_or(0), distinct_values);
+        if (product)
+        {
+            UInt64 multiplied = 0;
+            product = __builtin_mul_overflow(*product, distinct_values, &multiplied) ? std::numeric_limits<UInt64>::max() : multiplied;
+        }
+    }
+
+    GroupCountEstimate result;
+    result.estimated_rows = largest;
+    if (result.estimated_rows && rows)
+        result.estimated_rows = std::min(*result.estimated_rows, *rows);
+    result.max_rows = max_rows;
+    if (product && (!result.max_rows || *product < *result.max_rows))
+        result.max_rows = product;
+    return result;
+}
+
 void updateJoinKeyDistinctCounts(
     ColumnStats & left_stats,
     ColumnStats & right_stats,

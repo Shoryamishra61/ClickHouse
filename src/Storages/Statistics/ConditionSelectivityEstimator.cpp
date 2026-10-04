@@ -11,6 +11,7 @@
 #include <DataTypes/DataTypeLowCardinality.h>
 #include <DataTypes/IDataType.h>
 #include <DataTypes/DataTypesNumber.h>
+#include <Functions/IFunction.h>
 #include <Core/Settings.h>
 #include <Interpreters/Context.h>
 #include <Interpreters/convertFieldToType.h>
@@ -43,6 +44,18 @@ namespace Setting
     extern const SettingsUInt64 statistics_max_set_size_for_exact_selectivity_estimation;
 }
 
+/// Names of the conditions a `PREWHERE` applies: its filter node and, for a conjunction, every
+/// conjunct.
+static void collectConjunctNames(const ActionsDAG::Node * node, std::unordered_set<String> & names)
+{
+    while (node->type == ActionsDAG::ActionType::ALIAS)
+        node = node->children.front();
+    names.insert(node->result_name);
+    if (node->type == ActionsDAG::ActionType::FUNCTION && node->function_base && node->function_base->getName() == "and")
+        for (const auto * child : node->children)
+            collectConjunctNames(child, names);
+}
+
 RelationProfile ConditionSelectivityEstimator::estimateRelationProfile(const StorageMetadataPtr & metadata, const ActionsDAG::Node * filter, const ActionsDAG::Node * prewhere) const
 {
     if (filter == nullptr && prewhere == nullptr)
@@ -57,8 +70,18 @@ RelationProfile ConditionSelectivityEstimator::estimateRelationProfile(const Sto
     {
         return estimateRelationProfile(metadata, filter);
     }
+    std::unordered_set<String> prewhere_conditions;
+    collectConjunctNames(prewhere, prewhere_conditions);
     std::vector<RPNElement> rpn = RPNBuilder<RPNElement>(filter, getContext(), [&](const RPNBuilderTreeNode & node_, RPNElement & out)
     {
+        /// A condition moved to `PREWHERE` stays in the filter as an input column. The rows it
+        /// removes are counted once, by the `PREWHERE` atoms below.
+        if (!node_.isFunction() && !node_.isConstant() && prewhere_conditions.contains(node_.getColumnName()))
+        {
+            out.selectivity = Selectivity(1.0);
+            out.finalized = true;
+            return false;
+        }
         return extractAtomFromTree(metadata, node_, out);
     }).extractRPN();
     std::vector<RPNElement> prewhere_rpn = RPNBuilder<RPNElement>(prewhere, getContext(), [&](const RPNBuilderTreeNode & node_, RPNElement & out)

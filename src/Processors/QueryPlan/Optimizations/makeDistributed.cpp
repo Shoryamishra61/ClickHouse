@@ -771,14 +771,15 @@ void tryMakeDistributedAggregation(QueryPlan::Node & node, QueryPlan::Nodes & no
         if (!source->cost_estimation)
             source->cost_estimation = toCostEstimationInfo(input_stats);
 
-        /// Use max NDV among GROUP BY keys as a lower-bound estimate for groups.
-        std::optional<UInt64> estimated_groups;
+        /// The shared group count formula: the largest key NDV, a lower bound on the groups.
+        std::vector<UInt64> key_distinct_values;
         for (const auto & key : aggregation_keys)
         {
             auto it = input_stats.column_stats.find(key);
-            if (it != input_stats.column_stats.end() && it->second.num_distinct_values > 0)
-                estimated_groups = std::max(estimated_groups.value_or(0), it->second.num_distinct_values);
+            key_distinct_values.push_back(it == input_stats.column_stats.end() ? 0 : it->second.num_distinct_values);
         }
+        std::optional<UInt64> estimated_groups
+            = estimateGroupCount(key_distinct_values, input_stats.estimated_rows, input_stats.max_rows).estimated_rows;
 
         /// Fall back to input row count as an upper bound when NDV is unavailable.
         if (!estimated_groups && input_stats.estimated_rows)

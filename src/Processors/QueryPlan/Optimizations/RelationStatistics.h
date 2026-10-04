@@ -2,6 +2,7 @@
 
 #include <optional>
 #include <unordered_map>
+#include <vector>
 
 #include <Core/Joins.h>
 #include <Processors/QueryPlan/CostEstimationInfo.h>
@@ -50,6 +51,20 @@ namespace QueryPlanOptimizations
 /// An output inherits an input's stats when it is that input, an alias of it, or a deterministic
 /// single-argument function of it (which cannot increase the distinct count).
 void remapColumnStats(std::unordered_map<String, ColumnStats> & mapped, const ActionsDAG & actions);
+
+/// Distinct value combinations of a set of keys among `rows` rows: the rows of an aggregation or a
+/// `DISTINCT` over them.
+struct GroupCountEstimate
+{
+    /// The largest known key NDV, capped by the rows. Every planner uses this one formula, so an
+    /// aggregation is the same relation wherever it is estimated. Unknown when no key has an NDV.
+    std::optional<UInt64> estimated_rows;
+    /// The product of the key NDVs when all are known, else the rows the input cannot exceed.
+    std::optional<UInt64> max_rows;
+};
+
+/// `key_distinct_values` holds one NDV per key, zero for a key without one.
+GroupCountEstimate estimateGroupCount(const std::vector<UInt64> & key_distinct_values, std::optional<UInt64> rows, std::optional<UInt64> max_rows);
 
 /// Tighten equi-join key NDVs to their minimum, respecting which side each join kind preserves.
 /// Anti joins and full joins leave both inputs unchanged. A zero NDV is unknown: it is bounded by

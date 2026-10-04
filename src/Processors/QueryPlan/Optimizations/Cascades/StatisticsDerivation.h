@@ -6,6 +6,8 @@
 #include <Core/Joins.h>
 #include <Common/Logger.h>
 
+#include <functional>
+
 namespace DB
 {
 
@@ -34,6 +36,7 @@ class AggregatingStep;
 class SortingStep;
 class LimitStep;
 class DistinctStep;
+class UnionStep;
 
 /// Derives statistics for groups in the Cascades optimizer.
 /// Statistics are logical properties that describe the data (row counts, NDVs)
@@ -63,6 +66,9 @@ private:
     /// Estimate bytes per row of a read: table-level hint if present, otherwise the sum of the
     /// per-column widths already filled into `statistics`.
     Float64 estimateReadBytesPerRow(const ReadFromMergeTree & read_step, const ExpressionStatistics & statistics);
+
+    ExpressionStatistics deriveUnionStatistics(
+        const UnionStep & union_step, const std::function<const ExpressionStatistics &(size_t)> & input_statistics, size_t input_count);
 
     /// Fill per-column average value sizes of the read (storage-derived, hint overrides).
     void fillReadColumnWidths(ExpressionStatistics & statistics, const ReadFromMergeTree & read_step, const String & table_name);
