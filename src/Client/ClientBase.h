@@ -302,8 +302,14 @@ protected:
     /// database the server owns is refused as well, including through the current database.
     void checkNamedTablesForAIReadOnlyTool(const std::vector<AIQueryTableReference> & tables, bool allow_schema_access);
 
+    /// The text of a query to record into the AI context buffer. The buffer is sent to the provider
+    /// of the model with a later `?` turn, so the text is masked like `query_for_logging` on the
+    /// server: the secret parts of the AST (passwords, credentials of table engines and table
+    /// functions) are hidden, and the rules of `SensitiveDataMasker` are applied.
+    static String queryTextForAIContext(std::string_view query, const ASTPtr & parsed_query);
+
     /// Record an error of the current or just-failed query into the AI context buffer.
-    void recordErrorForAIContext(std::string_view query_or_input);
+    void recordErrorForAIContext(std::string_view query_or_input, const ASTPtr & parsed_query);
 
     /// The same, for a query that failed to parse. In interactive mode the parse error is only
     /// printed - no exception is set and no query is ever started - so there is nothing for

@@ -42,6 +42,7 @@
 #include <Common/StringUtils.h>
 #include <Common/filesystemHelpers.h>
 #include <Common/NetException.h>
+#include <Common/SensitiveDataMasker.h>
 #include <Common/SignalHandlers.h>
 #include <Common/tryGetFileNameByFileDescriptor.h>
 #include <Columns/ColumnString.h>
@@ -1699,7 +1700,7 @@ bool ClientBase::processTextAsSingleQuery(const String & full_query)
     if (have_error)
     {
 #if USE_CLIENT_AI
-        recordErrorForAIContext(full_query);
+        recordErrorForAIContext(full_query, parsed_query);
 #endif
         processError(full_query);
     }
@@ -3026,7 +3027,7 @@ void ClientBase::processParsedSingleQuery(
 #if USE_CLIENT_AI
     /// Record the query into the context buffer of the AI agent.
     if (is_interactive && ai_query_context)
-        ai_query_context->startQuery(String(query_), ai_running_query);
+        ai_query_context->startQuery(queryTextForAIContext(query_, parsed_query), ai_running_query);
 #endif
 
     /// Generate a fresh query_id for each query, unless the user fixed it with `--query_id`.
@@ -3966,7 +3967,7 @@ bool ClientBase::executeMultiQuery(const String & all_queries_text)
                 if (have_error)
                 {
 #if USE_CLIENT_AI
-                    recordErrorForAIContext(full_query);
+                    recordErrorForAIContext(full_query, parsed_query);
 #endif
                     processError(full_query);
                 }
@@ -4321,12 +4322,12 @@ bool ClientBase::processAIChat(const String & text_)
     /// The assistant emits ClickHouse SQL. With `readonly = 1`, the session refuses the dialect
     /// pin that both visible and internal assistant queries need, so fail before probing a
     /// provider (a client-side provider turn is billable) or running an internal query that the
-    /// server would reject anyway. After a successful `SET profile` the effective dialect is no
-    /// longer knowable from `client_context`, so the pin is applied - and therefore refused -
-    /// unconditionally: fail closed here as well, exactly like `runQueryForAI` and
-    /// `fetchInternalQueryResult` do.
-    if (aiSessionReadonly() == 1
-        && (dialect_may_be_changed_by_profile || client_context->getSettingsRef()[Setting::dialect] != Dialect::clickhouse))
+    /// server would reject anyway. The effective dialect is not always knowable from
+    /// `client_context` (after a `SET profile`, or with `apply_settings_from_server = 0` and a
+    /// settings profile of the user selecting another dialect), so decide it exactly like
+    /// `runQueryForAI` and `fetchInternalQueryResult` do. If asking the server fails (a session
+    /// parsing another dialect fails the question itself), the exception explains what to do.
+    if (aiSessionReadonly() == 1 && internalQueriesRequireDialectPin())
     {
         error_stream << "The AI chat requires the ClickHouse SQL dialect: `readonly = 1` does not allow changing "
                         "the `dialect` setting. Run `SET dialect = 'clickhouse'` first."
@@ -5162,7 +5163,15 @@ void ClientBase::checkNamedTablesForAIReadOnlyTool(const std::vector<AIQueryTabl
     }
 }
 
-void ClientBase::recordErrorForAIContext(std::string_view query_or_input)
+String ClientBase::queryTextForAIContext(std::string_view query, const ASTPtr & parsed_query)
+{
+    /// `formatForLogging` hides the secret parts and then applies `wipeSensitiveDataAndCutToLength`.
+    if (parsed_query && parsed_query->hasSecretParts())
+        return parsed_query->formatForLogging();
+    return wipeSensitiveDataAndCutToLength(String(query), /*max_length=*/ 0, /*wipe_sensitive=*/ true);
+}
+
+void ClientBase::recordErrorForAIContext(std::string_view query_or_input, const ASTPtr & parsed_query)
 {
     if (!is_interactive || !ai_query_context)
         return;
@@ -5178,7 +5187,7 @@ void ClientBase::recordErrorForAIContext(std::string_view query_or_input)
     /// A query that failed before an entry was opened (e.g. it could not be parsed) is recorded
     /// standalone; it must keep the AI-initiated flag, so a failed query of the agent is not
     /// replayed into the conversation as if the user had typed it.
-    ai_query_context->recordError(String(query_or_input), message, /*from_ai=*/ ai_running_query);
+    ai_query_context->recordError(queryTextForAIContext(query_or_input, parsed_query), message, /*from_ai=*/ ai_running_query);
 }
 
 void ClientBase::recordParseErrorForAIContext(std::string_view query, const String & message)
@@ -5188,7 +5197,7 @@ void ClientBase::recordParseErrorForAIContext(std::string_view query, const Stri
 
     /// The parse errors are formatted for the terminal (they highlight the position of the error),
     /// but the recorded text goes into the prompt of a model, where the escape sequences are noise.
-    ai_query_context->recordError(String(query), stripTerminalEscapeSequences(message), /*from_ai=*/ ai_running_query);
+    ai_query_context->recordError(queryTextForAIContext(query, nullptr), stripTerminalEscapeSequences(message), /*from_ai=*/ ai_running_query);
 }
 #endif
 
@@ -6388,7 +6397,7 @@ void ClientBase::runInteractive()
 
 #if USE_CLIENT_AI
             if (ai_query_context)
-                ai_query_context->recordError(input, getExceptionMessage(e, false), /*from_ai=*/ false);
+                ai_query_context->recordError(queryTextForAIContext(input, nullptr), getExceptionMessage(e, false), /*from_ai=*/ false);
 #endif
         }
 
