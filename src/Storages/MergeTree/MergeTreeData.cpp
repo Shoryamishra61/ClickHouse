@@ -6889,7 +6889,8 @@ static bool hasTextIndexMaterialization(const MutationCommands & commands, Stora
     return false;
 }
 
-void MergeTreeData::checkLossyRecompressionIsPossible(const String & column_name, const StorageMetadataPtr & metadata_snapshot) const
+void MergeTreeData::checkLossyRecompressionIsPossible(
+    const String & column_name, const StorageMetadataPtr & metadata_snapshot, const IMergeTreeDataPart * source_part) const
 {
     const auto & columns = metadata_snapshot->getColumns();
 
@@ -6943,8 +6944,16 @@ void MergeTreeData::checkLossyRecompressionIsPossible(const String & column_name
         });
     };
 
+    /// When the check runs for a specific part at execution time, a projection or a skip index the
+    /// part does not have cannot go stale: the mutation does not build an absent dependent (it is
+    /// only built by `MATERIALIZE PROJECTION` / `MATERIALIZE INDEX` or by a merge, both of which read
+    /// the post-recompression values), so a dependent added to the metadata after the `ALTER` was
+    /// accepted must not wedge a recompression queued for the older parts.
     for (const auto & projection : metadata_snapshot->getProjections())
     {
+        if (source_part && !source_part->hasProjection(projection.name))
+            continue;
+
         if (depends_on_recompressed_column(projection.getRequiredColumns()))
             throw Exception(ErrorCodes::SUPPORT_IS_DISABLED,
                 "Cannot RECOMPRESS COLUMN `{}` with the lossy codec {}: projection `{}` reads this column, "
@@ -6957,6 +6966,9 @@ void MergeTreeData::checkLossyRecompressionIsPossible(const String & column_name
 
     for (const auto & index : metadata_snapshot->getSecondaryIndices())
     {
+        if (source_part && !source_part->hasSecondaryIndex(index.name, metadata_snapshot))
+            continue;
+
         if (depends_on_recompressed_column(index.expression->getRequiredColumns()))
             throw Exception(ErrorCodes::SUPPORT_IS_DISABLED,
                 "Cannot RECOMPRESS COLUMN `{}` with the lossy codec {}: index `{}` depends on this column, "

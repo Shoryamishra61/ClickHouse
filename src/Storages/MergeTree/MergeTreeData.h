@@ -1150,8 +1150,11 @@ public:
     /// which would keep describing the pre-recompression values. A no-op for a lossless codec or a
     /// column absent from the given metadata. Called from `checkMutationIsPossible` when the `ALTER`
     /// is accepted and again by `MutateTask` when the mutation executes, because the codec and the
-    /// dependents can change in between.
-    void checkLossyRecompressionIsPossible(const String & column_name, const StorageMetadataPtr & metadata_snapshot) const;
+    /// dependents can change in between. With `source_part`, only the projections and skip indices
+    /// the part actually has are considered: the mutation never builds an absent one, so a dependent
+    /// added to the metadata after the part was written does not describe its values.
+    void checkLossyRecompressionIsPossible(
+        const String & column_name, const StorageMetadataPtr & metadata_snapshot, const IMergeTreeDataPart * source_part = nullptr) const;
 
     /// Checks that partition name in all commands is valid
     void checkAlterPartitionIsPossible(
