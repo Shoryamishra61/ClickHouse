@@ -947,6 +947,8 @@ void DatabaseMaterializedPostgreSQL::detachTablePermanently(ContextPtr, const St
 
 void DatabaseMaterializedPostgreSQL::shutdown()
 {
+    if (drop_in_progress)
+        shutdown_by_drop = true;
     shutdown_called = true;
     startup_task->deactivate();
     stopReplication();
@@ -1113,6 +1115,8 @@ void DatabaseMaterializedPostgreSQL::beforeTruncateDatabase(ContextPtr local_con
 void DatabaseMaterializedPostgreSQL::beforeDropDatabase(ContextPtr)
 {
     nested_table_removed_during_drop = false;
+    shutdown_by_drop = false;
+    drop_in_progress = true;
 
     /// The generic DROP DATABASE path drops every nested table (in `InterpreterDropQuery::executeToDatabaseImpl`)
     /// before it ever reaches `DatabaseMaterializedPostgreSQL::drop` / `PostgreSQLReplicationHandler::
@@ -1313,6 +1317,18 @@ void DatabaseMaterializedPostgreSQL::onDropDatabaseFailed(ContextPtr)
     /// re-arm is needed for a plain database just as much. Recovery is idempotent, so a double call (a failure
     /// inside `beforeDropDatabase`, which recovers in its own catch, is also routed here) is harmless.
     std::lock_guard lock(handler_mutex);
+    drop_in_progress = false;
+
+    /// The drop can also fail in `drop` itself - for example, the non-last coordinated replica's post-data
+    /// teardown in `shutdownFinal` (`unregisterReplicaAndCheckLast` / `removeCoordinationNodes`) throws when
+    /// Keeper is unavailable. `DatabaseCatalog::detachDatabase` has already called `shutdown` by then and
+    /// reattaches this object, so `shutdown_called` is set although the server is not shutting down, and the
+    /// recovery below would skip re-arming the startup task: the database would stay mounted, empty and not
+    /// replicating until a server restart. Undo that shutdown. `DatabaseAtomic::shutdown` only shut down the
+    /// tables, and none are left at that point (they had all been dropped before `drop` was called).
+    if (shutdown_by_drop.exchange(false) && !DatabaseCatalog::instance().isShuttingDown())
+        shutdown_called = false;
+
     recoverAfterRefusedDrop(/* force_resnapshot */ nested_table_removed_during_drop);
 }
 
@@ -1357,6 +1373,16 @@ DatabaseTablesIteratorPtr DatabaseMaterializedPostgreSQL::getTablesIterator(
 }
 
 
+void DatabaseMaterializedPostgreSQL::throwCoordinatedTableNotAvailable(const String & table_name) const
+{
+    throw Exception(ErrorCodes::UNKNOWN_TABLE,
+        "Table {}.{} is not available yet: this replica of the coordinated MaterializedPostgreSQL setup has not "
+        "caught up with its initial snapshot. Failing closed instead of reading a partial result. Retry the query "
+        "once the table is available",
+        backQuoteIfNeed(getDatabaseName()), backQuoteIfNeed(table_name));
+}
+
+
 StoragePtr DatabaseMaterializedPostgreSQL::getTableForRead(const String & table_name, const StoragePtr & table, ContextPtr local_context) const
 {
     /// Internal queries (replication machinery, DDL, backups) work on the nested tables directly.
@@ -1377,20 +1403,31 @@ StoragePtr DatabaseMaterializedPostgreSQL::getTableForRead(const String & table_
             if (it != materialized_tables.end() && it->second->as<StorageMaterializedPostgreSQL>()->hasNested())
                 return it->second;
 
-            /// The table is not replicated (or its nested table is not ready yet) - it is not visible
-            /// to user-facing lookups either, see tryGetTable.
-            return StoragePtr{};
+            /// In coordinated mode the nested table of a replicated table exists on this replica, but it has
+            /// not caught up with the initial snapshot yet (see tryGetTable). The callers (`StorageMerge`) skip
+            /// a table for which this method returns nothing, so a read over the database would silently
+            /// return a partial result. Fail closed instead.
+            /// The exception is thrown after `tables_mutex` is released, because building its message takes the
+            /// base class mutex (see the lock order note on `materialized_tables`).
+            if (it == materialized_tables.end() || !isCoordinated())
+            {
+                /// The table is not replicated (or its nested table is not ready yet) - it is not visible
+                /// to user-facing lookups either, see tryGetTable.
+                return StoragePtr{};
+            }
         }
-
-        /// After `stopReplication` (server shutdown or `DROP DATABASE`) user-facing access
-        /// legitimately falls back to the nested tables, see tryGetTable.
-        if (replication_stopped)
+        else if (replication_stopped)
+        {
+            /// After `stopReplication` (server shutdown or `DROP DATABASE`) user-facing access
+            /// legitimately falls back to the nested tables, see tryGetTable.
             return table;
+        }
     }
 
-    /// In coordinated mode the table stays invisible in the startup window, see tryGetTable.
+    /// Either the coordinated table found above is not available yet, or this is the startup window, in which
+    /// a coordinated table stays invisible (see tryGetTable). Fail closed in both cases, for the reason above.
     if (isCoordinated())
-        return StoragePtr{};
+        throwCoordinatedTableNotAvailable(table_name);
 
     /// Startup window: the map is empty because `startSynchronization` has not published the wrappers
     /// yet (see tryGetTable), so wrap the nested table on the fly. If `startSynchronization` publishes

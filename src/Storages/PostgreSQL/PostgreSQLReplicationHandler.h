@@ -377,6 +377,9 @@ private:
 
     String doubleQuoteWithSchema(const String & table_name) const;
 
+    /// Joins ClickHouse table names into the SQL-quoted, schema-qualified list `CREATE PUBLICATION` expects.
+    String quoteTablesListForPublication(const std::set<String> & table_names) const;
+
     std::pair<String, String> getSchemaAndTableName(const String & table_name) const;
 
     void assertInitialized() const;

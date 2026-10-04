@@ -146,6 +146,8 @@ private:
 
     ASTPtr createAlterSettingsQuery(const SettingChange & new_setting);
 
+    [[noreturn]] void throwCoordinatedTableNotAvailable(const String & table_name) const;
+
     String getFormattedTablesList(const String & except = {}) const TSA_REQUIRES(tables_mutex);
 
     bool is_attach;
@@ -208,6 +210,14 @@ private:
 
     BackgroundSchedulePoolTaskHolder startup_task;
     std::atomic<bool> shutdown_called = false;
+
+    /// Set by `beforeDropDatabase` and cleared by `onDropDatabaseFailed`. `DatabaseCatalog::detachDatabase`
+    /// calls `shutdown` before `drop`, and if `drop` then throws (e.g. the coordinated teardown in
+    /// `shutdownFinal` cannot reach Keeper), the catalog reattaches this very object. `shutdown_by_drop`
+    /// records that `shutdown_called` was set by such a drop rather than by the server shutdown, so that
+    /// `onDropDatabaseFailed` can undo it and rebuild replication instead of leaving the database empty.
+    std::atomic_bool drop_in_progress{false};
+    std::atomic_bool shutdown_by_drop{false};
 
     LoadTaskPtr startup_postgresql_database_task TSA_GUARDED_BY(mutex);
 };

@@ -234,6 +234,7 @@ private:
 namespace FailPoints
 {
     extern const char materialized_postgresql_fail_teardown_after_shutdown[];
+    extern const char materialized_postgresql_fail_final_teardown_of_non_last_replica[];
     extern const char materialized_postgresql_fail_leader_release_at_shutdown[];
     extern const char materialized_postgresql_fail_load_from_snapshot[];
     extern const char materialized_postgresql_fail_add_table_to_replication[];
@@ -962,6 +963,21 @@ String PostgreSQLReplicationHandler::doubleQuoteWithSchema(const String & table_
         return doubleQuoteStringPostgreSQL(table);
 
     return doubleQuoteStringPostgreSQL(schema) + '.' + doubleQuoteStringPostgreSQL(table);
+}
+
+
+String PostgreSQLReplicationHandler::quoteTablesListForPublication(const std::set<String> & table_names) const
+{
+    /// `table1, schema.table2` -> `"schema"."table1","schema"."table2"`: the form that `fetchRequiredTables`
+    /// normalizes `tables_list` to and that `createPublicationIfNeeded` emits verbatim into `CREATE PUBLICATION`.
+    WriteBufferFromOwnString buf;
+    for (const auto & table_name : table_names)
+    {
+        if (buf.count())
+            buf << ",";
+        buf << doubleQuoteWithSchema(table_name);
+    }
+    return buf.str();
 }
 
 
@@ -1800,12 +1816,15 @@ void PostgreSQLReplicationHandler::ensureNestedTablesExist()
         /// `isShutdownCalled` (not merely read-only) so a nested table that is only transiently read-only while
         /// starting up is never dropped. If Keeper is unreachable the drop throws and the startup task retries.
         bool nested_is_shut_down = false;
+        UUID nested_uuid = UUIDHelpers::Nil;
         {
             /// The StoragePtr must not outlive this scope: the synchronous drop below waits until the dropped
             /// table is not referenced anywhere, so holding the reference across the drop would deadlock it.
             auto nested = materialized_storage->tryGetNested();
             const auto * replicated = nested ? nested->as<StorageReplicatedMergeTree>() : nullptr;
             nested_is_shut_down = replicated && replicated->isShutdownCalled();
+            if (nested)
+                nested_uuid = nested->getStorageID().uuid;
         }
 
         if (nested_is_shut_down)
@@ -1823,6 +1842,13 @@ void PostgreSQLReplicationHandler::ensureNestedTablesExist()
             InterpreterDropQuery::executeDropQuery(
                 ASTDropQuery::Kind::Drop, getContext(), materialized_storage->getNestedTableContext(),
                 materialized_storage->getNestedStorageID(), /* sync */ true, /* ignore_sync_setting */ true);
+            /// The synchronous drop above does not necessarily wait: it looks the UUID to wait for up by name, and
+            /// a coordinated `DatabaseMaterializedPostgreSQL` hides the table from such lookups until it has caught
+            /// up. The old replicated table must be gone before the new one is created below, because its final
+            /// removal deletes the replica at the very Keeper path the new table registers at; otherwise the new
+            /// replica can be left lost and read-only for good.
+            if (nested_uuid != UUIDHelpers::Nil)
+                DatabaseCatalog::instance().waitTableFinallyDropped(nested_uuid);
             materialized_storage->resetNested();
         }
 
@@ -3597,6 +3623,14 @@ void PostgreSQLReplicationHandler::shutdownFinal()
             /// actual last replica. If it is still not the last one, another replica holds the shared data, so
             /// keep the shared slot/publication and coordination nodes for the peers and let the caller drop
             /// only this replica's local nested tables.
+            /// Simulates a Keeper failure here, after the local nested tables have been dropped, to test the
+            /// recovery of a `DROP DATABASE` that is refused by `DatabaseMaterializedPostgreSQL::drop`.
+            fiu_do_on(FailPoints::materialized_postgresql_fail_final_teardown_of_non_last_replica,
+            {
+                throw Exception(ErrorCodes::FAULT_INJECTED,
+                    "Injected failure in the final coordinated teardown of a non-last replica");
+            });
+
             if (!unregisterReplicaAndCheckLast(/* keep_registration_when_not_last */ false))
                 return;
 
@@ -3960,10 +3994,11 @@ std::set<String> PostgreSQLReplicationHandler::fetchRequiredTables()
                         /// `tables_list` whenever it is not empty; keeping the stale local setting there would
                         /// make this replica recreate the shared publication with the extra (or without the
                         /// missing) tables of its own list, silently changing the authoritative table set under
-                        /// the other replicas. Rewrite it to the adopted set - the quoting pass below then
-                        /// treats it exactly like a matching user-provided list. (Coordinated mode rejects
-                        /// column-filtered lists at construction, so no `table(col1, col2)` entry can be lost.)
-                        tables_list = fmt::format("{}", fmt::join(result_tables, ", "));
+                        /// the other replicas. Rewrite it to the adopted set. The quoting pass above has already
+                        /// run, so the set is written in the same SQL-quoted, schema-qualified form that the pass
+                        /// produces for a matching user-provided list. (Coordinated mode rejects column-filtered
+                        /// lists at construction, so no `table(col1, col2)` entry can be lost.)
+                        tables_list = quoteTablesListForPublication(result_tables);
                     }
                     else
                     {
@@ -4033,8 +4068,8 @@ std::set<String> PostgreSQLReplicationHandler::fetchRequiredTables()
 
             result_tables = *fenced_tables;
             /// `createPublicationIfNeeded` rebuilds the publication from `tables_list` whenever it is not
-            /// empty, so it must carry the adopted set too (see the mismatch branch above).
-            tables_list = fmt::format("{}", fmt::join(result_tables, ", "));
+            /// empty, so it must carry the adopted set too, SQL-quoted (see the mismatch branch above).
+            tables_list = quoteTablesListForPublication(result_tables);
         }
     }
 

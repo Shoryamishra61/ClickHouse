@@ -735,30 +735,33 @@ def test_adopted_table_set_survives_publication_recreation(started_cluster):
     # publication recreation: if the shared publication goes missing and the joiner is the replica that
     # recreates it, the recreated publication must contain the adopted set, not the joiner's stale local
     # list - otherwise the replicas would silently diverge on which tables actually replicate.
-    pg_manager.create_postgres_table("test_table")
+    # The table name is mixed-case, so the recreation must also keep the adopted set SQL-quoted: an unquoted
+    # name would be folded to lower case by PostgreSQL and `CREATE PUBLICATION` would fail.
+    table = "Test_Table"
+    pg_manager.create_postgres_table(table)
     pg_manager.create_postgres_table("extra_table")
     instance.query(
-        "INSERT INTO postgres_database.test_table SELECT number, number FROM numbers(100)"
+        f"INSERT INTO postgres_database.`{table}` SELECT number, number FROM numbers(100)"
     )
 
-    # The first replica creates the shared publication for test_table only and becomes the leader.
+    # The first replica creates the shared publication for the table only and becomes the leader.
     first_settings = COORDINATION_SETTINGS + [
-        "materialized_postgresql_tables_list = 'test_table'"
+        f"materialized_postgresql_tables_list = '{table}'"
     ]
     pg_manager.create_materialized_db(
         ip=cluster.postgres_ip, port=cluster.postgres_port, settings=first_settings
     )
-    check_tables_are_synchronized(instance, "test_table")
+    check_tables_are_synchronized(instance, table)
     wait_for_leader(instance, expected="coord_instance1")
 
     # The joiner's list has an extra table; the publication's set is adopted over it.
     second_settings = COORDINATION_SETTINGS + [
-        "materialized_postgresql_tables_list = 'test_table, extra_table'"
+        f"materialized_postgresql_tables_list = '{table}, extra_table'"
     ]
     pg_manager2.create_materialized_db(
         ip=cluster.postgres_ip, port=cluster.postgres_port, settings=second_settings
     )
-    check_tables_are_synchronized(instance2, "test_table")
+    check_tables_are_synchronized(instance2, table)
 
     # Drop the shared publication behind the setup's back, then kill the leader: the joiner takes over
     # and its `startSynchronization` recreates the missing publication.
@@ -775,21 +778,26 @@ def test_adopted_table_set_survives_publication_recreation(started_cluster):
         time.sleep(1)
     assert publication_exists()
 
-    # The recreated publication must carry the adopted set - test_table only, no extra_table.
+    # The recreated publication must carry the adopted set - the table only, no extra_table.
     published = sorted(
         row[0] for row in pg_query("SELECT tablename FROM pg_publication_tables")
     )
-    assert published == ["test_table"]
+    assert published == [table]
 
     # Replication keeps flowing through the recreated publication.
     instance2.query(
-        "INSERT INTO postgres_database.test_table SELECT number, number FROM numbers(100, 100)"
+        f"INSERT INTO postgres_database.`{table}` SELECT number, number FROM numbers(100, 100)"
     )
-    check_tables_are_synchronized(instance2, "test_table")
-    assert int(instance2.query("SELECT count() FROM test_database.test_table")) == 200
+    check_tables_are_synchronized(instance2, table)
+    assert int(instance2.query(f"SELECT count() FROM test_database.`{table}`")) == 200
 
     instance.start_clickhouse()
-    check_tables_are_synchronized(instance, "test_table")
+    check_tables_are_synchronized(instance, table)
+
+    # Do not leave the mixed-case table behind for the tests that replicate every table of the schema.
+    pg_manager.drop_materialized_db()
+    pg_manager2.drop_materialized_db()
+    pg_query(f'DROP TABLE IF EXISTS "{table}"')
 
 
 def test_adopted_table_set_survives_restart_and_publication_recreation(started_cluster):
@@ -1448,6 +1456,54 @@ def test_refused_drop_after_handler_shutdown_recovers_database(started_cluster):
     instance.query("DROP DATABASE test_database SYNC")
     assert not replication_slot_exists()
     assert not publication_exists()
+
+
+def test_refused_drop_in_final_teardown_of_non_last_replica_recovers_database(started_cluster):
+    # A non-last replica unregisters itself only in the final teardown, after its nested tables have been
+    # dropped and after `DatabaseCatalog` has already shut the database down. If that step fails, the catalog
+    # reattaches the shut down database object, and the refused DROP DATABASE must still not leave it mounted
+    # but empty: the database undoes the shutdown, recreates its nested tables and rejoins the setup.
+    pg_manager.create_postgres_table("test_table")
+    instance.query(
+        "INSERT INTO postgres_database.test_table SELECT number, number FROM numbers(100)"
+    )
+
+    settings = COORDINATION_SETTINGS + [
+        "materialized_postgresql_tables_list = 'test_table'"
+    ]
+    pg_manager.create_materialized_db(
+        ip=cluster.postgres_ip, port=cluster.postgres_port, settings=settings
+    )
+    check_tables_are_synchronized(instance, "test_table")
+    wait_for_leader(instance, expected="coord_instance1")
+    pg_manager2.create_materialized_db(
+        ip=cluster.postgres_ip, port=cluster.postgres_port, settings=settings
+    )
+    check_tables_are_synchronized(instance2, "test_table")
+
+    try:
+        instance2.query(
+            "SYSTEM ENABLE FAILPOINT materialized_postgresql_fail_final_teardown_of_non_last_replica"
+        )
+        error = instance2.query_and_get_error("DROP DATABASE test_database SYNC")
+        assert "Injected failure in the final coordinated teardown" in error
+        assert "test_database" in instance2.query("SHOW DATABASES")
+    finally:
+        instance2.query(
+            "SYSTEM DISABLE FAILPOINT materialized_postgresql_fail_final_teardown_of_non_last_replica"
+        )
+
+    # The standby rebuilds its local copy without a server restart and keeps receiving new rows.
+    instance.query(
+        "INSERT INTO postgres_database.test_table SELECT number, number FROM numbers(100, 100)"
+    )
+    check_tables_are_synchronized(instance2, "test_table")
+    assert int(instance2.query("SELECT count() FROM test_database.test_table")) == 200
+
+    # A retried drop succeeds and keeps the shared state for the remaining replica.
+    instance2.query("DROP DATABASE test_database SYNC")
+    assert replication_slot_exists()
+    assert publication_exists()
 
 
 def test_refused_drop_after_handler_shutdown_recovers_single_table_engine(started_cluster):
@@ -4005,6 +4061,11 @@ def test_standby_exposes_table_only_after_initial_snapshot(started_cluster):
             assert "UNKNOWN_TABLE" in instance2.query_and_get_error(
                 "SELECT count() FROM test_database.test_table"
             )
+            # A read that enumerates the database's tables must fail as well instead of silently
+            # skipping the hidden table and returning a partial result.
+            assert "is not available yet" in instance2.query_and_get_error(
+                "SELECT count() FROM merge('test_database', '^test_table$')"
+            )
             time.sleep(1)
         assert not marker_znode_exists(instance)
 
@@ -4019,3 +4080,11 @@ def test_standby_exposes_table_only_after_initial_snapshot(started_cluster):
 
     check_tables_are_synchronized(instance2, "test_table")
     assert int(instance2.query("SELECT count() FROM test_database.test_table")) == 100
+    assert (
+        int(
+            instance2.query(
+                "SELECT count() FROM merge('test_database', '^test_table$')"
+            )
+        )
+        == 100
+    )
