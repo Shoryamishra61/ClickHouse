@@ -1253,7 +1253,8 @@ def test_drop_not_used_by_lazily_loaded_distributed_table(cluster):
     """An identifier as the first engine argument references a named collection only for engines that
     resolve their arguments through named collections. For `Distributed` it is a cluster name, so a
     collection that happens to have the same name as the cluster must not be considered used by the
-    table when the dependency is reconstructed from the metadata at lazy load."""
+    table. A `Distributed` table is loaded eagerly even with `lazy_load_tables = 1`; the lazy path
+    for the same cluster-name argument is covered by the `Remote` test below."""
     node = cluster.instances["node"]
 
     node.query("DROP DATABASE IF EXISTS lazy_dist_db")
@@ -1273,7 +1274,7 @@ def test_drop_not_used_by_lazily_loaded_distributed_table(cluster):
         node.query(
             "SELECT engine FROM system.tables WHERE database = 'lazy_dist_db' AND name = 'dist'"
         ).strip()
-        == "TableProxy"
+        == "Distributed"
     )
 
     # The table references the cluster `lazy_dist_cluster`, not the collection of the same name.
