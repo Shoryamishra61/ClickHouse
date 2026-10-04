@@ -8,11 +8,14 @@ from helpers.cluster import ClickHouseCluster
 
 cluster = ClickHouseCluster(__file__)
 
+# The test checks the global profile events and the server log of the snapshot, so there must be no other
+# `plain_rewritable` disk that reads or writes its own snapshot, such as the remote database disk.
 writer = cluster.add_instance(
     "writer",
     main_configs=["configs/writer.xml"],
     with_minio=True,
     stay_alive=True,
+    with_remote_database_disk=False,
 )
 
 reader = cluster.add_instance(
@@ -20,6 +23,7 @@ reader = cluster.add_instance(
     main_configs=["configs/reader.xml"],
     with_minio=True,
     stay_alive=True,
+    with_remote_database_disk=False,
 )
 
 SNAPSHOT_KEY = "data/snapshot/__meta/snapshot.bin"
