@@ -1,6 +1,6 @@
 /// The `mallctl` tree (jemalloc: `ctl.c`, the `*_node` arrays).
 ///
-/// The children of every node are listed in exactly jemalloc's order: MIB components are positions in these arrays.
+/// The children of every node are listed in exactly jemalloc's order: numeric path components are positions in these arrays.
 /// The leaves whose value is a constant, an option or a configuration flag (`config.*`, `opt.*`, most of `arenas.*`),
 /// the leaves of the dropped HPA/SEC statistics (always zero) and the mutex profiling leaves are generated here from
 /// the templates of MallctlImpl.h; all other leaves are declared in MallctlImpl.h and defined in the file of their subtree.
@@ -105,22 +105,22 @@ constexpr MallctlNode mutex_profiling_node[] = {
 
 /// --- Values of the generated leaves --------------------------------------------------------------------------------
 
-/// jemalloc: `bin_infos[mib[2]]`. The index function accepts `SC_NBINS` (off by one), where jemalloc reads past the
+/// jemalloc: `bin_infos[numeric_path[2]]`. The index function accepts `SC_NBINS` (off by one), where jemalloc reads past the
 /// array; that bin reads as zeros here.
 /// jemalloc compatibility: arenas_bin_i_index accepts i == SIZE_CLASS_NUM_BINS.
-const BinInfo & binInfoOfMIB(const size_t * mib)
+const BinInfo & binInfoOfNumericPath(const size_t * numeric_path)
 {
     static constexpr BinInfo past_the_end{};
-    return mib[2] < SIZE_CLASS_NUM_BINS ? bin_infos[mib[2]] : past_the_end;
+    return numeric_path[2] < SIZE_CLASS_NUM_BINS ? bin_infos[numeric_path[2]] : past_the_end;
 }
 
-/// jemalloc: `sz_index2size_unsafe(SC_NBINS + mib[2])`. The index function accepts `SC_NSIZES - SC_NBINS` (off by
+/// jemalloc: `sz_index2size_unsafe(SC_NBINS + numeric_path[2])`. The index function accepts `SC_NSIZES - SC_NBINS` (off by
 /// one), where jemalloc reads past `sz_index2size_tab`; that size reads as 0 here.
 /// jemalloc compatibility: arenas_lextent_i_index accepts i == SIZE_CLASS_NUM_SIZES - SIZE_CLASS_NUM_BINS.
-size_t largeExtentSizeOfMIB(const size_t * mib)
+size_t largeExtentSizeOfNumericPath(const size_t * numeric_path)
 {
-    return mib[2] < SIZE_CLASS_NUM_SIZES - SIZE_CLASS_NUM_BINS
-        ? size_classes::indexToSizeUnsafe(SIZE_CLASS_NUM_BINS + static_cast<SizeClassIdx>(mib[2]))
+    return numeric_path[2] < SIZE_CLASS_NUM_SIZES - SIZE_CLASS_NUM_BINS
+        ? size_classes::indexToSizeUnsafe(SIZE_CLASS_NUM_BINS + static_cast<SizeClassIdx>(numeric_path[2]))
         : 0;
 }
 
@@ -385,15 +385,15 @@ constexpr MallctlNode arena_i_node[] = {
 constexpr MallctlNode super_arena_i_node[] = {super(arena_i_node)};
 
 constexpr MallctlNode arenas_bin_i_node[] = {
-    readOnlyLeaf<size_t, [](const size_t * mib) { return binInfoOfMIB(mib).region_size; }>("size"),
-    readOnlyLeaf<uint32_t, [](const size_t * mib) { return binInfoOfMIB(mib).num_regions; }>("nregs"),
-    readOnlyLeaf<size_t, [](const size_t * mib) { return binInfoOfMIB(mib).slab_size; }>("slab_size"),
-    readOnlyLeaf<uint32_t, [](const size_t * mib) { return binInfoOfMIB(mib).num_shards; }>("nshards"),
+    readOnlyLeaf<size_t, [](const size_t * numeric_path) { return binInfoOfNumericPath(numeric_path).region_size; }>("size"),
+    readOnlyLeaf<uint32_t, [](const size_t * numeric_path) { return binInfoOfNumericPath(numeric_path).num_regions; }>("nregs"),
+    readOnlyLeaf<size_t, [](const size_t * numeric_path) { return binInfoOfNumericPath(numeric_path).slab_size; }>("slab_size"),
+    readOnlyLeaf<uint32_t, [](const size_t * numeric_path) { return binInfoOfNumericPath(numeric_path).num_shards; }>("nshards"),
 };
 constexpr MallctlNode super_arenas_bin_i_node[] = {super(arenas_bin_i_node)};
 
 constexpr MallctlNode arenas_large_extent_i_node[] = {
-    readOnlyLeaf<size_t, [](const size_t * mib) { return largeExtentSizeOfMIB(mib); }>("size"),
+    readOnlyLeaf<size_t, [](const size_t * numeric_path) { return largeExtentSizeOfNumericPath(numeric_path); }>("size"),
 };
 constexpr MallctlNode super_arenas_large_extent_i_node[] = {super(arenas_large_extent_i_node)};
 

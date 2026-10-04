@@ -18,7 +18,7 @@
 
 /// The statistics printer (jemalloc: `stats_print` and its helpers in `src/stats.c`).
 ///
-/// Like jemalloc, every value is read through the mallctl machinery (`je_mallctl` semantics for `CTL_GET`, MIB lookups
+/// Like jemalloc, every value is read through the mallctl machinery (`je_mallctl` semantics for `CTL_GET`, numeric path lookups
 /// for the loops), in exactly the same order, so that the values and their consistency are identical. The output goes
 /// through the `Emitter`, so the sequence of `write_callback` calls is also identical.
 
@@ -51,21 +51,21 @@ int statsMallctl(const char * name, void * old_value, size_t * old_length_ptr, v
 }
 
 /// jemalloc: je_mallctlnametomib
-int statsMallctlNameToMIB(const char * name, size_t * mib_ptr, size_t * mib_length_ptr)
+int statsMallctlNameToNumericPath(const char * name, size_t * numeric_path_ptr, size_t * numeric_path_length_ptr)
 {
     if (ALLOCATOR_UNLIKELY(mallocInit()))
         return EAGAIN;
     ThreadState & thread_state = ThreadState::fetch();
-    return mallctlNameToMIB(thread_state, name, mib_ptr, mib_length_ptr);
+    return mallctlNameToNumericPath(thread_state, name, numeric_path_ptr, numeric_path_length_ptr);
 }
 
 /// jemalloc: je_mallctlbymib
-int statsMallctlByMIB(const size_t * mib, size_t mib_length, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
+int statsMallctlByNumericPath(const size_t * numeric_path, size_t numeric_path_length, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
 {
     if (ALLOCATOR_UNLIKELY(mallocInit()))
         return EAGAIN;
     ThreadState & thread_state = ThreadState::fetch();
-    return mallctlByMIB(thread_state, mib, mib_length, old_value, old_length_ptr, new_value, new_length);
+    return mallctlByNumericPath(thread_state, numeric_path, numeric_path_length, old_value, old_length_ptr, new_value, new_length);
 }
 
 /// jemalloc: xmallctl
@@ -79,9 +79,9 @@ void statsMallctlOrAbort(const char * name, void * old_value, size_t * old_lengt
 }
 
 /// jemalloc: xmallctlnametomib
-void statsMallctlNameToMIBOrAbort(const char * name, size_t * mib_ptr, size_t * mib_length_ptr)
+void statsMallctlNameToNumericPathOrAbort(const char * name, size_t * numeric_path_ptr, size_t * numeric_path_length_ptr)
 {
-    if (statsMallctlNameToMIB(name, mib_ptr, mib_length_ptr) != 0)
+    if (statsMallctlNameToNumericPath(name, numeric_path_ptr, numeric_path_length_ptr) != 0)
     {
         printMessage("<jemalloc>: Failure in xmallctlnametomib(\"%s\", ...)\n", name);
         abort();
@@ -89,10 +89,10 @@ void statsMallctlNameToMIBOrAbort(const char * name, size_t * mib_ptr, size_t * 
 }
 
 /// jemalloc: xmallctlbymib
-void statsMallctlByMIBOrAbort(
-    const size_t * mib, size_t mib_length, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
+void statsMallctlByNumericPathOrAbort(
+    const size_t * numeric_path, size_t numeric_path_length, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
 {
-    if (statsMallctlByMIB(mib, mib_length, old_value, old_length_ptr, new_value, new_length) != 0)
+    if (statsMallctlByNumericPath(numeric_path, numeric_path_length, old_value, old_length_ptr, new_value, new_length) != 0)
     {
         writeMessage("<jemalloc>: Failure in xmallctlbymib()\n");
         abort();
@@ -100,9 +100,9 @@ void statsMallctlByMIBOrAbort(
 }
 
 /// jemalloc: xmallctlmibnametomib
-void statsMallctlMIBNameToMIBOrAbort(size_t * mib, size_t mib_length, const char * name, size_t * mib_length_ptr)
+void statsMallctlExtendNumericPathByNameOrAbort(size_t * numeric_path, size_t numeric_path_length, const char * name, size_t * numeric_path_length_ptr)
 {
-    if (mallctlMIBNameToMIB(ThreadState::fetch(), mib, mib_length, name, mib_length_ptr) != 0)
+    if (mallctlExtendNumericPathByName(ThreadState::fetch(), numeric_path, numeric_path_length, name, numeric_path_length_ptr) != 0)
     {
         writeMessage("<jemalloc>: Failure in ctl_mibnametomib()\n");
         abort();
@@ -110,17 +110,17 @@ void statsMallctlMIBNameToMIBOrAbort(size_t * mib, size_t mib_length, const char
 }
 
 /// jemalloc: xmallctlbymibname
-void statsMallctlByMIBNameOrAbort(
-    size_t * mib,
-    size_t mib_length,
+void statsMallctlByNumericPathAndNameOrAbort(
+    size_t * numeric_path,
+    size_t numeric_path_length,
     const char * name,
-    size_t * mib_length_ptr,
+    size_t * numeric_path_length_ptr,
     void * old_value,
     size_t * old_length_ptr,
     void * new_value,
     size_t new_length)
 {
-    if (mallctlByMIBName(ThreadState::fetch(), mib, mib_length, name, mib_length_ptr, old_value, old_length_ptr, new_value, new_length)
+    if (mallctlByNumericPathAndName(ThreadState::fetch(), numeric_path, numeric_path_length, name, numeric_path_length_ptr, old_value, old_length_ptr, new_value, new_length)
         != 0)
     {
         writeMessage("<jemalloc>: Failure in ctl_bymibname()\n");
@@ -137,49 +137,49 @@ void mallctlGet(const char * name, T * v)
 }
 
 /// jemalloc: CTL_LEAF_PREPARE
-void mallctlLeafPrepare(size_t * mib, size_t mib_length, const char * name)
+void mallctlLeafPrepare(size_t * numeric_path, size_t numeric_path_length, const char * name)
 {
-    ALLOCATOR_ASSERT(mib_length < MALLCTL_MAX_DEPTH);
-    size_t mib_length_new = MALLCTL_MAX_DEPTH;
-    statsMallctlMIBNameToMIBOrAbort(mib, mib_length, name, &mib_length_new);
-    ALLOCATOR_ASSERT(mib_length_new > mib_length);
+    ALLOCATOR_ASSERT(numeric_path_length < MALLCTL_MAX_DEPTH);
+    size_t numeric_path_length_new = MALLCTL_MAX_DEPTH;
+    statsMallctlExtendNumericPathByNameOrAbort(numeric_path, numeric_path_length, name, &numeric_path_length_new);
+    ALLOCATOR_ASSERT(numeric_path_length_new > numeric_path_length);
 }
 
 /// jemalloc: CTL_LEAF
 template <typename T>
-void mallctlLeaf(size_t * mib, size_t mib_length, const char * leaf, T * v)
+void mallctlLeaf(size_t * numeric_path, size_t numeric_path_length, const char * leaf, T * v)
 {
-    ALLOCATOR_ASSERT(mib_length < MALLCTL_MAX_DEPTH);
-    size_t mib_length_new = MALLCTL_MAX_DEPTH;
+    ALLOCATOR_ASSERT(numeric_path_length < MALLCTL_MAX_DEPTH);
+    size_t numeric_path_length_new = MALLCTL_MAX_DEPTH;
     size_t size = sizeof(T);
-    statsMallctlByMIBNameOrAbort(mib, mib_length, leaf, &mib_length_new, static_cast<void *>(v), &size, nullptr, 0);
-    ALLOCATOR_ASSERT(mib_length_new == mib_length + 1);
+    statsMallctlByNumericPathAndNameOrAbort(numeric_path, numeric_path_length, leaf, &numeric_path_length_new, static_cast<void *>(v), &size, nullptr, 0);
+    ALLOCATOR_ASSERT(numeric_path_length_new == numeric_path_length + 1);
 }
 
 /// jemalloc: CTL_MIB_GET
 template <typename T>
-void mallctlMIBGet(const char * name, size_t i, T * v, size_t idx)
+void mallctlGetWithPathComponent(const char * name, size_t i, T * v, size_t idx)
 {
-    size_t mib[MALLCTL_MAX_DEPTH];
-    size_t mib_length = sizeof(mib) / sizeof(size_t);
+    size_t numeric_path[MALLCTL_MAX_DEPTH];
+    size_t numeric_path_length = sizeof(numeric_path) / sizeof(size_t);
     size_t size = sizeof(T);
-    statsMallctlNameToMIBOrAbort(name, mib, &mib_length);
-    mib[idx] = i;
-    statsMallctlByMIBOrAbort(mib, mib_length, static_cast<void *>(v), &size, nullptr, 0);
+    statsMallctlNameToNumericPathOrAbort(name, numeric_path, &numeric_path_length);
+    numeric_path[idx] = i;
+    statsMallctlByNumericPathOrAbort(numeric_path, numeric_path_length, static_cast<void *>(v), &size, nullptr, 0);
 }
 
 /// jemalloc: CTL_M1_GET
 template <typename T>
-void mallctlMIB1Get(const char * name, size_t i, T * v)
+void mallctlGetWithPathComponent1(const char * name, size_t i, T * v)
 {
-    mallctlMIBGet(name, i, v, 1);
+    mallctlGetWithPathComponent(name, i, v, 1);
 }
 
 /// jemalloc: CTL_M2_GET
 template <typename T>
-void mallctlMIB2Get(const char * name, size_t i, T * v)
+void mallctlGetWithPathComponent2(const char * name, size_t i, T * v)
 {
-    mallctlMIBGet(name, i, v, 2);
+    mallctlGetWithPathComponent(name, i, v, 2);
 }
 
 /// --- Helpers ----------------------------------------------------------------------------------------------------
@@ -303,10 +303,10 @@ void mutexStatsInitColumns(
     column_uint64_t[mutex_counter_total_wait_time_per_second].width = 10;
 }
 
-/// Reads the counters of one mutex; `mib[0 .. mib_length)` is the MIB of the mutex node.
+/// Reads the counters of one mutex; `numeric_path[0 .. numeric_path_length)` is the numeric path of the mutex node.
 /// jemalloc: the common part of mutex_stats_read_global, mutex_stats_read_arena, mutex_stats_read_arena_bin
 void mutexStatsReadCounters(
-    size_t * mib, size_t mib_length, MutexColumns64 & column_uint64_t, MutexColumns32 & column_uint32_t, uint64_t uptime)
+    size_t * numeric_path, size_t numeric_path_length, MutexColumns64 & column_uint64_t, MutexColumns32 & column_uint32_t, uint64_t uptime)
 {
     for (unsigned k = 0; k < mutex_profiling_num_uint64_t_counters; ++k)
     {
@@ -314,7 +314,7 @@ void mutexStatsReadCounters(
         EmitterColumn & dst = column_uint64_t[k];
         dst.type = EmitterType::Uint64;
         if (!info.derived)
-            mallctlLeaf(mib, mib_length, info.name, &dst.uint64_value);
+            mallctlLeaf(numeric_path, numeric_path_length, info.name, &dst.uint64_value);
         else
             dst.uint64_value = ratePerSecond(column_uint64_t[info.base_counter].uint64_value, uptime);
     }
@@ -324,7 +324,7 @@ void mutexStatsReadCounters(
         EmitterColumn & dst = column_uint32_t[k];
         dst.type = EmitterType::Uint32;
         if (!info.derived)
-            mallctlLeaf(mib, mib_length, info.name, &dst.uint32_value);
+            mallctlLeaf(numeric_path, numeric_path_length, info.name, &dst.uint32_value);
         else
             dst.uint32_value = static_cast<uint32_t>(ratePerSecond(column_uint32_t[info.base_counter].uint32_value, uptime));
     }
@@ -332,30 +332,30 @@ void mutexStatsReadCounters(
 
 /// jemalloc: mutex_stats_read_global, mutex_stats_read_arena (identical)
 void mutexStatsReadNamed(
-    size_t * mib,
-    size_t mib_length,
+    size_t * numeric_path,
+    size_t numeric_path_length,
     const char * name,
     EmitterColumn * column_name,
     MutexColumns64 & column_uint64_t,
     MutexColumns32 & column_uint32_t,
     uint64_t uptime)
 {
-    mallctlLeafPrepare(mib, mib_length, name);
-    size_t mib_length_name = mib_length + 1;
+    mallctlLeafPrepare(numeric_path, numeric_path_length, name);
+    size_t numeric_path_length_name = numeric_path_length + 1;
 
     column_name->str_value = name;
 
-    mutexStatsReadCounters(mib, mib_length_name, column_uint64_t, column_uint32_t, uptime);
+    mutexStatsReadCounters(numeric_path, numeric_path_length_name, column_uint64_t, column_uint32_t, uptime);
 }
 
 /// jemalloc: mutex_stats_read_arena_bin
 void mutexStatsReadArenaBin(
-    size_t * mib, size_t mib_length, MutexColumns64 & column_uint64_t, MutexColumns32 & column_uint32_t, uint64_t uptime)
+    size_t * numeric_path, size_t numeric_path_length, MutexColumns64 & column_uint64_t, MutexColumns32 & column_uint32_t, uint64_t uptime)
 {
-    mallctlLeafPrepare(mib, mib_length, "mutex");
-    size_t mib_length_mutex = mib_length + 1;
+    mallctlLeafPrepare(numeric_path, numeric_path_length, "mutex");
+    size_t numeric_path_length_mutex = numeric_path_length + 1;
 
-    mutexStatsReadCounters(mib, mib_length_mutex, column_uint64_t, column_uint32_t, uptime);
+    mutexStatsReadCounters(numeric_path, numeric_path_length_mutex, column_uint64_t, column_uint32_t, uptime);
 }
 
 /// `row` can be null to avoid emitting in table mode.
@@ -480,17 +480,17 @@ ALLOCATOR_COLD void statsArenaBinsPrint(Emitter & emitter, bool mutex, unsigned 
     emitter.tableRow(header_row);
     emitter.jsonArrayKeyValueBegin("bins");
 
-    size_t stats_arenas_mib[MALLCTL_MAX_DEPTH];
-    mallctlLeafPrepare(stats_arenas_mib, 0, "stats.arenas");
-    stats_arenas_mib[2] = i;
-    mallctlLeafPrepare(stats_arenas_mib, 3, "bins");
+    size_t stats_arenas_numeric_path[MALLCTL_MAX_DEPTH];
+    mallctlLeafPrepare(stats_arenas_numeric_path, 0, "stats.arenas");
+    stats_arenas_numeric_path[2] = i;
+    mallctlLeafPrepare(stats_arenas_numeric_path, 3, "bins");
 
-    size_t arenas_bin_mib[MALLCTL_MAX_DEPTH];
-    mallctlLeafPrepare(arenas_bin_mib, 0, "arenas.bin");
+    size_t arenas_bin_numeric_path[MALLCTL_MAX_DEPTH];
+    mallctlLeafPrepare(arenas_bin_numeric_path, 0, "arenas.bin");
 
-    size_t profiling_stats_mib[MALLCTL_MAX_DEPTH];
+    size_t profiling_stats_numeric_path[MALLCTL_MAX_DEPTH];
     if (profiling_stats_on)
-        mallctlLeafPrepare(profiling_stats_mib, 0, "prof.stats.bins");
+        mallctlLeafPrepare(profiling_stats_numeric_path, 0, "prof.stats.bins");
 
     for (j = 0, in_gap = false; j < num_bins; j++)
     {
@@ -511,16 +511,16 @@ ALLOCATOR_COLD void statsArenaBinsPrint(Emitter & emitter, bool mutex, unsigned 
         ProfilingStatsValue profiling_live;
         ProfilingStatsValue profiling_accumulated;
 
-        stats_arenas_mib[4] = j;
-        arenas_bin_mib[2] = j;
+        stats_arenas_numeric_path[4] = j;
+        arenas_bin_numeric_path[2] = j;
 
-        mallctlLeaf(stats_arenas_mib, 5, "nslabs", &num_slabs);
+        mallctlLeaf(stats_arenas_numeric_path, 5, "nslabs", &num_slabs);
 
         if (profiling_stats_on)
         {
-            profiling_stats_mib[3] = j;
-            mallctlLeaf(profiling_stats_mib, 4, "live", &profiling_live);
-            mallctlLeaf(profiling_stats_mib, 4, "accum", &profiling_accumulated);
+            profiling_stats_numeric_path[3] = j;
+            mallctlLeaf(profiling_stats_numeric_path, 4, "live", &profiling_live);
+            mallctlLeaf(profiling_stats_numeric_path, 4, "accum", &profiling_accumulated);
         }
 
         in_gap_prev = in_gap;
@@ -535,22 +535,22 @@ ALLOCATOR_COLD void statsArenaBinsPrint(Emitter & emitter, bool mutex, unsigned 
         if (in_gap && !emitter.outputsJSON())
             continue;
 
-        mallctlLeaf(arenas_bin_mib, 3, "size", &region_size);
-        mallctlLeaf(arenas_bin_mib, 3, "nregs", &num_regions);
-        mallctlLeaf(arenas_bin_mib, 3, "slab_size", &slab_size);
-        mallctlLeaf(arenas_bin_mib, 3, "nshards", &num_shards);
-        mallctlLeaf(stats_arenas_mib, 5, "nmalloc", &num_allocations);
-        mallctlLeaf(stats_arenas_mib, 5, "ndalloc", &num_deallocations);
-        mallctlLeaf(stats_arenas_mib, 5, "curregs", &current_regions);
-        mallctlLeaf(stats_arenas_mib, 5, "nrequests", &num_requests);
-        mallctlLeaf(stats_arenas_mib, 5, "nfills", &num_fills);
-        mallctlLeaf(stats_arenas_mib, 5, "nflushes", &num_flushes);
-        mallctlLeaf(stats_arenas_mib, 5, "nreslabs", &num_slab_changes);
-        mallctlLeaf(stats_arenas_mib, 5, "curslabs", &current_slabs);
-        mallctlLeaf(stats_arenas_mib, 5, "nonfull_slabs", &non_full_slabs);
+        mallctlLeaf(arenas_bin_numeric_path, 3, "size", &region_size);
+        mallctlLeaf(arenas_bin_numeric_path, 3, "nregs", &num_regions);
+        mallctlLeaf(arenas_bin_numeric_path, 3, "slab_size", &slab_size);
+        mallctlLeaf(arenas_bin_numeric_path, 3, "nshards", &num_shards);
+        mallctlLeaf(stats_arenas_numeric_path, 5, "nmalloc", &num_allocations);
+        mallctlLeaf(stats_arenas_numeric_path, 5, "ndalloc", &num_deallocations);
+        mallctlLeaf(stats_arenas_numeric_path, 5, "curregs", &current_regions);
+        mallctlLeaf(stats_arenas_numeric_path, 5, "nrequests", &num_requests);
+        mallctlLeaf(stats_arenas_numeric_path, 5, "nfills", &num_fills);
+        mallctlLeaf(stats_arenas_numeric_path, 5, "nflushes", &num_flushes);
+        mallctlLeaf(stats_arenas_numeric_path, 5, "nreslabs", &num_slab_changes);
+        mallctlLeaf(stats_arenas_numeric_path, 5, "curslabs", &current_slabs);
+        mallctlLeaf(stats_arenas_numeric_path, 5, "nonfull_slabs", &non_full_slabs);
 
         if (mutex)
-            mutexStatsReadArenaBin(stats_arenas_mib, 5, column_mutex64, column_mutex32, uptime);
+            mutexStatsReadArenaBin(stats_arenas_numeric_path, 5, column_mutex64, column_mutex32, uptime);
 
         emitter.jsonObjectBegin();
         emitter.jsonKeyValue("nmalloc", EmitterType::Uint64, &num_allocations);
@@ -696,17 +696,17 @@ ALLOCATOR_COLD void statsArenaLargeExtentsPrint(Emitter & emitter, unsigned i, u
     emitter.tableRow(header_row);
     emitter.jsonArrayKeyValueBegin("lextents");
 
-    size_t stats_arenas_mib[MALLCTL_MAX_DEPTH];
-    mallctlLeafPrepare(stats_arenas_mib, 0, "stats.arenas");
-    stats_arenas_mib[2] = i;
-    mallctlLeafPrepare(stats_arenas_mib, 3, "lextents");
+    size_t stats_arenas_numeric_path[MALLCTL_MAX_DEPTH];
+    mallctlLeafPrepare(stats_arenas_numeric_path, 0, "stats.arenas");
+    stats_arenas_numeric_path[2] = i;
+    mallctlLeafPrepare(stats_arenas_numeric_path, 3, "lextents");
 
-    size_t arenas_large_extent_mib[MALLCTL_MAX_DEPTH];
-    mallctlLeafPrepare(arenas_large_extent_mib, 0, "arenas.lextent");
+    size_t arenas_large_extent_numeric_path[MALLCTL_MAX_DEPTH];
+    mallctlLeafPrepare(arenas_large_extent_numeric_path, 0, "arenas.lextent");
 
-    size_t profiling_stats_mib[MALLCTL_MAX_DEPTH];
+    size_t profiling_stats_numeric_path[MALLCTL_MAX_DEPTH];
     if (profiling_stats_on)
-        mallctlLeafPrepare(profiling_stats_mib, 0, "prof.stats.lextents");
+        mallctlLeafPrepare(profiling_stats_numeric_path, 0, "prof.stats.lextents");
 
     for (j = 0, in_gap = false; j < num_large_extents; j++)
     {
@@ -718,12 +718,12 @@ ALLOCATOR_COLD void statsArenaLargeExtentsPrint(Emitter & emitter, unsigned i, u
         ProfilingStatsValue profiling_live;
         ProfilingStatsValue profiling_accumulated;
 
-        stats_arenas_mib[4] = j;
-        arenas_large_extent_mib[2] = j;
+        stats_arenas_numeric_path[4] = j;
+        arenas_large_extent_numeric_path[2] = j;
 
-        mallctlLeaf(stats_arenas_mib, 5, "nmalloc", &num_allocations);
-        mallctlLeaf(stats_arenas_mib, 5, "ndalloc", &num_deallocations);
-        mallctlLeaf(stats_arenas_mib, 5, "nrequests", &num_requests);
+        mallctlLeaf(stats_arenas_numeric_path, 5, "nmalloc", &num_allocations);
+        mallctlLeaf(stats_arenas_numeric_path, 5, "ndalloc", &num_deallocations);
+        mallctlLeaf(stats_arenas_numeric_path, 5, "nrequests", &num_requests);
 
         in_gap_prev = in_gap;
         in_gap = (num_requests == 0);
@@ -731,14 +731,14 @@ ALLOCATOR_COLD void statsArenaLargeExtentsPrint(Emitter & emitter, unsigned i, u
         if (in_gap_prev && !in_gap)
             emitter.tablePrintf("                     ---\n");
 
-        mallctlLeaf(arenas_large_extent_mib, 3, "size", &large_extent_size);
-        mallctlLeaf(stats_arenas_mib, 5, "curlextents", &current_large_extents);
+        mallctlLeaf(arenas_large_extent_numeric_path, 3, "size", &large_extent_size);
+        mallctlLeaf(stats_arenas_numeric_path, 5, "curlextents", &current_large_extents);
 
         if (profiling_stats_on)
         {
-            profiling_stats_mib[3] = j;
-            mallctlLeaf(profiling_stats_mib, 4, "live", &profiling_live);
-            mallctlLeaf(profiling_stats_mib, 4, "accum", &profiling_accumulated);
+            profiling_stats_numeric_path[3] = j;
+            mallctlLeaf(profiling_stats_numeric_path, 4, "live", &profiling_live);
+            mallctlLeaf(profiling_stats_numeric_path, 4, "accum", &profiling_accumulated);
         }
 
         emitter.jsonObjectBegin();
@@ -817,10 +817,10 @@ ALLOCATOR_COLD void statsArenaExtentsPrint(Emitter & emitter, unsigned i)
     emitter.tableRow(header_row);
     emitter.jsonArrayKeyValueBegin("extents");
 
-    size_t stats_arenas_mib[MALLCTL_MAX_DEPTH];
-    mallctlLeafPrepare(stats_arenas_mib, 0, "stats.arenas");
-    stats_arenas_mib[2] = i;
-    mallctlLeafPrepare(stats_arenas_mib, 3, "extents");
+    size_t stats_arenas_numeric_path[MALLCTL_MAX_DEPTH];
+    mallctlLeafPrepare(stats_arenas_numeric_path, 0, "stats.arenas");
+    stats_arenas_numeric_path[2] = i;
+    mallctlLeafPrepare(stats_arenas_numeric_path, 3, "extents");
 
     in_gap = false;
     for (j = 0; j < SIZE_CLASS_NUM_PAGE_SIZES; j++)
@@ -833,14 +833,14 @@ ALLOCATOR_COLD void statsArenaExtentsPrint(Emitter & emitter, unsigned i)
         size_t muzzy_bytes;
         size_t retained_bytes;
         size_t total_bytes;
-        stats_arenas_mib[4] = j;
+        stats_arenas_numeric_path[4] = j;
 
-        mallctlLeaf(stats_arenas_mib, 5, "ndirty", &num_dirty);
-        mallctlLeaf(stats_arenas_mib, 5, "nmuzzy", &num_muzzy);
-        mallctlLeaf(stats_arenas_mib, 5, "nretained", &num_retained);
-        mallctlLeaf(stats_arenas_mib, 5, "dirty_bytes", &dirty_bytes);
-        mallctlLeaf(stats_arenas_mib, 5, "muzzy_bytes", &muzzy_bytes);
-        mallctlLeaf(stats_arenas_mib, 5, "retained_bytes", &retained_bytes);
+        mallctlLeaf(stats_arenas_numeric_path, 5, "ndirty", &num_dirty);
+        mallctlLeaf(stats_arenas_numeric_path, 5, "nmuzzy", &num_muzzy);
+        mallctlLeaf(stats_arenas_numeric_path, 5, "nretained", &num_retained);
+        mallctlLeaf(stats_arenas_numeric_path, 5, "dirty_bytes", &dirty_bytes);
+        mallctlLeaf(stats_arenas_numeric_path, 5, "muzzy_bytes", &muzzy_bytes);
+        mallctlLeaf(stats_arenas_numeric_path, 5, "retained_bytes", &retained_bytes);
 
         total = num_dirty + num_muzzy + num_retained;
         total_bytes = dirty_bytes + muzzy_bytes + retained_bytes;
@@ -890,22 +890,22 @@ void statsArenaSmallExtentCachePrint(Emitter & emitter, unsigned i)
     size_t small_extent_cache_deallocate_flush;
     size_t small_extent_cache_deallocate_no_flush;
     size_t small_extent_cache_overfills;
-    mallctlMIB2Get("stats.arenas.0.hpa_sec_bytes", i, &small_extent_cache_bytes);
+    mallctlGetWithPathComponent2("stats.arenas.0.hpa_sec_bytes", i, &small_extent_cache_bytes);
     emitter.keyValue("sec_bytes", "Bytes in small extent cache", EmitterType::Size, &small_extent_cache_bytes);
-    mallctlMIB2Get("stats.arenas.0.hpa_sec_hits", i, &small_extent_cache_hits);
+    mallctlGetWithPathComponent2("stats.arenas.0.hpa_sec_hits", i, &small_extent_cache_hits);
     emitter.keyValue("sec_hits", "Total hits in small extent cache", EmitterType::Size, &small_extent_cache_hits);
-    mallctlMIB2Get("stats.arenas.0.hpa_sec_misses", i, &small_extent_cache_misses);
+    mallctlGetWithPathComponent2("stats.arenas.0.hpa_sec_misses", i, &small_extent_cache_misses);
     emitter.keyValue("sec_misses", "Total misses in small extent cache", EmitterType::Size, &small_extent_cache_misses);
-    mallctlMIB2Get("stats.arenas.0.hpa_sec_dalloc_noflush", i, &small_extent_cache_deallocate_no_flush);
+    mallctlGetWithPathComponent2("stats.arenas.0.hpa_sec_dalloc_noflush", i, &small_extent_cache_deallocate_no_flush);
     emitter.keyValue(
         "sec_dalloc_noflush",
         "Dalloc calls without flush in small extent cache",
         EmitterType::Size,
         &small_extent_cache_deallocate_no_flush);
-    mallctlMIB2Get("stats.arenas.0.hpa_sec_dalloc_flush", i, &small_extent_cache_deallocate_flush);
+    mallctlGetWithPathComponent2("stats.arenas.0.hpa_sec_dalloc_flush", i, &small_extent_cache_deallocate_flush);
     emitter.keyValue(
         "sec_dalloc_flush", "Dalloc calls with flush in small extent cache", EmitterType::Size, &small_extent_cache_deallocate_flush);
-    mallctlMIB2Get("stats.arenas.0.hpa_sec_overfills", i, &small_extent_cache_overfills);
+    mallctlGetWithPathComponent2("stats.arenas.0.hpa_sec_overfills", i, &small_extent_cache_overfills);
     emitter.keyValue("sec_overfills", "sec_fill calls that went over max_bytes", EmitterType::Size, &small_extent_cache_overfills);
 }
 
@@ -931,24 +931,24 @@ void statsArenaHugePageShardCountersPrint(Emitter & emitter, unsigned i, uint64_
     uint64_t num_hugify_failures;
     uint64_t num_dehugifies;
 
-    mallctlMIB2Get("stats.arenas.0.hpa_shard.npageslabs", i, &num_page_slabs);
-    mallctlMIB2Get("stats.arenas.0.hpa_shard.nactive", i, &num_active);
-    mallctlMIB2Get("stats.arenas.0.hpa_shard.ndirty", i, &num_dirty);
+    mallctlGetWithPathComponent2("stats.arenas.0.hpa_shard.npageslabs", i, &num_page_slabs);
+    mallctlGetWithPathComponent2("stats.arenas.0.hpa_shard.nactive", i, &num_active);
+    mallctlGetWithPathComponent2("stats.arenas.0.hpa_shard.ndirty", i, &num_dirty);
 
-    mallctlMIB2Get("stats.arenas.0.hpa_shard.slabs.npageslabs_nonhuge", i, &num_page_slabs_non_huge);
-    mallctlMIB2Get("stats.arenas.0.hpa_shard.slabs.nactive_nonhuge", i, &num_active_non_huge);
-    mallctlMIB2Get("stats.arenas.0.hpa_shard.slabs.ndirty_nonhuge", i, &num_dirty_non_huge);
+    mallctlGetWithPathComponent2("stats.arenas.0.hpa_shard.slabs.npageslabs_nonhuge", i, &num_page_slabs_non_huge);
+    mallctlGetWithPathComponent2("stats.arenas.0.hpa_shard.slabs.nactive_nonhuge", i, &num_active_non_huge);
+    mallctlGetWithPathComponent2("stats.arenas.0.hpa_shard.slabs.ndirty_nonhuge", i, &num_dirty_non_huge);
     num_retained_non_huge = num_page_slabs_non_huge * HUGE_PAGE_PAGES - num_active_non_huge - num_dirty_non_huge;
 
-    mallctlMIB2Get("stats.arenas.0.hpa_shard.slabs.npageslabs_huge", i, &num_page_slabs_huge);
-    mallctlMIB2Get("stats.arenas.0.hpa_shard.slabs.nactive_huge", i, &num_active_huge);
-    mallctlMIB2Get("stats.arenas.0.hpa_shard.slabs.ndirty_huge", i, &num_dirty_huge);
+    mallctlGetWithPathComponent2("stats.arenas.0.hpa_shard.slabs.npageslabs_huge", i, &num_page_slabs_huge);
+    mallctlGetWithPathComponent2("stats.arenas.0.hpa_shard.slabs.nactive_huge", i, &num_active_huge);
+    mallctlGetWithPathComponent2("stats.arenas.0.hpa_shard.slabs.ndirty_huge", i, &num_dirty_huge);
 
-    mallctlMIB2Get("stats.arenas.0.hpa_shard.npurge_passes", i, &num_purge_passes);
-    mallctlMIB2Get("stats.arenas.0.hpa_shard.npurges", i, &num_purges);
-    mallctlMIB2Get("stats.arenas.0.hpa_shard.nhugifies", i, &num_hugifies);
-    mallctlMIB2Get("stats.arenas.0.hpa_shard.nhugify_failures", i, &num_hugify_failures);
-    mallctlMIB2Get("stats.arenas.0.hpa_shard.ndehugifies", i, &num_dehugifies);
+    mallctlGetWithPathComponent2("stats.arenas.0.hpa_shard.npurge_passes", i, &num_purge_passes);
+    mallctlGetWithPathComponent2("stats.arenas.0.hpa_shard.npurges", i, &num_purges);
+    mallctlGetWithPathComponent2("stats.arenas.0.hpa_shard.nhugifies", i, &num_hugifies);
+    mallctlGetWithPathComponent2("stats.arenas.0.hpa_shard.nhugify_failures", i, &num_hugify_failures);
+    mallctlGetWithPathComponent2("stats.arenas.0.hpa_shard.ndehugifies", i, &num_dehugifies);
 
     emitter.tablePrintf(
         "HPA shard stats:\n"
@@ -1020,23 +1020,23 @@ void statsArenaHugePageShardFullOrEmptySlabsPrint(Emitter & emitter, unsigned i,
 
     if (full)
     {
-        mallctlMIB2Get("stats.arenas.0.hpa_shard.full_slabs.npageslabs_huge", i, &num_page_slabs_huge);
-        mallctlMIB2Get("stats.arenas.0.hpa_shard.full_slabs.nactive_huge", i, &num_active_huge);
-        mallctlMIB2Get("stats.arenas.0.hpa_shard.full_slabs.ndirty_huge", i, &num_dirty_huge);
+        mallctlGetWithPathComponent2("stats.arenas.0.hpa_shard.full_slabs.npageslabs_huge", i, &num_page_slabs_huge);
+        mallctlGetWithPathComponent2("stats.arenas.0.hpa_shard.full_slabs.nactive_huge", i, &num_active_huge);
+        mallctlGetWithPathComponent2("stats.arenas.0.hpa_shard.full_slabs.ndirty_huge", i, &num_dirty_huge);
 
-        mallctlMIB2Get("stats.arenas.0.hpa_shard.full_slabs.npageslabs_nonhuge", i, &num_page_slabs_non_huge);
-        mallctlMIB2Get("stats.arenas.0.hpa_shard.full_slabs.nactive_nonhuge", i, &num_active_non_huge);
-        mallctlMIB2Get("stats.arenas.0.hpa_shard.full_slabs.ndirty_nonhuge", i, &num_dirty_non_huge);
+        mallctlGetWithPathComponent2("stats.arenas.0.hpa_shard.full_slabs.npageslabs_nonhuge", i, &num_page_slabs_non_huge);
+        mallctlGetWithPathComponent2("stats.arenas.0.hpa_shard.full_slabs.nactive_nonhuge", i, &num_active_non_huge);
+        mallctlGetWithPathComponent2("stats.arenas.0.hpa_shard.full_slabs.ndirty_nonhuge", i, &num_dirty_non_huge);
     }
     else
     {
-        mallctlMIB2Get("stats.arenas.0.hpa_shard.empty_slabs.npageslabs_huge", i, &num_page_slabs_huge);
-        mallctlMIB2Get("stats.arenas.0.hpa_shard.empty_slabs.nactive_huge", i, &num_active_huge);
-        mallctlMIB2Get("stats.arenas.0.hpa_shard.empty_slabs.ndirty_huge", i, &num_dirty_huge);
+        mallctlGetWithPathComponent2("stats.arenas.0.hpa_shard.empty_slabs.npageslabs_huge", i, &num_page_slabs_huge);
+        mallctlGetWithPathComponent2("stats.arenas.0.hpa_shard.empty_slabs.nactive_huge", i, &num_active_huge);
+        mallctlGetWithPathComponent2("stats.arenas.0.hpa_shard.empty_slabs.ndirty_huge", i, &num_dirty_huge);
 
-        mallctlMIB2Get("stats.arenas.0.hpa_shard.empty_slabs.npageslabs_nonhuge", i, &num_page_slabs_non_huge);
-        mallctlMIB2Get("stats.arenas.0.hpa_shard.empty_slabs.nactive_nonhuge", i, &num_active_non_huge);
-        mallctlMIB2Get("stats.arenas.0.hpa_shard.empty_slabs.ndirty_nonhuge", i, &num_dirty_non_huge);
+        mallctlGetWithPathComponent2("stats.arenas.0.hpa_shard.empty_slabs.npageslabs_nonhuge", i, &num_page_slabs_non_huge);
+        mallctlGetWithPathComponent2("stats.arenas.0.hpa_shard.empty_slabs.nactive_nonhuge", i, &num_active_non_huge);
+        mallctlGetWithPathComponent2("stats.arenas.0.hpa_shard.empty_slabs.ndirty_nonhuge", i, &num_dirty_non_huge);
     }
     num_retained_non_huge = num_page_slabs_non_huge * HUGE_PAGE_PAGES - num_active_non_huge - num_dirty_non_huge;
 
@@ -1111,10 +1111,10 @@ void statsArenaHugePageShardSlabsPrint(Emitter & emitter, unsigned i)
     num_dirty_non_huge_column.init(row, header_row, "ndirty_nonhuge", nullptr, RIGHT, 20, EmitterType::Size);
     num_retained_non_huge_column.init(row, header_row, "nretained_nonhuge", nullptr, RIGHT, 20, EmitterType::Size);
 
-    size_t stats_arenas_mib[MALLCTL_MAX_DEPTH];
-    mallctlLeafPrepare(stats_arenas_mib, 0, "stats.arenas");
-    stats_arenas_mib[2] = i;
-    mallctlLeafPrepare(stats_arenas_mib, 3, "hpa_shard.nonfull_slabs");
+    size_t stats_arenas_numeric_path[MALLCTL_MAX_DEPTH];
+    mallctlLeafPrepare(stats_arenas_numeric_path, 0, "stats.arenas");
+    stats_arenas_numeric_path[2] = i;
+    mallctlLeafPrepare(stats_arenas_numeric_path, 3, "hpa_shard.nonfull_slabs");
 
     emitter.tablePrintf("  In nonfull slabs:\n");
     emitter.tableRow(header_row);
@@ -1122,15 +1122,15 @@ void statsArenaHugePageShardSlabsPrint(Emitter & emitter, unsigned i)
     bool in_gap = false;
     for (PageSizeClassIdx j = 0; j < PAGE_SLAB_SET_NUM_PAGE_SIZES && j < SIZE_CLASS_NUM_PAGE_SIZES; j++)
     {
-        stats_arenas_mib[5] = j;
+        stats_arenas_numeric_path[5] = j;
 
-        mallctlLeaf(stats_arenas_mib, 6, "npageslabs_huge", &num_page_slabs_huge);
-        mallctlLeaf(stats_arenas_mib, 6, "nactive_huge", &num_active_huge);
-        mallctlLeaf(stats_arenas_mib, 6, "ndirty_huge", &num_dirty_huge);
+        mallctlLeaf(stats_arenas_numeric_path, 6, "npageslabs_huge", &num_page_slabs_huge);
+        mallctlLeaf(stats_arenas_numeric_path, 6, "nactive_huge", &num_active_huge);
+        mallctlLeaf(stats_arenas_numeric_path, 6, "ndirty_huge", &num_dirty_huge);
 
-        mallctlLeaf(stats_arenas_mib, 6, "npageslabs_nonhuge", &num_page_slabs_non_huge);
-        mallctlLeaf(stats_arenas_mib, 6, "nactive_nonhuge", &num_active_non_huge);
-        mallctlLeaf(stats_arenas_mib, 6, "ndirty_nonhuge", &num_dirty_non_huge);
+        mallctlLeaf(stats_arenas_numeric_path, 6, "npageslabs_nonhuge", &num_page_slabs_non_huge);
+        mallctlLeaf(stats_arenas_numeric_path, 6, "nactive_nonhuge", &num_active_non_huge);
+        mallctlLeaf(stats_arenas_numeric_path, 6, "ndirty_nonhuge", &num_dirty_non_huge);
         num_retained_non_huge = num_page_slabs_non_huge * HUGE_PAGE_PAGES - num_active_non_huge - num_dirty_non_huge;
 
         bool in_gap_prev = in_gap;
@@ -1190,16 +1190,16 @@ void statsArenaMutexesPrint(Emitter & emitter, unsigned arena_idx, uint64_t upti
     emitter.jsonObjectKeyValueBegin("mutexes");
     emitter.tableRow(row);
 
-    size_t stats_arenas_mib[MALLCTL_MAX_DEPTH];
-    mallctlLeafPrepare(stats_arenas_mib, 0, "stats.arenas");
-    stats_arenas_mib[2] = arena_idx;
-    mallctlLeafPrepare(stats_arenas_mib, 3, "mutexes");
+    size_t stats_arenas_numeric_path[MALLCTL_MAX_DEPTH];
+    mallctlLeafPrepare(stats_arenas_numeric_path, 0, "stats.arenas");
+    stats_arenas_numeric_path[2] = arena_idx;
+    mallctlLeafPrepare(stats_arenas_numeric_path, 3, "mutexes");
 
     for (unsigned i = 0; i < mutex_profiling_num_arena_mutexes; i++)
     {
         const char * name = mutex_profiling_arena_names[i];
         emitter.jsonObjectKeyValueBegin(name);
-        mutexStatsReadNamed(stats_arenas_mib, 4, name, &column_name, column64, column32, uptime);
+        mutexStatsReadNamed(stats_arenas_numeric_path, 4, name, &column_name, column64, column32, uptime);
         mutexStatsEmit(emitter, &row, column64, column32);
         emitter.jsonObjectEnd(); /// Close the mutex dict.
     }
@@ -1231,30 +1231,30 @@ statsArenaPrint(Emitter & emitter, unsigned i, bool bins, bool large, bool mutex
     mallctlGet("arenas.page", &page);
     if (i != MALLCTL_ARENAS_ALL && i != MALLCTL_ARENAS_DESTROYED)
     {
-        mallctlMIB1Get("arena.0.name", i, &name_ptr);
+        mallctlGetWithPathComponent1("arena.0.name", i, &name_ptr);
         emitter.keyValue("name", "name", EmitterType::String, &name_ptr);
     }
 
-    mallctlMIB2Get("stats.arenas.0.nthreads", i, &num_threads);
+    mallctlGetWithPathComponent2("stats.arenas.0.nthreads", i, &num_threads);
     emitter.keyValue("nthreads", "assigned threads", EmitterType::Unsigned, &num_threads);
 
-    mallctlMIB2Get("stats.arenas.0.uptime", i, &uptime);
+    mallctlGetWithPathComponent2("stats.arenas.0.uptime", i, &uptime);
     emitter.keyValue("uptime_ns", "uptime", EmitterType::Uint64, &uptime);
 
-    mallctlMIB2Get("stats.arenas.0.dss", i, &sbrk);
+    mallctlGetWithPathComponent2("stats.arenas.0.dss", i, &sbrk);
     emitter.keyValue("dss", "dss allocation precedence", EmitterType::String, &sbrk);
 
-    mallctlMIB2Get("stats.arenas.0.dirty_decay_ms", i, &dirty_decay_ms);
-    mallctlMIB2Get("stats.arenas.0.muzzy_decay_ms", i, &muzzy_decay_ms);
-    mallctlMIB2Get("stats.arenas.0.pactive", i, &active_pages);
-    mallctlMIB2Get("stats.arenas.0.pdirty", i, &dirty_pages);
-    mallctlMIB2Get("stats.arenas.0.pmuzzy", i, &muzzy_pages);
-    mallctlMIB2Get("stats.arenas.0.dirty_npurge", i, &dirty_num_purge);
-    mallctlMIB2Get("stats.arenas.0.dirty_nmadvise", i, &dirty_num_madvises);
-    mallctlMIB2Get("stats.arenas.0.dirty_purged", i, &dirty_purged);
-    mallctlMIB2Get("stats.arenas.0.muzzy_npurge", i, &muzzy_num_purge);
-    mallctlMIB2Get("stats.arenas.0.muzzy_nmadvise", i, &muzzy_num_madvises);
-    mallctlMIB2Get("stats.arenas.0.muzzy_purged", i, &muzzy_purged);
+    mallctlGetWithPathComponent2("stats.arenas.0.dirty_decay_ms", i, &dirty_decay_ms);
+    mallctlGetWithPathComponent2("stats.arenas.0.muzzy_decay_ms", i, &muzzy_decay_ms);
+    mallctlGetWithPathComponent2("stats.arenas.0.pactive", i, &active_pages);
+    mallctlGetWithPathComponent2("stats.arenas.0.pdirty", i, &dirty_pages);
+    mallctlGetWithPathComponent2("stats.arenas.0.pmuzzy", i, &muzzy_pages);
+    mallctlGetWithPathComponent2("stats.arenas.0.dirty_npurge", i, &dirty_num_purge);
+    mallctlGetWithPathComponent2("stats.arenas.0.dirty_nmadvise", i, &dirty_num_madvises);
+    mallctlGetWithPathComponent2("stats.arenas.0.dirty_purged", i, &dirty_purged);
+    mallctlGetWithPathComponent2("stats.arenas.0.muzzy_npurge", i, &muzzy_num_purge);
+    mallctlGetWithPathComponent2("stats.arenas.0.muzzy_nmadvise", i, &muzzy_num_madvises);
+    mallctlGetWithPathComponent2("stats.arenas.0.muzzy_purged", i, &muzzy_purged);
 
     EmitterRow decay_row;
     decay_row.init();
@@ -1430,14 +1430,14 @@ statsArenaPrint(Emitter & emitter, unsigned i, bool bins, bool large, bool mutex
     /// jemalloc: GET_AND_EMIT_ALLOC_STAT
     auto get_and_emit_size = [&](const char * mallctl_name, const char * json_name, size_t & variable, EmitterColumn & column)
     {
-        mallctlMIB2Get(mallctl_name, i, &variable);
+        mallctlGetWithPathComponent2(mallctl_name, i, &variable);
         emitter.jsonKeyValue(json_name, EmitterType::Size, &variable);
         column.type = EmitterType::Size;
         column.size_value = variable;
     };
     auto get_and_emit_uint64 = [&](const char * mallctl_name, const char * json_name, uint64_t & variable, EmitterColumn & column)
     {
-        mallctlMIB2Get(mallctl_name, i, &variable);
+        mallctlGetWithPathComponent2(mallctl_name, i, &variable);
         emitter.jsonKeyValue(json_name, EmitterType::Uint64, &variable);
         column.type = EmitterType::Uint64;
         column.uint64_value = variable;
@@ -1543,7 +1543,7 @@ statsArenaPrint(Emitter & emitter, unsigned i, bool bins, bool large, bool mutex
     for (const MemoryStat & stat : memory_stats)
     {
         size_t value;
-        mallctlMIB2Get(stat.mallctl_name, i, &value);
+        mallctlGetWithPathComponent2(stat.mallctl_name, i, &value);
         emitter.jsonKeyValue(stat.json_name, EmitterType::Size, &value);
         memory_count_title.str_value = stat.table_name;
         memory_count_value.size_value = value;
@@ -1866,23 +1866,23 @@ ALLOCATOR_COLD void statsGeneralPrint(Emitter & emitter)
     if (emitter.outputsJSON())
     {
         emitter.jsonArrayKeyValueBegin("bin");
-        size_t arenas_bin_mib[MALLCTL_MAX_DEPTH];
-        mallctlLeafPrepare(arenas_bin_mib, 0, "arenas.bin");
+        size_t arenas_bin_numeric_path[MALLCTL_MAX_DEPTH];
+        mallctlLeafPrepare(arenas_bin_numeric_path, 0, "arenas.bin");
         for (unsigned i = 0; i < arenas_num_bins; i++)
         {
-            arenas_bin_mib[2] = i;
+            arenas_bin_numeric_path[2] = i;
             emitter.jsonObjectBegin();
 
-            mallctlLeaf(arenas_bin_mib, 3, "size", &v.size_value);
+            mallctlLeaf(arenas_bin_numeric_path, 3, "size", &v.size_value);
             emitter.jsonKeyValue("size", EmitterType::Size, &v.size_value);
 
-            mallctlLeaf(arenas_bin_mib, 3, "nregs", &u32_value);
+            mallctlLeaf(arenas_bin_numeric_path, 3, "nregs", &u32_value);
             emitter.jsonKeyValue("nregs", EmitterType::Uint32, &u32_value);
 
-            mallctlLeaf(arenas_bin_mib, 3, "slab_size", &v.size_value);
+            mallctlLeaf(arenas_bin_numeric_path, 3, "slab_size", &v.size_value);
             emitter.jsonKeyValue("slab_size", EmitterType::Size, &v.size_value);
 
-            mallctlLeaf(arenas_bin_mib, 3, "nshards", &u32_value);
+            mallctlLeaf(arenas_bin_numeric_path, 3, "nshards", &u32_value);
             emitter.jsonKeyValue("nshards", EmitterType::Uint32, &u32_value);
 
             emitter.jsonObjectEnd();
@@ -1897,14 +1897,14 @@ ALLOCATOR_COLD void statsGeneralPrint(Emitter & emitter)
     if (emitter.outputsJSON())
     {
         emitter.jsonArrayKeyValueBegin("lextent");
-        size_t arenas_large_extent_mib[MALLCTL_MAX_DEPTH];
-        mallctlLeafPrepare(arenas_large_extent_mib, 0, "arenas.lextent");
+        size_t arenas_large_extent_numeric_path[MALLCTL_MAX_DEPTH];
+        mallctlLeafPrepare(arenas_large_extent_numeric_path, 0, "arenas.lextent");
         for (unsigned i = 0; i < num_large_extents; i++)
         {
-            arenas_large_extent_mib[2] = i;
+            arenas_large_extent_numeric_path[2] = i;
             emitter.jsonObjectBegin();
 
-            mallctlLeaf(arenas_large_extent_mib, 3, "size", &v.size_value);
+            mallctlLeaf(arenas_large_extent_numeric_path, 3, "size", &v.size_value);
             emitter.jsonKeyValue("size", EmitterType::Size, &v.size_value);
 
             emitter.jsonObjectEnd();
@@ -2025,13 +2025,13 @@ ALLOCATOR_COLD void statsPrintHelper(
         emitter.tableRow(row);
         emitter.jsonObjectKeyValueBegin("mutexes");
 
-        mallctlMIB2Get("stats.arenas.0.uptime", 0, &uptime);
+        mallctlGetWithPathComponent2("stats.arenas.0.uptime", 0, &uptime);
 
-        size_t stats_mutexes_mib[MALLCTL_MAX_DEPTH];
-        mallctlLeafPrepare(stats_mutexes_mib, 0, "stats.mutexes");
+        size_t stats_mutexes_numeric_path[MALLCTL_MAX_DEPTH];
+        mallctlLeafPrepare(stats_mutexes_numeric_path, 0, "stats.mutexes");
         for (unsigned i = 0; i < mutex_profiling_num_global_mutexes; i++)
         {
-            mutexStatsReadNamed(stats_mutexes_mib, 2, mutex_profiling_global_names[i], &name, column64, column32, uptime);
+            mutexStatsReadNamed(stats_mutexes_numeric_path, 2, mutex_profiling_global_names[i], &name, column64, column32, uptime);
             emitter.jsonObjectKeyValueBegin(mutex_profiling_global_names[i]);
             mutexStatsEmit(emitter, &row, column64, column32);
             emitter.jsonObjectEnd();
@@ -2049,8 +2049,8 @@ ALLOCATOR_COLD void statsPrintHelper(
         emitter.jsonObjectKeyValueBegin("stats.arenas");
 
         mallctlGet("arenas.narenas", &num_arenas);
-        size_t mib[3];
-        size_t mib_length = sizeof(mib) / sizeof(size_t);
+        size_t numeric_path[3];
+        size_t numeric_path_length = sizeof(numeric_path) / sizeof(size_t);
         size_t size;
         /// jemalloc: VARIABLE_ARRAY_UNSAFE (a stack array)
         bool * initialized = static_cast<bool *>(__builtin_alloca(num_arenas * sizeof(bool)));
@@ -2058,18 +2058,18 @@ ALLOCATOR_COLD void statsPrintHelper(
         unsigned i;
         unsigned num_initialized;
 
-        statsMallctlNameToMIBOrAbort("arena.0.initialized", mib, &mib_length);
+        statsMallctlNameToNumericPathOrAbort("arena.0.initialized", numeric_path, &numeric_path_length);
         for (i = num_initialized = 0; i < num_arenas; i++)
         {
-            mib[1] = i;
+            numeric_path[1] = i;
             size = sizeof(bool);
-            statsMallctlByMIBOrAbort(mib, mib_length, &initialized[i], &size, nullptr, 0);
+            statsMallctlByNumericPathOrAbort(numeric_path, numeric_path_length, &initialized[i], &size, nullptr, 0);
             if (initialized[i])
                 num_initialized++;
         }
-        mib[1] = MALLCTL_ARENAS_DESTROYED;
+        numeric_path[1] = MALLCTL_ARENAS_DESTROYED;
         size = sizeof(bool);
-        statsMallctlByMIBOrAbort(mib, mib_length, &destroyed_initialized, &size, nullptr, 0);
+        statsMallctlByNumericPathOrAbort(numeric_path, numeric_path_length, &destroyed_initialized, &size, nullptr, 0);
 
         /// Merged stats.
         if (merged && (num_initialized > 1 || !unmerged))

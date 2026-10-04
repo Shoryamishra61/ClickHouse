@@ -483,13 +483,13 @@ TEST(MallctlExperimentalAPI, ArenasActivePagesPtr)
     uint64_t epoch = 1;
     REQUIRE(je_mallctl("epoch", nullptr, nullptr, &epoch, sizeof(epoch)) == 0);
 
-    size_t mib[4];
-    size_t mib_length = 4;
-    REQUIRE(je_mallctlnametomib("experimental.arenas.0.pactivep", mib, &mib_length) == 0);
-    mib[2] = arena_idx;
+    size_t numeric_path[4];
+    size_t numeric_path_length = 4;
+    REQUIRE(je_mallctl_name_to_numeric_path("experimental.arenas.0.pactivep", numeric_path, &numeric_path_length) == 0);
+    numeric_path[2] = arena_idx;
     size_t * active_pages_ptr = nullptr;
     size_t size_value = sizeof(active_pages_ptr);
-    REQUIRE(je_mallctlbymib(mib, mib_length, &active_pages_ptr, &size_value, nullptr, 0) == 0);
+    REQUIRE(je_mallctl_by_numeric_path(numeric_path, numeric_path_length, &active_pages_ptr, &size_value, nullptr, 0) == 0);
     REQUIRE(active_pages_ptr != nullptr);
 
     ThreadState & thread_state = ThreadState::fetch();
@@ -507,15 +507,15 @@ TEST(MallctlExperimentalAPI, ArenasActivePagesPtr)
 
     /// Errors: wrong sizes (checked before anything else), writes, nonexistent arenas.
     size_t bad_size = sizeof(unsigned);
-    CHECK_EQ(je_mallctlbymib(mib, mib_length, &active_pages_ptr, &bad_size, nullptr, 0), EINVAL);
-    CHECK_EQ(je_mallctlbymib(mib, mib_length, nullptr, &size_value, nullptr, 0), EINVAL);
-    CHECK_EQ(je_mallctlbymib(mib, mib_length, &active_pages_ptr, &size_value, &active_pages_ptr, sizeof(active_pages_ptr)), EPERM);
+    CHECK_EQ(je_mallctl_by_numeric_path(numeric_path, numeric_path_length, &active_pages_ptr, &bad_size, nullptr, 0), EINVAL);
+    CHECK_EQ(je_mallctl_by_numeric_path(numeric_path, numeric_path_length, nullptr, &size_value, nullptr, 0), EINVAL);
+    CHECK_EQ(je_mallctl_by_numeric_path(numeric_path, numeric_path_length, &active_pages_ptr, &size_value, &active_pages_ptr, sizeof(active_pages_ptr)), EPERM);
     /// The index function rejects arenas that do not exist (`ctl_arenas_i_verify`).
-    mib[2] = MALLOCX_ARENA_LIMIT - 1;
-    CHECK_EQ(je_mallctlbymib(mib, mib_length, &active_pages_ptr, &size_value, nullptr, 0), ENOENT);
+    numeric_path[2] = MALLOCX_ARENA_LIMIT - 1;
+    CHECK_EQ(je_mallctl_by_numeric_path(numeric_path, numeric_path_length, &active_pages_ptr, &size_value, nullptr, 0), ENOENT);
     /// `MALLCTL_ARENAS_ALL` passes the index function but is not an arena.
-    mib[2] = MALLCTL_ARENAS_ALL;
-    CHECK_EQ(je_mallctlbymib(mib, mib_length, &active_pages_ptr, &size_value, nullptr, 0), EFAULT);
+    numeric_path[2] = MALLCTL_ARENAS_ALL;
+    CHECK_EQ(je_mallctl_by_numeric_path(numeric_path, numeric_path_length, &active_pages_ptr, &size_value, nullptr, 0), EFAULT);
 }
 
 namespace

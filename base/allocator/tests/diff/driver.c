@@ -515,13 +515,13 @@ static void section_mallctl(void)
         size_value);
     printf("write to read-only -> %d\n", je_mallctl("arenas.page", NULL, NULL, &value, sizeof(value)));
 
-    size_t mib[8];
-    size_t mib_length = 8;
-    printf("nametomib stats.arenas.0.pdirty -> %d len %zu\n", je_mallctlnametomib("stats.arenas.0.pdirty", mib, &mib_length), mib_length);
-    for (size_t i = 0; i < mib_length; ++i)
-        printf("  mib[%zu] = %zu\n", i, mib[i]);
-    mib_length = 8;
-    printf("nametomib partial stats.arenas -> %d len %zu\n", je_mallctlnametomib("stats.arenas", mib, &mib_length), mib_length);
+    size_t numeric_path[8];
+    size_t numeric_path_length = 8;
+    printf("nametomib stats.arenas.0.pdirty -> %d len %zu\n", je_mallctl_name_to_numeric_path("stats.arenas.0.pdirty", numeric_path, &numeric_path_length), numeric_path_length);
+    for (size_t i = 0; i < numeric_path_length; ++i)
+        printf("  numeric_path[%zu] = %zu\n", i, numeric_path[i]);
+    numeric_path_length = 8;
+    printf("nametomib partial stats.arenas -> %d len %zu\n", je_mallctl_name_to_numeric_path("stats.arenas", numeric_path, &numeric_path_length), numeric_path_length);
 
     unsigned old_arena = 0;
     size_value = sizeof(old_arena);

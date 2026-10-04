@@ -147,28 +147,28 @@ int profilingReset(
 /// jemalloc: prof_interval_ctl, lg_prof_sample_ctl (CTL_RO_NL_CGEN(config_prof, ...))
 int profilingInterval(
     ThreadState & thread_state,
-    const size_t * mib,
-    size_t mib_length,
+    const size_t * numeric_path,
+    size_t numeric_path_length,
     void * old_value,
     size_t * old_length_ptr,
     void * new_value,
     size_t new_length)
 {
     return readOnlyNoLockIf<uint64_t, [] { return config::profiling; }, [] { return profiling_interval; }>(
-        thread_state, mib, mib_length, old_value, old_length_ptr, new_value, new_length);
+        thread_state, numeric_path, numeric_path_length, old_value, old_length_ptr, new_value, new_length);
 }
 
 int profilingLog2Sample(
     ThreadState & thread_state,
-    const size_t * mib,
-    size_t mib_length,
+    const size_t * numeric_path,
+    size_t numeric_path_length,
     void * old_value,
     size_t * old_length_ptr,
     void * new_value,
     size_t new_length)
 {
     return readOnlyNoLockIf<size_t, [] { return config::profiling; }, [] { return log2_profiling_sample; }>(
-        thread_state, mib, mib_length, old_value, old_length_ptr, new_value, new_length);
+        thread_state, numeric_path, numeric_path_length, old_value, old_length_ptr, new_value, new_length);
 }
 
 /// `profiling_log` is dropped. jemalloc: prof_log_start_ctl, prof_log_stop_ctl
@@ -190,7 +190,7 @@ enum class ProfilingStatsKind
 /// prof_stats_lextents_i_accum_ctl
 template <ProfilingStatsKind kind>
 int profilingStatsLeaf(
-    ThreadState & thread_state, const size_t * mib, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
+    ThreadState & thread_state, const size_t * numeric_path, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
 {
     if (!(config::profiling && options.profiling && options.profiling_stats))
         return ENOENT;
@@ -198,7 +198,7 @@ int profilingStatsLeaf(
     if (int result = readOnly(new_value, new_length))
         return result;
     unsigned idx;
-    if (int result = mibUnsigned(mib, 3, idx))
+    if (int result = numericPathComponentUnsigned(numeric_path, 3, idx))
         return result;
 
     constexpr bool bins = kind == ProfilingStatsKind::BinsLive || kind == ProfilingStatsKind::BinsAccumulated;
@@ -218,28 +218,28 @@ int profilingStatsLeaf(
 }
 
 int profilingStatsBinsILive(
-    ThreadState & thread_state, const size_t * mib, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
+    ThreadState & thread_state, const size_t * numeric_path, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
 {
-    return profilingStatsLeaf<ProfilingStatsKind::BinsLive>(thread_state, mib, old_value, old_length_ptr, new_value, new_length);
+    return profilingStatsLeaf<ProfilingStatsKind::BinsLive>(thread_state, numeric_path, old_value, old_length_ptr, new_value, new_length);
 }
 
 int profilingStatsBinsIAccumulated(
-    ThreadState & thread_state, const size_t * mib, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
+    ThreadState & thread_state, const size_t * numeric_path, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
 {
-    return profilingStatsLeaf<ProfilingStatsKind::BinsAccumulated>(thread_state, mib, old_value, old_length_ptr, new_value, new_length);
+    return profilingStatsLeaf<ProfilingStatsKind::BinsAccumulated>(thread_state, numeric_path, old_value, old_length_ptr, new_value, new_length);
 }
 
 int profilingStatsLargeExtentsILive(
-    ThreadState & thread_state, const size_t * mib, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
+    ThreadState & thread_state, const size_t * numeric_path, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
 {
-    return profilingStatsLeaf<ProfilingStatsKind::LargeExtentsLive>(thread_state, mib, old_value, old_length_ptr, new_value, new_length);
+    return profilingStatsLeaf<ProfilingStatsKind::LargeExtentsLive>(thread_state, numeric_path, old_value, old_length_ptr, new_value, new_length);
 }
 
 int profilingStatsLargeExtentsIAccumulated(
-    ThreadState & thread_state, const size_t * mib, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
+    ThreadState & thread_state, const size_t * numeric_path, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
 {
     return profilingStatsLeaf<ProfilingStatsKind::LargeExtentsAccumulated>(
-        thread_state, mib, old_value, old_length_ptr, new_value, new_length);
+        thread_state, numeric_path, old_value, old_length_ptr, new_value, new_length);
 }
 
 /// jemalloc: prof_stats_bins_i_index

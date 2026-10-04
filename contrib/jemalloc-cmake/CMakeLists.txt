@@ -177,6 +177,8 @@ if (OS_DARWIN)
     list(APPEND SRCS "${LIBRARY_DIR}/src/zone.c")
 endif ()
 
+list (APPEND SRCS "${CMAKE_CURRENT_SOURCE_DIR}/numeric_path.c")
+
 add_library(_jemalloc ${SRCS})
 
 # First include jemalloc-cmake files, to override anything that jemalloc has.

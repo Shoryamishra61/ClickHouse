@@ -42,15 +42,15 @@ constexpr bool statsEnabled()
 #define ALLOCATOR_MALLCTL_STATS_LEAF(name, type, expr) \
     int name( \
         ThreadState & thread_state, \
-        const size_t * mib, \
-        size_t mib_length, \
+        const size_t * numeric_path, \
+        size_t numeric_path_length, \
         void * old_value, \
         size_t * old_length_ptr, \
         void * new_value, \
         size_t new_length) \
     { \
         return readOnlyLockedIf<type, statsEnabled, [] { return expr; }>( \
-            thread_state, mib, mib_length, old_value, old_length_ptr, new_value, new_length); \
+            thread_state, numeric_path, numeric_path_length, old_value, old_length_ptr, new_value, new_length); \
     }
 
 ALLOCATOR_MALLCTL_STATS_LEAF(statsAllocated, size_t, mallctl_stats->allocated)
@@ -133,15 +133,15 @@ int statsMutexesReset(ThreadState & thread_state, const size_t *, size_t, void *
 /// jemalloc: CTL_RO_CGEN(config_stats, stats_zero_reallocs, atomic_load_zu(&zero_realloc_count, ATOMIC_RELAXED), size_t)
 int statsZeroReallocs(
     ThreadState & thread_state,
-    const size_t * mib,
-    size_t mib_length,
+    const size_t * numeric_path,
+    size_t numeric_path_length,
     void * old_value,
     size_t * old_length_ptr,
     void * new_value,
     size_t new_length)
 {
     return readOnlyLockedIf<size_t, statsEnabled, [] { return zero_realloc_count.load(std::memory_order_relaxed); }>(
-        thread_state, mib, mib_length, old_value, old_length_ptr, new_value, new_length);
+        thread_state, numeric_path, numeric_path_length, old_value, old_length_ptr, new_value, new_length);
 }
 
 /// Live (not the epoch snapshot): the sum of the active pages of all arenas. It should not be compared with other
@@ -172,19 +172,19 @@ int approximateStatsActive(
 /// --- stats.arenas.<i>.* -------------------------------------------------------------------------------------------
 
 /// The basic fields of the slot (`ctl_arena_t`), under `mallctl_mutex`. jemalloc: CTL_RO_GEN(stats_arenas_i_*,
-/// arenas_i(mib[2])->*, ...)
+/// arenas_i(numeric_path[2])->*, ...)
 #define ALLOCATOR_MALLCTL_ARENA_LEAF(name, type, field) \
     int name( \
         ThreadState & thread_state, \
-        const size_t * mib, \
-        size_t mib_length, \
+        const size_t * numeric_path, \
+        size_t numeric_path_length, \
         void * old_value, \
         size_t * old_length_ptr, \
         void * new_value, \
         size_t new_length) \
     { \
         return readOnlyLocked<type, [](const size_t * m) { return arenasI(m[2])->field; }>( \
-            thread_state, mib, mib_length, old_value, old_length_ptr, new_value, new_length); \
+            thread_state, numeric_path, numeric_path_length, old_value, old_length_ptr, new_value, new_length); \
     }
 
 ALLOCATOR_MALLCTL_ARENA_LEAF(statsArenasISbrk, const char *, sbrk)
@@ -198,19 +198,19 @@ ALLOCATOR_MALLCTL_ARENA_LEAF(statsArenasIMuzzyPages, size_t, muzzy_pages)
 #undef ALLOCATOR_MALLCTL_ARENA_LEAF
 
 /// The aggregate small stats of the slot (`ctl_arena_stats_t`). jemalloc: CTL_RO_CGEN(config_stats,
-/// stats_arenas_i_small_*, arenas_i(mib[2])->astats->*_small, ...)
+/// stats_arenas_i_small_*, arenas_i(numeric_path[2])->astats->*_small, ...)
 #define ALLOCATOR_MALLCTL_ARENA_STATS_LEAF(name, type, field) \
     int name( \
         ThreadState & thread_state, \
-        const size_t * mib, \
-        size_t mib_length, \
+        const size_t * numeric_path, \
+        size_t numeric_path_length, \
         void * old_value, \
         size_t * old_length_ptr, \
         void * new_value, \
         size_t new_length) \
     { \
         return readOnlyLockedIf<type, statsEnabled, [](const size_t * m) { return arenasI(m[2])->arena_stats->field; }>( \
-            thread_state, mib, mib_length, old_value, old_length_ptr, new_value, new_length); \
+            thread_state, numeric_path, numeric_path_length, old_value, old_length_ptr, new_value, new_length); \
     }
 
 ALLOCATOR_MALLCTL_ARENA_STATS_LEAF(statsArenasISmallAllocated, size_t, allocated_small)
@@ -225,70 +225,70 @@ ALLOCATOR_MALLCTL_ARENA_STATS_LEAF(statsArenasISmallNumFlushes, uint64_t, num_fl
 namespace
 {
 
-/// `arenas_i(mib[2])->arena_stats` (requires `mallctl_mutex`).
-MallctlArenaStats * slotStats(const size_t * mib)
+/// `arenas_i(numeric_path[2])->arena_stats` (requires `mallctl_mutex`).
+MallctlArenaStats * slotStats(const size_t * numeric_path)
 {
-    return arenasI(mib[2])->arena_stats;
+    return arenasI(numeric_path[2])->arena_stats;
 }
 
-/// `arena_stats->bin_stats[mib[4]]`. The index function accepts `j == SIZE_CLASS_NUM_BINS` (jemalloc compatibility), which reads the
+/// `arena_stats->bin_stats[numeric_path[4]]`. The index function accepts `j == SIZE_CLASS_NUM_BINS` (jemalloc compatibility), which reads the
 /// memory that follows the array (the beginning of `large_stats`), as jemalloc does: the address is computed from the
 /// beginning of the structure.
-const BinStatsData & slotBin(const size_t * mib)
+const BinStatsData & slotBin(const size_t * numeric_path)
 {
-    const MallctlArenaStats * arena_stats = slotStats(mib);
+    const MallctlArenaStats * arena_stats = slotStats(numeric_path);
     return *reinterpret_cast<const BinStatsData *>(
-        reinterpret_cast<const char *>(arena_stats) + offsetof(MallctlArenaStats, bin_stats) + mib[4] * sizeof(BinStatsData));
+        reinterpret_cast<const char *>(arena_stats) + offsetof(MallctlArenaStats, bin_stats) + numeric_path[4] * sizeof(BinStatsData));
 }
 
-/// `arena_stats->large_stats[mib[4]]` (`j == SIZE_CLASS_NUM_SIZES - SIZE_CLASS_NUM_BINS` reads the beginning of `extent_stats`, see above).
-const ArenaStatsLarge & slotLarge(const size_t * mib)
+/// `arena_stats->large_stats[numeric_path[4]]` (`j == SIZE_CLASS_NUM_SIZES - SIZE_CLASS_NUM_BINS` reads the beginning of `extent_stats`, see above).
+const ArenaStatsLarge & slotLarge(const size_t * numeric_path)
 {
-    const MallctlArenaStats * arena_stats = slotStats(mib);
+    const MallctlArenaStats * arena_stats = slotStats(numeric_path);
     return *reinterpret_cast<const ArenaStatsLarge *>(
-        reinterpret_cast<const char *>(arena_stats) + offsetof(MallctlArenaStats, large_stats) + mib[4] * sizeof(ArenaStatsLarge));
+        reinterpret_cast<const char *>(arena_stats) + offsetof(MallctlArenaStats, large_stats) + numeric_path[4] * sizeof(ArenaStatsLarge));
 }
 
-/// `arena_stats->extent_stats[mib[4]]`.
-const PageAllocatorExtentStats & slotExtents(const size_t * mib)
+/// `arena_stats->extent_stats[numeric_path[4]]`.
+const PageAllocatorExtentStats & slotExtents(const size_t * numeric_path)
 {
-    return slotStats(mib)->extent_stats[mib[4]];
+    return slotStats(numeric_path)->extent_stats[numeric_path[4]];
 }
 
-const PageAllocatorStats & slotPageAllocator(const size_t * mib)
+const PageAllocatorStats & slotPageAllocator(const size_t * numeric_path)
 {
-    return slotStats(mib)->arena_stats.page_allocator_shard_stats.page_allocator_stats;
+    return slotStats(numeric_path)->arena_stats.page_allocator_shard_stats.page_allocator_stats;
 }
 
 }
 
-/// jemalloc: CTL_RO_CGEN(config_stats, stats_arenas_i_*, <expr of mib>, type)
+/// jemalloc: CTL_RO_CGEN(config_stats, stats_arenas_i_*, <expr of numeric_path>, type)
 #define ALLOCATOR_MALLCTL_SLOT_LEAF(name, type, expr) \
     int name( \
         ThreadState & thread_state, \
-        const size_t * mib, \
-        size_t mib_length, \
+        const size_t * numeric_path, \
+        size_t numeric_path_length, \
         void * old_value, \
         size_t * old_length_ptr, \
         void * new_value, \
         size_t new_length) \
     { \
         return readOnlyLockedIf<type, statsEnabled, [](const size_t * m) -> type { return expr; }>( \
-            thread_state, mib, mib_length, old_value, old_length_ptr, new_value, new_length); \
+            thread_state, numeric_path, numeric_path_length, old_value, old_length_ptr, new_value, new_length); \
     }
 
-/// jemalloc: CTL_RO_GEN(stats_arenas_i_uptime, nstime_ns(&arenas_i(mib[2])->astats->astats.uptime), uint64_t)
+/// jemalloc: CTL_RO_GEN(stats_arenas_i_uptime, nstime_ns(&arenas_i(numeric_path[2])->astats->astats.uptime), uint64_t)
 int statsArenasIUptime(
     ThreadState & thread_state,
-    const size_t * mib,
-    size_t mib_length,
+    const size_t * numeric_path,
+    size_t numeric_path_length,
     void * old_value,
     size_t * old_length_ptr,
     void * new_value,
     size_t new_length)
 {
     return readOnlyLocked<uint64_t, [](const size_t * m) { return slotStats(m)->arena_stats.uptime.ns(); }>(
-        thread_state, mib, mib_length, old_value, old_length_ptr, new_value, new_length);
+        thread_state, numeric_path, numeric_path_length, old_value, old_length_ptr, new_value, new_length);
 }
 
 ALLOCATOR_MALLCTL_SLOT_LEAF(statsArenasIMapped, size_t, slotStats(m)->arena_stats.mapped)
@@ -345,16 +345,16 @@ ALLOCATOR_MALLCTL_SLOT_LEAF(statsArenasIExtentsJRetainedBytes, size_t, slotExten
 
 /// --- Mutex profiling accessors ---------------------------------------------------------------------------------------
 
-/// `&arenas_i(mib[2])->arena_stats->arena_stats.mutex_profiling_data[idx]`.
-const MutexProfilingData * arenaMutexProfilingData(const size_t * mib, unsigned idx)
+/// `&arenas_i(numeric_path[2])->arena_stats->arena_stats.mutex_profiling_data[idx]`.
+const MutexProfilingData * arenaMutexProfilingData(const size_t * numeric_path, unsigned idx)
 {
-    return &slotStats(mib)->arena_stats.mutex_profiling_data[idx];
+    return &slotStats(numeric_path)->arena_stats.mutex_profiling_data[idx];
 }
 
-/// `&arenas_i(mib[2])->arena_stats->bin_stats[mib[4]].mutex_data`.
-const MutexProfilingData * binMutexProfilingData(const size_t * mib)
+/// `&arenas_i(numeric_path[2])->arena_stats->bin_stats[numeric_path[4]].mutex_data`.
+const MutexProfilingData * binMutexProfilingData(const size_t * numeric_path)
 {
-    return &slotBin(mib).mutex_data;
+    return &slotBin(numeric_path).mutex_data;
 }
 
 }

@@ -133,11 +133,11 @@ ALLOCATOR_ALWAYS_INLINE int assuredWrite(const void * new_value, size_t new_leng
 }
 
 /// jemalloc: MIB_UNSIGNED
-ALLOCATOR_ALWAYS_INLINE int mibUnsigned(const size_t * mib, size_t i, unsigned & value)
+ALLOCATOR_ALWAYS_INLINE int numericPathComponentUnsigned(const size_t * numeric_path, size_t i, unsigned & value)
 {
-    if (mib[i] > UINT_MAX)
+    if (numeric_path[i] > UINT_MAX)
         return EFAULT;
-    value = static_cast<unsigned>(mib[i]);
+    value = static_cast<unsigned>(numeric_path[i]);
     return 0;
 }
 
@@ -302,12 +302,12 @@ unsigned mallctlArenaInit(ThreadState & thread_state, const ArenaConfig * config
 namespace mallctl
 {
 
-/// Calls a value getter, which takes either nothing or the MIB.
+/// Calls a value getter, which takes either nothing or the numeric path.
 template <auto get>
-ALLOCATOR_ALWAYS_INLINE decltype(auto) getValue(const size_t * mib)
+ALLOCATOR_ALWAYS_INLINE decltype(auto) getValue(const size_t * numeric_path)
 {
     if constexpr (std::is_invocable_v<decltype(get), const size_t *>)
-        return get(mib);
+        return get(numeric_path);
     else
         return get();
 }
@@ -315,36 +315,36 @@ ALLOCATOR_ALWAYS_INLINE decltype(auto) getValue(const size_t * mib)
 /// A read-only value, no lock. jemalloc: CTL_RO_NL_GEN, CTL_RO_CONFIG_GEN
 template <typename T, auto get>
 int readOnlyNoLock(
-    ThreadState &, const size_t * mib, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
+    ThreadState &, const size_t * numeric_path, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
 {
     if (int result = readOnly(new_value, new_length))
         return result;
-    T old_setting = getValue<get>(mib);
+    T old_setting = getValue<get>(numeric_path);
     return read(old_value, old_length_ptr, old_setting);
 }
 
 /// A read-only value that exists only if `condition()`, no lock. jemalloc: CTL_RO_NL_CGEN
 template <typename T, auto condition, auto get>
 int readOnlyNoLockIf(
-    ThreadState &, const size_t * mib, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
+    ThreadState &, const size_t * numeric_path, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
 {
     if (!condition())
         return ENOENT;
     if (int result = readOnly(new_value, new_length))
         return result;
-    T old_setting = getValue<get>(mib);
+    T old_setting = getValue<get>(numeric_path);
     return read(old_value, old_length_ptr, old_setting);
 }
 
 /// A read-only value under `mallctl_mutex`. jemalloc: CTL_RO_GEN
 template <typename T, auto get>
 int readOnlyLocked(
-    ThreadState & thread_state, const size_t * mib, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
+    ThreadState & thread_state, const size_t * numeric_path, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
 {
     MutexLock lock(&thread_state, mallctl_mutex);
     if (int result = readOnly(new_value, new_length))
         return result;
-    T old_setting = getValue<get>(mib);
+    T old_setting = getValue<get>(numeric_path);
     return read(old_value, old_length_ptr, old_setting);
 }
 
@@ -352,14 +352,14 @@ int readOnlyLocked(
 /// jemalloc: CTL_RO_CGEN
 template <typename T, auto condition, auto get>
 int readOnlyLockedIf(
-    ThreadState & thread_state, const size_t * mib, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
+    ThreadState & thread_state, const size_t * numeric_path, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
 {
     if (!condition())
         return ENOENT;
     MutexLock lock(&thread_state, mallctl_mutex);
     if (int result = readOnly(new_value, new_length))
         return result;
-    T old_setting = getValue<get>(mib);
+    T old_setting = getValue<get>(numeric_path);
     return read(old_value, old_length_ptr, old_setting);
 }
 
@@ -376,18 +376,18 @@ enum class MutexProfilingCounter : unsigned
 };
 
 /// A mutex profiling leaf: `CTL_RO_CGEN(config_stats, ...)` of one field of the `MutexProfilingData` returned by
-/// `accessor(mib)` (called under `mallctl_mutex`). `max_num_threads` is a `uint32_t`, the rest are `uint64_t`.
+/// `accessor(numeric_path)` (called under `mallctl_mutex`). `max_num_threads` is a `uint32_t`, the rest are `uint64_t`.
 /// jemalloc: RO_MUTEX_CTL_GEN
 template <auto accessor, MutexProfilingCounter counter>
 int mutexProfiling(
-    ThreadState & thread_state, const size_t * mib, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
+    ThreadState & thread_state, const size_t * numeric_path, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
 {
     if constexpr (!config::stats)
         return ENOENT;
     MutexLock lock(&thread_state, mallctl_mutex);
     if (int result = readOnly(new_value, new_length))
         return result;
-    const MutexProfilingData * data = accessor(mib);
+    const MutexProfilingData * data = accessor(numeric_path);
     if constexpr (counter == MutexProfilingCounter::NumOps)
         return read<uint64_t>(old_value, old_length_ptr, data->num_lock_ops);
     else if constexpr (counter == MutexProfilingCounter::NumWait)
@@ -413,17 +413,17 @@ const MutexProfilingData * globalMutexProfilingData(const size_t *)
     return &mallctl_stats->mutex_profiling_data[idx];
 }
 
-/// `arenas_i(mib[2])->arena_stats->arena_stats.mutex_profiling_data[idx]` (MallctlStats.cpp).
-const MutexProfilingData * arenaMutexProfilingData(const size_t * mib, unsigned idx);
+/// `arenas_i(numeric_path[2])->arena_stats->arena_stats.mutex_profiling_data[idx]` (MallctlStats.cpp).
+const MutexProfilingData * arenaMutexProfilingData(const size_t * numeric_path, unsigned idx);
 
 template <unsigned idx>
-const MutexProfilingData * arenaMutexProfilingDataOf(const size_t * mib)
+const MutexProfilingData * arenaMutexProfilingDataOf(const size_t * numeric_path)
 {
-    return arenaMutexProfilingData(mib, idx);
+    return arenaMutexProfilingData(numeric_path, idx);
 }
 
-/// `arenas_i(mib[2])->arena_stats->bin_stats[mib[4]].mutex_data` (MallctlStats.cpp).
-const MutexProfilingData * binMutexProfilingData(const size_t * mib);
+/// `arenas_i(numeric_path[2])->arena_stats->bin_stats[numeric_path[4]].mutex_data` (MallctlStats.cpp).
+const MutexProfilingData * binMutexProfilingData(const size_t * numeric_path);
 
 /// --- Leaves ---------------------------------------------------------------------------------------------------------
 
@@ -498,7 +498,7 @@ MallctlIndex experimentalArenasIIndex;
 
 }
 
-/// Defines a leaf of a dropped feature (returns `ENOENT`); the node is kept so that the MIBs stay identical.
+/// Defines a leaf of a dropped feature (returns `ENOENT`); the node is kept so that the numeric paths stay identical.
 #define ALLOCATOR_MALLCTL_DROPPED(name) \
     int name(ThreadState &, const size_t *, size_t, void *, size_t *, void *, size_t) \
     { \

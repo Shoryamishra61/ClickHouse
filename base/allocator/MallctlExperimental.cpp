@@ -244,7 +244,7 @@ int experimentalUtilizationBatchQuery(
 /// Exposes the underlying counter of active pages for fast reads.
 /// jemalloc: experimental_arenas_i_pactivep_ctl
 int experimentalArenasIActivePagesPtr(
-    ThreadState & thread_state, const size_t * mib, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
+    ThreadState & thread_state, const size_t * numeric_path, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
 {
     if constexpr (!config::stats)
         return ENOENT;
@@ -255,7 +255,7 @@ int experimentalArenasIActivePagesPtr(
     if (int result = readOnly(new_value, new_length))
         return result;
     unsigned arena_idx;
-    if (int result = mibUnsigned(mib, 2, arena_idx))
+    if (int result = numericPathComponentUnsigned(numeric_path, 2, arena_idx))
         return result;
     Arena * arena;
     if (arena_idx < numArenasTotalGet() && (arena = arenaGet(&thread_state, arena_idx, false)) != nullptr)

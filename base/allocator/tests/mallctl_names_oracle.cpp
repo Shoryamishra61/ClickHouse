@@ -1,6 +1,6 @@
 /// Walks every name of the `mallctl` tree (inner nodes and leaves; every indexed level with a set of interesting
 /// indices, including 0, 1, 4095, 4096, 4097 and the bounds of the index functions) and checks that the reference
-/// jemalloc's `mallctlnametomib` gives the same result (error code, MIB length and MIB), also with truncated MIB
+/// jemalloc's `mallctlnametomib` gives the same result (error code, numeric path length and numeric path), also with truncated numeric path
 /// buffers, for lenient index spellings and for names unknown to both. Also checks that no named level of the
 /// reference has more children than ours, and the sizes of the ctl structures.
 
@@ -24,8 +24,8 @@
 
 extern "C" {
 int je_mallctl(const char * name, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length);
-int je_mallctlnametomib(const char * name, size_t * mib_ptr, size_t * mib_length_ptr);
-int je_mallctlbymib(const size_t * mib, size_t mib_length, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length);
+int je_mallctlnametomib(const char * name, size_t * numeric_path_ptr, size_t * numeric_path_length_ptr);
+int je_mallctlbymib(const size_t * numeric_path, size_t numeric_path_length, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length);
 
 size_t ref_sizeof_mallctl_arena();
 size_t ref_sizeof_mallctl_arenas();
@@ -123,24 +123,24 @@ struct Totals
 
 Totals totals;
 
-/// Compares one name (with the full and with truncated MIB buffers). `expected` is the MIB of the name in our tree
+/// Compares one name (with the full and with truncated numeric path buffers). `expected` is the numeric path of the name in our tree
 /// (if `expect_found`).
 void compareName(const char * name, const size_t * expected, size_t expected_len, bool expect_found)
 {
     ++totals.names;
-    size_t ref_mib[MALLCTL_MAX_DEPTH] = {};
-    size_t our_mib[MALLCTL_MAX_DEPTH] = {};
+    size_t ref_numeric_path[MALLCTL_MAX_DEPTH] = {};
+    size_t our_numeric_path[MALLCTL_MAX_DEPTH] = {};
     size_t ref_len = MALLCTL_MAX_DEPTH;
     size_t our_len = MALLCTL_MAX_DEPTH;
-    int ref_result = je_mallctlnametomib(name, ref_mib, &ref_len);
-    int our_result = mallctlNameToMIB(test_thread_state, name, our_mib, &our_len);
+    int ref_result = je_mallctlnametomib(name, ref_numeric_path, &ref_len);
+    int our_result = mallctlNameToNumericPath(test_thread_state, name, our_numeric_path, &our_len);
 
     bool ok = ref_result == our_result;
     if (ok && our_result == 0)
     {
-        ok = ref_len == our_len && std::memcmp(ref_mib, our_mib, our_len * sizeof(size_t)) == 0;
+        ok = ref_len == our_len && std::memcmp(ref_numeric_path, our_numeric_path, our_len * sizeof(size_t)) == 0;
         if (ok && expect_found)
-            ok = our_len == expected_len && std::memcmp(our_mib, expected, our_len * sizeof(size_t)) == 0;
+            ok = our_len == expected_len && std::memcmp(our_numeric_path, expected, our_len * sizeof(size_t)) == 0;
     }
     if (!ok)
     {
@@ -149,10 +149,10 @@ void compareName(const char * name, const size_t * expected, size_t expected_len
         {
             std::fprintf(stderr, "Mismatch for \"%s\": reference %d (len %zu:", name, ref_result, ref_len);
             for (size_t i = 0; i < ref_len && ref_result == 0; ++i)
-                std::fprintf(stderr, " %zu", ref_mib[i]);
+                std::fprintf(stderr, " %zu", ref_numeric_path[i]);
             std::fprintf(stderr, "), ours %d (len %zu:", our_result, our_len);
             for (size_t i = 0; i < our_len && our_result == 0; ++i)
-                std::fprintf(stderr, " %zu", our_mib[i]);
+                std::fprintf(stderr, " %zu", our_numeric_path[i]);
             std::fprintf(stderr, ")\n");
         }
         CHECK(false);
@@ -162,35 +162,35 @@ void compareName(const char * name, const size_t * expected, size_t expected_len
         return;
     ++totals.found;
 
-    /// Truncated MIB buffers return a prefix successfully.
+    /// Truncated numeric path buffers return a prefix successfully.
     for (size_t capacity = 1; capacity < our_len; ++capacity)
     {
-        size_t ref_mib2[MALLCTL_MAX_DEPTH] = {};
-        size_t our_mib2[MALLCTL_MAX_DEPTH] = {};
+        size_t ref_numeric_path2[MALLCTL_MAX_DEPTH] = {};
+        size_t our_numeric_path2[MALLCTL_MAX_DEPTH] = {};
         size_t ref_len2 = capacity;
         size_t our_len2 = capacity;
-        int ref_result2 = je_mallctlnametomib(name, ref_mib2, &ref_len2);
-        int our_result2 = mallctlNameToMIB(test_thread_state, name, our_mib2, &our_len2);
+        int ref_result2 = je_mallctlnametomib(name, ref_numeric_path2, &ref_len2);
+        int our_result2 = mallctlNameToNumericPath(test_thread_state, name, our_numeric_path2, &our_len2);
         CHECK_EQ(our_result2, ref_result2);
         CHECK_EQ(our_len2, ref_len2);
-        CHECK(std::memcmp(ref_mib2, our_mib2, sizeof(ref_mib2)) == 0);
+        CHECK(std::memcmp(ref_numeric_path2, our_numeric_path2, sizeof(ref_numeric_path2)) == 0);
     }
 
-    /// `mallctlMIBNameToMIB` resolves the rest of the name relative to every prefix.
+    /// `mallctlExtendNumericPathByName` resolves the rest of the name relative to every prefix.
     for (const char * dot = std::strchr(name, '.'); dot != nullptr; dot = std::strchr(dot + 1, '.'))
     {
         char prefix[256];
         size_t prefix_len = static_cast<size_t>(dot - name);
         std::memcpy(prefix, name, prefix_len);
         prefix[prefix_len] = '\0';
-        size_t mib[MALLCTL_MAX_DEPTH] = {};
-        size_t mib_length = MALLCTL_MAX_DEPTH;
-        if (mallctlNameToMIB(test_thread_state, prefix, mib, &mib_length) != 0)
+        size_t numeric_path[MALLCTL_MAX_DEPTH] = {};
+        size_t numeric_path_length = MALLCTL_MAX_DEPTH;
+        if (mallctlNameToNumericPath(test_thread_state, prefix, numeric_path, &numeric_path_length) != 0)
             continue;
         size_t total_len = MALLCTL_MAX_DEPTH;
-        CHECK_EQ(mallctlMIBNameToMIB(test_thread_state, mib, mib_length, dot + 1, &total_len), 0);
+        CHECK_EQ(mallctlExtendNumericPathByName(test_thread_state, numeric_path, numeric_path_length, dot + 1, &total_len), 0);
         CHECK_EQ(total_len, our_len);
-        CHECK(std::memcmp(mib, our_mib, our_len * sizeof(size_t)) == 0);
+        CHECK(std::memcmp(numeric_path, our_numeric_path, our_len * sizeof(size_t)) == 0);
     }
 }
 
@@ -225,10 +225,10 @@ void initIndices()
     addIndex(size_t(UINT32_MAX) + 1);
 }
 
-/// Visits `node` (named `name`, MIB `mib[0 .. depth)`) and its subtree.
-void walk(const MallctlNode & node, char * name, size_t name_len, size_t * mib, size_t depth)
+/// Visits `node` (named `name`, numeric path `numeric_path[0 .. depth)`) and its subtree.
+void walk(const MallctlNode & node, char * name, size_t name_len, size_t * numeric_path, size_t depth)
 {
-    compareName(name, mib, depth, true);
+    compareName(name, numeric_path, depth, true);
     if (node.isLeaf())
     {
         ++totals.leaves;
@@ -252,20 +252,20 @@ void walk(const MallctlNode & node, char * name, size_t name_len, size_t * mib, 
         for (size_t k = 0; k < num_indices; ++k)
         {
             int n = std::snprintf(name + name_len, 256 - name_len, ".%zu", indices[k]);
-            mib[depth] = indices[k];
+            numeric_path[depth] = indices[k];
             /// Only valid indices are walked further (the comparison of the node itself covers invalid ones).
-            size_t probe_mib[MALLCTL_MAX_DEPTH];
+            size_t probe_numeric_path[MALLCTL_MAX_DEPTH];
             size_t probe_len = MALLCTL_MAX_DEPTH;
-            bool valid = mallctlNameToMIB(test_thread_state, name, probe_mib, &probe_len) == 0;
-            compareName(name, mib, depth + 1, valid);
+            bool valid = mallctlNameToNumericPath(test_thread_state, name, probe_numeric_path, &probe_len) == 0;
+            compareName(name, numeric_path, depth + 1, valid);
             if (!valid)
                 continue;
             for (size_t j = 0; j < super_node.num_children; ++j)
             {
                 const MallctlNode & child = super_node.children[j];
                 int m = std::snprintf(name + name_len + n, 256 - name_len - n, ".%s", child.name);
-                mib[depth + 1] = j;
-                walk(child, name, name_len + n + m, mib, depth + 2);
+                numeric_path[depth + 1] = j;
+                walk(child, name, name_len + n + m, numeric_path, depth + 2);
             }
         }
         /// Lenient spellings of the index (`malloc_strtoumax` skips whitespace, accepts a sign and stops at the
@@ -291,17 +291,17 @@ void walk(const MallctlNode & node, char * name, size_t name_len, size_t * mib, 
         const MallctlNode & child = node.children[j];
         int n = name_len == 0 ? std::snprintf(name, 256, "%s", child.name)
                               : std::snprintf(name + name_len, 256 - name_len, ".%s", child.name);
-        mib[depth] = j;
-        walk(child, name, name_len + n, mib, depth + 1);
+        numeric_path[depth] = j;
+        walk(child, name, name_len + n, numeric_path, depth + 1);
         name[name_len] = '\0';
     }
 
     /// The reference has no named child past our last one.
     if (depth + 1 <= MALLCTL_MAX_DEPTH)
     {
-        mib[depth] = node.num_children;
-        CHECK_EQ(je_mallctlbymib(mib, depth + 1, nullptr, nullptr, nullptr, 0), ENOENT);
-        CHECK_EQ(mallctlByMIB(test_thread_state, mib, depth + 1, nullptr, nullptr, nullptr, 0), ENOENT);
+        numeric_path[depth] = node.num_children;
+        CHECK_EQ(je_mallctlbymib(numeric_path, depth + 1, nullptr, nullptr, nullptr, 0), ENOENT);
+        CHECK_EQ(mallctlByNumericPath(test_thread_state, numeric_path, depth + 1, nullptr, nullptr, nullptr, 0), ENOENT);
     }
 }
 
@@ -322,8 +322,8 @@ TEST(MallctlNamesOracle, AllNames)
     initIndices();
 
     char name[256] = "";
-    size_t mib[MALLCTL_MAX_DEPTH + 1];
-    walk(mallctl_super_root_node[0], name, 0, mib, 0);
+    size_t numeric_path[MALLCTL_MAX_DEPTH + 1];
+    walk(mallctl_super_root_node[0], name, 0, numeric_path, 0);
 
     std::fprintf(
         stderr,

@@ -318,10 +318,10 @@ bool osOvercommitsSysctl()
     int vm_overcommit;
     size_t size = sizeof(vm_overcommit);
 #if defined(VM_OVERCOMMIT)
-    int mib[2];
-    mib[0] = CTL_VM;
-    mib[1] = VM_OVERCOMMIT;
-    if (::sysctl(mib, 2, &vm_overcommit, &size, nullptr, 0) != 0)
+    int numeric_path[2];
+    numeric_path[0] = CTL_VM;
+    numeric_path[1] = VM_OVERCOMMIT;
+    if (::sysctl(numeric_path, 2, &vm_overcommit, &size, nullptr, 0) != 0)
         return false; /// Error.
 #else
     if (::sysctlbyname("vm.overcommit", &vm_overcommit, &size, nullptr, 0) != 0)

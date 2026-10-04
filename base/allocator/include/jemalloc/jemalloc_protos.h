@@ -58,10 +58,16 @@ JEMALLOC_EXPORT size_t JEMALLOC_NOTHROW je_nallocx(size_t size, int flags)
 
 JEMALLOC_EXPORT int JEMALLOC_NOTHROW    je_mallctl(const char *name,
     void *oldp, size_t *oldlenp, void *newp, size_t newlen);
-JEMALLOC_EXPORT int JEMALLOC_NOTHROW    je_mallctlnametomib(const char *name,
-    size_t *mibp, size_t *miblenp);
-JEMALLOC_EXPORT int JEMALLOC_NOTHROW    je_mallctlbymib(const size_t *mib,
-    size_t miblen, void *oldp, size_t *oldlenp, void *newp, size_t newlen);
+/*
+ * A numeric path is the translation of a dotted mallctl name into an array of integers, one per component (jemalloc
+ * calls it a MIB, "Management Information Base", as in sysctl(3)). Translate a name once with
+ * `je_mallctl_name_to_numeric_path` and then access the value by the numeric path, avoiding the string lookups;
+ * components may be replaced (e.g. the index of an arena).
+ */
+JEMALLOC_EXPORT int JEMALLOC_NOTHROW    je_mallctl_name_to_numeric_path(const char *name,
+    size_t *numeric_path, size_t *numeric_path_length);
+JEMALLOC_EXPORT int JEMALLOC_NOTHROW    je_mallctl_by_numeric_path(const size_t *numeric_path,
+    size_t numeric_path_length, void *oldp, size_t *oldlenp, void *newp, size_t newlen);
 JEMALLOC_EXPORT void JEMALLOC_NOTHROW   je_malloc_stats_print(
     void (*write_cb)(void *, const char *), void *je_cbopaque,
     const char *opts);

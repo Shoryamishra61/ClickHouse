@@ -1,5 +1,5 @@
-/// Unit tests of the `mallctl` machinery (`Mallctl.h`): name and MIB lookup, partial names and MIBs, error codes of the
-/// access checks, the leaves that are implemented without other subsystems. The MIBs of all names are compared with
+/// Unit tests of the `mallctl` machinery (`Mallctl.h`): name and numeric path lookup, partial names and numeric paths, error codes of the
+/// access checks, the leaves that are implemented without other subsystems. The numeric paths of all names are compared with
 /// the reference jemalloc in mallctl_names_oracle.cpp; the values pinned here are jemalloc's.
 
 #include <allocator/Arenas.h>
@@ -77,18 +77,18 @@ void setUp()
     test_thread_state.radix_tree_context.init();
 }
 
-int nameToMIB(const char * name, size_t * mib, size_t * mib_length)
+int nameToNumericPath(const char * name, size_t * numeric_path, size_t * numeric_path_length)
 {
     setUp();
-    return mallctlNameToMIB(test_thread_state, name, mib, mib_length);
+    return mallctlNameToNumericPath(test_thread_state, name, numeric_path, numeric_path_length);
 }
 
-/// Returns the error code; `*mib`/`*len` are filled on success.
-int lookup(const char * name, size_t (&mib)[MALLCTL_MAX_DEPTH], size_t & len)
+/// Returns the error code; `*numeric_path`/`*len` are filled on success.
+int lookup(const char * name, size_t (&numeric_path)[MALLCTL_MAX_DEPTH], size_t & len)
 {
     len = MALLCTL_MAX_DEPTH;
-    std::memset(mib, 0xff, sizeof(mib));
-    return nameToMIB(name, mib, &len);
+    std::memset(numeric_path, 0xff, sizeof(numeric_path));
+    return nameToNumericPath(name, numeric_path, &len);
 }
 
 int byName(const char * name, void * old_value, size_t * old_length_ptr, void * new_value = nullptr, size_t new_length = 0)
@@ -107,19 +107,19 @@ int readValue(const char * name, T & value)
     return result;
 }
 
-void checkMIB(const char * name, std::initializer_list<size_t> expected)
+void checkNumericPath(const char * name, std::initializer_list<size_t> expected)
 {
-    size_t mib[MALLCTL_MAX_DEPTH];
+    size_t numeric_path[MALLCTL_MAX_DEPTH];
     size_t len;
-    int result = lookup(name, mib, len);
+    int result = lookup(name, numeric_path, len);
     CHECK_EQ(result, 0);
     CHECK_EQ(len, expected.size());
     size_t i = 0;
     for (size_t e : expected)
     {
-        if (i < len && mib[i] != e)
+        if (i < len && numeric_path[i] != e)
         {
-            std::fprintf(stderr, "%s: mib[%zu] = %zu, expected %zu\n", name, i, mib[i], e);
+            std::fprintf(stderr, "%s: numeric_path[%zu] = %zu, expected %zu\n", name, i, numeric_path[i], e);
             CHECK(false);
         }
         ++i;
@@ -128,9 +128,9 @@ void checkMIB(const char * name, std::initializer_list<size_t> expected)
 
 void checkNoEntry(const char * name)
 {
-    size_t mib[MALLCTL_MAX_DEPTH];
+    size_t numeric_path[MALLCTL_MAX_DEPTH];
     size_t len;
-    int result = lookup(name, mib, len);
+    int result = lookup(name, numeric_path, len);
     if (result != ENOENT)
     {
         std::fprintf(stderr, "\"%s\": expected ENOENT, got %d\n", name, result);
@@ -140,46 +140,46 @@ void checkNoEntry(const char * name)
 
 }
 
-TEST(Mallctl, NameToMIB)
+TEST(Mallctl, NameToNumericPath)
 {
-    checkMIB("version", {0});
-    checkMIB("epoch", {1});
-    checkMIB("thread.tcache.ncached_max.write", {4, 5, 3, 1});
-    checkMIB("config.xmalloc", {5, 12});
-    checkMIB("opt.abort", {6, 0});
-    checkMIB("opt.lg_extent_max_active_fit", {6, 55});
-    checkMIB("opt.malloc_conf.global_var_2_conf_harder", {6, 78, 3});
-    checkMIB("arena.0.decay", {8, 0, 1});
-    checkMIB("arena.4096.name", {8, 4096, 11});
-    checkMIB("arenas.bin.3.nshards", {9, 9, 3, 3});
-    checkMIB("arenas.lookup", {9, 13});
-    checkMIB("prof.stats", {10, 10});
-    checkMIB("stats.arenas.0.bins.5.mutex.max_num_thds", {11, 11, 0, 34, 5, 10, 6});
-    checkMIB("stats.arenas.4096.hpa_shard.nonfull_slabs.63.ndirty_huge", {11, 11, 4096, 38, 11, 63, 5});
-    checkMIB("stats.arenas.1.hpa_sec_dalloc_noflush", {11, 11, 1, 29});
-    checkMIB("stats.mutexes.reset", {11, 10, 9});
-    checkMIB("stats.zero_reallocs", {11, 12});
-    checkMIB("approximate_stats.active", {12, 0});
-    checkMIB("experimental.thread.activity_callback", {13, 6, 0});
+    checkNumericPath("version", {0});
+    checkNumericPath("epoch", {1});
+    checkNumericPath("thread.tcache.ncached_max.write", {4, 5, 3, 1});
+    checkNumericPath("config.xmalloc", {5, 12});
+    checkNumericPath("opt.abort", {6, 0});
+    checkNumericPath("opt.lg_extent_max_active_fit", {6, 55});
+    checkNumericPath("opt.malloc_conf.global_var_2_conf_harder", {6, 78, 3});
+    checkNumericPath("arena.0.decay", {8, 0, 1});
+    checkNumericPath("arena.4096.name", {8, 4096, 11});
+    checkNumericPath("arenas.bin.3.nshards", {9, 9, 3, 3});
+    checkNumericPath("arenas.lookup", {9, 13});
+    checkNumericPath("prof.stats", {10, 10});
+    checkNumericPath("stats.arenas.0.bins.5.mutex.max_num_thds", {11, 11, 0, 34, 5, 10, 6});
+    checkNumericPath("stats.arenas.4096.hpa_shard.nonfull_slabs.63.ndirty_huge", {11, 11, 4096, 38, 11, 63, 5});
+    checkNumericPath("stats.arenas.1.hpa_sec_dalloc_noflush", {11, 11, 1, 29});
+    checkNumericPath("stats.mutexes.reset", {11, 10, 9});
+    checkNumericPath("stats.zero_reallocs", {11, 12});
+    checkNumericPath("approximate_stats.active", {12, 0});
+    checkNumericPath("experimental.thread.activity_callback", {13, 6, 0});
 }
 
 TEST(Mallctl, PartialNames)
 {
     /// Partial names succeed in `mallctlnametomib`.
-    checkMIB("stats", {11});
-    checkMIB("stats.arenas", {11, 11});
-    checkMIB("stats.arenas.0", {11, 11, 0});
-    checkMIB("arena.4097", {8, 4097});
-    checkMIB("opt.malloc_conf", {6, 78});
+    checkNumericPath("stats", {11});
+    checkNumericPath("stats.arenas", {11, 11});
+    checkNumericPath("stats.arenas.0", {11, 11, 0});
+    checkNumericPath("arena.4097", {8, 4097});
+    checkNumericPath("opt.malloc_conf", {6, 78});
 
-    /// A too-small MIB buffer returns a truncated prefix successfully.
-    size_t mib[MALLCTL_MAX_DEPTH] = {};
+    /// A too-small numeric path buffer returns a truncated prefix successfully.
+    size_t numeric_path[MALLCTL_MAX_DEPTH] = {};
     size_t len = 2;
-    CHECK_EQ(nameToMIB("stats.arenas.0.pactive", mib, &len), 0);
+    CHECK_EQ(nameToNumericPath("stats.arenas.0.pactive", numeric_path, &len), 0);
     CHECK_EQ(len, size_t(2));
-    CHECK_EQ(mib[0], size_t(11));
-    CHECK_EQ(mib[1], size_t(11));
-    CHECK_EQ(mib[2], size_t(0));
+    CHECK_EQ(numeric_path[0], size_t(11));
+    CHECK_EQ(numeric_path[1], size_t(11));
+    CHECK_EQ(numeric_path[2], size_t(0));
 
     /// ... but they are not leaves.
     size_t value_len = sizeof(size_t);
@@ -207,32 +207,32 @@ TEST(Mallctl, InvalidNames)
     checkNoEntry("arena.18446744073709551614");
     checkNoEntry("arena.99999999999999999999.decay");
     /// Arena indices: `i <= num_arenas` (`num_arenas` is the alias of MALLCTL_ARENAS_ALL), 4096, 4097.
-    checkMIB("arena.4", {8, 4});
+    checkNumericPath("arena.4", {8, 4});
     checkNoEntry("arena.5");
     checkNoEntry("arena.4095");
     checkNoEntry("arena.4098");
     /// `stats.arenas.<i>`: only initialized arenas (at the last refresh), the alias, and 4096 (4097 only after a
     /// destroy).
-    checkMIB("stats.arenas.1", {11, 11, 1});
+    checkNumericPath("stats.arenas.1", {11, 11, 1});
     checkNoEntry("stats.arenas.2");
-    checkMIB("stats.arenas.4", {11, 11, 4});
-    checkMIB("stats.arenas.4096", {11, 11, 4096});
+    checkNumericPath("stats.arenas.4", {11, 11, 4});
+    checkNumericPath("stats.arenas.4096", {11, 11, 4096});
     checkNoEntry("stats.arenas.4097");
     checkNoEntry("experimental.arenas.4097");
-    checkMIB("experimental.arenas.0.pactivep", {13, 2, 0, 0});
+    checkNumericPath("experimental.arenas.0.pactivep", {13, 2, 0, 0});
     /// `prof.stats.*` only exist with `profiling` and `profiling_stats`.
     checkNoEntry("prof.stats.bins.0");
-    checkMIB("prof.stats.bins", {10, 10, 0});
+    checkNumericPath("prof.stats.bins", {10, 10, 0});
 }
 
 TEST(Mallctl, LenientIndices)
 {
     /// `malloc_strtoumax` skips whitespace, accepts a sign, and stops at the first non-digit (the element is still
     /// delimited by the dot).
-    checkMIB("stats.arenas.0x.pactive", {11, 11, 0, 5});
-    checkMIB("stats.arenas. 1.pactive", {11, 11, 1, 5});
-    checkMIB("stats.arenas.+1.pactive", {11, 11, 1, 5});
-    checkMIB("arenas.bin.007.size", {9, 9, 7, 0});
+    checkNumericPath("stats.arenas.0x.pactive", {11, 11, 0, 5});
+    checkNumericPath("stats.arenas. 1.pactive", {11, 11, 1, 5});
+    checkNumericPath("stats.arenas.+1.pactive", {11, 11, 1, 5});
+    checkNumericPath("arenas.bin.007.size", {9, 9, 7, 0});
     checkNoEntry("stats.arenas..pactive");
 }
 
@@ -241,17 +241,17 @@ TEST(Mallctl, OffByOneIndices)
     /// jemalloc accepts `SC_NBINS` and `SIZE_CLASS_NUM_SIZES - SIZE_CLASS_NUM_BINS` (off by one) and rejects the next one.
     char name[64];
     std::snprintf(name, sizeof(name), "arenas.bin.%u.size", SIZE_CLASS_NUM_BINS);
-    checkMIB(name, {9, 9, SIZE_CLASS_NUM_BINS, 0});
+    checkNumericPath(name, {9, 9, SIZE_CLASS_NUM_BINS, 0});
     std::snprintf(name, sizeof(name), "arenas.bin.%u.size", SIZE_CLASS_NUM_BINS + 1);
     checkNoEntry(name);
     std::snprintf(name, sizeof(name), "arenas.lextent.%u.size", SIZE_CLASS_NUM_SIZES - SIZE_CLASS_NUM_BINS);
-    checkMIB(name, {9, 11, SIZE_CLASS_NUM_SIZES - SIZE_CLASS_NUM_BINS, 0});
+    checkNumericPath(name, {9, 11, SIZE_CLASS_NUM_SIZES - SIZE_CLASS_NUM_BINS, 0});
     std::snprintf(name, sizeof(name), "arenas.lextent.%u.size", SIZE_CLASS_NUM_SIZES - SIZE_CLASS_NUM_BINS + 1);
     checkNoEntry(name);
     std::snprintf(name, sizeof(name), "stats.arenas.0.bins.%u.nmalloc", SIZE_CLASS_NUM_BINS);
-    checkMIB(name, {11, 11, 0, 34, SIZE_CLASS_NUM_BINS, 0});
+    checkNumericPath(name, {11, 11, 0, 34, SIZE_CLASS_NUM_BINS, 0});
     std::snprintf(name, sizeof(name), "stats.arenas.0.extents.%u.ndirty", SIZE_CLASS_NUM_PAGE_SIZES - 1);
-    checkMIB(name, {11, 11, 0, 36, SIZE_CLASS_NUM_PAGE_SIZES - 1, 0});
+    checkNumericPath(name, {11, 11, 0, 36, SIZE_CLASS_NUM_PAGE_SIZES - 1, 0});
     std::snprintf(name, sizeof(name), "stats.arenas.0.extents.%u.ndirty", SIZE_CLASS_NUM_PAGE_SIZES);
     checkNoEntry(name);
     checkNoEntry("stats.arenas.0.hpa_shard.nonfull_slabs.64");
@@ -267,81 +267,81 @@ TEST(Mallctl, OffByOneIndices)
     CHECK_EQ(size, size_t(0));
 }
 
-TEST(Mallctl, ByMIB)
+TEST(Mallctl, ByNumericPath)
 {
     setUp();
-    size_t mib[MALLCTL_MAX_DEPTH];
+    size_t numeric_path[MALLCTL_MAX_DEPTH];
     size_t len;
-    REQUIRE(lookup("arenas.page", mib, len) == 0);
+    REQUIRE(lookup("arenas.page", numeric_path, len) == 0);
     size_t page = 0;
     size_t page_len = sizeof(page);
-    CHECK_EQ(mallctlByMIB(test_thread_state, mib, len, &page, &page_len, nullptr, 0), 0);
+    CHECK_EQ(mallctlByNumericPath(test_thread_state, numeric_path, len, &page, &page_len, nullptr, 0), 0);
     CHECK_EQ(page, PAGE);
 
-    /// Partial MIB.
-    CHECK_EQ(mallctlByMIB(test_thread_state, mib, 1, &page, &page_len, nullptr, 0), ENOENT);
+    /// Partial numeric path.
+    CHECK_EQ(mallctlByNumericPath(test_thread_state, numeric_path, 1, &page, &page_len, nullptr, 0), ENOENT);
     /// Out of range.
     size_t bad[] = {9, 14};
-    CHECK_EQ(mallctlByMIB(test_thread_state, bad, 2, &page, &page_len, nullptr, 0), ENOENT);
+    CHECK_EQ(mallctlByNumericPath(test_thread_state, bad, 2, &page, &page_len, nullptr, 0), ENOENT);
     size_t bad_root[] = {14};
-    CHECK_EQ(mallctlByMIB(test_thread_state, bad_root, 1, &page, &page_len, nullptr, 0), ENOENT);
+    CHECK_EQ(mallctlByNumericPath(test_thread_state, bad_root, 1, &page, &page_len, nullptr, 0), ENOENT);
     /// Longer than the path.
     size_t longer[] = {9, 4, 0};
-    CHECK_EQ(mallctlByMIB(test_thread_state, longer, 3, &page, &page_len, nullptr, 0), ENOENT);
+    CHECK_EQ(mallctlByNumericPath(test_thread_state, longer, 3, &page, &page_len, nullptr, 0), ENOENT);
     /// Invalid index.
     size_t bad_index[] = {8, 4095, 0};
-    CHECK_EQ(mallctlByMIB(test_thread_state, bad_index, 3, &page, &page_len, nullptr, 0), ENOENT);
-    /// An empty MIB is the root.
-    CHECK_EQ(mallctlByMIB(test_thread_state, mib, 0, &page, &page_len, nullptr, 0), ENOENT);
+    CHECK_EQ(mallctlByNumericPath(test_thread_state, bad_index, 3, &page, &page_len, nullptr, 0), ENOENT);
+    /// An empty numeric path is the root.
+    CHECK_EQ(mallctlByNumericPath(test_thread_state, numeric_path, 0, &page, &page_len, nullptr, 0), ENOENT);
 
-    /// The MIB of `arenas.bin.<i>.size` with every bin.
-    REQUIRE(lookup("arenas.bin.0.size", mib, len) == 0);
+    /// The numeric path of `arenas.bin.<i>.size` with every bin.
+    REQUIRE(lookup("arenas.bin.0.size", numeric_path, len) == 0);
     for (unsigned i = 0; i < SIZE_CLASS_NUM_BINS; ++i)
     {
-        mib[2] = i;
+        numeric_path[2] = i;
         size_t size = 0;
         size_t size_len = sizeof(size);
-        CHECK_EQ(mallctlByMIB(test_thread_state, mib, len, &size, &size_len, nullptr, 0), 0);
+        CHECK_EQ(mallctlByNumericPath(test_thread_state, numeric_path, len, &size, &size_len, nullptr, 0), 0);
         CHECK_EQ(size, size_classes::indexToSize(i));
     }
 }
 
-TEST(Mallctl, MIBNameToMIB)
+TEST(Mallctl, ExtendNumericPathByName)
 {
     setUp();
-    size_t mib[MALLCTL_MAX_DEPTH];
+    size_t numeric_path[MALLCTL_MAX_DEPTH];
     size_t len;
-    REQUIRE(lookup("stats.arenas", mib, len) == 0);
+    REQUIRE(lookup("stats.arenas", numeric_path, len) == 0);
     REQUIRE(len == 2);
 
     size_t total = MALLCTL_MAX_DEPTH;
-    CHECK_EQ(mallctlMIBNameToMIB(test_thread_state, mib, 2, "0.bins.3.curregs", &total), 0);
+    CHECK_EQ(mallctlExtendNumericPathByName(test_thread_state, numeric_path, 2, "0.bins.3.curregs", &total), 0);
     CHECK_EQ(total, size_t(6));
-    CHECK_EQ(mib[2], size_t(0));
-    CHECK_EQ(mib[3], size_t(34));
-    CHECK_EQ(mib[4], size_t(3));
-    CHECK_EQ(mib[5], size_t(3));
+    CHECK_EQ(numeric_path[2], size_t(0));
+    CHECK_EQ(numeric_path[3], size_t(34));
+    CHECK_EQ(numeric_path[4], size_t(3));
+    CHECK_EQ(numeric_path[5], size_t(3));
 
     /// The starting node must not be a leaf.
-    size_t leaf_mib[MALLCTL_MAX_DEPTH];
-    REQUIRE(lookup("version", leaf_mib, len) == 0);
+    size_t leaf_numeric_path[MALLCTL_MAX_DEPTH];
+    REQUIRE(lookup("version", leaf_numeric_path, len) == 0);
     total = MALLCTL_MAX_DEPTH;
-    CHECK_EQ(mallctlMIBNameToMIB(test_thread_state, leaf_mib, 1, "x", &total), ENOENT);
+    CHECK_EQ(mallctlExtendNumericPathByName(test_thread_state, leaf_numeric_path, 1, "x", &total), ENOENT);
     /// Unknown name relative to the node.
     total = MALLCTL_MAX_DEPTH;
-    CHECK_EQ(mallctlMIBNameToMIB(test_thread_state, mib, 2, "0.no_such", &total), ENOENT);
+    CHECK_EQ(mallctlExtendNumericPathByName(test_thread_state, numeric_path, 2, "0.no_such", &total), ENOENT);
 
-    /// `mallctlByMIBName` reads the leaf (here relative to the root).
+    /// `mallctlByNumericPathAndName` reads the leaf (here relative to the root).
     total = MALLCTL_MAX_DEPTH;
     const char * version = nullptr;
     size_t version_len = sizeof(version);
-    CHECK_EQ(mallctlByMIBName(test_thread_state, mib, 0, "version", &total, &version, &version_len, nullptr, 0), 0);
+    CHECK_EQ(mallctlByNumericPathAndName(test_thread_state, numeric_path, 0, "version", &total, &version, &version_len, nullptr, 0), 0);
     CHECK_EQ(total, size_t(1));
     CHECK_STREQ(version, "5.3-RC");
     /// A partial name relative to a node is not a leaf.
-    REQUIRE(lookup("stats.arenas", mib, len) == 0);
+    REQUIRE(lookup("stats.arenas", numeric_path, len) == 0);
     total = MALLCTL_MAX_DEPTH;
-    CHECK_EQ(mallctlByMIBName(test_thread_state, mib, 2, "0", &total, &version, &version_len, nullptr, 0), ENOENT);
+    CHECK_EQ(mallctlByNumericPathAndName(test_thread_state, numeric_path, 2, "0", &total, &version, &version_len, nullptr, 0), ENOENT);
 }
 
 TEST(Mallctl, ReadWriteChecks)
@@ -437,10 +437,10 @@ TEST(Mallctl, AccessCheckHelpers)
     CHECK_EQ(v, 7);
 
     /// MIB_UNSIGNED.
-    size_t mib[] = {0, size_t(UINT_MAX) + 1, UINT_MAX};
+    size_t numeric_path[] = {0, size_t(UINT_MAX) + 1, UINT_MAX};
     unsigned u = 0;
-    CHECK_EQ(mallctl::mibUnsigned(mib, 1, u), EFAULT);
-    CHECK_EQ(mallctl::mibUnsigned(mib, 2, u), 0);
+    CHECK_EQ(mallctl::numericPathComponentUnsigned(numeric_path, 1, u), EFAULT);
+    CHECK_EQ(mallctl::numericPathComponentUnsigned(numeric_path, 2, u), 0);
     CHECK_EQ(u, UINT_MAX);
 }
 
@@ -754,12 +754,12 @@ TEST(Mallctl, TreeShape)
           Expected{"experimental", 7},
           Expected{"experimental.hooks", 8}})
     {
-        size_t mib[MALLCTL_MAX_DEPTH];
+        size_t numeric_path[MALLCTL_MAX_DEPTH];
         size_t len;
-        REQUIRE(lookup(e.name, mib, len) == 0);
+        REQUIRE(lookup(e.name, numeric_path, len) == 0);
         const MallctlNode * node = &root;
         for (size_t i = 0; i < len; ++i)
-            node = &node->children[mib[i]];
+            node = &node->children[numeric_path[i]];
         CHECK_EQ(node->num_children, e.num_children);
     }
 }

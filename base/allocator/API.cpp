@@ -806,24 +806,24 @@ je_mallctl(const char * name, void * old_value, size_t * old_length_ptr, void * 
 }
 
 /// jemalloc: je_mallctlnametomib
-JEMALLOC_EXPORT int JEMALLOC_NOTHROW je_mallctlnametomib(const char * name, size_t * mib_ptr, size_t * mib_length_ptr)
+JEMALLOC_EXPORT int JEMALLOC_NOTHROW je_mallctl_name_to_numeric_path(const char * name, size_t * numeric_path_ptr, size_t * numeric_path_length_ptr)
 {
     if (ALLOCATOR_UNLIKELY(mallocInit()))
         return EAGAIN;
 
     ThreadState & thread_state = ThreadState::fetch();
-    return mallctlNameToMIB(thread_state, name, mib_ptr, mib_length_ptr);
+    return mallctlNameToNumericPath(thread_state, name, numeric_path_ptr, numeric_path_length_ptr);
 }
 
 /// jemalloc: je_mallctlbymib
 JEMALLOC_EXPORT int JEMALLOC_NOTHROW
-je_mallctlbymib(const size_t * mib, size_t mib_length, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
+je_mallctl_by_numeric_path(const size_t * numeric_path, size_t numeric_path_length, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
 {
     if (ALLOCATOR_UNLIKELY(mallocInit()))
         return EAGAIN;
 
     ThreadState & thread_state = ThreadState::fetch();
-    return mallctlByMIB(thread_state, mib, mib_length, old_value, old_length_ptr, new_value, new_length);
+    return mallctlByNumericPath(thread_state, numeric_path, numeric_path_length, old_value, old_length_ptr, new_value, new_length);
 }
 
 /// NB: does not initialize the allocator (like jemalloc).

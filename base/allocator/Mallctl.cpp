@@ -1,4 +1,4 @@
-/// The `mallctl` machinery (jemalloc: `ctl.c`): name and MIB lookup, the entry points, the ctl state (`mallctl_mutex`,
+/// The `mallctl` machinery (jemalloc: `ctl.c`): name and numeric path lookup, the entry points, the ctl state (`mallctl_mutex`,
 /// `mallctl_stats`, `mallctl_arenas`, lazy initialization and the `epoch` refresh) and the leaves and index functions that
 /// depend only on the ctl state.
 
@@ -537,7 +537,7 @@ int mallctlLookup(
     const MallctlNode * starting_node,
     const char * name,
     const MallctlNode ** ending_node_ptr,
-    size_t * mib_ptr,
+    size_t * numeric_path_ptr,
     size_t * depth_ptr)
 {
     const char * element = name;
@@ -561,7 +561,7 @@ int mallctlLookup(
                 if (std::strlen(child->name) == element_length && std::strncmp(element, child->name, element_length) == 0)
                 {
                     node = child;
-                    mib_ptr[i] = j;
+                    numeric_path_ptr[i] = j;
                     break;
                 }
             }
@@ -575,10 +575,10 @@ int mallctlLookup(
             if (index == UINTMAX_MAX || index > SIZE_MAX)
                 return ENOENT;
 
-            if (!node->index(thread_state, mib_ptr, *depth_ptr, static_cast<size_t>(index)))
+            if (!node->index(thread_state, numeric_path_ptr, *depth_ptr, static_cast<size_t>(index)))
                 return ENOENT;
             node = node->children;
-            mib_ptr[i] = static_cast<size_t>(index);
+            numeric_path_ptr[i] = static_cast<size_t>(index);
         }
 
         /// Reached the end?
@@ -606,27 +606,27 @@ int mallctlLookup(
 }
 
 /// jemalloc: ctl_lookupbymib
-int mallctlLookupByMIB(ThreadState * thread_state, const MallctlNode ** ending_node_ptr, const size_t * mib, size_t mib_length)
+int mallctlLookupByNumericPath(ThreadState * thread_state, const MallctlNode ** ending_node_ptr, const size_t * numeric_path, size_t numeric_path_length)
 {
     const MallctlNode * node = mallctl_super_root_node;
-    for (size_t i = 0; i < mib_length; ++i)
+    for (size_t i = 0; i < numeric_path_length; ++i)
     {
         ALLOCATOR_ASSERT(node != nullptr);
         /// jemalloc asserts `node->nchildren > 0` and walks past a terminal node in release builds (undefined
-        /// behavior); a MIB that is longer than the path is rejected instead.
+        /// behavior); a numeric path that is longer than the path is rejected instead.
         if (node->isLeaf())
             return ENOENT;
         if (!node->isIndexed())
         {
             /// Children are named.
-            if (node->num_children <= mib[i])
+            if (node->num_children <= numeric_path[i])
                 return ENOENT;
-            node = &node->children[mib[i]];
+            node = &node->children[numeric_path[i]];
         }
         else
         {
             /// Indexed element.
-            if (!node->index(thread_state, mib, mib_length, mib[i]))
+            if (!node->index(thread_state, numeric_path, numeric_path_length, numeric_path[i]))
                 return ENOENT;
             node = node->children;
         }
@@ -648,31 +648,31 @@ int mallctlByName(
         return EAGAIN;
 
     size_t depth = MALLCTL_MAX_DEPTH;
-    size_t mib[MALLCTL_MAX_DEPTH];
+    size_t numeric_path[MALLCTL_MAX_DEPTH];
     const MallctlNode * node = nullptr;
-    int result = mallctlLookup(&thread_state, mallctl_super_root_node, name, &node, mib, &depth);
+    int result = mallctlLookup(&thread_state, mallctl_super_root_node, name, &node, numeric_path, &depth);
     if (result != 0)
         return result;
 
     if (node != nullptr && node->isLeaf())
-        return node->leaf(thread_state, mib, depth, old_value, old_length_ptr, new_value, new_length);
+        return node->leaf(thread_state, numeric_path, depth, old_value, old_length_ptr, new_value, new_length);
     /// The name refers to a partial path through the ctl tree.
     return ENOENT;
 }
 
 /// jemalloc: ctl_nametomib
-int mallctlNameToMIB(ThreadState & thread_state, const char * name, size_t * mib_ptr, size_t * mib_length_ptr)
+int mallctlNameToNumericPath(ThreadState & thread_state, const char * name, size_t * numeric_path_ptr, size_t * numeric_path_length_ptr)
 {
     if (mallctlEnsureInitialized(thread_state))
         return EAGAIN;
-    return mallctlLookup(&thread_state, mallctl_super_root_node, name, nullptr, mib_ptr, mib_length_ptr);
+    return mallctlLookup(&thread_state, mallctl_super_root_node, name, nullptr, numeric_path_ptr, numeric_path_length_ptr);
 }
 
 /// jemalloc: ctl_bymib
-int mallctlByMIB(
+int mallctlByNumericPath(
     ThreadState & thread_state,
-    const size_t * mib,
-    size_t mib_length,
+    const size_t * numeric_path,
+    size_t numeric_path_length,
     void * old_value,
     size_t * old_length_ptr,
     void * new_value,
@@ -682,45 +682,45 @@ int mallctlByMIB(
         return EAGAIN;
 
     const MallctlNode * node = nullptr;
-    int result = mallctlLookupByMIB(&thread_state, &node, mib, mib_length);
+    int result = mallctlLookupByNumericPath(&thread_state, &node, numeric_path, numeric_path_length);
     if (result != 0)
         return result;
 
     /// Call the ctl function.
     if (node != nullptr && node->isLeaf())
-        return node->leaf(thread_state, mib, mib_length, old_value, old_length_ptr, new_value, new_length);
-    /// Partial MIB.
+        return node->leaf(thread_state, numeric_path, numeric_path_length, old_value, old_length_ptr, new_value, new_length);
+    /// Partial numeric path.
     return ENOENT;
 }
 
 /// jemalloc: ctl_mibnametomib
-int mallctlMIBNameToMIB(ThreadState & thread_state, size_t * mib, size_t mib_length, const char * name, size_t * mib_length_ptr)
+int mallctlExtendNumericPathByName(ThreadState & thread_state, size_t * numeric_path, size_t numeric_path_length, const char * name, size_t * numeric_path_length_ptr)
 {
     if (mallctlEnsureInitialized(thread_state))
         return EAGAIN;
 
     const MallctlNode * node = nullptr;
-    int result = mallctlLookupByMIB(&thread_state, &node, mib, mib_length);
+    int result = mallctlLookupByNumericPath(&thread_state, &node, numeric_path, numeric_path_length);
     if (result != 0)
         return result;
     if (node == nullptr || node->isLeaf())
         return ENOENT;
 
-    ALLOCATOR_ASSERT(mib_length_ptr != nullptr);
-    ALLOCATOR_ASSERT(*mib_length_ptr >= mib_length);
-    *mib_length_ptr -= mib_length;
-    result = mallctlLookup(&thread_state, node, name, nullptr, mib + mib_length, mib_length_ptr);
-    *mib_length_ptr += mib_length;
+    ALLOCATOR_ASSERT(numeric_path_length_ptr != nullptr);
+    ALLOCATOR_ASSERT(*numeric_path_length_ptr >= numeric_path_length);
+    *numeric_path_length_ptr -= numeric_path_length;
+    result = mallctlLookup(&thread_state, node, name, nullptr, numeric_path + numeric_path_length, numeric_path_length_ptr);
+    *numeric_path_length_ptr += numeric_path_length;
     return result;
 }
 
 /// jemalloc: ctl_bymibname
-int mallctlByMIBName(
+int mallctlByNumericPathAndName(
     ThreadState & thread_state,
-    size_t * mib,
-    size_t mib_length,
+    size_t * numeric_path,
+    size_t numeric_path_length,
     const char * name,
-    size_t * mib_length_ptr,
+    size_t * numeric_path_length_ptr,
     void * old_value,
     size_t * old_length_ptr,
     void * new_value,
@@ -730,23 +730,23 @@ int mallctlByMIBName(
         return EAGAIN;
 
     const MallctlNode * node = nullptr;
-    int result = mallctlLookupByMIB(&thread_state, &node, mib, mib_length);
+    int result = mallctlLookupByNumericPath(&thread_state, &node, numeric_path, numeric_path_length);
     if (result != 0)
         return result;
     if (node == nullptr || node->isLeaf())
         return ENOENT;
 
-    ALLOCATOR_ASSERT(mib_length_ptr != nullptr);
-    ALLOCATOR_ASSERT(*mib_length_ptr >= mib_length);
-    *mib_length_ptr -= mib_length;
+    ALLOCATOR_ASSERT(numeric_path_length_ptr != nullptr);
+    ALLOCATOR_ASSERT(*numeric_path_length_ptr >= numeric_path_length);
+    *numeric_path_length_ptr -= numeric_path_length;
     /// The same node supplies the starting node and stores the ending node.
-    result = mallctlLookup(&thread_state, node, name, &node, mib + mib_length, mib_length_ptr);
-    *mib_length_ptr += mib_length;
+    result = mallctlLookup(&thread_state, node, name, &node, numeric_path + numeric_path_length, numeric_path_length_ptr);
+    *numeric_path_length_ptr += numeric_path_length;
     if (result != 0)
         return result;
 
     if (node != nullptr && node->isLeaf())
-        return node->leaf(thread_state, mib, *mib_length_ptr, old_value, old_length_ptr, new_value, new_length);
+        return node->leaf(thread_state, numeric_path, *numeric_path_length_ptr, old_value, old_length_ptr, new_value, new_length);
     /// The name refers to a partial path through the ctl tree.
     return ENOENT;
 }
@@ -792,15 +792,15 @@ namespace mallctl
 /// jemalloc: version_ctl (CTL_RO_NL_GEN)
 int version(
     ThreadState & thread_state,
-    const size_t * mib,
-    size_t mib_length,
+    const size_t * numeric_path,
+    size_t numeric_path_length,
     void * old_value,
     size_t * old_length_ptr,
     void * new_value,
     size_t new_length)
 {
     return readOnlyNoLock<const char *, [] { return JEMALLOC_VERSION; }>(
-        thread_state, mib, mib_length, old_value, old_length_ptr, new_value, new_length);
+        thread_state, numeric_path, numeric_path_length, old_value, old_length_ptr, new_value, new_length);
 }
 
 /// Any write refreshes the statistics snapshot (the written value is ignored); reads return the current epoch.

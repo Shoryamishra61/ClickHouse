@@ -19,12 +19,12 @@ namespace jemalloc::mallctl
 /// The value reflects the last `epoch` refresh (except `arena.<i>.destroy`, which updates it immediately).
 /// jemalloc: arena_i_initialized_ctl
 int arenaIInitialized(
-    ThreadState & thread_state, const size_t * mib, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
+    ThreadState & thread_state, const size_t * numeric_path, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
 {
     if (int result = readOnly(new_value, new_length))
         return result;
     unsigned arena_idx;
-    if (int result = mibUnsigned(mib, 1, arena_idx))
+    if (int result = numericPathComponentUnsigned(numeric_path, 1, arena_idx))
         return result;
 
     bool initialized;
@@ -79,7 +79,7 @@ void arenaIDecayImpl(ThreadState * thread_state, unsigned arena_idx, bool all)
 /// jemalloc: arena_i_reset_destroy_helper
 int arenaIResetDestroyHelper(
     ThreadState & thread_state,
-    const size_t * mib,
+    const size_t * numeric_path,
     void * old_value,
     size_t * old_length_ptr,
     void * new_value,
@@ -89,7 +89,7 @@ int arenaIResetDestroyHelper(
 {
     if (int result = neitherReadNorWrite(old_value, old_length_ptr, new_value, new_length))
         return result;
-    if (int result = mibUnsigned(mib, 1, arena_idx))
+    if (int result = numericPathComponentUnsigned(numeric_path, 1, arena_idx))
         return result;
 
     /// jemalloc reads `arenas[4096]` / `arenas[4097]` (out of bounds) for the merged slots; here they do not exist.
@@ -135,7 +135,7 @@ void arenaResetFinishBackgroundThread(ThreadState & thread_state, unsigned arena
 /// jemalloc: arena_i_decay_ms_ctl_impl
 int arenaIDecayMsImpl(
     ThreadState & thread_state,
-    const size_t * mib,
+    const size_t * numeric_path,
     void * old_value,
     size_t * old_length_ptr,
     void * new_value,
@@ -143,7 +143,7 @@ int arenaIDecayMsImpl(
     bool dirty)
 {
     unsigned arena_idx;
-    if (int result = mibUnsigned(mib, 1, arena_idx))
+    if (int result = numericPathComponentUnsigned(numeric_path, 1, arena_idx))
         return result;
     /// jemalloc reads out of bounds for the merged slots (4096, 4097); here they do not exist.
     Arena * arena = arena_idx < MALLOCX_ARENA_LIMIT ? arenaGet(&thread_state, arena_idx, false) : nullptr;
@@ -191,12 +191,12 @@ int arenasDecayMsImpl(void * old_value, size_t * old_length_ptr, void * new_valu
 
 /// jemalloc: arena_i_decay_ctl
 int arenaIDecay(
-    ThreadState & thread_state, const size_t * mib, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
+    ThreadState & thread_state, const size_t * numeric_path, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
 {
     if (int result = neitherReadNorWrite(old_value, old_length_ptr, new_value, new_length))
         return result;
     unsigned arena_idx;
-    if (int result = mibUnsigned(mib, 1, arena_idx))
+    if (int result = numericPathComponentUnsigned(numeric_path, 1, arena_idx))
         return result;
     arenaIDecayImpl(&thread_state, arena_idx, false);
     return 0;
@@ -204,12 +204,12 @@ int arenaIDecay(
 
 /// jemalloc: arena_i_purge_ctl
 int arenaIPurge(
-    ThreadState & thread_state, const size_t * mib, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
+    ThreadState & thread_state, const size_t * numeric_path, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
 {
     if (int result = neitherReadNorWrite(old_value, old_length_ptr, new_value, new_length))
         return result;
     unsigned arena_idx;
-    if (int result = mibUnsigned(mib, 1, arena_idx))
+    if (int result = numericPathComponentUnsigned(numeric_path, 1, arena_idx))
         return result;
     arenaIDecayImpl(&thread_state, arena_idx, true);
     return 0;
@@ -218,11 +218,11 @@ int arenaIPurge(
 /// Only manual arenas can be reset.
 /// jemalloc: arena_i_reset_ctl
 int arenaIReset(
-    ThreadState & thread_state, const size_t * mib, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
+    ThreadState & thread_state, const size_t * numeric_path, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
 {
     unsigned arena_idx;
     Arena * arena;
-    if (int result = arenaIResetDestroyHelper(thread_state, mib, old_value, old_length_ptr, new_value, new_length, arena_idx, arena))
+    if (int result = arenaIResetDestroyHelper(thread_state, numeric_path, old_value, old_length_ptr, new_value, new_length, arena_idx, arena))
         return result;
 
     arenaResetPrepareBackgroundThread(thread_state, arena_idx);
@@ -235,13 +235,13 @@ int arenaIReset(
 /// slot and the index is recycled by `arenas.create`.
 /// jemalloc: arena_i_destroy_ctl
 int arenaIDestroy(
-    ThreadState & thread_state, const size_t * mib, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
+    ThreadState & thread_state, const size_t * numeric_path, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
 {
     MutexLock lock(&thread_state, mallctl_mutex);
 
     unsigned arena_idx;
     Arena * arena;
-    if (int result = arenaIResetDestroyHelper(thread_state, mib, old_value, old_length_ptr, new_value, new_length, arena_idx, arena))
+    if (int result = arenaIResetDestroyHelper(thread_state, numeric_path, old_value, old_length_ptr, new_value, new_length, arena_idx, arena))
         return result;
 
     if (arenaNumThreadsGet(arena, false) != 0 || arenaNumThreadsGet(arena, true) != 0)
@@ -269,14 +269,14 @@ int arenaIDestroy(
 /// after the set (so it is the new setting).
 /// jemalloc: arena_i_dss_ctl
 int arenaISbrk(
-    ThreadState & thread_state, const size_t * mib, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
+    ThreadState & thread_state, const size_t * numeric_path, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
 {
     MutexLock lock(&thread_state, mallctl_mutex);
     const char * sbrk = nullptr;
     if (int result = write(new_value, new_length, sbrk))
         return result;
     unsigned arena_idx;
-    if (int result = mibUnsigned(mib, 1, arena_idx))
+    if (int result = numericPathComponentUnsigned(numeric_path, 1, arena_idx))
         return result;
 
     SbrkPrecedence sbrk_precedence = SbrkPrecedence::Limit;
@@ -320,10 +320,10 @@ int arenaISbrk(
 /// No validation of the value.
 /// jemalloc: arena_i_oversize_threshold_ctl
 int arenaIOversizeThreshold(
-    ThreadState & thread_state, const size_t * mib, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
+    ThreadState & thread_state, const size_t * numeric_path, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
 {
     unsigned arena_idx;
-    if (int result = mibUnsigned(mib, 1, arena_idx))
+    if (int result = numericPathComponentUnsigned(numeric_path, 1, arena_idx))
         return result;
 
     /// jemalloc reads out of bounds for the merged slots (4096, 4097); here they do not exist.
@@ -349,16 +349,16 @@ int arenaIOversizeThreshold(
 
 /// jemalloc: arena_i_dirty_decay_ms_ctl
 int arenaIDirtyDecayMs(
-    ThreadState & thread_state, const size_t * mib, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
+    ThreadState & thread_state, const size_t * numeric_path, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
 {
-    return arenaIDecayMsImpl(thread_state, mib, old_value, old_length_ptr, new_value, new_length, true);
+    return arenaIDecayMsImpl(thread_state, numeric_path, old_value, old_length_ptr, new_value, new_length, true);
 }
 
 /// jemalloc: arena_i_muzzy_decay_ms_ctl
 int arenaIMuzzyDecayMs(
-    ThreadState & thread_state, const size_t * mib, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
+    ThreadState & thread_state, const size_t * numeric_path, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
 {
-    return arenaIDecayMsImpl(thread_state, mib, old_value, old_length_ptr, new_value, new_length, false);
+    return arenaIDecayMsImpl(thread_state, numeric_path, old_value, old_length_ptr, new_value, new_length, false);
 }
 
 /// Custom extent hooks are not supported (the default hooks are always used): writing any other table than
@@ -366,11 +366,11 @@ int arenaIMuzzyDecayMs(
 /// a missing auto arena creates it.
 /// jemalloc: arena_i_extent_hooks_ctl
 int arenaIExtentHooks(
-    ThreadState & thread_state, const size_t * mib, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
+    ThreadState & thread_state, const size_t * numeric_path, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
 {
     MutexLock lock(&thread_state, mallctl_mutex);
     unsigned arena_idx;
-    if (int result = mibUnsigned(mib, 1, arena_idx))
+    if (int result = numericPathComponentUnsigned(numeric_path, 1, arena_idx))
         return result;
     if (arena_idx >= numArenasTotalGet())
         return EFAULT;
@@ -425,7 +425,7 @@ int arenaIExtentHooks(
 /// Only exists with `opt.retain`.
 /// jemalloc: arena_i_retain_grow_limit_ctl
 int arenaIRetainGrowLimit(
-    ThreadState & thread_state, const size_t * mib, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
+    ThreadState & thread_state, const size_t * numeric_path, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
 {
     if (!options.retain)
     {
@@ -435,7 +435,7 @@ int arenaIRetainGrowLimit(
 
     MutexLock lock(&thread_state, mallctl_mutex);
     unsigned arena_idx;
-    if (int result = mibUnsigned(mib, 1, arena_idx))
+    if (int result = numericPathComponentUnsigned(numeric_path, 1, arena_idx))
         return result;
     Arena * arena;
     if (arena_idx < numArenasTotalGet() && (arena = arenaGet(&thread_state, arena_idx, false)) != nullptr)
@@ -459,11 +459,11 @@ int arenaIRetainGrowLimit(
 /// points to a `char *` buffer of at least `ARENA_NAME_LEN` bytes (or the length of the name when it was set).
 /// jemalloc: arena_i_name_ctl
 int arenaIName(
-    ThreadState & thread_state, const size_t * mib, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
+    ThreadState & thread_state, const size_t * numeric_path, size_t, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
 {
     MutexLock lock(&thread_state, mallctl_mutex);
     unsigned arena_idx;
-    if (int result = mibUnsigned(mib, 1, arena_idx))
+    if (int result = numericPathComponentUnsigned(numeric_path, 1, arena_idx))
         return result;
     if (arena_idx == MALLCTL_ARENAS_ALL || arena_idx >= mallctl_arenas->num_arenas)
         return EINVAL;
@@ -523,29 +523,29 @@ int arenasMuzzyDecayMs(
 /// jemalloc: CTL_RO_NL_GEN(arenas_tcache_max, global_do_not_change_tcache_maxclass, size_t)
 int arenasThreadCacheMax(
     ThreadState & thread_state,
-    const size_t * mib,
-    size_t mib_length,
+    const size_t * numeric_path,
+    size_t numeric_path_length,
     void * old_value,
     size_t * old_length_ptr,
     void * new_value,
     size_t new_length)
 {
     return readOnlyNoLock<size_t, [] { return global_do_not_change_thread_cache_max_class; }>(
-        thread_state, mib, mib_length, old_value, old_length_ptr, new_value, new_length);
+        thread_state, numeric_path, numeric_path_length, old_value, old_length_ptr, new_value, new_length);
 }
 
 /// jemalloc: CTL_RO_NL_GEN(arenas_nhbins, global_do_not_change_tcache_nbins, unsigned)
 int arenasNumThreadCacheBins(
     ThreadState & thread_state,
-    const size_t * mib,
-    size_t mib_length,
+    const size_t * numeric_path,
+    size_t numeric_path_length,
     void * old_value,
     size_t * old_length_ptr,
     void * new_value,
     size_t new_length)
 {
     return readOnlyNoLock<unsigned, [] { return global_do_not_change_thread_cache_num_bins; }>(
-        thread_state, mib, mib_length, old_value, old_length_ptr, new_value, new_length);
+        thread_state, numeric_path, numeric_path_length, old_value, old_length_ptr, new_value, new_length);
 }
 
 /// Custom extent hooks are not supported: writing any other table than `extent_hooks_default_extent_hooks` returns
