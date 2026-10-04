@@ -8997,11 +8997,17 @@ void StorageReplicatedMergeTree::waitForCommittingOpsToFinish(zkutil::ZooKeeperP
         throw Exception(ErrorCodes::TIMEOUT_EXCEEDED, "Failed to sync replica with timeout {}", sync_timeout_ms);
 }
 
-QueryPipeline StorageReplicatedMergeTree::updateLightweight(const MutationCommands & commands, ContextPtr query_context)
+QueryPipeline StorageReplicatedMergeTree::updateLightweight(const MutationCommands & original_commands, ContextPtr query_context)
 {
     auto component_guard = Coordination::setCurrentComponent("StorageReplicatedMergeTree::updateLightweight");
     auto context_copy = Context::createCopy(query_context);
     const auto zookeeper = getZooKeeperAndAssertNotReadonly();
+
+    /// Resolve the partitions of the scoped commands once, as in `mutate`: the block numbers are
+    /// allocated in the partitions they name, and the patch is produced from the same commands, so
+    /// both steps agree on the partitions without evaluating the partition expression twice.
+    MutationCommands commands = original_commands;
+    resolvePartitionIdsOfScopedCommands(commands, query_context);
 
     LightweightUpdateHolderInKeeper update_holder;
     update_holder.zookeeper = zookeeper;
