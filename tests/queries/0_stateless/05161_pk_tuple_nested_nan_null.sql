@@ -196,3 +196,29 @@ SELECT count() FROM t_pk_null_data_assume_not_null WHERE n != 2;
 SELECT count(), sum(x) FROM t_pk_null_data_assume_not_null WHERE n != 2;
 
 DROP TABLE t_pk_null_data_assume_not_null;
+
+-- A `NULL` nested in an `Array` or a `Map` is compared as an ordinary value, so the key analysis of
+-- these keys stays exact; the counts must agree with the row-level filter.
+CREATE TABLE t_pk_array_nested_null (a Array(Nullable(Int32)), x Int32) ENGINE = MergeTree ORDER BY a
+SETTINGS allow_nullable_key = 1, index_granularity = 2;
+
+INSERT INTO t_pk_array_nested_null SELECT if(number % 3 = 0, [NULL], [number::Int32]), 1 FROM numbers(20);
+
+SELECT count() FROM t_pk_array_nested_null WHERE a = [NULL];
+SELECT count(), sum(x) FROM t_pk_array_nested_null WHERE a = [NULL];
+SELECT count() FROM t_pk_array_nested_null WHERE a != [NULL];
+SELECT count(), sum(x) FROM t_pk_array_nested_null WHERE a != [NULL];
+
+DROP TABLE t_pk_array_nested_null;
+
+CREATE TABLE t_pk_map_nested_null_transform (m Map(String, Array(Nullable(Float64))), x Int32) ENGINE = MergeTree
+ORDER BY toString(m) SETTINGS index_granularity = 2;
+
+INSERT INTO t_pk_map_nested_null_transform SELECT map('k', if(number % 3 = 0, [NULL], [number::Float64])), 1 FROM numbers(20);
+
+SELECT count() FROM t_pk_map_nested_null_transform WHERE m = map('k', [NULL]);
+SELECT count(), sum(x) FROM t_pk_map_nested_null_transform WHERE m = map('k', [NULL]);
+SELECT count() FROM t_pk_map_nested_null_transform WHERE m != map('k', [NULL]);
+SELECT count(), sum(x) FROM t_pk_map_nested_null_transform WHERE m != map('k', [NULL]);
+
+DROP TABLE t_pk_map_nested_null_transform;

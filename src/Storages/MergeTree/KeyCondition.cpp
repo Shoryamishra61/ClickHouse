@@ -2685,11 +2685,23 @@ static bool applyDeterministicDagToColumn(
 }
 
 
-/// Returns true if `output_name` depends on `input_name` and the whole sub-DAG is injective w.r.t. that input
 /// Whether a value of `input_type`, the column a deterministic key expression consumes, may hold a `NULL`
 /// that the key value of `key_type` no longer reveals: a top-level `NULL` mapped to a non-`Nullable` key,
-/// or a `NULL` nested in a composite value. `toString` of a `Tuple(Nullable(Int32), Int32)` turns
-/// `(NULL, 1)` into the ordinary string `'(NULL,1)'`.
+/// or a `NULL` nested in a `Tuple`. `toString` of a `Tuple(Nullable(Int32), Int32)` turns `(NULL, 1)`
+/// into the ordinary string `'(NULL,1)'`. Only `Tuple` elements are descended: an `Array` or a `Map`
+/// comparison is `compareAt`-based and answers a definite value for a nested `NULL`.
+static bool tupleTypeMayHoldNestedNull(const DataTypePtr & type)
+{
+    const auto * tuple = typeid_cast<const DataTypeTuple *>(removeLowCardinalityAndNullable(type).get());
+    if (!tuple)
+        return false;
+
+    for (const auto & element : tuple->getElements())
+        if (isNullableOrLowCardinalityNullable(element) || tupleTypeMayHoldNestedNull(element))
+            return true;
+    return false;
+}
+
 static bool deterministicTransformMayHideNull(const DataTypePtr & input_type, const DataTypePtr & key_type)
 {
     if (!input_type || !key_type)
@@ -2698,15 +2710,10 @@ static bool deterministicTransformMayHideNull(const DataTypePtr & input_type, co
     if (isNullableOrLowCardinalityNullable(input_type) && !isNullableOrLowCardinalityNullable(key_type))
         return true;
 
-    bool result = false;
-    removeLowCardinalityAndNullable(input_type)->forEachChild([&](const IDataType & child)
-    {
-        if (child.isNullable() || child.isLowCardinalityNullable())
-            result = true;
-    });
-    return result;
+    return tupleTypeMayHoldNestedNull(input_type);
 }
 
+/// Returns true if `output_name` depends on `input_name` and the whole sub-DAG is injective w.r.t. that input
 /// Assumes this sub-DAG depends only on `input_name` (checked by the caller)
 /// May not catch all cases, but should be sufficient for most practical cases
 /// For example, ORDER BY (intDiv(x, 2), x % 2) is injective w.r.t. x, but this function will return false
@@ -4658,9 +4665,11 @@ bool isRealNullOrNaN(const Field & field)
     return is_real_null || field.isNaN();
 }
 
-/// Whether a `NULL` or a `NaN` sits anywhere inside `field`. `Field::isNull` and `Field::isNaN` only
-/// look at the top level, while a whole-tuple comparison carries its `NULL`s and `NaN`s inside a
-/// `Tuple`.
+/// Whether `field` is a `NULL` or a `NaN`, or one sits inside it below a chain of `Tuple`s.
+/// `Field::isNull` and `Field::isNaN` only look at the top level, while a whole-tuple comparison carries
+/// its `NULL`s and `NaN`s inside a `Tuple`. An `Array` or a `Map` is not descended: its comparison is
+/// `compareAt`-based, so it answers a definite value for a nested `NULL` and orders a nested `NaN`
+/// exactly where the index does.
 ///
 /// In a constant either makes the comparison against it "not true" for every row - `NULL` for a `NULL`
 /// element and false for a `NaN` one - whatever the key values are. In key order both have a definite
@@ -4671,11 +4680,26 @@ bool isRealNullOrNaN(const Field & field)
 /// a comparison range, because the row-level comparison of such a value is false (for a `NaN`) or
 /// `NULL` (for a `NULL`), and `WHERE` rejects both, while key order gives the value a definite position.
 ///
-/// A bound comes from stored key data, so the walk is `anyFieldSatisfies`, whose explicit worklist keeps
-/// the nesting depth of the value off the native stack.
+/// A bound comes from stored key data, so the walk uses an explicit worklist that keeps the nesting
+/// depth of the value off the native stack.
 bool hasNullOrNaNInside(const Field & field)
 {
-    return anyFieldSatisfies(field, isRealNullOrNaN);
+    absl::InlinedVector<const Field *, 16> pending{&field};
+
+    while (!pending.empty())
+    {
+        const Field * current = pending.back();
+        pending.pop_back();
+
+        if (isRealNullOrNaN(*current))
+            return true;
+
+        if (current->getType() == Field::Types::Tuple)
+            for (const Field & element : current->safeGet<Tuple>())
+                pending.push_back(&element);
+    }
+
+    return false;
 }
 
 }
