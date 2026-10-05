@@ -1210,8 +1210,11 @@ String getInsertDataSchemaMismatchDescription(
                     return true;
                 /// The same reasoning as for `Bool` above: the cast-on-read formats build the nested
                 /// value from the text of the source string, so a value like `[1,2]` is valid there.
+                /// As for `Bool`, keep the `Nullable` wrapper (e.g. `Nullable(Tuple(...))`): the cast
+                /// goes through the `Nullable` serialization, which also accepts the `NULL` literal.
                 if (format_casts_string_source_columns && evidence.column_index)
-                    return sampled_string_values_are_valid_text_for(*evidence.column_index, evidence.path, expected_unwrapped)
+                    return sampled_string_values_are_valid_text_for(
+                               *evidence.column_index, evidence.path, removeLowCardinality(expected_type))
                         .value_or(true);
                 return format_casts_string_source_columns;
             }
