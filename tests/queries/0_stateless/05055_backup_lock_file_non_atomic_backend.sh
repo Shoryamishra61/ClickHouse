@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tags: no-parallel
+# Tags: no-parallel, no-fasttest
 # no-parallel: enables a global failpoint
 
 # A lock file holding this attempt's own contents proves the attempt wrote it only when the lock write

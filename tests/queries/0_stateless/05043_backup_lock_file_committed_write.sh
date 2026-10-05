@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tags: no-parallel
+# Tags: no-parallel, no-fasttest
 # no-parallel: enables a global failpoint
 
 # Regression test: `BACKUP` takes the destination by writing its own UUID into the `.lock` file with a

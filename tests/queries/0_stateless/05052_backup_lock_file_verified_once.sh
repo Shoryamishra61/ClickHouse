@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tags: no-parallel
+# Tags: no-parallel, no-fasttest
 # no-parallel: enables global failpoints
 
 # Regression test: when the conditional write of the `.lock` file reports a failure after it had

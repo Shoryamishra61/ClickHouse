@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tags: no-parallel
+# Tags: no-parallel, no-fasttest
 # no-parallel: enables global failpoints
 
 # On a backend without conditional create (`Disk(...)`), the lock write runs in rewrite mode, so a backup
