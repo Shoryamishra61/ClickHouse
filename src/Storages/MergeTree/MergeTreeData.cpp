@@ -6894,7 +6894,10 @@ static bool hasTextIndexMaterialization(const MutationCommands & commands, Stora
 }
 
 void MergeTreeData::checkLossyRecompressionIsPossible(
-    const String & column_name, const StorageMetadataPtr & metadata_snapshot, const IMergeTreeDataPart * source_part) const
+    const String & column_name,
+    const StorageMetadataPtr & metadata_snapshot,
+    const IMergeTreeDataPart * source_part,
+    const AlterConversionsPtr & alter_conversions) const
 {
     const auto & columns = metadata_snapshot->getColumns();
 
@@ -7111,11 +7114,27 @@ void MergeTreeData::checkLossyRecompressionIsPossible(
         return required_columns;
     };
 
+    /// The same holds for a `MATERIALIZED` column the part does not store: after `ADD COLUMN m
+    /// MATERIALIZED f(x)` the older parts carry at most the missing-column marker, and the rewrite of
+    /// `RECOMPRESS COLUMN` does not compute newly added `MATERIALIZED` columns, so there is no stored
+    /// value that could go stale. The part stores its columns under the names they had before the
+    /// pending renames, so look the dependent up under its old name.
+    auto part_stores_column = [&](const String & name)
+    {
+        String name_in_part = alter_conversions && alter_conversions->isColumnRenamed(name)
+            ? alter_conversions->getColumnOldName(name)
+            : name;
+        return source_part->tryGetColumn(name_in_part).has_value();
+    };
+
     for (const auto & dependent_column : columns)
     {
         if (dependent_column.default_desc.kind != ColumnDefaultKind::Materialized
             || !dependent_column.default_desc.expression
             || dependent_column.name == column_name)
+            continue;
+
+        if (source_part && !part_stores_column(dependent_column.name))
             continue;
 
         if (depends_on_recompressed_column(required_source_columns_expanded(dependent_column.default_desc.expression)))
