@@ -5,6 +5,7 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <unordered_set>
 #include <base/defines.h>
 #include <Core/DecimalFunctions.h>
 #include <Core/Mongo/Document.h>
@@ -876,11 +877,31 @@ std::vector<Document> executeSelectIntoCursor(
                 columns.emplace_back(names[i], DataTypeFactory::instance().get(type.GetString()));
             }
 
+            /// A conflict - the columns `a` and `a.b` in one result - keeps the dotted names of both as
+            /// the literal keys they always were, rather than dropping a column. Both sides of it are
+            /// found before anything is inserted, so that the reply does not depend on the order of the
+            /// select list: inserting `a.b` first and then meeting `a` would otherwise leave a subtree
+            /// `a` next to a literal `a`, two members of one name in one document.
+            std::unordered_set<std::string_view> column_names;
+            for (const auto & column : columns)
+                column_names.insert(column.first);
+
+            auto is_conflicting = [&](const String & name)
+            {
+                for (size_t dot = name.find('.'); dot != String::npos; dot = name.find('.', dot + 1))
+                    if (column_names.contains(std::string_view(name).substr(0, dot)))
+                        return true;
+                for (const auto & other : columns)
+                    if (other.first.size() > name.size() && other.first.starts_with(name) && other.first[name.size()] == '.')
+                        return true;
+                return false;
+            };
+
             for (size_t i = 0; i < columns.size(); ++i)
             {
-                /// A conflict - the columns `a` and `a.b` in one result - keeps the dotted name as
-                /// the literal key it always was, rather than dropping the column.
-                if (!insertColumnPath(tree, columns[i].first, i))
+                /// A column name that repeats in the result conflicts with itself only in the tree,
+                /// and is kept as the literal key it was as well.
+                if (is_conflicting(columns[i].first) || !insertColumnPath(tree, columns[i].first, i))
                     tree.entries.push_back({.name = columns[i].first, .column = i, .subtree = nullptr});
             }
             return;

@@ -62,16 +62,21 @@ bool ParserMongoProjection::parseImpl(ASTPtr & node)
         result->children.push_back(child_node);
     }
 
-    if (!excluded.empty() && !result->children.empty())
+    if (!result->children.empty())
     {
         /// Mongo rejects an exclusion inside an inclusion projection, with one exception: the
         /// implicit `_id` may always be suppressed, and `{"name": 1, "_id": 0}` is the usual way
-        /// to ask for "only these fields". This dialect never adds an implicit `_id`, so the
-        /// exclusion has nothing left to do and is simply dropped.
-        std::erase(excluded, "_id");
+        /// to ask for "only these fields".
+        const bool excludes_object_id = std::erase(excluded, "_id") > 0;
         if (!excluded.empty())
             throw Exception(
                 ErrorCodes::BAD_ARGUMENTS, "A projection must not mix inclusion and exclusion of fields, except an exclusion of '_id'");
+
+        /// An inclusion keeps `_id` unless it is excluded, in front of the fields it names. The
+        /// matcher selects nothing from a rowset that has no `_id`, so it is only answered where
+        /// the documents have one.
+        if (!excludes_object_id && !data.HasMember("_id"))
+            result->children.insert(result->children.begin(), makeFieldSubtreeMatcher("_id"));
     }
 
     if (!excluded.empty())

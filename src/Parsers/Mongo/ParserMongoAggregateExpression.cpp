@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
@@ -1061,7 +1062,22 @@ ASTPtr parseMongoAccumulator(const rapidjson::Value & value, const MongoGroupOrd
     if (name == "$firstN" || name == "$lastN")
     {
         auto input = parseMongoAggregateExpression(requireMember(member.value, "input", name));
-        auto count = parseMongoAggregateExpression(requireMember(member.value, "n", name));
+
+        /** Mongo asks for a positive whole number of values, and in a `$group` for one that does not
+          * change within the group. Only a constant is supported: it is a parameter of the aggregate
+          * function below, and anything else - zero, a negative or a fractional count, an expression of
+          * the document - would only fail later, or mean something else, as a ClickHouse argument.
+          */
+        const auto & count_value = requireMember(member.value, "n", name);
+        if (!count_value.IsNumber())
+            throw Exception(
+                ErrorCodes::NOT_IMPLEMENTED, "The 'n' of '{}' must be a constant number: an expression is not supported", name);
+        const double count_number = count_value.GetDouble();
+        if (count_number != std::floor(count_number) || count_number < 1)
+            throw Exception(ErrorCodes::BAD_ARGUMENTS, "The 'n' of '{}' must be a positive whole number", name);
+        if (count_number > double(std::numeric_limits<Int64>::max()))
+            throw Exception(ErrorCodes::BAD_ARGUMENTS, "The 'n' of '{}' is too large", name);
+        auto count = makeLiteral(Field(static_cast<UInt64>(count_number)));
 
         if (!order.empty())
         {

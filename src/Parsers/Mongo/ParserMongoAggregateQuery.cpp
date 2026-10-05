@@ -344,17 +344,22 @@ void translateProject(SelectChain & chain, const rapidjson::Value & stage)
         expandMongoProjectedField(name, value, fields);
     }
 
-    if (!fields.empty() && !excluded.empty())
+    if (!fields.empty())
     {
         /// Mongo rejects an exclusion inside an inclusion projection, with one exception: the
-        /// implicit `_id` may always be suppressed. This dialect never adds an implicit `_id`,
-        /// so the exclusion has nothing left to do and is simply dropped; any other exclusion
-        /// is an error rather than being silently ignored.
-        std::erase(excluded, "_id");
+        /// implicit `_id` may always be suppressed; any other exclusion is an error rather than
+        /// being silently ignored.
+        const bool excludes_object_id = std::erase(excluded, "_id") > 0;
         if (!excluded.empty())
             throw Exception(
                 ErrorCodes::BAD_ARGUMENTS,
                 "The argument of '$project' must not mix inclusion and exclusion of fields, except an exclusion of '_id'");
+
+        /// An inclusion keeps `_id` unless it is excluded, in front of the fields it names: the
+        /// key of a `$group` and the `_id` column of a table come through a `$project` that does
+        /// not mention them. The matcher selects nothing from a rowset that has no `_id`.
+        if (!excludes_object_id && !stage.HasMember("_id"))
+            fields.insert(fields.begin(), {"_id", makeFieldSubtreeMatcher("_id")});
     }
 
     if (!chain.onlyFiltered())
