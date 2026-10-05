@@ -233,6 +233,14 @@ struct ResolvedExpressionList
 ResolvedExpressionList resolveExpressionList(const Block & header, const ASTPtr & expr_list, ContextPtr context)
 {
     auto execution_context = Context::createCopy(context);
+
+    /// A column default containing `x IN table` has its set built in place (see `buildPreparedSetsInplace`),
+    /// by a standalone plan with no initial query around it. Reading old parts passes the global context of
+    /// the storage, which never went through `makeQueryContext` and so carries a zero client version, which a
+    /// distributed set subquery refuses to send. Do as for the scalar subqueries of a standalone expression.
+    execution_context->setSetting("allow_experimental_parallel_reading_from_replicas", Field(0));
+    execution_context->setInitiatorVersionIfUnset();
+
     auto expression = buildQueryTree(expr_list, execution_context);
 
     ColumnsDescription fake_column_descriptions{};
