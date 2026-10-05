@@ -28,3 +28,11 @@ $CLICKHOUSE_CLIENT --query "SELECT count() FROM urlCluster('test_shard_localhost
 $CLICKHOUSE_CLIENT --query "SELECT count() FROM urlCluster('test_shard_localhost', '$URL', TSV) SETTINGS glob_expansion_max_elements = 5" 2>&1 \
     | grep -oF -e "Table function 'urlCluster'" -e "too many result addresses: 21, while at most 5 are allowed" \
     | head -n 2
+
+# The initiator hands out the tasks split on `,`, and every worker splits its task on `|`. The limit is
+# on the addresses of both stages together: two tasks of two failover options each are four addresses.
+URL="${CLICKHOUSE_URL}&query=SELECT+{1,2}{1|2}"
+$CLICKHOUSE_CLIENT --query "SELECT count() FROM urlCluster('test_shard_localhost', '$URL', TSV, 'x UInt64') SETTINGS glob_expansion_max_elements = 3" 2>&1 \
+    | grep -oF -e "Table function 'urlCluster'" -e "too many result addresses: 4, while at most 3 are allowed" \
+    | head -n 2
+$CLICKHOUSE_CLIENT --query "SELECT count() FROM urlCluster('test_shard_localhost', '$URL', TSV, 'x UInt64') SETTINGS glob_expansion_max_elements = 4"

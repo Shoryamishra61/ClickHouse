@@ -23,6 +23,8 @@
 
 #include <TableFunctions/TableFunctionURLCluster.h>
 
+#include <Common/parseRemoteDescription.h>
+#include <atomic>
 #include <memory>
 
 
@@ -167,14 +169,29 @@ void StorageURLCluster::updateQueryToSendIfNeeded(
 RemoteQueryExecutor::Extension StorageURLCluster::getTaskIteratorExtension(
     const ActionsDAG::Node * predicate, const ActionsDAG * /* filter */, const ContextPtr & context, ClusterPtr, StorageMetadataPtr metadata) const
 {
+    const size_t max_addresses = context->getSettingsRef()[Setting::glob_expansion_max_elements];
+    const bool with_globs = urlWithGlobs(uri);
     auto iterator = std::make_shared<StorageURLSource::DisclosedGlobIterator>(
-        uri, urlWithGlobs(uri), context->getSettingsRef()[Setting::glob_expansion_max_elements], predicate, metadata->virtuals.getSampleBlock(VirtualsKind::All, VirtualsMaterializationPlace::Reader).getNamesAndTypesList(), hive_partition_columns_to_read_from_file_path, context, tableFunctionURLClusterCaller());
+        uri, with_globs, max_addresses, predicate, metadata->virtuals.getSampleBlock(VirtualsKind::All, VirtualsMaterializationPlace::Reader).getNamesAndTypesList(), hive_partition_columns_to_read_from_file_path, context, tableFunctionURLClusterCaller());
 
-    auto next_callback = [iter = std::move(iterator)](size_t) mutable -> ClusterFunctionReadTaskResponsePtr
+    /// Every task is expanded into its failover options (`|`) only on the worker, which knows nothing
+    /// about the other tasks. The limit is on the addresses of both stages together, as for `url`, so the
+    /// options of every task are counted here, where all the tasks are handed out: `{1,2}{1|2}` is four
+    /// addresses, not two tasks of two addresses each.
+    auto consumed_addresses = std::make_shared<std::atomic<size_t>>(0);
+    auto next_callback = [iter = std::move(iterator), consumed_addresses, max_addresses, with_globs, uri_ = uri](size_t) mutable
+        -> ClusterFunctionReadTaskResponsePtr
     {
         auto url = iter->next();
         if (url.empty())
             return std::make_shared<ClusterFunctionReadTaskResponse>();
+        if (with_globs)
+        {
+            const auto caller = tableFunctionURLClusterCaller();
+            const size_t options = parseRemoteDescription(url, 0, url.size(), '|', max_addresses, caller).size();
+            if (consumed_addresses->fetch_add(options) + options > max_addresses)
+                throwTooManyAddressesForDescription(uri_, ',', '|', caller, max_addresses);
+        }
         return std::make_shared<ClusterFunctionReadTaskResponse>(std::move(url));
     };
     auto callback = std::make_shared<TaskIterator>(std::move(next_callback));
