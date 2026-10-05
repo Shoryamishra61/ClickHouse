@@ -1154,7 +1154,8 @@ MergeTreeTemporaryPartPtr MergeTreeDataWriter::writeTempPartImpl(
             if (projection_block.rows())
             {
                 auto proj_temp_part
-                    = writeProjectionPart(data, projection_block, projection, new_data_part.get(), compression_codec, /*merge_is_needed=*/false, context);
+                    = writeProjectionPart(
+                        data, projection_block, projection, new_data_part.get(), compression_codec, /*merge_is_needed=*/false, sync_this_part, context);
                 new_data_part->addProjectionPart(projection.name, std::move(proj_temp_part->part));
 
                 if (global_settings[Setting::finalize_projection_parts_synchronously])
@@ -1204,6 +1205,7 @@ MergeTreeTemporaryPartPtr MergeTreeDataWriter::writeProjectionPartImpl(
     MergeTreeIndices indices,
     bool merge_is_needed,
     bool try_adaptive_codec,
+    bool sync,
     bool use_selected_codec)
 {
     auto temp_part = std::make_unique<MergeTreeTemporaryPart>();
@@ -1345,7 +1347,7 @@ MergeTreeTemporaryPartPtr MergeTreeDataWriter::writeProjectionPartImpl(
     Block permuted_columns_cache;
     out->writeWithPermutation(block, perm_ptr, &permuted_columns_cache);
     out->finalizeIndexGranularity();
-    auto finalizer = out->finalizePartAsync(new_data_part, IMergedBlockOutputStream::GatheredData{}, false);
+    auto finalizer = out->finalizePartAsync(new_data_part, IMergedBlockOutputStream::GatheredData{}, sync);
     temp_part->part = new_data_part;
     temp_part->streams.emplace_back(MergeTreeTemporaryPart::Stream{.stream = std::move(out), .finalizer = std::move(finalizer)});
 
@@ -1363,6 +1365,7 @@ MergeTreeTemporaryPartPtr MergeTreeDataWriter::writeProjectionPart(
     IMergeTreeDataPart * parent_part,
     CompressionCodecPtr compression_codec,
     bool merge_is_needed,
+    bool sync,
     ContextPtr context)
 {
     const auto & query_settings = context->getSettingsRef();
@@ -1383,7 +1386,8 @@ MergeTreeTemporaryPartPtr MergeTreeDataWriter::writeProjectionPart(
         std::move(compression_codec),
         std::move(indices),
         merge_is_needed,
-        /*try_adaptive_codec=*/ false);
+        /*try_adaptive_codec=*/ false,
+        sync);
 }
 
 /// This is used for projection materialization process which may contain multiple stages of
@@ -1419,6 +1423,7 @@ MergeTreeTemporaryPartPtr MergeTreeDataWriter::writeTempProjectionPart(
         std::move(indices),
         /*merge_is_needed=*/ true,
         /*try_adaptive_codec=*/ !is_explicit_recompression,
+        /*sync=*/ false,
         use_selected_codec);
 
     new_part->part->temp_projection_block_number = block_num;

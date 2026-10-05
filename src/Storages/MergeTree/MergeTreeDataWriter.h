@@ -116,6 +116,9 @@ public:
     /// For insertion.
     /// `compression_codec` is the codec chosen for the parent part; the projection inherits it so
     /// that a projection of a large (`ZSTD(3)`) part is not always written with `LZ4`.
+    /// `sync` is whether the files of the projection are synced as they are finalized; it must be
+    /// the same as for the parent part, so that the parent part does not become durable without
+    /// its projections.
     static MergeTreeTemporaryPartPtr writeProjectionPart(
         const MergeTreeData & data,
         Block block,
@@ -123,6 +126,7 @@ public:
         IMergeTreeDataPart * parent_part,
         CompressionCodecPtr compression_codec,
         bool merge_is_needed,
+        bool sync,
         ContextPtr context);
 
     /// For mutation: MATERIALIZE PROJECTION.
@@ -166,6 +170,7 @@ private:
         MergeTreeIndices indices,
         bool merge_is_needed,
         bool try_adaptive_codec,
+        bool sync,
         bool use_selected_codec = false);
 
     MergeTreeData & data;
