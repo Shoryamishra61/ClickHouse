@@ -70,6 +70,7 @@
 #include <Processors/Transforms/ExpressionTransform.h>
 #include <Interpreters/ExpressionAnalyzer.h>
 #include <Interpreters/InterpreterSelectQuery.h>
+#include <Interpreters/MaterializedColumnDependencies.h>
 #include <Interpreters/MergeTreeTransaction.h>
 #include <Interpreters/MergeTreeTransaction/VersionMetadataOnDisk.h>
 #include <Interpreters/MutationsInterpreter.h>
@@ -5599,22 +5600,72 @@ void MergeTreeData::checkAlterIsPossible(const AlterCommands & commands, Context
     checkAlterEligibility(commands, local_context);
 }
 
-/// TODO(unique-key): allow the mutations that keep every row.
-static void checkUniqueKeyMutationCommands(const MutationCommands & commands)
+/// The MATERIALIZED UNIQUE KEY column computed from @column, directly or through other columns.
+static std::optional<String> findUniqueKeyColumnComputedFrom(
+    const StorageInMemoryMetadata & metadata, const String & column, const ContextPtr & context)
+{
+    const MaterializedColumnDependencies dependencies(metadata.getColumns(), context);
+    for (const auto & key_column : metadata.unique_key.column_names)
+        if (!dependencies.findColumnsToRecalculate(key_column, {column}).empty())
+            return key_column;
+    return {};
+}
+
+/// The UNIQUE KEY column a rewrite of @column changes: @column itself or one computed from it.
+static std::optional<String> findChangedUniqueKeyColumn(
+    const StorageInMemoryMetadata & metadata, const String & column, const ContextPtr & context)
+{
+    if (std::ranges::contains(metadata.unique_key.column_names, column))
+        return column;
+    return findUniqueKeyColumnComputedFrom(metadata, column, context);
+}
+
+/// Only mutations that keep every row in place are allowed.
+static void checkUniqueKeyMutationCommands(
+    const MutationCommands & commands, const StorageInMemoryMetadata & metadata, const ContextPtr & context)
 {
     for (const auto & command : commands)
     {
         switch (command.type)
         {
+            /// `READ_COLUMN` comes from MODIFY COLUMN, `DROP_COLUMN` also from CLEAR COLUMN.
+            case MutationCommand::RENAME_COLUMN:
+            case MutationCommand::READ_COLUMN:
+            case MutationCommand::DROP_COLUMN:
+            case MutationCommand::DROP_INDEX:
+            case MutationCommand::DROP_PROJECTION:
+            case MutationCommand::DROP_STATISTICS:
+            case MutationCommand::MATERIALIZE_INDEX:
+            case MutationCommand::MATERIALIZE_STATISTICS:
+            case MutationCommand::REWRITE_PARTS:
             /// Metadata only, no part is written.
             case MutationCommand::ALTER_WITHOUT_MUTATION:
             case MutationCommand::EMPTY:
                 continue;
 
-            case MutationCommand::DELETE:
+            case MutationCommand::MATERIALIZE_COLUMN:
+                if (auto key_column = findChangedUniqueKeyColumn(metadata, command.column_name, context))
+                    throw Exception(ErrorCodes::SUPPORT_IS_DISABLED,
+                        "MATERIALIZE COLUMN {} is not supported on a UNIQUE KEY table: it changes key column {}",
+                        backQuoteIfNeed(command.column_name), backQuoteIfNeed(*key_column));
+                continue;
+
             case MutationCommand::UPDATE:
+                for (const auto & [column, _] : getColumnToUpdateExpression(*command.ast()))
+                {
+                    if (column == RowExistsColumn::name)
+                        throw Exception(ErrorCodes::SUPPORT_IS_DISABLED,
+                            "ALTER UPDATE of {} is not supported on a UNIQUE KEY table: use DELETE FROM", RowExistsColumn::name);
+                    if (auto key_column = findChangedUniqueKeyColumn(metadata, column, context))
+                        throw Exception(ErrorCodes::SUPPORT_IS_DISABLED,
+                            "ALTER UPDATE of column {} is not supported on a UNIQUE KEY table: it changes key column {}",
+                            backQuoteIfNeed(column), backQuoteIfNeed(*key_column));
+                }
+                continue;
+
+            case MutationCommand::DELETE:
                 throw Exception(ErrorCodes::SUPPORT_IS_DISABLED,
-                    "ALTER DELETE / ALTER UPDATE is not supported on tables with UNIQUE KEY. "
+                    "ALTER DELETE is not supported on tables with UNIQUE KEY. "
                     "Use DELETE FROM, which the unique key implements through its delete bitmaps.");
 
             default:
@@ -5624,7 +5675,7 @@ static void checkUniqueKeyMutationCommands(const MutationCommands & commands)
         throw Exception(ErrorCodes::SUPPORT_IS_DISABLED,
             "Mutation {} is not supported on tables with UNIQUE KEY yet: only mutation kinds verified "
             "to keep every row of the part they rewrite are allowed.",
-            command.type == MutationCommand::DROP_COLUMN && command.clear ? std::string_view{"CLEAR COLUMN"} : magic_enum::enum_name(command.type));
+            magic_enum::enum_name(command.type));
     }
 }
 
@@ -5700,6 +5751,11 @@ void MergeTreeData::checkAlterEligibility(const AlterCommands & commands, Contex
                 throw Exception(ErrorCodes::SUPPORT_IS_DISABLED,
                     "Column TTL is not supported on tables with UNIQUE KEY");
 
+            if (command.type == AlterCommand::DROP_COLUMN && command.clear)
+                if (auto key_column = findUniqueKeyColumnComputedFrom(old_metadata, command.column_name, local_context))
+                    throw Exception(ErrorCodes::ALTER_OF_COLUMN_IS_FORBIDDEN,
+                        "ALTER CLEAR COLUMN {} is forbidden: UNIQUE KEY column {} is computed from it.",
+                        backQuoteIfNeed(command.column_name), backQuoteIfNeed(*key_column));
 
             const bool affects_column =
                 command.type == AlterCommand::DROP_COLUMN
@@ -5727,7 +5783,8 @@ void MergeTreeData::checkAlterEligibility(const AlterCommands & commands, Contex
         checkUniqueKeyMutationCommands(
             commands.getMutationCommands(
                 old_metadata, settings[Setting::materialize_ttl_after_modify], local_context,
-                /*with_alters*/ false, (*settings_from_storage)[MergeTreeSetting::share_nested_offsets]));
+                /*with_alters*/ false, (*settings_from_storage)[MergeTreeSetting::share_nested_offsets]),
+            old_metadata, local_context);
     }
 
     /// Must be collected before the commands are applied below: dropping a column used in a key has to
@@ -6901,7 +6958,7 @@ void MergeTreeData::checkMutationIsPossible(const MutationCommands & commands, c
             throw Exception(ErrorCodes::SUPPORT_IS_DISABLED, "Mutations are not supported for immutable disk '{}'", disk->getName());
 
     if (auto uk_metadata = getInMemoryMetadataPtr(getContext(), false); uk_metadata->hasUniqueKey())
-        checkUniqueKeyMutationCommands(commands);
+        checkUniqueKeyMutationCommands(commands, *uk_metadata, getContext());
 
     const auto index_mode = (*getSettings())[MergeTreeSetting::alter_column_secondary_index_mode];
     auto secondary_indices_metadata = getInMemoryMetadataPtr(getContext(), false);
