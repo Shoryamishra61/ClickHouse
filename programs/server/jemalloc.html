@@ -567,8 +567,10 @@
         /// configured address is treated as part of the endpoint identity everywhere else (it is sent
         /// verbatim with every request). So the default connection preserves it instead of clearing `search`
         /// wholesale - otherwise a direct load, or a `clickhouse-credentials` handover that carries no `url`,
-        /// would talk to the proxy's default backend instead of the selected one.
-        const PAGE_URL_PARAMETERS = ['user', 'password'];
+        /// would talk to the proxy's default backend instead of the selected one. The embedded flamegraph
+        /// keeps its view state in the query string too (`x` / `y` for the zoom, written back with
+        /// `history.replaceState`, and the legacy `s` for the search term), so those are page parameters.
+        const PAGE_URL_PARAMETERS = ['user', 'password', 'x', 'y', 's'];
 
         function defaultServerAddress() {
             if (location.protocol == 'file:') return 'http://localhost:8123/';
