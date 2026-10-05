@@ -228,8 +228,7 @@ struct ClientFake : DB::S3::Client
     /// Serves `object` honoring the `Range` header as S3 does: `bytes=a-b` (inclusive) or `bytes=a-`.
     void setGetObjectRanges(std::string object)
     {
-        auto bodies = std::make_shared<std::vector<std::shared_ptr<StringHTTPBasicStreamBuf>>>();
-        getObjectImpl = [body = std::move(object), bodies](const Aws::S3::Model::GetObjectRequest & request) -> Aws::S3::Model::GetObjectOutcome
+        getObjectImpl = [body = std::move(object)](const Aws::S3::Model::GetObjectRequest & request) -> Aws::S3::Model::GetObjectOutcome
         {
             size_t begin = 0;
             size_t end = body.size();
@@ -242,10 +241,13 @@ struct ClientFake : DB::S3::Client
                 if (dash + 1 < range.size())
                     end = std::min<size_t>(end, std::stoull(range.substr(dash + 1)) + 1);
             }
-            bodies->push_back(std::make_shared<StringHTTPBasicStreamBuf>(body.substr(begin, end - begin)));
-            auto response_stream = Aws::Utils::Stream::ResponseStream(Aws::New<DB::SessionAwareIOStream<CountedSessionPtr>>(
-                "test response stream", std::make_shared<CountedSession>(), bodies->back().get()));
-            Aws::AmazonWebServiceResult<Aws::Utils::Stream::ResponseStream> aws_result(std::move(response_stream), Aws::Http::HeaderValueCollection());
+            const size_t size = end - begin;
+            auto response_stream = Aws::Utils::Stream::ResponseStream(Aws::New<DB::StdStreamFromReadBuffer>(
+                "test response stream",
+                std::make_unique<FakeResponseBody>(body.substr(begin, size), std::make_shared<CountedSession>()),
+                size));
+            Aws::AmazonWebServiceResult<Aws::Utils::Stream::ResponseStream> aws_result(
+                std::move(response_stream), Aws::Http::HeaderValueCollection{{"content-length", std::to_string(size)}});
             return DB::S3::Model::GetObjectOutcome(DB::S3::Model::GetObjectResult(std::move(aws_result)));
         };
     }
