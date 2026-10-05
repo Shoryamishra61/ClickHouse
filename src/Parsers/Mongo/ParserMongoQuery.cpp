@@ -51,9 +51,57 @@ rapidjson::Value & onlyArgument(rapidjson::Value & data, const char * operation)
     return *args.Begin();
 }
 
+/** The query is executed here as an AST, but a remote shard, a parallel replica or a replica of a `Replicated`
+  * database receives its formatted text and reads it back with the ClickHouse parser. That parser reads a
+  * non-negative whole number as `UInt64`, so a literal built here as `Int64` would give the constant a different
+  * type and name on each side (`2_Int8` on the initiator, `2_UInt8` on the shard), and the initiator would not find
+  * the column the shard returns. Give the literals the types the formatted query is read back with.
+  */
+void normalizeIntegerField(Field & field)
+{
+    switch (field.getType())
+    {
+        case Field::Types::Int64:
+            if (Int64 value = field.safeGet<Int64>(); value >= 0)
+                field = UInt64(value);
+            break;
+        case Field::Types::Array:
+            for (auto & element : field.safeGet<Array>())
+                normalizeIntegerField(element);
+            break;
+        case Field::Types::Tuple:
+            for (auto & element : field.safeGet<Tuple>())
+                normalizeIntegerField(element);
+            break;
+        case Field::Types::Map:
+            for (auto & element : field.safeGet<Map>())
+                normalizeIntegerField(element);
+            break;
+        default:
+            break;
+    }
+}
+
+void normalizeIntegerLiterals(IAST & ast)
+{
+    if (auto * literal = ast.as<ASTLiteral>())
+        normalizeIntegerField(literal->value);
+    for (const auto & child : ast.children)
+        normalizeIntegerLiterals(*child);
+}
+
 }
 
 bool ParserMongoQuery::parseImpl(Pos & /*pos*/, ASTPtr & node, Expected & /*expected*/)
+{
+    if (!parseStatement(node))
+        return false;
+    if (node)
+        normalizeIntegerLiterals(*node);
+    return true;
+}
+
+bool ParserMongoQuery::parseStatement(ASTPtr & node)
 {
     switch (metadata->getQueryType())
     {

@@ -75,6 +75,9 @@ public:
 protected:
     const char * getName() const override { return "Mongo query"; }
     bool parseImpl(Pos & pos, ASTPtr & node, Expected & expected) override;
+
+private:
+    bool parseStatement(ASTPtr & node);
 };
 
 }
