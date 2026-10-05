@@ -77,8 +77,17 @@ endif ()
 message (STATUS "jemalloc malloc_conf: ${JEMALLOC_CONFIG_MALLOC_CONF}")
 
 # The C++ reimplementation of jemalloc in `base/allocator` exposes the same `je_*` API and behaves identically.
-option (ENABLE_CPP_ALLOCATOR "Use the C++ reimplementation of jemalloc (base/allocator) instead of contrib/jemalloc" ON)
+# It has no platform configuration for E2K (see `base/allocator/Config.h`), so it is off there.
+if (ARCH_E2K)
+    set (ENABLE_CPP_ALLOCATOR_DEFAULT OFF)
+else ()
+    set (ENABLE_CPP_ALLOCATOR_DEFAULT ON)
+endif ()
+option (ENABLE_CPP_ALLOCATOR "Use the C++ reimplementation of jemalloc (base/allocator) instead of contrib/jemalloc" ${ENABLE_CPP_ALLOCATOR_DEFAULT})
 if (ENABLE_CPP_ALLOCATOR)
+    if (ARCH_E2K)
+        message (FATAL_ERROR "ENABLE_CPP_ALLOCATOR is not supported on E2K, use -DENABLE_CPP_ALLOCATOR=0")
+    endif ()
     set (ALLOCATOR_MALLOC_CONF "${JEMALLOC_CONFIG_MALLOC_CONF}")
     set (ALLOCATOR_UAF_DETECTION ${ENABLE_JEMALLOC_UAF_SAN})
     set (ALLOCATOR_MUSL ${USE_MUSL})
