@@ -185,7 +185,7 @@ void IndexDescription::initExpressionInfo(ASTPtr index_expression, const Columns
     ReplaceAliasToExprVisitor::Data data{columns, {}};
     ReplaceAliasToExprVisitor{data}.visit(expr_list);
 
-    /// An ALIAS column can bring in an `IN <table>` that the check of the declared expression did not see.
+    /// An ALIAS column can bring in an `x IN table` that the check of the declared expression did not see.
     checkExpressionDoesntContainSubqueries(*expr_list);
 
     expression_list_ast = expr_list->clone();

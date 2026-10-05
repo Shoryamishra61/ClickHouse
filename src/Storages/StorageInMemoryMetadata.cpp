@@ -993,7 +993,7 @@ void StorageInMemoryMetadata::addImplicitIndicesForColumn(const ColumnDescriptio
         if (column.default_desc.expression->as<ASTIdentifier>())
             return;
 
-        /// A skip index cannot contain `IN <table>` (see `checkExpressionDoesntContainSubqueries`),
+        /// A skip index cannot contain `x IN table` (see `checkExpressionDoesntContainSubqueries`),
         /// including the one that comes from the ALIAS expression, so there is no implicit index for such a column.
         ASTPtr expanded_expression = column.default_desc.expression->clone();
         ReplaceAliasByExpressionMatcher::Data replace_data{columns, {}};
