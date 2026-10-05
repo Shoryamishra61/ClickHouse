@@ -248,6 +248,12 @@ struct JoinsAndSourcesWithCommonPrimaryKeyPrefix
     /// For sorting steps which are created for full sorting merge algorithm,
     /// We need to change the sorting mode to sort partitions independently.
     std::list<SortingStep *> sorting_steps;
+    /// Merge-join sorting steps above this subtree whose join has not been reached yet. They move to
+    /// `sorting_steps` once that join is sharded. If it is not, they are left alone: such a sort then feeds
+    /// a single merge join, which needs one stream per side, so it must merge the shards of a sharded join
+    /// below it instead of keeping them (a `FinishSorting` above a `full_sorting_merge` join is normal - the
+    /// join emits its result in key order).
+    std::list<SortingStep *> pending_sorting_steps;
     /// Apply the minimum prefix in case of multiple joins.
     size_t common_prefix = std::numeric_limits<size_t>::max();
     /// Whether the common primary key prefix used for sharding is in reverse order.
@@ -499,6 +505,9 @@ void optimizeJoinByShards(QueryPlan::Node & root, bool only_parallel_sorted_merg
                 result->joins.joins.splice(result->joins.joins.end(), std::move(frame.results.back()->joins.joins));
                 result->joins.sources.splice(result->joins.sources.end(), std::move(frame.results.back()->joins.sources));
                 result->joins.sorting_steps.splice(result->joins.sorting_steps.end(), std::move(frame.results.back()->joins.sorting_steps));
+                /// The pre-sorts of both sides feed a sharded join now, so they sort each shard independently.
+                result->joins.sorting_steps.splice(result->joins.sorting_steps.end(), std::move(result->joins.pending_sorting_steps));
+                result->joins.sorting_steps.splice(result->joins.sorting_steps.end(), std::move(frame.results.back()->joins.pending_sorting_steps));
                 result->joins.joins_to_keep_in_order.splice(result->joins.joins_to_keep_in_order.end(), std::move(frame.results.back()->joins.joins_to_keep_in_order));
 
                 frame.results.back() = std::nullopt;
@@ -529,14 +538,14 @@ void optimizeJoinByShards(QueryPlan::Node & root, bool only_parallel_sorted_merg
         else if (auto * sorting = typeid_cast<SortingStep *>(frame.node->step.get());
             sorting && sorting->isSortingForMergeJoin() && sorting->getType() == SortingStep::Type::FinishSorting)
         {
-            /// Here we assume that read-in-order is applied for full sorting merge join.
-            /// The SortingStep can potentially appear from ORDER BY,
-            /// but it would be useless because JOIN does not enforce sorting by itself.
+            /// The input is already sorted: either a read in order, or a `full_sorting_merge` join below,
+            /// which emits its result in key order. Whether the sort keeps the streams (one per shard) or
+            /// merges them is decided at the join it feeds.
 
             if (frame.results.size() == 1 && frame.results[0])
             {
                 result = std::move(frame.results[0]);
-                result->joins.sorting_steps.push_back(sorting);
+                result->joins.pending_sorting_steps.push_back(sorting);
             }
         }
         else if (frame.results.size() == 1 && frame.results[0])
