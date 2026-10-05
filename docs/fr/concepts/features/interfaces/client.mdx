@@ -173,14 +173,15 @@ Saisir simplement `help` affiche un bref résumé d’utilisation.
 
 ### Commandes {#slash-commands}
 
-Le client exécute lui-même certaines commandes commençant par `/`, au lieu de les envoyer au serveur :
+Le client exécute lui-même certaines commandes commençant par `/`, au lieu de les envoyer au serveur :
 
-| Commande                      | Description                                                  |
-| ----------------------------- | ------------------------------------------------------------ |
-| `/help <name>`, `/man <name>` | Affiche la documentation de `<name>`, comme `help` ci-dessus |
-| `/clear`                      | Efface le terminal                                           |
+| Commande                                              | Description                                                                                                                              |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `/help <name>`, `/man <name>`                         | Affiche la documentation de `<name>`, comme `help` ci-dessus                                                                             |
+| `/clear`                                              | Efface le terminal                                                                                                                       |
+| `/dialect <name>`, `/lang <name>`, `/language <name>` | Change de dialecte SQL, ou affiche le dialecte actuel si aucun argument n&#39;est fourni (voir [ci-dessous](#switching-the-sql-dialect)) |
 
-La saisie de `/` au début de l&#39;entrée affiche la liste des commandes sous forme d&#39;[indications](#command-line-options-formatting) ; à mesure que vous saisissez le nom, la liste se restreint. `Tab` complète la commande en cours de saisie, y compris lorsque les indications sont désactivées. Un `/` saisi seul n&#39;est pas une commande : comme dans Oracle SQL*Plus, il répète la dernière entrée. Un nom de commande mal orthographié est signalé comme tel, avec les commandes auxquelles il pourrait correspondre, au lieu d&#39;être exécuté comme une requête :
+La saisie de `/` au début de l&#39;entrée affiche la liste des commandes sous forme d&#39;[indications](#command-line-options-formatting) ; à mesure que vous saisissez le nom, la liste se restreint. `Tab` complète la commande en cours de saisie, y compris lorsque les indications sont désactivées. Un `/` saisi seul n&#39;est pas une commande : comme dans Oracle SQL*Plus, il répète la dernière entrée. Un nom de commande mal orthographié est signalé comme tel, avec les commandes auxquelles il pourrait correspondre, au lieu d&#39;être exécuté comme une requête :
 
 ```text
 :) /hepl
@@ -188,6 +189,26 @@ La saisie de `/` au début de l&#39;entrée affiche la liste des commandes sous 
 Exception on client:
 Code: 36. DB::Exception: Unknown command `/hepl`. Maybe you meant: ['/help']. Type `/` at the beginning of the line to see all the commands. (BAD_ARGUMENTS)
 ```
+
+### Changer de dialecte SQL {#switching-the-sql-dialect}
+
+Le client peut analyser les requêtes dans plusieurs dialectes (voir le paramètre [`dialect`](/fr/reference/settings/session-settings/other#dialect)). Pour changer de dialecte, saisissez `/dialect` suivi du nom du dialecte souhaité (les formes équivalentes `/language` et `/lang` fonctionnent également) :
+
+```text
+/dialect polyglot
+```
+
+Cette commande équivaut à `SET dialect = 'polyglot'`, mais contrairement à une requête `SET`, elle n&#39;a pas besoin d&#39;être analysée dans le dialecte courant : elle fonctionne donc même lorsque le dialecte courant ne permet pas d&#39;exprimer une telle requête (par exemple, il n&#39;existe pas de statement `SET` en PromQL). Lorsqu&#39;un dialecte autre que celui par défaut est actif, il s&#39;affiche dans l&#39;invite, après le nom d&#39;affichage du serveur :
+
+```text
+clickhouse-cloud (polyglot) :)
+```
+
+Une invite personnalisée (voir l&#39;option `--prompt`) n&#39;a pas besoin de contenir le caractère de substitution `{display_name}` : dans ce cas, le dialecte est ajouté à la fin de l&#39;invite.
+
+La saisie de `/dialect` seul affiche le dialecte actuel.
+
+La commande n&#39;est reconnue qu&#39;en mode interactif : un script non interactif est analysé intégralement comme du SQL, et son dialecte est sélectionné avec l&#39;option `--dialect` ou avec un statement `SET dialect = ...`. Lorsque le texte de la requête de `clickhouse-local` se limite à la commande (par exemple, `clickhouse-local -q '/dialect kusto'`), celle-ci est rejetée avec un message indiquant qu&#39;elle n&#39;est disponible qu&#39;en mode interactif. Au sein d&#39;un script plus long, la commande n&#39;est pas reconnue du tout : elle est analysée comme faisant partie du script, au même titre que n&#39;importe quel autre texte.
 
 ### Informations sur le traitement des requêtes {#processing-info}
 

@@ -175,10 +175,11 @@ help maxx_threads
 
 客户端会自行执行一些以 `/` 开头的命令，而不是将其发送到服务器：
 
-| 命令                            | 描述                            |
-| ----------------------------- | ----------------------------- |
-| `/help <name>`, `/man <name>` | 显示 `<name>` 的文档，与上述 `help` 相同 |
-| `/clear`                      | 清空终端                          |
+| 命令                                                    | 描述                                                              |
+| ----------------------------------------------------- | --------------------------------------------------------------- |
+| `/help <name>`, `/man <name>`                         | 显示 `<name>` 的文档，与上述 `help` 相同                                   |
+| `/clear`                                              | 清空终端                                                            |
+| `/dialect <name>`, `/lang <name>`, `/language <name>` | 切换 SQL 方言；不带参数输入时，则输出当前方言 (参见[下文](#switching-the-sql-dialect))  |
 
 在输入开头键入 `/` 会以[提示](#command-line-options-formatting)的形式列出命令；继续输入名称可缩小列表范围。`Tab` 可补全正在输入的命令；提示被禁用时，也可通过这种方式补全命令。单独提交 `/` 并非命令：与 Oracle SQL*Plus 一样，它会重复上一次输入。拼写错误的命令名称会被提示为错误，并显示可能想输入的命令，而不会将其作为查询执行：
 
@@ -188,6 +189,26 @@ help maxx_threads
 Exception on client:
 Code: 36. DB::Exception: Unknown command `/hepl`. Maybe you meant: ['/help']. Type `/` at the beginning of the line to see all the commands. (BAD_ARGUMENTS)
 ```
+
+### 切换 SQL 方言 {#switching-the-sql-dialect}
+
+客户端支持按多种方言解析查询 (参见 [`dialect`](/zh/reference/settings/session-settings/other#dialect) 设置) 。输入 `/dialect` 并在其后加上方言名称即可切换 (也可使用等效形式 `/language` 和 `/lang`) ：
+
+```text
+/dialect polyglot
+```
+
+该命令等同于 `SET dialect = 'polyglot'`，但与 `SET` 查询不同，它无需按当前方言进行解析，因此即使当前方言无法表达此类查询 (例如，PromQL 中没有 `SET` 语句) ，该命令也同样有效。当非默认方言处于活跃状态时，提示符中会在服务器显示名称之后显示该方言：
+
+```text
+clickhouse-cloud (polyglot) :)
+```
+
+自定义提示符 (参见 `--prompt` 选项) 不一定要包含 `{display_name}` 占位符——如果不包含，方言会追加到提示符末尾。
+
+单独输入 `/dialect` 会输出当前方言。
+
+该命令仅在交互模式下才能识别：非交互式脚本会从头到尾按 SQL 解析，其方言需通过 `--dialect` 选项或 `SET dialect = ...` 语句指定。如果 `clickhouse-local` 的整个查询文本就是该命令 (例如 `clickhouse-local -q '/dialect kusto'`) ，该命令会被拒绝，并返回一条消息，提示该命令仅在交互模式下可用。在较长的脚本中，该命令根本不会被识别，而是与其他文本一样，作为脚本的一部分进行解析。
 
 ### 查询处理信息 {#processing-info}
 

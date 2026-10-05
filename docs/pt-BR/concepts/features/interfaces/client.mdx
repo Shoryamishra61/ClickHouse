@@ -175,10 +175,11 @@ Ao digitar apenas `help`, é exibido um breve resumo de uso.
 
 O cliente executa alguns comandos iniciados por `/` localmente, em vez de enviá-los ao servidor:
 
-| Comando                       | Descrição                                                 |
-| ----------------------------- | --------------------------------------------------------- |
-| `/help <name>`, `/man <name>` | Exibe a documentação de `<name>`, assim como `help` acima |
-| `/clear`                      | Limpa o terminal                                          |
+| Comando                                               | Descrição                                                                                                     |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `/help <name>`, `/man <name>`                         | Exibe a documentação de `<name>`, assim como `help` acima                                                     |
+| `/clear`                                              | Limpa o terminal                                                                                              |
+| `/dialect <name>`, `/lang <name>`, `/language <name>` | Alterna o dialect SQL ou exibe o atual quando usado sem argumento (veja [abaixo](#switching-the-sql-dialect)) |
 
 Digitar `/` no início da entrada lista os comandos como [sugestões](#command-line-options-formatting), e digitar mais caracteres do nome restringe a lista; `Tab` completa o comando em digitação, inclusive quando as sugestões estão desabilitadas. Um `/` enviado sozinho não é um comando: assim como no Oracle SQL*Plus, ele repete a última entrada. Um nome de comando digitado incorretamente é informado como tal, junto com os comandos que talvez tenham sido pretendidos, em vez de ser executado como uma consulta:
 
@@ -188,6 +189,26 @@ Digitar `/` no início da entrada lista os comandos como [sugestões](#command-l
 Exception on client:
 Code: 36. DB::Exception: Unknown command `/hepl`. Maybe you meant: ['/help']. Type `/` at the beginning of the line to see all the commands. (BAD_ARGUMENTS)
 ```
+
+### Alternando o dialect SQL {#switching-the-sql-dialect}
+
+O cliente pode interpretar consultas em vários dialects (consulte a configuração [`dialect`](/pt-BR/reference/settings/session-settings/other#dialect)). Para trocar de dialect, digite `/dialect` seguido do nome do dialect (as formas equivalentes `/language` e `/lang` também funcionam):
+
+```text
+/dialect polyglot
+```
+
+O comando é equivalente a `SET dialect = 'polyglot'`, mas, diferentemente de uma consulta `SET`, ele não precisa ser interpretado no dialect atual; por isso, também funciona quando o dialect atual não consegue expressar esse tipo de consulta (por exemplo, não existe a instrução `SET` em PromQL). Enquanto um dialect diferente do padrão estiver ativo, ele é exibido no prompt após o nome de exibição do servidor:
+
+```text
+clickhouse-cloud (polyglot) :)
+```
+
+Um prompt personalizado (consulte a opção `--prompt`) não precisa conter o marcador `{display_name}`; nesse caso, o dialect é anexado ao final do prompt.
+
+Digitar apenas `/dialect` exibe o dialect atual.
+
+O comando só é reconhecido no modo interativo: um script não interativo é interpretado inteiramente como SQL, e seu dialect é selecionado com a opção `--dialect` ou com uma instrução `SET dialect = ...`. Quando todo o texto da consulta do `clickhouse-local` consiste apenas no comando (por exemplo, `clickhouse-local -q '/dialect kusto'`), ele é rejeitado com uma mensagem informando que o comando só está disponível no modo interativo. Dentro de um script mais longo, o comando simplesmente não é reconhecido e é interpretado como parte do script, como qualquer outro texto.
 
 ### Informações sobre o processamento de consultas {#processing-info}
 
