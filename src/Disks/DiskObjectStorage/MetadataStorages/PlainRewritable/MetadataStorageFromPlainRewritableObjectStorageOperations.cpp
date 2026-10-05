@@ -81,6 +81,19 @@ void removeTombstoneMarker(IObjectStorage & object_storage, const PlainRewritabl
     object_storage.removeObjectIfExists(StoredObject(layout.constructTombstoneMarkerKey(removed_name)));
 }
 
+/// A name of the shape of `generateRemovedName` that exists in the filesystem is ordinary data created by an older
+/// version, and `copyObject` overwrites the destination, so a temporary name must not collide with it, nor with
+/// another temporary name of the same operation.
+std::string generateUnusedRemovedName(const FsSnapshot & fs_tree, const std::string & other_name = {})
+{
+    while (true)
+    {
+        auto name = PlainRewritableLayout::generateRemovedName();
+        if (name != other_name && !fs_tree.existsFile(name) && !fs_tree.existsDirectory(name))
+            return name;
+    }
+}
+
 }
 
 MetadataStorageFromPlainObjectStorageValidatePreconditionsOperation::MetadataStorageFromPlainObjectStorageValidatePreconditionsOperation(
@@ -437,7 +450,7 @@ void MetadataStorageFromPlainObjectStorageUnlinkMetadataFileOperation::execute()
     const auto normalized_path_from = normalizePath(path);
     const auto directory_remote_path_from = fs_tree->getDirectoryRemoteInfo(normalized_path_from.parent_path())->remote_path;
     remote_source_path = layout->constructFileObjectKey(directory_remote_path_from, normalized_path_from.filename());
-    tmp_name = PlainRewritableLayout::generateRemovedName();
+    tmp_name = generateUnusedRemovedName(*fs_tree);
     remote_tmp_path = layout->constructFileObjectKey(PlainRewritableLayout::ROOT_DIRECTORY_TOKEN, tmp_name);
 
     blob_removal_attempted = true;
@@ -606,8 +619,8 @@ void MetadataStorageFromPlainObjectStorageMoveFileOperation::execute()
 
     remote_path_from = layout->constructFileObjectKey(directory_remote_path_from, normalized_path_from.filename());
     remote_path_to = layout->constructFileObjectKey(directory_remote_path_to, normalized_path_to.filename());
-    tmp_name_from = PlainRewritableLayout::generateRemovedName();
-    tmp_name_to = PlainRewritableLayout::generateRemovedName();
+    tmp_name_from = generateUnusedRemovedName(*fs_tree);
+    tmp_name_to = generateUnusedRemovedName(*fs_tree, tmp_name_from);
     tmp_remote_path_from = layout->constructFileObjectKey(PlainRewritableLayout::ROOT_DIRECTORY_TOKEN, tmp_name_from);
     tmp_remote_path_to = layout->constructFileObjectKey(PlainRewritableLayout::ROOT_DIRECTORY_TOKEN, tmp_name_to);
     file_from_remote_info = fs_tree->getFileRemoteInfo(path_from).value();
@@ -785,7 +798,7 @@ MetadataStorageFromPlainObjectStorageRemoveRecursiveOperation::MetadataStorageFr
     chassert(metrics);
     /// The subtree is moved under a reserved name, so that a concurrent load does not resurrect it under the original path,
     /// and so that the objects can be reclaimed on the next load if the process dies before `finalize` deletes them.
-    tmp_name = PlainRewritableLayout::generateRemovedName();
+    tmp_name = generateUnusedRemovedName(*fs_tree);
     tmp_path = tmp_name;
     move_to_tmp_op = std::make_unique<MetadataStorageFromPlainObjectStorageMoveDirectoryOperation>(path / "", tmp_path / "", fs_tree, object_storage, layout, metrics);
 }
