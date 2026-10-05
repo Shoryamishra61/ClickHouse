@@ -2533,7 +2533,12 @@ static std::optional<bool> explicitUseQueryCacheSetting(
 }
 
 static bool shouldUseQueryCacheForSubquery(
-    const QueryNode & query_node, bool outer_can_use_cache, const Settings & settings, bool is_subquery, const ContextPtr & query_context)
+    const QueryNode & query_node,
+    bool outer_can_use_cache,
+    const Settings & settings,
+    bool is_subquery,
+    bool allow_propagation,
+    const ContextPtr & query_context)
 {
     if (!isQueryKindEligibleForSubqueryCache(query_context))
         return false;
@@ -2551,7 +2556,7 @@ static bool shouldUseQueryCacheForSubquery(
     /// only for actual subqueries. The top-level query is cached separately by `executeQuery`
     /// using the `is_subquery = false` key; allowing it through this path here would write
     /// a duplicate entry under the subquery namespace.
-    if (is_subquery && settings[Setting::query_cache_for_subqueries] && outer_can_use_cache)
+    if (is_subquery && allow_propagation && settings[Setting::query_cache_for_subqueries] && outer_can_use_cache)
         return true;
 
     return false;
@@ -2657,10 +2662,19 @@ void Planner::buildPlanForUnionNode()
     /// caching the union on top of that would only duplicate the same rows under a second key.
     QueryResultCachePtr query_result_cache = planner_context->getMutableQueryContext()->getQueryResultCache();
     bool can_use_query_result_cache = query_context->getCanUseQueryResultCache();
+    std::optional<bool> explicit_use_query_cache;
+    if (select_query_options.is_subquery)
+        explicit_use_query_cache = explicitUseQueryCacheSetting(
+            union_node.getSettingsChanges(), union_node.getDefaultSettings(), union_node.getContext());
+
     bool should_cache = select_query_options.is_subquery && query_result_cache != nullptr
         && isQueryKindEligibleForSubqueryCache(query_context)
-        && explicitUseQueryCacheSetting(
-               union_node.getSettingsChanges(), union_node.getDefaultSettings(), union_node.getContext()).value_or(false);
+        && explicit_use_query_cache.value_or(false);
+
+    /// An explicit opt-out covers the whole set operation: its arms must not be cached through the
+    /// outer `query_cache_for_subqueries` propagation either. Only the last arm carries the clause
+    /// itself, so without this the earlier arms would still populate and read the cache.
+    bool allow_propagation_to_arms = allow_query_cache_for_subqueries_propagation && explicit_use_query_cache.value_or(true);
 
     /// The settings are internally modified in some places during query execution, which would make
     /// the read and the write use different keys. Take a copy for both, as `buildPlanForQueryNode` does.
@@ -2688,6 +2702,8 @@ void Planner::buildPlanForUnionNode()
     for (const auto & query_node : union_queries_nodes)
     {
         Planner query_planner(query_node, select_query_options, planner_context->getGlobalPlannerContext());
+        if (!allow_propagation_to_arms)
+            query_planner.disableQueryCacheForSubqueriesPropagation();
 
         query_planner.buildQueryPlanIfNeeded();
         for (const auto & row_policy : query_planner.getUsedRowPolicies())
@@ -2814,7 +2830,7 @@ void Planner::buildPlanForQueryNode()
     /// 2. `query_cache_for_subqueries` propagates from outer query (applies to all Planner invocations)
     /// 3. By default, `use_query_cache` does NOT propagate from outer query to subqueries
     bool should_cache = shouldUseQueryCacheForSubquery(query_node, can_use_query_result_cache, settings,
-        select_query_options.is_subquery, query_context);
+        select_query_options.is_subquery, allow_query_cache_for_subqueries_propagation, query_context);
 
     /// Query result cache must actually exist
     if (should_cache && !query_result_cache)
