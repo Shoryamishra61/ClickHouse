@@ -73,7 +73,7 @@ TEST(AIAgentProtocol, ToolCallInCodeIsNotExecuted)
     EXPECT_NE(step.text.find("list_tables"), String::npos);
 
     /// Unclosed code extends to the end: the call is shown rather than executed.
-    step = AIServerFunctionTransport::parseResponse("A stray ` and <tool_call>{\"name\": \"a\"}</tool_call>", counter);
+    step = AIServerFunctionTransport::parseResponse(R"(A stray ` and <tool_call>{"name": "a"}</tool_call>)", counter);
     EXPECT_TRUE(step.tool_calls.empty());
 }
 
