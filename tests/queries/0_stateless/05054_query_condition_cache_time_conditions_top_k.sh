@@ -17,7 +17,9 @@ CUR_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 # enable_analyzer = 1: the query condition cache only works with the analyzer (query_info has no
 # filter DAG without it), like in the other query_condition_cache tests.
-settings="use_query_condition_cache = true, use_query_condition_cache_for_time_conditions = true, use_query_condition_cache_for_top_k = true, use_top_k_dynamic_filtering = true, enable_analyzer = 1"
+# query_plan_max_limit_for_top_k_optimization = 1000: `clickhouse-test` randomizes it, and a value below the
+# `LIMIT` disables TopK dynamic filtering, turning the TopK reads into plain reads.
+settings="use_query_condition_cache = true, use_query_condition_cache_for_time_conditions = true, use_query_condition_cache_for_top_k = true, use_top_k_dynamic_filtering = true, query_plan_max_limit_for_top_k_optimization = 1000, enable_analyzer = 1"
 
 # The same shape as in 04931: a single part mixing 'old' rows (matched by no current-time condition)
 # with recent rows, with the old rows filling whole granules of their own so that they can be pruned
@@ -44,38 +46,47 @@ echo -n "top k, entries cached: "
 ${CLICKHOUSE_CLIENT} --query "SELECT count() FROM system.query_condition_cache"
 
 # A TopK read must also be able to reuse the entries primed by a plain `SELECT ... WHERE`, which are
-# keyed on the derived condition of the predicate alone (the predicate-only reuse hash).
-${CLICKHOUSE_CLIENT} --query "SYSTEM CLEAR QUERY CONDITION CACHE"
-for _ in 1 2 3; do
-    ${CLICKHOUSE_CLIENT} --query "
-        SELECT sum(x) FROM tab WHERE time >= today() - 100
-        SETTINGS ${settings}, optimize_move_to_prewhere = false FORMAT Null"
-    ${CLICKHOUSE_CLIENT} --query "
-        SELECT x FROM tab WHERE time >= today() - 100 ORDER BY time DESC LIMIT 5
-        SETTINGS ${settings}, optimize_move_to_prewhere = false FORMAT Null -- probe reuse"
-    ${CLICKHOUSE_CLIENT} --query "SYSTEM FLUSH LOGS query_log"
-    reuse=$(${CLICKHOUSE_CLIENT} --query "
-        SELECT ProfileEvents['QueryConditionCacheHits'] > 0
-        FROM system.query_log
-        WHERE event_date >= yesterday() AND event_time >= now() - 600
-            AND type = 'QueryFinish'
-            AND current_database = currentDatabase()
-            AND endsWith(query, '-- probe reuse')
-        ORDER BY event_time_microseconds DESC
-        LIMIT 1")
-    if [ "${reuse}" == "1" ]; then
-        break
-    fi
+# keyed on the derived condition of the predicate alone (the predicate-only reuse hash). The plain
+# read writes them from `WHERE` if the predicate stays there, or from `PREWHERE` if it is moved there
+# (the default): the derived condition hashes the same in both, so the TopK read reuses either.
+check_reuse()
+{
+    local move_to_prewhere=$1
     ${CLICKHOUSE_CLIENT} --query "SYSTEM CLEAR QUERY CONDITION CACHE"
-done
+    for _ in 1 2 3; do
+        ${CLICKHOUSE_CLIENT} --query "
+            SELECT sum(x) FROM tab WHERE time >= today() - 100
+            SETTINGS ${settings}, optimize_move_to_prewhere = ${move_to_prewhere} FORMAT Null"
+        ${CLICKHOUSE_CLIENT} --query "
+            SELECT x FROM tab WHERE time >= today() - 100 ORDER BY time DESC LIMIT 5
+            SETTINGS ${settings}, optimize_move_to_prewhere = ${move_to_prewhere} FORMAT Null -- probe reuse ${move_to_prewhere}"
+        ${CLICKHOUSE_CLIENT} --query "SYSTEM FLUSH LOGS query_log"
+        reuse=$(${CLICKHOUSE_CLIENT} --query "
+            SELECT ProfileEvents['QueryConditionCacheHits'] > 0
+            FROM system.query_log
+            WHERE event_date >= yesterday() AND event_time >= now() - 600
+                AND type = 'QueryFinish'
+                AND current_database = currentDatabase()
+                AND endsWith(query, '-- probe reuse ${move_to_prewhere}')
+            ORDER BY event_time_microseconds DESC
+            LIMIT 1")
+        if [ "${reuse}" == "1" ]; then
+            break
+        fi
+        ${CLICKHOUSE_CLIENT} --query "SYSTEM CLEAR QUERY CONDITION CACHE"
+    done
+}
+check_reuse false
 echo "plain WHERE entries reused by top k: ${reuse}"
+check_reuse true
+echo "plain PREWHERE entries reused by top k: ${reuse}"
 
 # With the setting disabled, a TopK read of a condition involving the current time is not cached.
 ${CLICKHOUSE_CLIENT} --query "SYSTEM CLEAR QUERY CONDITION CACHE"
 ${CLICKHOUSE_CLIENT} --query "
     SELECT x FROM tab WHERE time >= today() - 100 ORDER BY time DESC LIMIT 5
     SETTINGS use_query_condition_cache = true, use_query_condition_cache_for_time_conditions = false,
-        use_top_k_dynamic_filtering = true, enable_analyzer = 1, optimize_move_to_prewhere = false FORMAT Null"
+        use_top_k_dynamic_filtering = true, query_plan_max_limit_for_top_k_optimization = 1000, enable_analyzer = 1, optimize_move_to_prewhere = false FORMAT Null"
 echo -n "disabled, entries cached: "
 ${CLICKHOUSE_CLIENT} --query "SELECT count() FROM system.query_condition_cache"
 

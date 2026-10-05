@@ -1,3 +1,4 @@
 top k, entries cached: 0
 plain WHERE entries reused by top k: 1
+plain PREWHERE entries reused by top k: 1
 disabled, entries cached: 0
