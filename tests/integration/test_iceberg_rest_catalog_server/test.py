@@ -793,6 +793,10 @@ def test_malformed_create_table(started_cluster):
     unknown_type = {"type": "struct", "fields": [{"id": 1, "name": "x", "required": True, "type": "bogus"}]}
     numeric_type = {"type": "struct", "fields": [{"id": 1, "name": "x", "required": True, "type": 123}]}
     bad_element_type = {"type": "struct", "fields": [{"id": 1, "name": "x", "required": True, "type": {"type": "list", "element-id": 2, "element-required": True, "element": "bogus"}}]}
+    bad_transform_spec = {"fields": [{"source-id": 1, "name": "p", "transform": "bogus"}]}
+    bad_transform_order = {"fields": [{"source-id": 1, "transform": "bucket[x]", "direction": "asc", "null-order": "nulls-first"}]}
+    bad_direction_order = {"fields": [{"source-id": 1, "transform": "identity", "direction": "up", "null-order": "nulls-first"}]}
+    bad_null_order = {"fields": [{"source-id": 1, "transform": "identity", "direction": "asc", "null-order": "first"}]}
     bodies = [
         {"schema": DEFAULT_SCHEMA},  # no name
         {"name": "", "schema": DEFAULT_SCHEMA},
@@ -805,6 +809,10 @@ def test_malformed_create_table(started_cluster):
         {"name": "t", "schema": DEFAULT_SCHEMA, "partition-spec": bad_spec},
         {"name": "t", "schema": DEFAULT_SCHEMA, "partition-spec": {"fields": [{"source-id": 1}]}},
         {"name": "t", "schema": DEFAULT_SCHEMA, "write-order": {"fields": [{"source-id": 1}]}},
+        {"name": "t", "schema": DEFAULT_SCHEMA, "partition-spec": bad_transform_spec},
+        {"name": "t", "schema": DEFAULT_SCHEMA, "write-order": bad_transform_order},
+        {"name": "t", "schema": DEFAULT_SCHEMA, "write-order": bad_direction_order},
+        {"name": "t", "schema": DEFAULT_SCHEMA, "write-order": bad_null_order},
         {"name": "t", "schema": DEFAULT_SCHEMA, "properties": {"format-version": "3"}},
     ]
     for body in bodies:

@@ -3,6 +3,7 @@
 #include <Common/Exception.h>
 #include <Storages/ObjectStorage/DataLakes/Iceberg/Constant.h>
 #include <Storages/ObjectStorage/DataLakes/Iceberg/SchemaProcessor.h>
+#include <Storages/ObjectStorage/DataLakes/Iceberg/Utils.h>
 
 #include <Poco/JSON/Array.h>
 
@@ -126,6 +127,10 @@ std::vector<Poco::JSON::Object::Ptr> getSpecFields(
             throw Exception(ErrorCodes::BAD_ARGUMENTS, "{} references unknown source-id {}", what, source_id);
         for (const auto & key : required_strings)
             checkString(*field_object, key, what + " field");
+        /// Reuse the reader's parser so that every persisted transform can be read back.
+        const auto transform = field_object->getValue<String>(f_transform);
+        if (!parseTransformAndArgument(transform))
+            throw Exception(ErrorCodes::BAD_ARGUMENTS, "Unknown transform '{}' in {}", transform, what);
         fields.push_back(field_object);
     }
     return fields;
@@ -146,6 +151,15 @@ Int64 getLastPartitionId(const Poco::JSON::Object & spec, const std::set<Int64> 
 Int64 getSortOrderId(const Poco::JSON::Object & spec, const std::set<Int64> & schema_ids)
 {
     const auto fields = getSpecFields(spec, "write-order", schema_ids, {f_transform, f_direction, f_null_order});
+    for (const auto & field : fields)
+    {
+        const auto direction = field->getValue<String>(f_direction);
+        if (direction != "asc" && direction != "desc")
+            throw Exception(ErrorCodes::BAD_ARGUMENTS, "'write-order' direction must be 'asc' or 'desc', got '{}'", direction);
+        const auto null_order = field->getValue<String>(f_null_order);
+        if (null_order != "nulls-first" && null_order != "nulls-last")
+            throw Exception(ErrorCodes::BAD_ARGUMENTS, "'write-order' null-order must be 'nulls-first' or 'nulls-last', got '{}'", null_order);
+    }
     return fields.empty() ? 0 : 1;
 }
 
