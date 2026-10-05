@@ -344,7 +344,7 @@ SETTINGS allow_introspection_functions=1
 
 ### مثال: توليد مخطط اللهب للتجزئة {#example-fragmentation-flamegraph}
 
-يمكن للاستعلام نفسه أن يوزّع الهدر في كل صنف حجم على تتبّعات المكدس الخاصة به، بالتناسب مع عدد التخصيصات القديمة في كل منها، ثم يطبع النتيجة بتنسيق `collapsed` المخصص لـ `flamegraph.pl`. أما أصناف الحجم التي بها هدر لكن ليس لديها samples قديمة بما يكفي، فتُدرج تحت frame باسم `[unattributed]`، بحيث يكون مجموع مخطط اللهب هو إجمالي الهدر. واقرأ `system.jemalloc_sampled_allocations` مرة واحدة فقط لكل استعلام، إذ إن كل عملية قراءة تُنفّذ تفريغًا لـ profile جديد، ومن ثمّ فإن استخدام استعلامين فرعيين سيؤدي إلى رؤية بيانات مختلفة.
+يمكن للاستعلام نفسه أن يوزّع الهدر في كل صنف حجم على تتبّعات المكدس الخاصة به، بالتناسب مع عدد التخصيصات القديمة في كل منها، ثم يطبع النتيجة بتنسيق `collapsed` المخصص لـ `flamegraph.pl`. أما أصناف الحجم التي بها هدر لكن ليس لديها samples قديمة بما يكفي، فتُدرج تحت إطار باسم `[unattributed]`، بحيث يكون مجموع مخطط اللهب هو إجمالي الهدر. وبالنسبة إلى samples التي تعذّر على jemalloc فكّ المكدس الخاص بها، فيكون حقل `trace` فيها فارغًا وتُدرج تحت `[unknown]`. واقرأ `system.jemalloc_sampled_allocations` مرة واحدة فقط لكل استعلام، إذ إن كل عملية قراءة تُنفّذ تفريغًا لـ ملف تعريف جديد، ومن ثمّ فإن استخدام استعلامين فرعيين سيؤدي إلى رؤية بيانات مختلفة.
 
 ```sql
 WITH 60e9 AS min_age_ns
@@ -358,7 +358,7 @@ LEFT JOIN
         arena,
         size_class,
         sum(weight) AS est_old_objects,
-        arrayStringConcat(arrayMap(a -> demangle(addressToSymbol(a)), arrayReverse(trace)), ';') AS stack
+        if(empty(trace), '[unknown]', arrayStringConcat(arrayMap(a -> demangle(addressToSymbol(a)), arrayReverse(trace)), ';')) AS stack
     FROM system.jemalloc_sampled_allocations
     WHERE age_ns > min_age_ns
     GROUP BY arena, size_class, trace

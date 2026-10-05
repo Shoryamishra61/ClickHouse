@@ -344,7 +344,7 @@ SETTINGS allow_introspection_functions=1
 
 ### Example: generación de un flame graph de fragmentación {#example-fragmentation-flamegraph}
 
-La misma consulta puede repartir el desperdicio de cada size class entre sus trazas inversas, en proporción a su número de asignaciones antiguas, e imprimir el resultado en el formato collapsed para `flamegraph.pl`. Las size classes con desperdicio pero sin samples suficientemente antiguos se agrupan bajo un frame `[unattributed]`, de modo que el total del flame graph equivale al desperdicio total. Lea `system.jemalloc_sampled_allocations` una sola vez por consulta: cada lectura hace vaciado de un nuevo profile, por lo que dos subqueries verían datos distintos.
+La misma consulta puede repartir el desperdicio de cada size class entre sus trazas inversas, en proporción a su número de asignaciones antiguas, e imprimir el resultado en el formato collapsed para `flamegraph.pl`. Las size classes con desperdicio pero sin samples suficientemente antiguos se agrupan bajo un frame `[unattributed]`, de modo que el total del flame graph equivale al desperdicio total. Los samples cuya pila jemalloc no pudo desenrollar tienen un `trace` vacío y se agrupan bajo `[unknown]`. Lea `system.jemalloc_sampled_allocations` una sola vez por consulta: cada lectura hace vaciado de un nuevo profile, por lo que dos subqueries verían datos distintos.
 
 ```sql
 WITH 60e9 AS min_age_ns
@@ -358,7 +358,7 @@ LEFT JOIN
         arena,
         size_class,
         sum(weight) AS est_old_objects,
-        arrayStringConcat(arrayMap(a -> demangle(addressToSymbol(a)), arrayReverse(trace)), ';') AS stack
+        if(empty(trace), '[unknown]', arrayStringConcat(arrayMap(a -> demangle(addressToSymbol(a)), arrayReverse(trace)), ';')) AS stack
     FROM system.jemalloc_sampled_allocations
     WHERE age_ns > min_age_ns
     GROUP BY arena, size_class, trace

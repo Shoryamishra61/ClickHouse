@@ -344,7 +344,7 @@ SETTINGS allow_introspection_functions=1
 
 ### Пример: построение флеймграфа фрагментации {#example-fragmentation-flamegraph}
 
-Тот же запрос может распределить потери каждого класса размеров между его стеками вызовов пропорционально количеству старых выделений и вывести результат в формате `collapsed` для `flamegraph.pl`. Те классы размеров, у которых есть потери, но нет достаточно старых образцов, попадают во фрейм `[unattributed]`, так что итог флеймграфа равен суммарным потерям. Обращайтесь к `system.jemalloc_sampled_allocations` только один раз за запрос: при каждом чтении сбрасывается новый профиль, поэтому два подзапроса увидят разные данные.
+Тот же запрос может распределить потери каждого класса размеров между его стеками вызовов пропорционально количеству старых выделений и вывести результат в формате `collapsed` для `flamegraph.pl`. Те классы размеров, у которых есть потери, но нет достаточно старых образцов, попадают во фрейм `[unattributed]`, так что итог флеймграфа равен суммарным потерям. Образцы, стек которых jemalloc не удалось раскрутить, имеют пустой `trace` и попадают в `[unknown]`. Обращайтесь к `system.jemalloc_sampled_allocations` только один раз за запрос: при каждом чтении сбрасывается на диск новый профиль, поэтому два подзапроса увидят разные данные.
 
 ```sql
 WITH 60e9 AS min_age_ns
@@ -358,7 +358,7 @@ LEFT JOIN
         arena,
         size_class,
         sum(weight) AS est_old_objects,
-        arrayStringConcat(arrayMap(a -> demangle(addressToSymbol(a)), arrayReverse(trace)), ';') AS stack
+        if(empty(trace), '[unknown]', arrayStringConcat(arrayMap(a -> demangle(addressToSymbol(a)), arrayReverse(trace)), ';')) AS stack
     FROM system.jemalloc_sampled_allocations
     WHERE age_ns > min_age_ns
     GROUP BY arena, size_class, trace
