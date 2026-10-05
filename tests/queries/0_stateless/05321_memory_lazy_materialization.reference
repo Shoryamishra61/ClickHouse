@@ -42,6 +42,10 @@ Lazily read columns: k
 3824095138698195621
 8131127645885293723
 8131127645885293723
+-- every column is deferred, the main branch reads only the global row index
+0	\N
+1	n1
+2	n2
 -- a row policy over a column that is not otherwise needed before the LIMIT
 47318	1	79	[0,1,2]	(5,'47318')	n47318
 73168	10	30	[0,1,2]	(4,'73168')	n73168

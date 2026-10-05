@@ -1073,7 +1073,10 @@ MemorySourceFilterPtr ReadFromMemoryStorageStep::makeSourceFilter(const NamesAnd
 
 Pipe ReadFromMemoryStorageStep::makePipe()
 {
-    storage_snapshot->check(columns_to_read);
+    /// With lazy materialization, every column may be deferred to the lazy branch, e.g. for
+    /// `ORDER BY rowNumberInAllBlocks()`, and the main branch reads only the global row index.
+    if (!read_global_row_index || !columns_to_read.empty())
+        storage_snapshot->check(columns_to_read);
 
     auto [physical_column_names, virtual_column_names] = VirtualColumnUtils::splitPhysicalAndVirtualColumnNames(columns_to_read, storage_snapshot);
     auto physical_columns = storage_snapshot->getColumnsByNames(GetColumnsOptions(GetColumnsOptions::All).withSubcolumns(), physical_column_names);
