@@ -12,10 +12,12 @@ CUR_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 TARGET_NC="target_nc_${CLICKHOUSE_DATABASE}"
 ADDR_NC="addr_nc_${CLICKHOUSE_DATABASE}"
+REMOTE_NC="remote_nc_${CLICKHOUSE_DATABASE}"
 
 ${CLICKHOUSE_CLIENT} -m -q "
 CREATE NAMED COLLECTION ${TARGET_NC} AS url = 'http://localhost:8123', format = 'CSV', structure = 'x UInt8';
 CREATE NAMED COLLECTION ${ADDR_NC} AS addresses_expr = '127.0.0.1';
+CREATE NAMED COLLECTION ${REMOTE_NC} AS addresses_expr = '127.0.0.1', database = 'system', table = 'one';
 "
 
 echo "--- CREATE TABLE ... AS remote(..., url(nc)) ---"
@@ -43,10 +45,22 @@ DROP NAMED COLLECTION ${ADDR_NC}; -- { serverError NAMED_COLLECTION_IS_USED }
 DROP TABLE t_both;
 "
 
+echo "--- a nested remote(nc) / remoteSecure(nc) target holds its collection ---"
+${CLICKHOUSE_CLIENT} -m -q "
+CREATE TABLE t_nested_remote (dummy UInt8) ENGINE = Remote('127.0.0.1', remote(${REMOTE_NC}));
+CREATE TABLE t_nested_remote_as (dummy UInt8) AS remote('127.0.0.1', remoteSecure(${REMOTE_NC}));
+SET check_named_collection_dependencies = true;
+DROP NAMED COLLECTION ${REMOTE_NC}; -- { serverError NAMED_COLLECTION_IS_USED }
+DROP TABLE t_nested_remote;
+DROP NAMED COLLECTION ${REMOTE_NC}; -- { serverError NAMED_COLLECTION_IS_USED }
+DROP TABLE t_nested_remote_as;
+"
+
 echo "--- the collections can be dropped once the tables are gone ---"
 ${CLICKHOUSE_CLIENT} -m -q "
 SET check_named_collection_dependencies = true;
 DROP NAMED COLLECTION ${TARGET_NC};
 DROP NAMED COLLECTION ${ADDR_NC};
-SELECT count() FROM system.named_collections WHERE name IN ('${TARGET_NC}', '${ADDR_NC}');
+DROP NAMED COLLECTION ${REMOTE_NC};
+SELECT count() FROM system.named_collections WHERE name IN ('${TARGET_NC}', '${ADDR_NC}', '${REMOTE_NC}');
 "
