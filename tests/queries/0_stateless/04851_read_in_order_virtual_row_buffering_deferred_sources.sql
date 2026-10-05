@@ -1,4 +1,6 @@
 -- Tags: no-random-merge-tree-settings, no-random-settings, no-parallel-replicas
+
+SET read_in_order_use_sliced_pool = 0; -- this test pins the reading thread per part; the setting is randomized by the test runner
 -- no-parallel-replicas: the test asserts per-source read counts in processors_profile_log
 --                       for a single-node in-order merge; with parallel replicas the
 --                       coordinator splits the read into ranges across sources, so the

@@ -4,9 +4,7 @@
 
 -- Whenever the merge asks for a lane and no rows are ready, the router announces the primary key the
 -- lane's next rows start at, so the merge steps past a part whose rows are all filtered out as soon
--- as the announced key is past the rows it needs, instead of reading the part to its end. Slices read
--- ahead that come back without rows stay in the read-ahead budget until the merge asks again, so a
--- lane that yields nothing is not read to its end while the merge waits for a slow slice of another lane.
+-- as the announced key is past the rows it needs, instead of reading the part to its end.
 
 SET optimize_read_in_order = 1;
 SET read_in_order_use_virtual_row = 1;
@@ -42,13 +40,6 @@ SELECT 'parts', count() FROM system.parts WHERE database = currentDatabase() AND
 SELECT 'one row behind an empty part', x FROM t_sliced_announce WHERE v = 1 ORDER BY x LIMIT 1
 SETTINGS max_threads = 1, log_comment = '05315_announce';
 
--- With the filter in the reader the slices of the big part come back without rows. Once its announced
--- key passes 1000 the merge waits for the one-row part, whose row sleeps in the filter, and the big
--- part is read ahead meanwhile: its empty slices are held against the budget until the merge asks
--- again, so it is read a few slices per source beyond the ramp however long the row takes.
-SELECT 'slow row behind an empty part', x FROM t_sliced_announce PREWHERE v = 1 AND sleepEachRow(0.3) = 0 ORDER BY x LIMIT 1
-SETTINGS log_comment = '05315_hold';
-
 -- Eight parts whose keys interleave (part i holds the keys equal to i modulo 8) and one row that
 -- passes the filter. The merge needs every part up to that key and must step past the seven parts
 -- that yield nothing; with their keys announced at every slice it does so after a few slices of each.
@@ -76,20 +67,16 @@ SELECT 'first rows', cityHash64(groupArray(x)) FROM (SELECT x FROM t_sliced_inte
 SYSTEM FLUSH LOGS query_log;
 
 -- Rows read, against the 65536 rows that yield nothing in every case (the per-part reading reads
--- them all for the first and the third query):
---   announce: the slices of the big part until its key passes 1000 (1, 2, 4 and 4 marks reach key
---     1408), the one row, and one slice more that the read-ahead issues before the merge learns of
---     the limit: 1921;
---   hold: the same slices of the big part, then the budget of 16 marks read ahead when the merge
---     turned to the one-row part and once more when it asked for that part, held afterwards however
---     long the row sleeps: about 5000 rows, 16384 with room;
+-- them all for both queries). The full slice is 8 marks (`merge_tree_min_read_task_size`):
+--   announce: the slices of the big part until its key passes 1000 (1, 2, 4 and 8 marks reach key
+--     1920) and the one row: 1921;
 --   interleaved: 7 marks of every part, the ramp and one full slice, whose announced key 7168 is
 --     past the target: 7168.
 SELECT replaceOne(log_comment, '05315_', '') AS query,
-    read_rows <= multiIf(query = 'announce', 1921, query = 'hold', 16384, 7168) AS within_bound,
+    read_rows <= if(query = 'announce', 1921, 7168) AS within_bound,
     result_rows
 FROM system.query_log
-WHERE current_database = currentDatabase() AND type = 'QueryFinish' AND log_comment IN ('05315_announce', '05315_hold', '05315_interleaved')
+WHERE current_database = currentDatabase() AND type = 'QueryFinish' AND log_comment IN ('05315_announce', '05315_interleaved')
 ORDER BY query, event_time_microseconds DESC
 LIMIT 1 BY query;
 

@@ -4815,8 +4815,24 @@ Read `MergeTree` tables in the order of the primary key with a shared pool of re
 Parts are cut into slices which are handed out to the threads as the merge demands data, so a single part can be read by several threads when a filter discards most of its rows, while parts whose data is not needed yet are not touched.
 At every slice the primary key the part's next rows start at is announced to the merge, so the merge steps past a part whose rows are filtered out as soon as that key is past the rows it needs, without reading the part to its end.
 Requires `read_in_order_use_virtual_row`. Applies to local reading only, and not when the streams are merged in two levels (see `read_in_order_two_level_merge_threshold`). When the pool is used, `read_in_order_use_buffering` is not applied, because the pool buffers rows per part itself.
-)", EXPERIMENTAL, \
+)", 0, \
         {"26.10", false, false, "New setting: read `MergeTree` tables in the order of the primary key with a shared pool of threads that read slices of parts on demand, instead of one thread per part."}) \
+    DECLARE(UInt64, read_in_order_sliced_pool_first_slice_marks, 1, R"(
+Marks in the first slice of a part read by the sliced pool (see `read_in_order_use_sliced_pool`). Slices double from there up to the full slice size (`min_marks_for_concurrent_read`).
+)", EXPERIMENTAL, \
+        {"26.10", 1, 1, "New setting: the ramp of slice sizes of the sliced read pool."}) \
+    DECLARE(UInt64, read_in_order_sliced_pool_read_ahead_factor, 4, R"(
+Depth of the read-ahead of the sliced pool (see `read_in_order_use_sliced_pool`) once a slice came back mostly filtered out: this many times the marks the merge has consumed, at least the rest of the ramp, at most a full slice per thread.
+)", EXPERIMENTAL, \
+        {"26.10", 4, 4, "New setting: the depth of read-ahead of the sliced read pool."}) \
+    DECLARE(UInt64, read_in_order_sliced_pool_min_read_ahead_marks, 0, R"(
+Marks the sliced pool (see `read_in_order_use_sliced_pool`) reads ahead of the merge from the first request on, before any slice came back filtered out; capped at a full slice per thread. 0 = nothing until the first such slice.
+)", EXPERIMENTAL, \
+        {"26.10", 0, 0, "New setting: read-ahead of the sliced read pool before the first filtered-out slice."}) \
+    DECLARE(UInt64, read_in_order_sliced_pool_breadth, 0, R"(
+Whenever the merge asks the sliced pool (see `read_in_order_use_sliced_pool`) for data, up to this many parts with nothing in flight start their next slice, in the order of their next key, whatever the read-ahead budget. 0 = only the parts whose next key lies within the slice the merge waits for.
+)", EXPERIMENTAL, \
+        {"26.10", 0, 0, "New setting: the number of parts the sliced read pool keeps in flight regardless of its read-ahead budget."}) \
     DECLARE(Bool, optimize_aggregation_in_order, false, R"(
 Enables [GROUP BY](/reference/statements/select/group-by) optimization in [SELECT](/reference/statements/select/index) queries for aggregating data in corresponding order in [MergeTree](/reference/engines/table-engines/mergetree-family/mergetree) tables.
 

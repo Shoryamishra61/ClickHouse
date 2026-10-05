@@ -26,7 +26,6 @@
 #include <Common/ElapsedTimeProfileEventIncrement.h>
 
 #include <Common/OpenTelemetryTraceContext.h>
-#include <Storages/MergeTree/MergeTreeReadPoolInOrderSliced.h>
 #include <Storages/MergeTree/MergeTreeReadTask.h>
 #include <Storages/MergeTree/MergeTreeSliceInfo.h>
 #include <Storages/MergeTree/MergeTreeSplitPrewhereIntoReadSteps.h>
@@ -482,12 +481,19 @@ void MergeTreeSelectProcessor::updateQueryConditionCache(const MergeTreeReadTask
     }
 }
 
-void MergeTreeSelectProcessor::tagSlice(Chunk & chunk) const
+static MergeTreeSliceTag sliceOf(const MergeTreeReadTask & task)
 {
-    chunk.getChunkInfos().add(std::make_shared<MergeTreeSliceDataInfo>(current_slice));
+    return MergeTreeSliceTag{.part_index_in_query = task.getInfo().part_index_in_query, .first_mark = task.getFirstMark()};
 }
 
-ChunkAndProgress MergeTreeSelectProcessor::makeSliceMarker(std::vector<MergeTreeSliceTag> ended, bool idle) const
+void MergeTreeSelectProcessor::tagSlice(Chunk & chunk) const
+{
+    auto info = std::make_shared<MergeTreeSliceInfo>();
+    info->slice = sliceOf(*task);
+    chunk.getChunkInfos().add(std::move(info));
+}
+
+ChunkAndProgress MergeTreeSelectProcessor::makeSliceMarker(std::optional<MergeTreeSliceTag> ended, bool idle) const
 {
     Columns empty_columns;
     empty_columns.reserve(result_header.columns());
@@ -495,7 +501,10 @@ ChunkAndProgress MergeTreeSelectProcessor::makeSliceMarker(std::vector<MergeTree
         empty_columns.push_back(column.type->createColumn());
 
     Chunk chunk(std::move(empty_columns), 0);
-    chunk.getChunkInfos().add(std::make_shared<MergeTreeSliceMarkerInfo>(std::move(ended), idle));
+    auto info = std::make_shared<MergeTreeSliceInfo>();
+    info->ended = ended;
+    info->idle = idle;
+    chunk.getChunkInfos().add(std::move(info));
     return {std::move(chunk), 0, 0, false, {}};
 }
 
@@ -514,41 +523,33 @@ ChunkAndProgress MergeTreeSelectProcessor::read()
         {
             if (!task || algorithm->needNewTask(*task))
             {
-                std::vector<MergeTreeSliceTag> ended;
+                std::optional<MergeTreeSliceTag> ended;
                 if (task && !current_task_finalized)
                 {
                     current_task_finalized = true;
                     updateQueryConditionCache(*task);
-                    if (sliced_pool)
-                        ended.push_back(current_slice);
+                    if (sliced_reading)
+                        ended = sliceOf(*task);
                 }
 
                 auto new_task = algorithm->getNewTask(*pool, task.get());
 
-                if (sliced_pool)
+                if (sliced_reading)
                 {
                     /// The marker goes after the last chunk of the finished task and before the first chunk
-                    /// of the new one, so the router learns of the end right away; it never waits for the
-                    /// router to go on reading.
-                    for (const auto & tag : sliced_pool->takeSlicesEndedUnread(source_index))
-                        ended.push_back(tag);
-
+                    /// of the new one, so the router learns of the end at once; the source never waits for
+                    /// the router to go on reading.
                     if (new_task)
                     {
                         task = std::move(new_task);
                         current_task_finalized = false;
-                        current_slice = MergeTreeSliceTag{
-                            .part_index_in_query = task->getInfo().part_index_in_query,
-                            .first_mark = task->getMarkRanges().front().begin};
-                        if (!ended.empty())
-                            return makeSliceMarker(std::move(ended), /*idle=*/ false);
+                        return makeSliceMarker(ended, /*idle=*/ false);
                     }
                     /// Nothing to read right now; the router wakes the source up when there is. The finished
                     /// task is kept so that its readers can continue the lane.
-                    else if (!sliced_pool->isFinished())
-                        return makeSliceMarker(std::move(ended), /*idle=*/ true);
-                    else
-                        task = nullptr;
+                    if (pool->mayHaveMoreTasks())
+                        return makeSliceMarker(ended, /*idle=*/ true);
+                    task = nullptr;
                 }
                 else
                 {
@@ -575,7 +576,7 @@ ChunkAndProgress MergeTreeSelectProcessor::read()
         }
 
         auto result = readCurrentTask(*task, *algorithm);
-        if (sliced_pool && result.chunk)
+        if (sliced_reading && result.chunk)
             tagSlice(result.chunk);
 
         /// Emit a virtual row update after each block, carrying the next mark's PK boundary.
@@ -587,7 +588,7 @@ ChunkAndProgress MergeTreeSelectProcessor::read()
             auto vrow = buildVirtualRowFromIndex(*task, result.read_mark_ranges);
             if (vrow.chunk)
             {
-                if (sliced_pool)
+                if (sliced_reading)
                     tagSlice(vrow.chunk);
                 pending_virtual_row.emplace(std::move(vrow));
             }

@@ -1109,6 +1109,12 @@ Pipe ReadFromMergeTree::readInOrderSliced(
     LOG_TRACE(log, "Reading {} parts in{}order with {} sources sharing a sliced pool, approx. {} rows",
         parts_with_ranges.size(), read_in_reverse_order ? " reverse " : " ", num_sources, total_rows);
 
+    /// A per-block virtual row in reverse order announces the key at the first mark of the block just
+    /// read as the bound of the next one, which holds only when a block never ends inside a granule.
+    auto sliced_reader_settings = reader_settings;
+    if (settings[Setting::read_in_order_use_virtual_row_per_block] && read_in_reverse_order)
+        sliced_reader_settings.force_read_complete_granules = true;
+
     auto pool = std::make_shared<MergeTreeReadPoolInOrderSliced>(
         std::move(parts_with_ranges),
         mutations_snapshot,
@@ -1118,7 +1124,7 @@ Pipe ReadFromMergeTree::readInOrderSliced(
         query_info.row_level_filter,
         query_info.prewhere_info,
         actions_settings,
-        reader_settings,
+        sliced_reader_settings,
         required_columns,
         pool_settings,
         block_size,
@@ -1147,13 +1153,13 @@ Pipe ReadFromMergeTree::readInOrderSliced(
             query_info.prewhere_info,
             index_read_tasks,
             actions_settings,
-            reader_settings,
+            sliced_reader_settings,
             index_build_context,
             lazy_materializing_rows,
             &storage_snapshot->metadata->getColumns());
 
         processor->addPartLevelToChunk(isQueryWithFinal());
-        processor->enableSlicedReading(pool, i);
+        processor->enableSlicedReading();
         if (settings[Setting::read_in_order_use_virtual_row_per_block])
             processor->setVirtualRowConversions(virtual_row_conversion, pk_header, read_in_reverse_order);
 
@@ -2093,7 +2099,7 @@ Pipe ReadFromMergeTree::spreadMarkRangesAmongStreamsWithOrder(
         .total_query_nodes = total_query_nodes,
     };
 
-    const bool use_sliced_pool = slicedPoolRequested() && !need_preliminary_merge;
+    const bool use_sliced_pool = usesSlicedPool();
     if (use_sliced_pool)
     {
         Pipe pipe = readInOrderSliced(

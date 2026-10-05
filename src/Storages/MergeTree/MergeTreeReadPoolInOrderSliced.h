@@ -21,18 +21,18 @@ using ExpressionActionsPtr = std::shared_ptr<ExpressionActions>;
 /// Every part is a lane. Slices are cut from the front of the lane's unread marks (the back in reverse
 /// order), and a slice is one MergeTreeReadTask. Lanes with unread marks are queued by the primary key at
 /// their next unread mark, so the head of the queue is the slice the merge needs next, whichever part it
-/// belongs to. The slices of a lane start with one mark and double up to `min_marks_for_concurrent_read`:
-/// the first rows of a part arrive after one granule, and a lane the merge stays on is read in large slices.
+/// belongs to. The slices of a lane start small and double up to `min_marks_for_concurrent_read`: the
+/// first rows of a part arrive after one granule, and a lane the merge stays on is read in large slices.
 ///
 /// The pool owns all state and makes all decisions; MergeTreeInOrderSliceRouter only moves chunks between
 /// its ports and the pool. `schedule` cuts slices into a FIFO when the merge asks for data. Sources take
-/// them in `getTask`, read them, and tag every chunk with the slice (MergeTreeSliceDataInfo). The router
-/// deposits the chunks here, where they are buffered per slice, and `serve` hands a lane's rows out from
-/// its first slice in reading order, so the lane is in mark order whichever sources read it. When no rows
-/// are ready, `serve` announces the key the lane's next rows start at, from the index, so the merge goes
-/// on with other lanes until it reaches that key instead of waiting for a lane whose rows are filtered
-/// out. A source reports the slices it finished with a marker (MergeTreeSliceMarkerInfo); a slice is
-/// complete only then, because its last chunk may still be in the port when the source asks for the next.
+/// them in `getTask`, read them, and tag every chunk with the slice (MergeTreeSliceInfo). The router hands
+/// the chunks to `receive`, which buffers them per slice, and `serve` gives a lane's rows out from its
+/// first slice in reading order, so the lane is in mark order whichever sources read it. When no rows are
+/// ready, `serve` announces the key the lane's next rows start at, from the index, so the merge goes on
+/// with other lanes until it reaches that key instead of waiting for a lane whose rows are filtered out.
+/// A source reports the slice it finished in the chunk it emits after asking for the next one; a slice is
+/// complete only then, because its last chunk may still be in the port when the source asks.
 ///
 /// Readers follow the lane, not the source: a source that switches lanes leaves its readers parked in the
 /// lane for whichever source reads it next, and `getTask` prefers a queued slice of the lane the source
@@ -74,22 +74,13 @@ public:
     /// The next slice from the FIFO, preferring one of the lane the source read last. Nothing if the FIFO
     /// is empty: the source then reports idle and is parked until the router has a slice for it.
     MergeTreeReadTaskPtr getTask(size_t task_idx, MergeTreeReadTask * previous_task) override;
-
-    /// Slices that ended in `getTask` of the source without being read: emptied by the refiner, or of a
-    /// lane the merge finished. The source reports them in its next marker, with the task it finished.
-    std::vector<MergeTreeSliceTag> takeSlicesEndedUnread(size_t source);
-
-    /// No slice is going to be cut anymore; a source that finds no task ends its stream.
-    bool isFinished() const;
+    bool mayHaveMoreTasks() const override;
 
     /// Router side.
 
-    /// A chunk with data from a source goes to the buffer of the slice in its tag. Chunks of a finished
-    /// lane are dropped; a tag of no issued slice is a logical error.
-    void deposit(Chunk chunk);
-
-    /// The source's marker: the listed slices are complete, no more chunks of them are coming.
-    void completeSlices(const MergeTreeSliceMarkerInfo & marker);
+    /// A chunk from a source. Its rows go to the buffer of their slice; the slice it names as ended is
+    /// complete, no more chunks of it are coming. Chunks of a finished lane are dropped.
+    void receive(Chunk chunk);
 
     struct Served
     {
@@ -101,19 +92,16 @@ public:
     /// Called when the lane's output can take a chunk, which is how the merge asks for the lane.
     Served serve(size_t lane, const Block & output_header);
 
-    /// Cuts slices into the FIFO (see the rules in the .cpp); returns the number of slices waiting there.
-    size_t schedule();
-
+    /// Cuts slices into the FIFO (see the rules in the .cpp), at most as many as there are idle sources to
+    /// take them; returns the number of slices waiting there.
+    size_t schedule(size_t idle_sources);
     size_t fifoSize() const;
-    bool allLanesFinished() const;
-
-    /// Slices cut or being read: a source is busy with something, or will be as soon as it looks.
-    bool hasSlicesInFlight() const;
 
     /// The lane is not going to be read anymore: its unread marks, buffers, queued slices and parked
     /// readers go away.
     void finishLane(size_t lane);
 
+    /// No slice is going to be cut anymore; a source that finds no task ends its stream.
     void finish();
 
     /// Primary key values at the mark of the lane, one row; empty if the index has no value there.
@@ -143,9 +131,7 @@ private:
         /// The mark the rows of the slice start at in reading order; announced while the slice is in flight.
         size_t boundary_mark = 0;
         std::deque<Chunk> chunks = {};
-        bool taken = false;
         bool complete = false;
-        bool had_rows = false;
     };
 
     using Slices = std::map<size_t, Slice>;
@@ -199,17 +185,22 @@ private:
     std::optional<size_t> nextUnreadMark(const Lane & lane) const TSA_REQUIRES(mutex);
     Slices::iterator headSlice(Lane & lane) const TSA_REQUIRES(mutex);
     void cutSlice(size_t lane) TSA_REQUIRES(mutex);
+    void completeSlice(const MergeTreeSliceTag & tag) TSA_REQUIRES(mutex);
     void dropSlice(size_t lane, Slices::iterator slice) TSA_REQUIRES(mutex);
     void finishLaneUnlocked(size_t lane) TSA_REQUIRES(mutex);
     Chunk announce(size_t lane, size_t mark, const Block & output_header) TSA_REQUIRES(mutex);
     size_t readAheadMarks() const TSA_REQUIRES(mutex);
-    size_t idleSources() const TSA_REQUIRES(mutex);
 
     const RuntimeDataflowStatisticsCacheUpdaterPtr updater;
     const size_t num_sources;
     const size_t num_lanes;
     const size_t max_slice_marks;
-    /// Marks of the slices a lane reads before its slices reach full size (1, 2, 4, ... marks).
+    /// Scheduling knobs, see the `read_in_order_sliced_pool_*` settings.
+    const size_t first_slice_marks;
+    const size_t read_ahead_factor;
+    const size_t min_read_ahead_marks;
+    const size_t breadth;
+    /// Marks of the slices a lane reads before its slices reach full size.
     size_t ramp_marks = 0;
     const Block primary_key_header;
     const ExpressionActionsPtr virtual_row_conversions;
@@ -227,14 +218,8 @@ private:
     /// marks those readers were created for.
     std::vector<std::optional<size_t>> last_task_lane TSA_GUARDED_BY(mutex);
     std::vector<size_t> last_readers_marks TSA_GUARDED_BY(mutex);
-    std::vector<std::vector<MergeTreeSliceTag>> ended_unread TSA_GUARDED_BY(mutex);
-    /// Slices taken by sources and not yet complete.
-    size_t taken_slices TSA_GUARDED_BY(mutex) = 0;
-    size_t num_finished_lanes TSA_GUARDED_BY(mutex) = 0;
     /// Marks of the slices cut and not yet consumed by the merge in full.
     size_t issued_marks TSA_GUARDED_BY(mutex) = 0;
-    /// Marks of the slices read ahead and dropped without rows since the merge last asked.
-    size_t fruitless_marks TSA_GUARDED_BY(mutex) = 0;
     /// Marks of the slices the merge has consumed: taken in full, or dropped without rows.
     size_t consumed_marks TSA_GUARDED_BY(mutex) = 0;
     /// A slice ended with most of its rows filtered out: reading, not merging, is the bottleneck.

@@ -4,7 +4,6 @@ no filter	65535
 no filter	65534
 no filter	65533
 one row behind an empty part	64535
-slow row behind an empty part	64535
 parts	8
 one row among interleaved parts	61536
 one row among interleaved parts	61536
@@ -16,5 +15,4 @@ prewhere	14743443500847628415
 prewhere	14743443500847628415
 announce	1	1
 dense	1	3
-hold	1	1
 interleaved	1	1

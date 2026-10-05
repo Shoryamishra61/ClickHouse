@@ -1,5 +1,7 @@
 -- Tags: no-random-merge-tree-settings, no-random-settings
 
+SET read_in_order_use_sliced_pool = 0; -- this test pins the reading thread per part; the setting is randomized by the test runner
+
 create table tab (x UInt64, y UInt64) engine = MergeTree order by x;
 
 insert into tab select number, number from numbers(1e6);

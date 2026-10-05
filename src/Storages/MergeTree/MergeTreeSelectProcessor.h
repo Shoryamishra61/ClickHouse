@@ -17,7 +17,6 @@ struct PrewhereExprInfo;
 struct LazilyReadInfo;
 using LazilyReadInfoPtr = std::shared_ptr<LazilyReadInfo>;
 
-class MergeTreeReadPoolInOrderSliced;
 
 struct ChunkAndProgress
 {
@@ -170,14 +169,10 @@ public:
     /// is emitted so that MergingSortedTransform can reprioritize sources.
     void setVirtualRowConversions(ExpressionActionsPtr virtual_row_conversions_, Block pk_block_header_, bool read_in_reverse_order_);
 
-    /// Read slices from MergeTreeReadPoolInOrderSliced as source `source_index_`: tag every chunk with its
-    /// slice, report ended slices with a marker after asking for the next one, and stay alive while the
-    /// pool has no slice for this source right now; the stream ends once the pool is finished.
-    void enableSlicedReading(std::shared_ptr<MergeTreeReadPoolInOrderSliced> sliced_pool_, size_t source_index_)
-    {
-        sliced_pool = std::move(sliced_pool_);
-        source_index = source_index_;
-    }
+    /// The pool hands out slices of parts on demand (MergeTreeReadPoolInOrderSliced): tag every chunk with
+    /// its slice and, after asking for the next task, report the one that ended and whether there was
+    /// nothing to read, with an empty chunk (MergeTreeSliceInfo).
+    void enableSlicedReading() { sliced_reading = true; }
 
     void onFinish() const;
 
@@ -226,17 +221,14 @@ private:
 
     ChunkAndProgress buildVirtualRowFromIndex(const MergeTreeReadTask & current_task, const MarkRanges & read_mark_ranges) const;
 
-    /// Set when the pool hands out slices on demand, see enableSlicedReading.
-    std::shared_ptr<MergeTreeReadPoolInOrderSliced> sliced_pool;
-    size_t source_index = 0;
-    /// The slice of the current task, the tag of its chunks.
-    MergeTreeSliceTag current_slice;
+    /// See enableSlicedReading.
+    bool sliced_reading = false;
     /// The query condition cache write of the current task is done.
     bool current_task_finalized = false;
 
     void updateQueryConditionCache(const MergeTreeReadTask & finished_task) const;
     void tagSlice(Chunk & chunk) const;
-    ChunkAndProgress makeSliceMarker(std::vector<MergeTreeSliceTag> ended, bool idle) const;
+    ChunkAndProgress makeSliceMarker(std::optional<MergeTreeSliceTag> ended, bool idle) const;
 
     LoggerPtr log = getLogger("MergeTreeSelectProcessor");
     std::atomic<bool> is_cancelled{false};

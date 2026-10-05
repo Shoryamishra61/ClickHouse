@@ -2,7 +2,7 @@
 
 #include <Processors/Chunk.h>
 
-#include <vector>
+#include <optional>
 
 namespace DB
 {
@@ -15,28 +15,19 @@ struct MergeTreeSliceTag
     size_t first_mark = 0;
 };
 
-/// On every chunk with data a source emits while reading from MergeTreeReadPoolInOrderSliced. The
-/// chunk goes to the buffer of that slice; the info is removed there and never reaches the merge.
-class MergeTreeSliceDataInfo : public ChunkInfoCloneable<MergeTreeSliceDataInfo>
+/// On every chunk a source emits while reading from MergeTreeReadPoolInOrderSliced. A chunk with rows
+/// (or a virtual row) carries the slice its rows belong to. The empty chunk a source emits right after
+/// it asked the pool for its next slice carries the slice of the task it finished, if any, and whether
+/// it got nothing to read. The pool takes the info off; nothing of it reaches the merge.
+class MergeTreeSliceInfo : public ChunkInfoCloneable<MergeTreeSliceInfo>
 {
 public:
-    explicit MergeTreeSliceDataInfo(MergeTreeSliceTag slice_) : slice(slice_) {}
-    MergeTreeSliceDataInfo(const MergeTreeSliceDataInfo &) = default;
+    MergeTreeSliceInfo() = default;
+    MergeTreeSliceInfo(const MergeTreeSliceInfo &) = default;
 
-    MergeTreeSliceTag slice;
-};
-
-/// On an empty chunk a source emits right after it asked the pool for its next slice: the slices that
-/// ended since its previous marker (the task it finished, and slices the refiner emptied before they were
-/// read), and whether the source got nothing to read. The chunk never reaches the merge.
-class MergeTreeSliceMarkerInfo : public ChunkInfoCloneable<MergeTreeSliceMarkerInfo>
-{
-public:
-    MergeTreeSliceMarkerInfo(std::vector<MergeTreeSliceTag> ended_, bool idle_) : ended(std::move(ended_)), idle(idle_) {}
-    MergeTreeSliceMarkerInfo(const MergeTreeSliceMarkerInfo &) = default;
-
-    std::vector<MergeTreeSliceTag> ended;
-    bool idle;
+    std::optional<MergeTreeSliceTag> slice;
+    std::optional<MergeTreeSliceTag> ended;
+    bool idle = false;
 };
 
 }

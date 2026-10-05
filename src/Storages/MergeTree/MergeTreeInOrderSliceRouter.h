@@ -6,16 +6,15 @@
 namespace DB
 {
 
-/// Connects the sources reading from MergeTreeReadPoolInOrderSliced to the merge that reads in order.
-/// Input i is source i; output l is lane l, one part, whose chunks come out in mark order as if a
-/// single source read that part alone; in reverse order, from the last mark down.
+/// The processor between the sources of MergeTreeReadPoolInOrderSliced and the merge that reads in order.
+/// Input i is source i; output l is lane l, one part, whose chunks come out in mark order as if one
+/// source read that part alone (in reverse order, from the last mark down).
 ///
-/// The router is a port adapter: the pool owns all state and makes all decisions. The executor runs a
-/// processor only through its ports, so this is the processor that is run when a source has a chunk or
-/// the merge asks for a lane, and that sets the sources' inputs needed or not. Chunks are placed by the
-/// slice tag they carry; which source read them does not matter. A source runs only while its input is
-/// needed, and the input is set needed only while the pool has slices for it, so idle sources cost
-/// nothing and no part is read before the pool asks for it.
+/// It keeps no state of its own. Every chunk a source emits goes to the pool, which buffers it in its
+/// slice, and every lane output is served from the pool: the lane's next rows, or a virtual row announcing
+/// the key the lane's next rows start at when none are ready. What the router decides is only when a
+/// source runs: it sets as many parked inputs needed as the pool has slices waiting, and parks a source
+/// again when it reports that it found nothing, so sources with nothing to read cost nothing.
 class MergeTreeInOrderSliceRouter final : public IProcessor
 {
 public:
@@ -34,6 +33,8 @@ private:
     std::vector<OutputPort *> lane_outputs;
     /// Whether each input is set needed; InputPort does not tell.
     std::vector<bool> input_needed;
+    /// The pool is finished and the idle sources were woken up to end their streams.
+    bool finishing = false;
 };
 
 }

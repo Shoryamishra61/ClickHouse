@@ -2,6 +2,8 @@
 
 #include <Storages/MergeTree/MergeTreeSliceInfo.h>
 
+#include <algorithm>
+
 namespace DB
 {
 
@@ -25,21 +27,20 @@ IProcessor::Status MergeTreeInOrderSliceRouter::prepare()
             continue;
 
         Chunk chunk = input.pull();
-        if (auto marker = chunk.getChunkInfos().get<MergeTreeSliceMarkerInfo>())
+        const auto info = chunk.getChunkInfos().get<MergeTreeSliceInfo>();
+        const bool idle = info && info->idle;
+        pool->receive(std::move(chunk));
+
+        /// An idle source is parked, unless slices were cut since it looked: then it stays needed and
+        /// takes one when it asks again.
+        if (idle && pool->fifoSize() == 0)
         {
-            pool->completeSlices(*marker);
-            /// An idle source is parked, unless slices were cut since it looked: then it stays needed
-            /// and takes one when it asks again.
-            if (marker->idle && pool->fifoSize() == 0)
-            {
-                input.setNotNeeded();
-                input_needed[source] = false;
-            }
+            input.setNotNeeded();
+            input_needed[source] = false;
         }
-        else
-            pool->deposit(std::move(chunk));
     }
 
+    bool all_lanes_finished = true;
     for (size_t lane = 0; lane < lane_outputs.size(); ++lane)
     {
         auto & output = *lane_outputs[lane];
@@ -48,17 +49,18 @@ IProcessor::Status MergeTreeInOrderSliceRouter::prepare()
             pool->finishLane(lane);
             continue;
         }
-        if (!output.canPush())
-            continue;
-
-        auto served = pool->serve(lane, output.getHeader());
-        if (served.finished)
-            output.finish();
-        else if (served.chunk)
-            output.push(std::move(served.chunk));
+        if (output.canPush())
+        {
+            auto served = pool->serve(lane, output.getHeader());
+            if (served.finished)
+                output.finish();
+            else if (served.chunk)
+                output.push(std::move(served.chunk));
+        }
+        all_lanes_finished &= output.isFinished();
     }
 
-    if (pool->allLanesFinished())
+    if (all_lanes_finished)
         return finish();
 
     /// A source ends its stream on its own only when reading was cancelled for a partial result. The
@@ -77,7 +79,8 @@ IProcessor::Status MergeTreeInOrderSliceRouter::prepare()
     }
 
     /// One parked source per slice waiting in the FIFO; sources still reading take theirs when done.
-    size_t queued = pool->schedule();
+    const size_t idle_sources = std::count(input_needed.begin(), input_needed.end(), false);
+    size_t queued = pool->schedule(idle_sources);
     for (size_t source = 0; source < source_inputs.size() && queued > 0; ++source)
     {
         if (input_needed[source])
@@ -95,26 +98,32 @@ IProcessor::Status MergeTreeInOrderSliceRouter::prepare()
 
 IProcessor::Status MergeTreeInOrderSliceRouter::finish()
 {
-    /// Sources still reading or about to read are cut short: no lane wants their rows anymore.
-    if (pool->hasSlicesInFlight())
+    if (!finishing)
     {
+        /// Sources still reading are cut short: no lane wants their rows anymore.
+        for (bool needed : input_needed)
+        {
+            if (needed)
+            {
+                for (auto & input : inputs)
+                    input.close();
+                return Status::Finished;
+            }
+        }
+
+        /// Idle sources end their streams themselves once the pool has nothing more for them, so that
+        /// they finish the way every source does (onFinish: statistics and logs).
+        finishing = true;
+        pool->finish();
         for (auto & input : inputs)
-            input.close();
-        return Status::Finished;
+            if (!input.isFinished())
+                input.setNeeded();
     }
 
-    /// Idle sources end their streams themselves once the pool has nothing more for them, so that
-    /// they finish the way every source does (onFinish: statistics and logs).
-    pool->finish();
-    bool all_sources_finished = true;
-    for (auto & input : inputs)
-    {
-        if (input.isFinished())
-            continue;
-        all_sources_finished = false;
-        input.setNeeded();
-    }
-    return all_sources_finished ? Status::Finished : Status::NeedData;
+    for (const auto & input : inputs)
+        if (!input.isFinished())
+            return Status::NeedData;
+    return Status::Finished;
 }
 
 }

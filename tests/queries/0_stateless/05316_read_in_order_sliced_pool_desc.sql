@@ -46,10 +46,6 @@ SELECT 'no filter', x FROM t_sliced_desc ORDER BY x DESC LIMIT 3 SETTINGS log_co
 SELECT 'one row behind an empty part', x FROM t_sliced_desc WHERE v = 1 ORDER BY x DESC LIMIT 1
 SETTINGS max_threads = 1, log_comment = '05316_announce';
 
--- The one row sleeps in the filter while the big part is read ahead; its empty slices are held against the budget until the merge asks again.
-SELECT 'slow row behind an empty part', x FROM t_sliced_desc PREWHERE v = 1 AND sleepEachRow(0.3) = 0 ORDER BY x DESC LIMIT 1
-SETTINGS log_comment = '05316_hold';
-
 -- Eight parts whose keys interleave (part i holds the keys equal to i modulo 8) and one row that passes the filter, 4000 keys before the end.
 CREATE TABLE t_sliced_desc_interleaved (x UInt64, v UInt8) ENGINE = MergeTree ORDER BY x
 SETTINGS index_granularity = 128, index_granularity_bytes = 10485760, add_minmax_index_for_numeric_columns = 0;
@@ -81,17 +77,14 @@ SYSTEM FLUSH LOGS query_log;
 
 -- Rows read, the mirror image of the ascending cases:
 --   dense: the last granule of the big part;
---   announce: the slices of the big part from its end until its key falls below 64535 (1, 2, 4 and 4
---     marks reach key 64128), the one row, and one slice more that the read-ahead issues before the
---     merge learns of the limit: 1921;
---   hold: the same slices of the big part, then at most two budgets of 16 marks read ahead while the
---     one row sleeps: about 5000 rows, 16384 with room;
+--   announce: the slices of the big part from its end until its key falls below 64535 (1, 2, 4 and 8
+--     marks reach key 63616) and the one row: 1921;
 --   interleaved: 7 marks of every part from its end, whose announced key 58368 is below the target: 7168.
 SELECT replaceOne(log_comment, '05316_', '') AS query,
-    read_rows <= multiIf(query = 'dense', 128, query = 'announce', 1921, query = 'hold', 16384, 7168) AS within_bound,
+    read_rows <= multiIf(query = 'dense', 128, query = 'announce', 1921, 7168) AS within_bound,
     result_rows
 FROM system.query_log
-WHERE current_database = currentDatabase() AND type = 'QueryFinish' AND log_comment IN ('05316_dense', '05316_announce', '05316_hold', '05316_interleaved')
+WHERE current_database = currentDatabase() AND type = 'QueryFinish' AND log_comment IN ('05316_dense', '05316_announce', '05316_interleaved')
 ORDER BY query, event_time_microseconds DESC
 LIMIT 1 BY query;
 

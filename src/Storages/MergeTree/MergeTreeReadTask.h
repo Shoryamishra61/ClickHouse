@@ -230,8 +230,8 @@ public:
     Readers releaseReaders() { return std::move(readers); }
 
     size_t getNumMarksToRead() const { return mark_ranges.getNumberOfMarks(); }
-    /// Marks left to read; the whole task before the first read.
-    const MarkRanges & getMarkRanges() const { return mark_ranges; }
+    /// The first mark of the task; `mark_ranges` is consumed while reading.
+    size_t getFirstMark() const { return first_mark; }
 
     static Readers createReaders(
         const MergeTreeReadTaskInfoPtr & read_info,
@@ -266,6 +266,7 @@ private:
 
     /// Ranges to read from data_part.
     MarkRanges mark_ranges;
+    const size_t first_mark;
 
     /// Ranges to read from patch parts.
     std::vector<MarkRanges> patches_mark_ranges;
