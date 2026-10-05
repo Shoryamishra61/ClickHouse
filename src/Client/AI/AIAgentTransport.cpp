@@ -183,7 +183,7 @@ String AIServerFunctionTransport::renderSystemPrompt(const String & system_promp
         "After your tool calls, stop and wait: the results will be provided in the next message as "
         "'Tool result [<n>]' entries, in the order of your calls. "
         "When you do not call any tools, your message is the final answer. "
-        "A block inside Markdown code - a code span or a fenced code block - is not a call: "
+        "A block inside Markdown code - a code span or a fenced code block (with backticks or tildes) - is not a call: "
         "to show the syntax of a tool call without making it, put it in code.\n\n",
         out);
 
@@ -314,12 +314,25 @@ String AIServerFunctionTransport::renderConversationWithinBudget(const ai::Messa
     {
         question_part = parts[question];
         /// Half of the budget: enough for a long question, and it always leaves room for the tool
-        /// results the answer is built from. A question over that (a pasted log) is cut, keeping
-        /// its beginning, rather than allowed to displace the whole turn.
+        /// results the answer is built from. A question over that (a pasted log) is cut rather than
+        /// allowed to displace the whole turn. Its middle is what goes: the beginning has the turn
+        /// header and the `<recent_queries>` block that `AIAgent::chat` puts before the text of the
+        /// user, and the end has the actual task - keeping only the beginning would let a large
+        /// recent-query context push out the very question the model is asked to answer.
         if (const size_t question_budget = budget / 2; question_part.size() > question_budget)
         {
-            truncateToUTF8Boundary(question_part, question_budget > CONVERSATION_CUT.size() ? question_budget - CONVERSATION_CUT.size() : 0);
+            const size_t kept = question_budget > CONVERSATION_CUT.size() ? question_budget - CONVERSATION_CUT.size() : 0;
+            String head = question_part;
+            truncateToUTF8Boundary(head, kept / 2);
+            /// The tail starts in the middle of a quoted line, after the notice that ends a line,
+            /// so it gets the indentation of a quoted line back: otherwise the cut could make
+            /// a line of the text of the user begin with a turn header.
+            String tail = question_part;
+            truncateToUTF8BoundaryFromLeft(tail, kept - kept / 2 > 0 ? kept - kept / 2 - 1 : 0);
+            question_part = head;
             question_part += CONVERSATION_CUT;
+            question_part += ' ';
+            question_part += tail;
         }
         budget -= std::min(budget, question_part.size());
     }
@@ -406,18 +419,62 @@ size_t findJSONValueEnd(const String & s, size_t start)
     return String::npos;
 }
 
+/// The length of a run of at least three tildes that opens or closes a Markdown fenced code block
+/// on the line starting at `line_start` (indented by up to three spaces), or zero.
+size_t tildeFenceAt(const String & s, size_t line_start)
+{
+    size_t i = line_start;
+    while (i < s.size() && i - line_start < 3 && s[i] == ' ')
+        ++i;
+    size_t run = 0;
+    while (i + run < s.size() && s[i + run] == '~')
+        ++run;
+    return run >= 3 ? run : 0;
+}
+
+/// Whether the rest of the line after `pos` holds only whitespace.
+bool restOfLineIsBlank(const String & s, size_t pos)
+{
+    for (; pos < s.size() && s[pos] != '\n'; ++pos)
+        if (!isWhitespaceASCII(s[pos]))
+            return false;
+    return true;
+}
+
 /// The position of the next `open_tag` at or after `pos` that is outside of Markdown code - a code
-/// span or a fenced code block, both opened and closed by a run of backticks of the same length -
-/// or `npos`. A tool call block inside code is an example of the syntax the model shows, e.g. when
-/// asked how the protocol looks, and must not be executed: the read-only and schema tools run
-/// without a confirmation. Code that is never closed extends to the end of the response, so a stray
-/// backtick can only make a call be shown instead of executed, never the other way around.
+/// span or a fenced code block opened and closed by a run of backticks of the same length, or a
+/// fenced code block opened by a line starting with three or more tildes and closed by a line of at
+/// least as many tildes - or `npos`. A tool call block inside code is an example of the syntax the
+/// model shows, e.g. when asked how the protocol looks, and must not be executed: the read-only and
+/// schema tools run without a confirmation. Code that is never closed extends to the end of the
+/// response, so a stray backtick or tilde fence can only make a call be shown instead of executed,
+/// never the other way around.
 size_t findToolCallOutsideCode(const String & s, size_t pos, std::string_view open_tag)
 {
     size_t code_backticks = 0;
+    size_t code_tildes = 0;
     size_t i = pos;
     while (i < s.size())
     {
+        bool line_start = i == 0 || s[i - 1] == '\n';
+        if (line_start && code_backticks == 0)
+        {
+            if (size_t run = tildeFenceAt(s, i))
+            {
+                if (code_tildes == 0)
+                    code_tildes = run;
+                else if (run >= code_tildes && restOfLineIsBlank(s, s.find('~', i) + run))
+                    code_tildes = 0;
+                size_t line_end = s.find('\n', i);
+                i = line_end == String::npos ? s.size() : line_end + 1;
+                continue;
+            }
+        }
+        if (code_tildes != 0)
+        {
+            ++i;
+            continue;
+        }
         if (s[i] == '`')
         {
             size_t run = 1;
