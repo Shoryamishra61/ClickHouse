@@ -179,6 +179,30 @@ namespace
         std::optional<gcs::ListObjectsReader> reader;
         std::optional<gcs::ListObjectsReader::iterator> reader_position;
     };
+
+    /// Record a server-side copy (`RewriteObject`) in `system.blob_storage_log` as an `Upload` of the
+    /// destination object, like the S3 and Azure backends do for their server-side copies.
+    void logCopyResult(
+        const BlobStorageLogWriterPtr & blob_storage_log,
+        const String & dest_bucket,
+        const StoredObject & object_from,
+        const StoredObject & object_to,
+        const google::cloud::StatusOr<gcs::ObjectMetadata> & result,
+        UInt64 elapsed_microseconds)
+    {
+        if (!blob_storage_log)
+            return;
+
+        blob_storage_log->addEvent(
+            BlobStorageLogElement::EventType::Upload,
+            dest_bucket,
+            object_to.remote_path,
+            object_to.local_path,
+            result ? result->size() : object_from.bytes_size,
+            elapsed_microseconds,
+            result ? 0 : static_cast<Int32>(result.status().code()),
+            result ? "" : result.status().message());
+    }
 }
 
 bool GCSObjectStorage::exists(const StoredObject & object) const
@@ -434,6 +458,7 @@ void GCSObjectStorage::copyObject( /// NOLINT
     auto client_ptr = snapshot->client;
     countRequest(ProfileEvents::GCSCopyObject, ProfileEvents::DiskGCSCopyObject, snapshot->settings.for_disk);
 
+    Stopwatch watch;
     google::cloud::StatusOr<gcs::ObjectMetadata> result;
     if (object_to_attributes && !object_to_attributes->empty())
     {
@@ -448,6 +473,7 @@ void GCSObjectStorage::copyObject( /// NOLINT
     {
         result = client_ptr->RewriteObjectBlocking(bucket, object_from.remote_path, bucket, object_to.remote_path, precondition);
     }
+    logCopyResult(BlobStorageLogWriter::create(disk_name), bucket, object_from, object_to, result, watch.elapsedMicroseconds());
 
     if (!result)
         throwFromGCSStatus(result.status(),
@@ -479,6 +505,7 @@ void GCSObjectStorage::copyObjectToAnotherObjectStorage( /// NOLINT
     {
         auto precondition = makeGCSWritePrecondition(write_settings, dest_gcs->bucket, object_to.remote_path);
         countRequest(ProfileEvents::GCSCopyObject, ProfileEvents::DiskGCSCopyObject, source_snapshot->settings.for_disk);
+        Stopwatch watch;
         google::cloud::StatusOr<gcs::ObjectMetadata> result;
         if (object_to_attributes && !object_to_attributes->empty())
         {
@@ -494,6 +521,9 @@ void GCSObjectStorage::copyObjectToAnotherObjectStorage( /// NOLINT
             result = source_snapshot->client->RewriteObjectBlocking(
                 bucket, object_from.remote_path, dest_gcs->bucket, object_to.remote_path, precondition);
         }
+        logCopyResult(
+            BlobStorageLogWriter::create(dest_gcs->disk_name), dest_gcs->bucket, object_from, object_to, result,
+            watch.elapsedMicroseconds());
         if (result)
             return;
         /// A failed precondition is the answer to the conditional write, not a transport problem: the
