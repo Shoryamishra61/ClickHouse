@@ -11,103 +11,124 @@ CUR_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$CUR_DIR"/../shell_config.sh
 
 WORKING_DIR="${CLICKHOUSE_TMP}/05214_broken_projection_does_not_skip_part_check"
+rm -rf "${WORKING_DIR}"
+mkdir -p "${WORKING_DIR}"
 
-create_table()
+COMPACT="min_bytes_for_wide_part = 1000000000, min_rows_for_wide_part = 1000000000"
+WIDE="min_bytes_for_wide_part = 0, min_rows_for_wide_part = 0"
+# The marks are small, so that each marks file consists of several compressed blocks.
+SMALL_MARKS="index_granularity = 100, marks_compress_block_size = 256"
+
+# Every case is a table of its own, so that all of them are created by one run of `clickhouse-local`
+# and loaded by another one.
+TABLES="
+    both
+    projection_only
+    both_no_checksums
+    projection_only_no_checksums
+    wide_no_checksums
+    wide_torn_first_column_no_checksums
+    wide_torn_second_column_no_checksums
+    compact_torn_no_checksums
+    wide_several_blocks_no_checksums
+    compact_several_blocks_no_checksums
+"
+
+table_settings()
 {
-    local min_bytes_for_wide_part=${1:-1000000000}
-    local extra_settings=${2:-}
-    rm -rf "${WORKING_DIR}"
-    mkdir -p "${WORKING_DIR}"
-    ${CLICKHOUSE_LOCAL} --path "${WORKING_DIR}" --multiquery -q "
-        CREATE TABLE t (id UInt64, v UInt64, PROJECTION p (SELECT v, count() GROUP BY v))
+    case "$1" in
+        wide_no_checksums) echo "${WIDE}" ;;
+        wide_*) echo "${WIDE}, ${SMALL_MARKS}" ;;
+        compact_*) echo "${COMPACT}, ${SMALL_MARKS}" ;;
+        *) echo "${COMPACT}" ;;
+    esac
+}
+
+create_queries=""
+for table in ${TABLES}
+do
+    create_queries+="
+        CREATE TABLE ${table} (id UInt64, v UInt64, PROJECTION p (SELECT v, count() GROUP BY v))
         ENGINE = MergeTree ORDER BY id
-        SETTINGS min_bytes_for_wide_part = ${min_bytes_for_wide_part}, min_rows_for_wide_part = ${min_bytes_for_wide_part}, compress_marks = 1${extra_settings};
+        SETTINGS $(table_settings "${table}"), compress_marks = 1,
+            ratio_of_defaults_for_sparse_serialization = 1, replace_long_file_name_to_hash = 0;
+        INSERT INTO ${table} SELECT number, number % 10 FROM numbers(5000);"
+done
 
-        INSERT INTO t SELECT number, number % 10 FROM numbers(5000);
-        SELECT 'inserted', count() FROM t;
-    " </dev/null
-}
+${CLICKHOUSE_LOCAL} --path "${WORKING_DIR}" --multiquery -q "
+    ${create_queries}
+    SELECT table, part_type, rows FROM system.parts WHERE database = currentDatabase() ORDER BY table;
+" </dev/null
 
-report()
+PART_PATHS="${WORKING_DIR}.paths"
+${CLICKHOUSE_LOCAL} --path "${WORKING_DIR}" -q "
+    SELECT table, path FROM system.parts WHERE database = currentDatabase()" </dev/null > "${PART_PATHS}"
+
+part_path()
 {
-    ${CLICKHOUSE_LOCAL} --path "${WORKING_DIR}" --multiquery -q "
-        SELECT '$1 rows', count() FROM t;
-        SELECT '$1 detached parts', count(), any(reason) FROM system.detached_parts
-        WHERE database = currentDatabase() AND table = 't';
-        SELECT '$1 broken projections', countIf(is_broken) FROM system.projection_parts
-        WHERE database = currentDatabase() AND table = 't';
-    " </dev/null
+    awk -F '\t' -v table="$1" '$1 == table { print $2 }' "${PART_PATHS}"
 }
 
-# The marks of the part itself are gone as well as the projection's, which is what a single power loss
-# can leave behind.
-create_table
-find "${WORKING_DIR}" -name 'data.cmrk4' -exec truncate -s 0 {} \;
-report 'both'
-
-# Only the projection's marks are gone: the part keeps all of its rows and stays attached.
-create_table
-find "${WORKING_DIR}" -path '*p.proj*' -name 'data.cmrk4' -exec truncate -s 0 {} \;
-report 'projection only'
-
-# The same, but `checksums.txt` of the part is gone as well, so it is regenerated from the files on disk
-# while loading, and those checksums bless the empty marks file. The shape of the marks files is checked
-# directly in this case.
-create_table
-find "${WORKING_DIR}" -name 'data.cmrk4' -exec truncate -s 0 {} \;
-find "${WORKING_DIR}" -name 'checksums.txt' -not -path '*.proj*' -delete
-report 'both, no checksums'
-
-create_table
-find "${WORKING_DIR}" -path '*p.proj*' -name 'data.cmrk4' -exec truncate -s 0 {} \;
-find "${WORKING_DIR}" -name 'checksums.txt' -not -path '*.proj*' -delete
-report 'projection only, no checksums'
-
-# Intact compressed marks of a regenerated part are not mistaken for broken ones, for a Wide part too.
-create_table 0
-find "${WORKING_DIR}" -name 'checksums.txt' -not -path '*.proj*' -delete
-report 'wide, no checksums'
-
-# A compressed marks file cut by a crash right after one of its compressed blocks still decompresses,
-# only to fewer marks, and the regenerated checksums bless it too. The marks are small, so that each
-# marks file consists of several compressed blocks.
+# A compressed marks file cut by a crash right after its first compressed block still decompresses,
+# only to fewer marks.
 truncate_to_first_block()
 {
     local file
     for file in "$@"
     do
+        if [ ! -f "${file}" ]
+        then
+            echo "No marks file ${file}, the part has: $(ls "$(dirname "${file}")")" >&2
+            continue
+        fi
         local compressed_size
         compressed_size=$(od -An -t u4 -j 17 -N 4 "${file}" | tr -d ' ')
         truncate -s $((16 + compressed_size)) "${file}"
     done
 }
 
-small_marks_settings=", index_granularity = 100, marks_compress_block_size = 256"
+# The marks of the part itself are gone as well as the projection's, which is what a single power loss
+# can leave behind.
+truncate -s 0 "$(part_path both)/data.cmrk4" "$(part_path both)/p.proj/data.cmrk4"
 
-# The marks of the column that the part's granularity is loaded from: they cover fewer rows than the part has.
-create_table 0 "${small_marks_settings}"
-truncate_to_first_block $(find "${WORKING_DIR}" -name 'id.cmrk*' -not -path '*.proj*')
-find "${WORKING_DIR}" -name 'checksums.txt' -not -path '*.proj*' -delete
-report 'wide, torn first column, no checksums'
+# Only the projection's marks are gone: the part keeps all of its rows and stays attached.
+truncate -s 0 "$(part_path projection_only)/p.proj/data.cmrk4"
 
-# The marks of another column: they have fewer marks than the part's granularity.
-create_table 0 "${small_marks_settings}"
-truncate_to_first_block $(find "${WORKING_DIR}" -name 'v.cmrk*' -not -path '*.proj*')
-find "${WORKING_DIR}" -name 'checksums.txt' -not -path '*.proj*' -delete
-report 'wide, torn second column, no checksums'
+# The same, but `checksums.txt` of the part is gone as well, so it is regenerated from the files on disk
+# while loading, and those checksums bless the empty marks file. The shape of the marks files is checked
+# directly in this case.
+truncate -s 0 "$(part_path both_no_checksums)/data.cmrk4" "$(part_path both_no_checksums)/p.proj/data.cmrk4"
+truncate -s 0 "$(part_path projection_only_no_checksums)/p.proj/data.cmrk4"
 
-create_table 1000000000 "${small_marks_settings}"
-truncate_to_first_block $(find "${WORKING_DIR}" -name 'data.cmrk*' -not -path '*.proj*')
-find "${WORKING_DIR}" -name 'checksums.txt' -not -path '*.proj*' -delete
-report 'compact, torn, no checksums'
+# A compressed marks file cut by a crash right after one of its compressed blocks, and the regenerated
+# checksums bless it too. First the marks of the column that the part's granularity is loaded from:
+# they cover fewer rows than the part has. Then the marks of another column: they have fewer marks than
+# the part's granularity.
+truncate_to_first_block "$(part_path wide_torn_first_column_no_checksums)/id.cmrk2"
+truncate_to_first_block "$(part_path wide_torn_second_column_no_checksums)/v.cmrk2"
+truncate_to_first_block "$(part_path compact_torn_no_checksums)/data.cmrk4"
 
-# Intact marks of several compressed blocks are not mistaken for torn ones.
-create_table 0 "${small_marks_settings}"
-find "${WORKING_DIR}" -name 'checksums.txt' -not -path '*.proj*' -delete
-report 'wide, several blocks, no checksums'
+# Intact compressed marks of a regenerated part, also of several compressed blocks, are not mistaken
+# for broken ones.
+for table in ${TABLES}
+do
+    if [[ ${table} == *_no_checksums ]]
+    then
+        rm "$(part_path "${table}")/checksums.txt"
+    fi
+done
 
-create_table 1000000000 "${small_marks_settings}"
-find "${WORKING_DIR}" -name 'checksums.txt' -not -path '*.proj*' -delete
-report 'compact, several blocks, no checksums'
+report_queries=""
+for table in ${TABLES}
+do
+    report_queries+="
+        SELECT '${table} rows', count() FROM ${table};
+        SELECT '${table} detached parts', count(), any(reason) FROM system.detached_parts
+        WHERE database = currentDatabase() AND table = '${table}';
+        SELECT '${table} broken projections', countIf(is_broken) FROM system.projection_parts
+        WHERE database = currentDatabase() AND table = '${table}';"
+done
 
-rm -rf "${WORKING_DIR}"
+${CLICKHOUSE_LOCAL} --path "${WORKING_DIR}" --multiquery -q "${report_queries}" </dev/null
+
+rm -rf "${WORKING_DIR}" "${PART_PATHS}"
