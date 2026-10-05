@@ -629,9 +629,10 @@ ReplxxLineReader::ReplxxLineReader(ReplxxLineReader::Options && options)
         if (hintPopupActive() && hint_selection >= 0)
             return rx.invoke(Replxx::ACTION::COMPLETE_LINE, code);
         /// AI chat is natural-language input, not SQL. In particular, it has no meaningful SQL
-        /// delimiter, so multiline mode must not turn Enter into a literal newline.
+        /// delimiter, so multiline mode must not turn Enter into a literal newline. A paste in
+        /// progress (see below) is still folded, so a pasted multi-line question is sent whole.
         if (ai_mode || isAIChatLine(rx.get_state().text()))
-            return rx.invoke(Replxx::ACTION::COMMIT_LINE, code);
+            return rx.invoke(hasInputData() ? Replxx::ACTION::NEW_LINE : Replxx::ACTION::COMMIT_LINE, code);
         /// If we allow multiline and there is already something in the input, start a newline.
         /// Also, when bytes are still queued in the TTY (paste in progress without bracketed
         /// paste support), fold the embedded newline into the same edit buffer instead of
