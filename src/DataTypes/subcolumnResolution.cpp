@@ -155,9 +155,9 @@ std::unique_ptr<IDataType::SubcolumnInfo> resolveDynamicSubcolumn(
     return makeSubcolumnInfo(resolved_path, resolved_path.size(), dynamic_subcolumn.get());
 }
 
-}
-
-void forEachSubcolumn(const SubstreamData & data, const IDataType::SubcolumnCallback & callback)
+/// One entry per name: a declared name replaces one already found, so nothing can be emitted before
+/// the walk ends.
+std::vector<Subcolumn> collectSubcolumns(const SubstreamData & data)
 {
     std::vector<Subcolumn> subcolumns;
     std::unordered_map<String, size_t> position_by_name;
@@ -185,7 +185,20 @@ void forEachSubcolumn(const SubstreamData & data, const IDataType::SubcolumnCall
 
     forEachSubcolumnCandidate(data, 0, collect, /*enumerate_dynamic_streams=*/ true);
 
-    for (const auto & subcolumn : subcolumns)
+    return subcolumns;
+}
+
+}
+
+void forEachSubcolumn(const SubstreamData & data, const SubcolumnPathCallback & callback)
+{
+    for (const auto & subcolumn : collectSubcolumns(data))
+        callback(subcolumn.path, subcolumn.name);
+}
+
+void forEachSubcolumn(const SubstreamData & data, const IDataType::SubcolumnCallback & callback)
+{
+    for (const auto & subcolumn : collectSubcolumns(data))
         callback(subcolumn.path, subcolumn.name, ISerialization::createFromPath(subcolumn.path, subcolumn.path.size()));
 }
 
