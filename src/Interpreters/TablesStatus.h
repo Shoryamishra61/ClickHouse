@@ -36,21 +36,13 @@ struct TableStatus
     void read(ReadBuffer & in, UInt64 server_protocol_revision);
 };
 
-/// How many tables an interserver peer may ask about. Its request body is deserialized before the
-/// peer has proven knowledge of the cluster secret - on the signed path by construction, because the
-/// authentication hash covers the body, and on the unsigned path whenever the request is not
-/// rejected outright (`interserver_tables_status_require_auth`) - so the count cannot be left at the
-/// generic array bound. `ConnectionEstablisher` is the only producer of a `TablesStatusRequest` and
-/// it asks about exactly one table, the remote table behind the `Distributed` table being read, so
-/// this leaves ample headroom, including for the "request status for joined tables also" TODO there.
+/// How many tables an interserver peer may ask about. The request body is deserialized before the
+/// peer is authenticated, so the count needs a tighter bound than the generic one. The only producer,
+/// `ConnectionEstablisher`, asks about a single table.
 ///
-/// The names themselves need no extra bound: they are read with `readStringBinaryGrowing`, so a size
-/// a peer declares never becomes an allocation unless the peer actually sends the bytes, and what it
-/// does send is bounded as every other pre-authentication string in the protocol is. Bounding the
-/// name length instead would mean inventing a ceiling that ClickHouse does not otherwise have -
-/// `IDatabase::checkTableNameLength` is a no-op unless the database is a `DatabaseOnDisk` - and the
-/// name here comes from the `Distributed` engine arguments, so such a ceiling would be able to
-/// reject a legitimate request.
+/// Name length is not bounded: names are read with `readStringBinaryGrowing`, so a declared size is
+/// not allocated unless the bytes actually arrive, and ClickHouse has no general table-name limit to
+/// enforce here.
 static constexpr size_t MAX_TABLES_IN_INTERSERVER_STATUS_REQUEST = 64;
 
 /// Who sent the request, which is what the bound above follows from. A source rather than the limit

@@ -102,9 +102,7 @@ void TablesStatusRequest::read(ReadBuffer & in, UInt64 client_protocol_revision,
     for (size_t i = 0; i < size; ++i)
     {
         QualifiedTableName table_name;
-        /// Growing rather than resized to the declared size first: this body is deserialized before
-        /// an interserver peer has been authenticated, so a size it declares must not become an
-        /// allocation on its own when the bytes never follow.
+        /// Read before the peer is authenticated: do not allocate the declared size up front.
         readStringBinaryGrowing(table_name.database, in);
         readStringBinaryGrowing(table_name.table, in);
         tables.emplace(std::move(table_name));

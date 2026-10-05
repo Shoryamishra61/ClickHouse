@@ -1708,16 +1708,11 @@ void TCPHandler::processTablesStatusRequest()
     ContextPtr context_to_resolve_table_names;
     if (is_interserver_mode)
     {
-        /// Everything that has to happen *before* the body is read: taking the hash off the wire on
-        /// the new protocol, and refusing a request that will be rejected anyway so that an
-        /// unauthenticated peer cannot make us deserialize it at all.
 #if USE_SSL
         std::string received_hash;
-        bool request_is_signed = false;
         if (client_tcp_protocol_version >= DBMS_MIN_REVISION_WITH_INTERSERVER_SECRET_TABLES_STATUS)
         {
             readStringBinary(received_hash, *in, 32);
-            request_is_signed = true;
         }
         else if (server.context()->getServerSettings()[ServerSetting::interserver_tables_status_require_auth]
                  && !is_interserver_authenticated)
@@ -1734,15 +1729,11 @@ void TCPHandler::processTablesStatusRequest()
                 "TablesStatusRequest requires interserver authentication");
 #endif
 
-        /// The single `read` of every interserver path, so the bound cannot be applied to one of
-        /// them and not another - and so the tests that drive the unsigned path also pin the bound
-        /// the signed path gets, which has no raw-socket coverage of its own. On the signed path the
-        /// body is deserialized before the hash is validated because the hash covers it; the tables
-        /// are only *resolved* once it has validated.
+        /// The only `read` for all interserver paths, so they all get the same bound.
         request.read(*in, client_tcp_protocol_version, TablesStatusRequestSource::InterserverPeer);
 
 #if USE_SSL
-        if (request_is_signed)
+        if (client_tcp_protocol_version >= DBMS_MIN_REVISION_WITH_INTERSERVER_SECRET_TABLES_STATUS)
         {
             String cluster_secret;
             try
