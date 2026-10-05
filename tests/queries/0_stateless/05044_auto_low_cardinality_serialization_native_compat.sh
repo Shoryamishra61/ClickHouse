@@ -39,13 +39,13 @@ SELECT table, serialization_kind FROM system.parts_columns
 WHERE database = currentDatabase() AND table IN ('t_native_lc', 't_native_plain') AND active AND column = 's'
 ORDER BY table"
 
-# Reading without `ORDER BY` and with a single thread keeps the block layout of the two tables
+# Reading without `ORDER BY`, with a single thread and without parallel replicas keeps the block layout of the two tables
 # identical, so the dumps may be compared byte by byte.
 dump()
 {
     local table=$1
     local revision=$2
-    ${CLICKHOUSE_CURL} -sS "${CLICKHOUSE_URL}&client_protocol_version=${revision}&max_threads=1&max_block_size=1000000" \
+    ${CLICKHOUSE_CURL} -sS "${CLICKHOUSE_URL}&client_protocol_version=${revision}&max_threads=1&max_block_size=1000000&enable_parallel_replicas=0" \
         --data-binary "SELECT id, s FROM ${table} FORMAT Native"
 }
 
