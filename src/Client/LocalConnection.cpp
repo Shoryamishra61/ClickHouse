@@ -230,12 +230,15 @@ void LocalConnection::sendQuery(
     const UInt64 parse_time_max_ast_elements = parse_time_settings[Setting::max_ast_elements];
 
     /// Apply the per-query settings passed with the query, like a remote server does with the
-    /// settings sent over the wire (throwing if they violate the constraints, as for an initial
-    /// query). The query below is also parsed with them (e.g. the `dialect`).
+    /// settings sent over the wire: only the changed ones, on top of the session (throwing if they
+    /// violate the constraints, as for an initial query). Not the whole object: the internal
+    /// queries of the client pass a `Settings` holding a few changes, and its defaults must not
+    /// replace what the session has. The query below is also parsed with them (e.g. the `dialect`).
     if (query_settings)
     {
-        query_context->checkSettingsConstraints(query_settings->changes(), SettingSource::QUERY);
-        query_context->setSettings(*query_settings);
+        const auto settings_changes = query_settings->changes();
+        query_context->checkSettingsConstraints(settings_changes, SettingSource::QUERY);
+        query_context->applySettingsChanges(settings_changes);
     }
 
     query_context->setCurrentQueryId(query_id);

@@ -4427,7 +4427,7 @@ bool ClientBase::processAIChat(const String & text_)
         return processQueryText(text);
     if (command_input.size() > 1)
     {
-        if (auto slash_command_error = diagnoseClientSlashCommand(command_input))
+        if (auto slash_command_error = diagnoseClientSlashCommand(command_input, is_interactive))
             throw Exception(ErrorCodes::BAD_ARGUMENTS, "{}", *slash_command_error);
     }
 
