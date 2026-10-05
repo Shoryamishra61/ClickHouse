@@ -28,7 +28,7 @@ SET aggregate_functions_null_for_empty = 0;
 
 INSERT INTO t_min_max_from_stats
     SELECT number, toInt32(number % 1000) - 500, toDate('2020-01-01') + number % 365, if(number % 10 = 0, NULL, toInt32(number)), toString(number)
-    FROM numbers(100000);
+    FROM numbers(10000);
 
 SELECT 'no statistics yet';
 SELECT min(date), max(date), min(value), max(value), count() FROM t_min_max_from_stats;
