@@ -737,6 +737,12 @@ void SettingFieldUUIDTypeVersion::parseFromString(const String & str)
     checkValue();
 }
 
+void SettingFieldUUIDTypeVersion::readBinary(ReadBuffer & in)
+{
+    SettingFieldUInt64::readBinary(in);
+    checkValue();
+}
+
 void SettingFieldUUIDTypeVersion::checkValue() const
 {
     if (value != 1 && value != 2)
