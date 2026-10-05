@@ -200,7 +200,8 @@ The `count` is the full stack length **including the leading `DEFAULT` entry** t
 **Kind stack validity.** A decoder rejects a malformed stack with `INCORRECT_DATA` rather than building the serialization it describes:
 
 - the stack starts with `DEFAULT`;
-- the stack is a subsequence of `DEFAULT`, `SPARSE`, `REPLICATED`, `DETACHED` — the order in which the kinds wrap each other. `SPARSE` can sit inside `REPLICATED` but not the other way round, and `DETACHED` is always last because a `ColumnBLOB` holds the serialized form of everything below it. This also means no kind occurs twice, which bounds `count` by the number of kinds.
+- the stack is a subsequence of `DEFAULT`, `LOW_CARDINALITY`, `SPARSE`, `REPLICATED`, `DETACHED` — the order in which the kinds wrap each other. `LOW_CARDINALITY` always wraps the full column directly, `SPARSE` can sit inside `REPLICATED` but not the other way round, and `DETACHED` is always last because a `ColumnBLOB` holds the serialized form of everything below it. This also means no kind occurs twice, which bounds `count` by the number of kinds;
+- `LOW_CARDINALITY` and `SPARSE` do not occur in the same stack.
 
 Note that this order is not the order of the kind byte values above. Any other stack describes a column layout no writer builds and that no materialization step unwraps back to a full column of the declared type — a `ColumnSparse` whose values column is itself sparse or replicated, for instance, stays wrapped.
 

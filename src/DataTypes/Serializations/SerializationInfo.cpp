@@ -306,12 +306,14 @@ void SerializationInfo::serialializeKindStackBinary(WriteBuffer & out) const
     }
 }
 
-/// The order in which the kinds wrap each other, innermost first: `ColumnSparse` can sit inside
-/// `ColumnReplicated` but not the other way round (see `removeSpecialRepresentations`), and nothing
-/// wraps a `ColumnBLOB`. Not the order of the enum, whose values are part of the Native format.
+/// The order in which the kinds wrap each other, innermost first: a non-native `ColumnLowCardinality`
+/// always wraps the full column directly, `ColumnSparse` can sit inside `ColumnReplicated` but not the
+/// other way round (see `removeSpecialRepresentations`), and nothing wraps a `ColumnBLOB`. Not the
+/// order of the enum, whose values are part of the Native format.
 static constexpr std::array canonical_kind_order
 {
     ISerialization::Kind::DEFAULT,
+    ISerialization::Kind::LOW_CARDINALITY,
     ISerialization::Kind::SPARSE,
     ISerialization::Kind::REPLICATED,
     ISerialization::Kind::DETACHED,
@@ -343,6 +345,13 @@ void SerializationInfo::checkKindStack(ISerialization::KindSet allowed_kinds) co
 
         ++expected;
     }
+
+    /// Both kinds encode the same full column in their own way, so no writer stacks one over the other.
+    if (ISerialization::hasKind(kind_stack, ISerialization::Kind::LOW_CARDINALITY)
+        && ISerialization::hasKind(kind_stack, ISerialization::Kind::SPARSE))
+        throw Exception(
+            ErrorCodes::INCORRECT_DATA,
+            "Serialization kinds LowCardinality and Sparse cannot be combined in a kind stack");
 }
 
 void SerializationInfo::deserializeFromKindsBinary(ReadBuffer & in, ISerialization::KindSet allowed_kinds)

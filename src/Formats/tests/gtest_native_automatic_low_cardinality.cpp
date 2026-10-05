@@ -7,6 +7,7 @@
 #include <Core/Field.h>
 #include <Core/ProtocolDefines.h>
 #include <DataTypes/DataTypeFactory.h>
+#include <DataTypes/DataTypeLowCardinality.h>
 #include <DataTypes/Serializations/ISerialization.h>
 #include <DataTypes/Serializations/SerializationInfo.h>
 #include <Formats/NativeReader.h>
@@ -124,4 +125,38 @@ TEST(NativeAutomaticLowCardinality, RoundTripThroughOlderRevision)
     EXPECT_FALSE(read_column.lowCardinality());
     for (size_t i = 0; i < num_rows; ++i)
         ASSERT_EQ(String(read_column.getDataAt(i)), "val_" + std::to_string(i % 4)) << "row " << i;
+}
+
+TEST(NativeAutomaticLowCardinality, RoundTripThroughCurrentRevision)
+{
+    static constexpr UInt64 revision = DBMS_MIN_REVISION_WITH_AUTOMATIC_LOW_CARDINALITY_SERIALIZATION;
+    static constexpr size_t num_rows = 1000;
+
+    Block block;
+    block.insert(makeAutomaticallyEncodedColumn(num_rows));
+
+    String encoded;
+    {
+        WriteBufferFromString out(encoded);
+        NativeWriter writer(out, revision, std::make_shared<const Block>(block.cloneEmpty()));
+        writer.write(block);
+        writer.flush();
+    }
+
+    /// Both a peer reading the result of a query and the server reading inserted data must accept
+    /// the `{DEFAULT, LOW_CARDINALITY}` kind stack.
+    for (auto allowed_kinds : {ISerialization::KindSet::all(), NativeReader::default_allowed_kinds})
+    {
+        ReadBufferFromString in(encoded);
+        NativeReader reader(in, revision, std::nullopt, allowed_kinds);
+        auto read_block = reader.read();
+
+        ASSERT_EQ(read_block.rows(), num_rows);
+        const auto & read = read_block.getByName("s");
+        EXPECT_EQ(read.type->getName(), "String");
+        auto full = recursiveRemoveNonNativeLowCardinality(read.column);
+        EXPECT_FALSE(full->lowCardinality());
+        for (size_t i = 0; i < num_rows; ++i)
+            ASSERT_EQ(String(full->getDataAt(i)), "val_" + std::to_string(i % 4)) << "row " << i;
+    }
 }
