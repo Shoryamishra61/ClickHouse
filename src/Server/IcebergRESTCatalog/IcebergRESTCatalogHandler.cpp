@@ -719,9 +719,12 @@ void IcebergRESTCatalogHandler::handleCreateTable(
             location = fmt::format("{}/{}/{}-{}", warehouse.base_location, fmt::join(ns, "/"), name, uuid);
         }
 
-        /// The server has credentials for one bucket only. The bucket root itself is not a valid table location.
+        /// The server has credentials for one bucket only.
         if (!warehouse.ownsLocation(location))
             throw Exception(ErrorCodes::BAD_ARGUMENTS, "'location' {} must be inside the warehouse bucket", location);
+        /// A table at the bucket root would own every object in the bucket.
+        if (warehouse.objectKey(location).empty())
+            throw Exception(ErrorCodes::BAD_ARGUMENTS, "'location' {} must not be the bucket root", location);
 
         std::map<String, String> properties;
         if (const auto properties_object = getOptionalObject(*json, "properties"))

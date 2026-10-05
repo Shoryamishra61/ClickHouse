@@ -44,8 +44,7 @@ IcebergRESTCatalogWarehouse::IcebergRESTCatalogWarehouse(
 /// TODO: support s3a:// and s3n://
 bool IcebergRESTCatalogWarehouse::ownsLocation(const String & location) const
 {
-    const auto prefix = bucketPrefix(*object_storage);
-    return location.starts_with(prefix) && location.size() > prefix.size();
+    return location.starts_with(bucketPrefix(*object_storage));
 }
 
 String IcebergRESTCatalogWarehouse::objectKey(const String & location) const
