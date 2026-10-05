@@ -635,7 +635,7 @@ std::optional<CandidateMatch> matchCandidate(FunctionNode & function_node)
         /// A dot in the key is stored escaped or not depending on `json_type_escape_dots_in_keys`,
         /// which is not known here, so such keys are left as is.
         const auto & key = constant_node->getValue().safeGet<String>();
-        if (key.find('.') != String::npos)
+        if (key.contains('.'))
             return {};
 
         /// A typed path has its own type rather than `Dynamic`; the replacement casts the subcolumn
@@ -691,9 +691,11 @@ std::optional<CandidateMatch> matchCandidate(FunctionNode & function_node)
         }
         else if (value.getType() == Field::Types::Int64)
         {
+            /// Avoid `std::abs`, which is undefined for the minimal `Int64`.
             auto index = value.safeGet<Int64>();
-            if (index != 0 && std::abs(index) <= static_cast<Int64>(element_types.size()))
-                position = index > 0 ? index - 1 : static_cast<Int64>(element_types.size()) + index;
+            auto size = static_cast<Int64>(element_types.size());
+            if (index != 0 && index >= -size && index <= size)
+                position = index > 0 ? index - 1 : size + index;
         }
 
         if (!position)
