@@ -2011,17 +2011,18 @@ private:
             {
                 new_call_ptr->start([this, new_call_ptr]() { onFinishCall(new_call_ptr); });
             }
-            catch (const Exception & e)
+            catch (...)
             {
-                if (e.code() != ErrorCodes::CANNOT_SCHEDULE_TASK)
+                /// Never leave the half-published `Call` in `current_calls`: it would block the
+                /// empty-call fast path of the shutdown, so `shutdownQueue` would never be called.
+                current_calls.erase(new_call_ptr);
+
+                if (getCurrentExceptionCode() != ErrorCodes::CANNOT_SCHEDULE_TASK)
                     throw;
 
                 /// Letting the saturation exception escape would kill the completion-queue
-                /// thread and leave the half-published `Call` in `current_calls`, blocking the
-                /// empty-call fast path of the shutdown. Treat the call as a rejected connection
-                /// instead: destroying it drops the responder (the same way a connection
-                /// established after `should_stop` is dropped above).
-                current_calls.erase(new_call_ptr);
+                /// thread. Treat the call as a rejected connection instead: destroying it drops
+                /// the responder (the same way a connection established after `should_stop` is dropped above).
                 tryLogCurrentException(log, "Cannot start a worker thread for a new call");
             }
         }
