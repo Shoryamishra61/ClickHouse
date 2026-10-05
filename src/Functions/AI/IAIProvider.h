@@ -66,7 +66,7 @@ struct AIRequest
     /// Emitted by OpenAIProvider as the `X-ClickHouse-AI-Function` header; ignored by other providers.
     String function_name;
 
-    /// `initial_query_id` of the query that produced this request, or `current_query_id` when it is empty (a background mutation).
+    /// `current_query_id` of the query (or the background mutation task) that produced this request.
     /// Emitted by OpenAIProvider as the `X-ClickHouse-Query-Id` header when non-empty; ignored by other providers.
     String query_id;
 };
@@ -122,7 +122,7 @@ struct AIEmbeddingRequest
     /// Emitted by OpenAIProvider as the `X-ClickHouse-AI-Function` header; ignored by other providers.
     String function_name;
 
-    /// `initial_query_id` of the query that produced this request, or `current_query_id` when it is empty (a background mutation).
+    /// `current_query_id` of the query (or the background mutation task) that produced this request.
     /// Emitted by OpenAIProvider as the `X-ClickHouse-Query-Id` header when non-empty; ignored by other providers.
     String query_id;
 };

@@ -1791,18 +1791,34 @@ def test_function_name_header(started_cluster):
 
 
 def test_query_id_header(started_cluster):
-    """The OpenAI provider sends the `initial_query_id` as the `X-ClickHouse-Query-Id` header: a query run
-    on a remote shard carries the initiator's query id. Covers the chat and the embedding paths."""
-    cases = [
+    """The OpenAI provider sends the `query_id` of the query that makes the request as the
+    `X-ClickHouse-Query-Id` header: on a remote shard it is the shard's own query id, whose
+    `initial_query_id` is the initiator's one. Covers the chat and the embedding paths."""
+    local_cases = [
         "SELECT aiGenerate('hi', map('credentials', 'ai_mock'))",
         "SELECT aiEmbed('hi', 'test-embed-model', map('credentials', 'ai_embed'))",
-        "SELECT aiGenerate(toString(dummy), map('credentials', 'ai_mock')) FROM remote('127.0.0.2', system.one)",
-        "SELECT aiEmbed(toString(dummy), 'test-embed-model', map('credentials', 'ai_embed')) FROM remote('127.0.0.2', system.one)",
     ]
-    for i, query in enumerate(cases):
+    for i, query in enumerate(local_cases):
         qid = unique_query_id(f"query_id_header_{i}")
         instance.query(query, query_id=qid)
         assert last_request()["headers"].get("x-clickhouse-query-id") == qid
+
+    remote_cases = [
+        "SELECT aiGenerate(toString(dummy), map('credentials', 'ai_mock')) FROM remote('127.0.0.2', system.one)",
+        "SELECT aiEmbed(toString(dummy), 'test-embed-model', map('credentials', 'ai_embed')) FROM remote('127.0.0.2', system.one)",
+    ]
+    for i, query in enumerate(remote_cases):
+        qid = unique_query_id(f"query_id_header_remote_{i}")
+        instance.query(query, query_id=qid)
+        sent_query_id = last_request()["headers"].get("x-clickhouse-query-id")
+        assert sent_query_id and sent_query_id != qid
+        instance.query("SYSTEM FLUSH LOGS query_log")
+        assert (
+            instance.query(
+                f"SELECT initial_query_id FROM system.query_log WHERE query_id = '{sent_query_id}' AND NOT is_initial_query AND type = 'QueryFinish'"
+            ).strip()
+            == qid
+        )
 
     # A background mutation has no `initial_query_id`, so the mutation task's own `current_query_id` is sent.
     instance.query("DROP TABLE IF EXISTS query_id_header SYNC")

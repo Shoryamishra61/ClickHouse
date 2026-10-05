@@ -366,12 +366,6 @@ AIParamSpecs FunctionBaseAI::embeddingParams()
     };
 }
 
-String FunctionBaseAI::getQueryIdForAIRequest(const ContextPtr & context)
-{
-    const auto & client_info = context->getClientInfo();
-    return client_info.initial_query_id.empty() ? client_info.current_query_id : client_info.initial_query_id;
-}
-
 void FunctionBaseAI::embedTexts(
     IAIProvider & provider,
     const String & model,
@@ -511,7 +505,7 @@ ColumnPtr FunctionBaseAI::executeImpl(const ColumnsWithTypeAndName & arguments, 
     auto timeouts = ConnectionTimeouts::getHTTPTimeouts(settings, getContext()->getServerSettings());
     timeouts.receive_timeout = Poco::Timespan(static_cast<int64_t>(timeout_sec) /*s*/, 0 /*us*/);
 
-    const String query_id = getQueryIdForAIRequest(getContext());
+    const String query_id = getContext()->getCurrentQueryId();
 
     auto result_col = removeNullable(result_type)->createColumn();
     auto null_map_col = prompt_nullable ? ColumnUInt8::create(input_rows_count, static_cast<UInt8>(0)) : nullptr;
