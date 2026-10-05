@@ -161,9 +161,8 @@ static constexpr auto DBMS_MIN_QUERY_PLAN_SERIALIZATION_VERSION_WITH_BLOCKS_MARS
 /// `max_bytes_before_external_join`, so it would run the plan with the other contract without saying so.
 static constexpr auto DBMS_MIN_QUERY_PLAN_SERIALIZATION_VERSION_WITH_LEGACY_JOIN_SIZE_LIMITS = 20;
 /// First query-plan serialization version that registers the "ReadFromSystemOne" and
-/// "ReadFromSystemNumbers" steps. Used to gate serializing them for `make_distributed_plan`; the
-/// parallel-replicas path excludes an older replica up front through
-/// DBMS_MIN_QUERY_PLAN_SERIALIZATION_VERSION_WITH_PARALLEL_REPLICAS.
+/// "ReadFromSystemNumbers" steps. Passed to the registry as their `since_plan_version`, so a stream
+/// below it is never given a step whose name the peer does not know.
 static constexpr auto DBMS_MIN_QUERY_PLAN_SERIALIZATION_VERSION_WITH_SYSTEM_SOURCE_STEPS = 20;
 /// First query-plan serialization version that knows `allow_block_nested_loop_join`. Below it, the name is not
 /// written: the older peer has no block nested loop join, so it runs a join exactly as with the setting disabled,

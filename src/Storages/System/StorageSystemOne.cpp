@@ -19,12 +19,6 @@
 namespace DB
 {
 
-namespace ErrorCodes
-{
-    extern const int SUPPORT_IS_DISABLED;
-}
-
-
 StorageSystemOne::StorageSystemOne(const StorageID & table_id_)
     : StorageWithCommonVirtualColumns(table_id_)
 {
@@ -76,25 +70,14 @@ ReadFromSystemOneStep::ReadFromSystemOneStep(SharedHeader header_)
 }
 
 
-void ReadFromSystemOneStep::serialize(Serialization & ctx) const
+void ReadFromSystemOneStep::serialize(Serialization &) const
 {
-    /// The step name is only registered since this version; an older peer would not know it and
-    /// would fail on the stream, so fail closed rather than write bytes it cannot parse.
-    if (ctx.version < DBMS_MIN_QUERY_PLAN_SERIALIZATION_VERSION_WITH_SYSTEM_SOURCE_STEPS)
-        throw Exception(ErrorCodes::SUPPORT_IS_DISABLED,
-            "Serializing a ReadFromSystemOne step requires query plan serialization version >= {}; "
-            "all nodes must run the same version", DBMS_MIN_QUERY_PLAN_SERIALIZATION_VERSION_WITH_SYSTEM_SOURCE_STEPS);
+    /// The step has no state of its own beyond its header.
 }
 
 
 QueryPlanStepPtr ReadFromSystemOneStep::deserialize(Deserialization & ctx)
 {
-    /// Mirrors the guard in `serialize`: a peer below this version cannot have written this step.
-    if (ctx.version < DBMS_MIN_QUERY_PLAN_SERIALIZATION_VERSION_WITH_SYSTEM_SOURCE_STEPS)
-        throw Exception(ErrorCodes::SUPPORT_IS_DISABLED,
-            "Deserializing a ReadFromSystemOne step requires query plan serialization version >= {}; "
-            "all nodes must run the same version", DBMS_MIN_QUERY_PLAN_SERIALIZATION_VERSION_WITH_SYSTEM_SOURCE_STEPS);
-
     return std::make_unique<ReadFromSystemOneStep>(ctx.output_header);
 }
 
@@ -121,7 +104,13 @@ namespace DB
 void registerReadFromSystemOneStep(QueryPlanStepRegistry & registry);
 void registerReadFromSystemOneStep(QueryPlanStepRegistry & registry)
 {
-    registry.registerStep("ReadFromSystemOne", &ReadFromSystemOneStep::deserialize);
+    /// Declared with the version that introduced the step rather than the default "since version 0":
+    /// an older peer does not know the name, so the registry must not write it into a stream below
+    /// that version.
+    registry.registerStep(
+        "ReadFromSystemOne",
+        &ReadFromSystemOneStep::deserialize,
+        {{0, DBMS_MIN_QUERY_PLAN_SERIALIZATION_VERSION_WITH_SYSTEM_SOURCE_STEPS}});
 }
 
 }

@@ -26,10 +26,6 @@
 namespace DB
 {
 
-namespace ErrorCodes
-{
-    extern const int SUPPORT_IS_DISABLED;
-}
 namespace
 {
 
@@ -483,13 +479,6 @@ bool ReadFromSystemNumbersStep::isSerializable() const
 
 void ReadFromSystemNumbersStep::serialize(Serialization & ctx) const
 {
-    /// The step name is only registered since this version; an older peer would not know it and
-    /// would fail on the stream, so fail closed rather than write bytes it cannot parse.
-    if (ctx.version < DBMS_MIN_QUERY_PLAN_SERIALIZATION_VERSION_WITH_SYSTEM_SOURCE_STEPS)
-        throw Exception(ErrorCodes::SUPPORT_IS_DISABLED,
-            "Serializing a ReadFromSystemNumbers step requires query plan serialization version >= {}; "
-            "all nodes must run the same version", DBMS_MIN_QUERY_PLAN_SERIALIZATION_VERSION_WITH_SYSTEM_SOURCE_STEPS);
-
     const auto & numbers_storage = storage->as<const StorageSystemNumbers &>();
     chassert(numbers_storage.limit.has_value());
 
@@ -527,12 +516,6 @@ void ReadFromSystemNumbersStep::serialize(Serialization & ctx) const
 
 QueryPlanStepPtr ReadFromSystemNumbersStep::deserialize(Deserialization & ctx)
 {
-    /// Mirrors the guard in `serialize`: a peer below this version cannot have written this step.
-    if (ctx.version < DBMS_MIN_QUERY_PLAN_SERIALIZATION_VERSION_WITH_SYSTEM_SOURCE_STEPS)
-        throw Exception(ErrorCodes::SUPPORT_IS_DISABLED,
-            "Deserializing a ReadFromSystemNumbers step requires query plan serialization version >= {}; "
-            "all nodes must run the same version", DBMS_MIN_QUERY_PLAN_SERIALIZATION_VERSION_WITH_SYSTEM_SOURCE_STEPS);
-
     String column_name;
     readStringBinary(column_name, ctx.in);
 
@@ -592,7 +575,13 @@ QueryPlanStepPtr ReadFromSystemNumbersStep::deserialize(Deserialization & ctx)
 void registerReadFromSystemNumbersStep(QueryPlanStepRegistry & registry);
 void registerReadFromSystemNumbersStep(QueryPlanStepRegistry & registry)
 {
-    registry.registerStep("ReadFromSystemNumbers", &ReadFromSystemNumbersStep::deserialize);
+    /// Declared with the version that introduced the step rather than the default "since version 0":
+    /// an older peer does not know the name, so the registry must not write it into a stream below
+    /// that version.
+    registry.registerStep(
+        "ReadFromSystemNumbers",
+        &ReadFromSystemNumbersStep::deserialize,
+        {{0, DBMS_MIN_QUERY_PLAN_SERIALIZATION_VERSION_WITH_SYSTEM_SOURCE_STEPS}});
 }
 
 Pipe ReadFromSystemNumbersStep::makePipe()
