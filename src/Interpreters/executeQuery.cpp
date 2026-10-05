@@ -2402,7 +2402,8 @@ static BlockIO executeQueryImpl(
             /// The Mongo parser itself parses a `SET` with the ClickHouse parser, so only the
             /// gate needs the exception. A Mongo statement always starts with the collection
             /// path (`db.<collection>.<command>`), never with a bare `SET` word.
-            const bool is_set_escape = isClickHouseJSONSetEscape(begin, end, settings[Setting::max_query_size]);
+            const bool is_set_escape = isClickHouseJSONSetEscape(
+                begin, end, settings[Setting::max_query_size], settings[Setting::max_parser_depth], settings[Setting::max_parser_backtracks]);
 #if USE_RAPIDJSON
             if (!settings[Setting::allow_experimental_mongo_dialect] && !is_set_escape)
                 throw Exception(
