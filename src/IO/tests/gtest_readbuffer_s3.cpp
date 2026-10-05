@@ -119,9 +119,14 @@ public:
     /// buffer has no memory of its own, so the default `readBig` would see an empty buffer.
     size_t readBig(char * to, size_t n) override
     {
+        /// Nothing may be left in the buffer, whose memory is then null: passing that to `memcpy`
+        /// is undefined behavior even for zero bytes.
         size_t copied = std::min(available(), n);
-        memcpy(to, position(), copied);
-        position() += copied;
+        if (copied)
+        {
+            memcpy(to, position(), copied);
+            position() += copied;
+        }
 
         const size_t rest = std::min(n - copied, data.size() - position_in_data);
         memcpy(to + copied, data.data() + position_in_data, rest);
