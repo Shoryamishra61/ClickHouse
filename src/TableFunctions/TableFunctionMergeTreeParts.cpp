@@ -464,6 +464,12 @@ void TableFunctionMergeTreeParts::parseArguments(const ASTPtr & ast_function, Co
             if (key->name() == "include")
                 throw_bad_argument(disk_arg_num, "`include` is not allowed in the disk description");
 
+            /// The disk is query-local and never registered, so a `name` could not refer to anything.
+            /// `createTransientDisk` rejects it as well, but `DESCRIBE` never gets that far, so it is
+            /// rejected here, where every way of using the table function passes.
+            if (key->name() == "name")
+                throw_bad_argument(disk_arg_num, "`name` is not allowed in the disk description");
+
             if (std::ranges::find(source_keys, key->name()) == source_keys.end())
                 continue;
 
