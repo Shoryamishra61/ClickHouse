@@ -8,6 +8,7 @@
 #include <DataTypes/DataTypeString.h>
 #include <DataTypes/DataTypesNumber.h>
 #include <Formats/FormatFactory.h>
+#include <IO/ReadBufferFromFileDescriptor.h>
 #include <IO/ReadBufferFromString.h>
 #include <IO/SeekableReadBuffer.h>
 #include <IO/WithFileSize.h>
@@ -862,14 +863,17 @@ void NetCDFSchemaReader::initialize()
     /// derived from the size of the file, exactly as the input format does it, so that the number
     /// of rows of such a file is also answered from the metadata.
     ///
-    /// Only the size of the source is needed here, not random access, so it does not depend on
-    /// `input_format_allow_seeks`: otherwise the header of a truncated file would be accepted and
-    /// cached here while the input format rejects the same file. The source still has to be one
-    /// that could be seeked, because only then the reported size is the size of the data: a pipe
-    /// reports zero, and a decompressing buffer the size of the compressed data.
+    /// Only the size of the source is needed here, not random access, so it depends neither on
+    /// `input_format_allow_seeks` nor on whether the source can actually seek (an HTTP server
+    /// without range requests still reports `Content-Length`): otherwise the header of a truncated
+    /// file would be accepted and cached here while the input format, which reads such a source
+    /// into memory, rejects the same file. The reported size is the size of the data only for a
+    /// seekable buffer, not for a decompressing one, which reports the size of the compressed
+    /// data, and a file descriptor has to be a regular file for that: a pipe reports zero.
     auto * seekable = dynamic_cast<SeekableReadBuffer *>(&in);
-    if (seekable && isBufferWithFileSize(in) && seekable->checkIfActuallySeekable())
-        file_size = getFileSizeFromReadBuffer(in);
+    auto * descriptor = dynamic_cast<ReadBufferFromFileDescriptor *>(&in);
+    if (seekable && isBufferWithFileSize(in) && (!descriptor || descriptor->checkIfActuallySeekable()))
+        file_size = tryGetFileSizeFromReadBuffer(in);
 
     netcdf_header = readNetCDFHeader(in);
 
