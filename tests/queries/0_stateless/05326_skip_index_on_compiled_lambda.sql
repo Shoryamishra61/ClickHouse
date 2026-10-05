@@ -23,9 +23,11 @@ SET force_data_skipping_indices = 'idx';
 SELECT count() FROM t_05326 WHERE arrayExists(x -> x * 3 + 1 > 5000, arr) SETTINGS compile_expressions = 0;
 SELECT count() FROM t_05326 WHERE arrayExists(x -> x * 3 + 1 > 5000, arr) SETTINGS compile_expressions = 1, min_count_to_compile_expression = 0;
 
-SELECT trim(explain) FROM (
-    EXPLAIN indexes = 1 SELECT count() FROM t_05326 WHERE arrayExists(x -> x * 3 + 1 > 5000, arr)
-    SETTINGS compile_expressions = 1, min_count_to_compile_expression = 0)
-WHERE explain LIKE '%Skip%' OR explain LIKE '%Name:%' OR explain LIKE '%Granules:%';
+-- Granules selected by `idx`. The total is left out: a wide part has one more (final) mark than a compact
+-- one, and the part type is randomized.
+SELECT replaceRegexpOne(arrayFirst(l -> startsWith(l, 'Granules:'), arraySlice(lines, indexOf(lines, 'Name: idx'))), '/\\d+$', '') FROM (
+    SELECT groupArray(trim(explain)) AS lines FROM (
+        EXPLAIN indexes = 1 SELECT count() FROM t_05326 WHERE arrayExists(x -> x * 3 + 1 > 5000, arr)
+        SETTINGS compile_expressions = 1, min_count_to_compile_expression = 0));
 
 DROP TABLE t_05326;

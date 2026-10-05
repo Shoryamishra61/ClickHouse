@@ -1,4 +1,6 @@
--- Tags: no-fasttest
+-- Tags: no-fasttest, no-parallel
+-- no-parallel: the failpoint is server-wide and would delay the announcements of any concurrently running
+-- parallel-replicas query.
 -- Plan-based parallel replicas build an ordinary local plan, and the initiator's local replica executes a
 -- clone of the fragment that is serialized for the remote replicas. A lambda body in that plan is
 -- JIT-compiled for execution, while serialization ships its uncompiled body, so the local replica runs
@@ -25,7 +27,11 @@ SET automatic_parallel_replicas_mode = 0;
 -- `compile_expressions` and `min_count_to_compile_expression` are randomized: compile the lambda on its first build.
 SET compile_expressions = 1, min_count_to_compile_expression = 0;
 
+-- Remote replicas announce their ranges only after a delay, so the initiator's local replica always reads
+-- some of the table instead of being left with nothing on a slow build.
+SYSTEM ENABLE FAILPOINT parallel_replicas_delay_announcement;
 SELECT sum(arraySum(x -> (x * 3 + 7) * (x + 1) - x * 5 + 2, arr)) FROM t_05325 SETTINGS log_comment = '05325_compiled_lambda';
+SYSTEM DISABLE FAILPOINT parallel_replicas_delay_announcement;
 
 -- Read `system.query_log` without parallel replicas.
 SET enable_parallel_replicas = 0;
