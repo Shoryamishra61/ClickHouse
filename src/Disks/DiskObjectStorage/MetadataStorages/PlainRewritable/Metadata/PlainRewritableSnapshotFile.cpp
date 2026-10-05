@@ -82,7 +82,9 @@ PlainRewritableRemoteLayout readPlainRewritableSnapshot(ReadBuffer & in)
 
     UInt64 directories_count = 0;
     readVarUInt(directories_count, compressed);
-    layout.reserve(directories_count);
+
+    /// The counts are not trusted, so the containers are not reserved from them:
+    /// a corrupted snapshot file must fail to parse rather than allocate a huge amount of memory.
 
     for (UInt64 i = 0; i < directories_count; ++i)
     {
@@ -98,7 +100,6 @@ PlainRewritableRemoteLayout readPlainRewritableSnapshot(ReadBuffer & in)
 
         UInt64 files_count = 0;
         readVarUInt(files_count, compressed);
-        info.files.reserve(files_count);
         for (UInt64 j = 0; j < files_count; ++j)
         {
             std::string name;
