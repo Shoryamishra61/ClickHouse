@@ -395,7 +395,7 @@ endif()
 # under the 2 GiB reach of `R_X86_64_PC32`, which the extra prologues push over; the fuzzers are never
 # shipped, and Address Sanitizer reports stack buffer overflows earlier and in more detail than an abort.
 if (NOT ENABLE_FUZZING)
-    set (COMPILER_FLAGS "${COMPILER_FLAGS} -fno-stack-protector")
+    set (COMPILER_FLAGS "${COMPILER_FLAGS} -fstack-protector-strong")
 endif()
 
 # Probe every page of a large stack allocation (big frames, `alloca`, VLAs) so that it cannot jump over
@@ -470,6 +470,21 @@ if (DISABLE_OMIT_FRAME_POINTER)
     set (CMAKE_CXX_FLAGS_ADD "${CMAKE_CXX_FLAGS_ADD} -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer")
     set (CMAKE_C_FLAGS_ADD "${CMAKE_C_FLAGS_ADD} -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer")
     set (CMAKE_ASM_FLAGS_ADD "${CMAKE_ASM_FLAGS_ADD} -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer")
+endif()
+
+# Keep `%rbp` out of register allocation on amd64 without building a frame in every function.
+# The x86-64 ABI aligns the stack only to 16 bytes, and to realign it a function needs `%rbp`.
+# Register allocation creates spill slots after `%rbp` has been handed out, so 32- and 64-byte
+# vector spills get 16-byte slots. Depending on where the thread stack happens to start, such a
+# slot can straddle a page: every store to it then takes the slow split-store path and blocks
+# forwarding to its reload, which made e.g. `log10` over a column much slower after
+# an unrelated change to the static TLS size. With `%rbp` reserved, functions that spill vectors
+# realign the stack and get aligned slots; the others build no frame and only lose `%rbp` as a
+# general-purpose register.
+# The driver exposes this mode only for ARM, hence `-Xclang`. It must not override full frame
+# pointers in the builds that keep them, and nasm, the assembler and the linker do not take it.
+if (ARCH_AMD64 AND NOT DISABLE_OMIT_FRAME_POINTER AND NOT SANITIZE AND NOT CMAKE_BUILD_TYPE_UC STREQUAL "DEBUG")
+    add_compile_options ("$<$<COMPILE_LANGUAGE:C,CXX>:SHELL:-Xclang -mframe-pointer=reserved>")
 endif()
 
 # Before you start hating your debugger because it refuses to show variables ('<optimized out>'), try building with -DDEBUG_O_LEVEL="0"
