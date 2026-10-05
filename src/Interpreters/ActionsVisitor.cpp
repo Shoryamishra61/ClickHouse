@@ -62,6 +62,7 @@
 #include <Interpreters/Set.h>
 #include <Interpreters/convertFieldToType.h>
 #include <Interpreters/convertColumnToType.h>
+#include <Formats/FormatFactory.h>
 #include <Core/ConstantValue.h>
 #include <Interpreters/evaluateConstantExpression.h>
 #include <Interpreters/interpretSubquery.h>
@@ -109,6 +110,25 @@ static NamesAndTypesList::iterator findColumn(const String & name, NamesAndTypes
 
 namespace
 {
+/// Convert each element of a literal `array` to the common supertype of the elements. An element
+/// rendered to `String` this way must get the text `CAST` produces, so the query's format settings are
+/// passed. Out of line, so that the large `FormatSettings` stays off the frames of the recursive visitor.
+NO_INLINE MutableColumnPtr convertArrayElementsToSupertype(
+    const Columns & element_columns, const DataTypes & element_types, const DataTypePtr & nested_type, const ContextPtr & context)
+{
+    const FormatSettings format_settings = getFormatSettings(context);
+
+    auto data = nested_type->createColumn();
+    data->reserve(element_columns.size());
+    for (size_t i = 0; i < element_columns.size(); ++i)
+    {
+        /// Every element is convertible to the common supertype, so this never fails.
+        ColumnPtr converted = convertColumnToTypeOrThrow(*element_columns[i], element_types[i], nested_type, format_settings);
+        data->insertRangeFrom(*converted, 0, 1);
+    }
+    return data;
+}
+
 /// Build the constant right-hand side of `IN` as a single-row column plus its exact type, without
 /// materializing a `Field`. Each `tuple`/`array` element is evaluated individually
 /// (`evaluateConstantExpressionAsColumn` fast-paths literals) and assembled column-natively, because
@@ -164,14 +184,7 @@ std::pair<ColumnPtr, DataTypePtr> buildCollectionColumnAndTypeFromASTFunction(
         else
             nested_type = getLeastSupertype(element_types);
 
-        auto data = nested_type->createColumn();
-        data->reserve(element_columns.size());
-        for (size_t i = 0; i < element_columns.size(); ++i)
-        {
-            /// Every element is convertible to the common supertype, so this never fails.
-            ColumnPtr converted = convertColumnToTypeOrThrow(*element_columns[i], element_types[i], nested_type);
-            data->insertRangeFrom(*converted, 0, 1);
-        }
+        auto data = convertArrayElementsToSupertype(element_columns, element_types, nested_type, context);
 
         auto offsets = ColumnArray::ColumnOffsets::create();
         offsets->insertValue(element_columns.size());

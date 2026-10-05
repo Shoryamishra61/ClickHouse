@@ -49,3 +49,7 @@ decimal output settings do not apply, as in CAST
 1.5
 1	0
 1.5
+mixed-type literal arrays are rendered as CAST renders them
+['yes','x']
+1	0
+1	0

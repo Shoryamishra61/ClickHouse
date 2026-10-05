@@ -82,4 +82,13 @@ SELECT '1.5' IN (toDecimal32(1.5, 2)), '1.50' IN (toDecimal32(1.5, 2));
 SELECT x FROM values('x String', toDecimal32(1.5, 2));
 SET output_format_decimal_trailing_zeros = 0;
 
+-- A literal array of mixed types is cast to the common supertype element by element before the set is
+-- built; with `String` as that type, each element is rendered as `CAST` renders it.
+SELECT 'mixed-type literal arrays are rendered as CAST renders them';
+SET bool_true_representation = 'yes';
+SELECT CAST([true, 'x'], 'Array(String)');
+SELECT ['yes', 'x'] IN ([true, 'x']), ['true', 'x'] IN ([true, 'x']) SETTINGS enable_analyzer = 0;
+SELECT ['yes', 'x'] IN ([true, 'x']), ['true', 'x'] IN ([true, 'x']) SETTINGS enable_analyzer = 1;
+SET bool_true_representation = 'true';
+
 DROP TABLE t_string_set;
