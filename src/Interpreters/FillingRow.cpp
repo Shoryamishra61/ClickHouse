@@ -276,7 +276,7 @@ void FillingRow::checkFillingTowardsConstraintsFitsColumnTypes()
         /// at a time only for a step of a fixed length: a calendar step over months or years saturates the day
         /// of the month, and a day step over `DateTime` follows the time zone. These are long enough to reach the
         /// boundary of the type in a few thousand steps anyway, so they are left to the per-value check.
-        if (descr.step_kind && IntervalKind::Kind(*descr.step_kind) > IntervalKind::Kind::Hour)
+        if (descr.step_kind && descr.step_kind->kind > IntervalKind::Kind::Hour)
             continue;
 
         const int direction = getDirection(i);
