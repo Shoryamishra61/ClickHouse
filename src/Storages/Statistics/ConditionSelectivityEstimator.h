@@ -156,7 +156,8 @@ private:
     {
         ColumnStatisticsPtr stats;
 
-        Selectivity estimateRanges(const PlainRanges & ranges) const;
+        /// `used_default` is set when a range took a default factor because the statistics could not estimate it.
+        Selectivity estimateRanges(const PlainRanges & ranges, bool & used_default) const;
         UInt64 estimateCardinality() const;
     };
 
@@ -168,7 +169,7 @@ private:
     /// can possibly cover. Costs one pass for the bounds and a single statistics probe, where turning the
     /// set into ranges costs a `Field` per element, a sort and one probe per element.
     Selectivity estimateSelectivityFromSetSize(
-        const StorageMetadataPtr & metadata, const String & column_name, const IColumn & set_elements, bool negative) const;
+        const StorageMetadataPtr & metadata, const String & column_name, const IColumn & set_elements, bool negative, bool & used_default) const;
     UInt64 estimateSelectivity(const RPNBuilderTreeNode & node) const;
 
     /// Magic constants for estimating the selectivity of a condition no statistics exists.

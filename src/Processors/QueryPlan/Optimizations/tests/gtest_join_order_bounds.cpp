@@ -3,6 +3,7 @@
 #include <Processors/QueryPlan/Optimizations/joinOrderCommon.h>
 
 using namespace DB;
+using namespace DB::QueryPlanOptimizations;
 
 TEST(JoinOrderBounds, RowsUpperBoundByJoinKind)
 {
@@ -75,4 +76,103 @@ TEST(JoinOrderBounds, DistinctValuesAfterFilter)
     EXPECT_EQ(QueryPlanOptimizations::distinctValuesAfterFilter(10000, 40000, 40000), 10000);
     EXPECT_EQ(QueryPlanOptimizations::distinctValuesAfterFilter(0, 40000, 13333), 0);
     EXPECT_EQ(QueryPlanOptimizations::distinctValuesAfterFilter(10000, 40000, 5), 5);
+}
+
+TEST(JoinOrderBounds, EmptySideMatrix)
+{
+    using enum JoinKind;
+    const auto rows = [](std::optional<UInt64> left, std::optional<UInt64> right, JoinKind kind, JoinStrictness strictness)
+    {
+        return estimateJoinCardinality(left, right, 0.5, kind, strictness);
+    };
+    const auto bound = [](std::optional<UInt64> left, std::optional<UInt64> right, JoinKind kind, JoinStrictness strictness)
+    {
+        return estimateJoinRowsUpperBound(left, right, kind, strictness);
+    };
+    constexpr auto semi = JoinStrictness::Semi;
+    constexpr auto anti = JoinStrictness::Anti;
+    constexpr auto all = JoinStrictness::All;
+
+    /// A semi join over an empty side is empty, whichever side and even when the other is unknown.
+    EXPECT_EQ(rows(100, 0, Left, semi), 0);
+    EXPECT_EQ(rows(0, 100, Right, semi), 0);
+    EXPECT_EQ(rows(std::nullopt, 0, Left, semi), 0);
+    EXPECT_EQ(rows(0, std::nullopt, Right, semi), 0);
+    EXPECT_EQ(bound(100, 0, Left, semi), 0);
+    EXPECT_EQ(bound(std::nullopt, 0, Left, semi), 0);
+    /// An anti join keeps the whole preserved side when the other side is empty, nothing when it is empty itself.
+    EXPECT_EQ(rows(100, 0, Left, anti), 100);
+    EXPECT_EQ(rows(0, 100, Left, anti), 0);
+    EXPECT_EQ(rows(0, 100, Right, anti), 100);
+    EXPECT_EQ(bound(100, 0, Left, anti), 100);
+    EXPECT_EQ(bound(std::nullopt, 0, Left, anti), std::nullopt);
+    /// An inner join over an empty side is empty, with an unknown other side too.
+    EXPECT_EQ(rows(100, 0, Inner, all), 0);
+    EXPECT_EQ(rows(std::nullopt, 0, Inner, all), 0);
+    EXPECT_EQ(bound(std::nullopt, 0, Inner, all), 0);
+    EXPECT_EQ(bound(0, std::nullopt, Cross, all), 0);
+    /// An outer join keeps its preserved side; an unknown preserved side stays unknown.
+    EXPECT_EQ(rows(100, 0, Left, all), 100);
+    EXPECT_EQ(rows(0, 100, Right, all), 100);
+    EXPECT_EQ(rows(0, 100, Full, all), 100);
+    EXPECT_EQ(rows(std::nullopt, 0, Left, all), std::nullopt);
+    EXPECT_EQ(rows(0, std::nullopt, Left, all), 0);
+}
+
+TEST(JoinOrderBounds, PasteAnyAsof)
+{
+    using enum JoinKind;
+    constexpr auto all = JoinStrictness::All;
+    constexpr auto any = JoinStrictness::Any;
+    constexpr auto right_any = JoinStrictness::RightAny;
+    constexpr auto asof = JoinStrictness::Asof;
+
+    /// A paste join pairs rows by position: the shorter side, with any selectivity.
+    EXPECT_EQ(estimateJoinCardinality(100, 10, 1.0, Paste, all), 10);
+    EXPECT_EQ(estimateJoinRowsUpperBound(100, 10, Paste, all), 10);
+    EXPECT_EQ(estimateJoinRowsUpperBound(std::nullopt, 10, Paste, all), 10);
+
+    /// An outer any or asof join emits every row of the side that takes one match per row.
+    EXPECT_EQ(estimateJoinCardinality(100, 100, 1.0, Left, any), 100);
+    EXPECT_EQ(estimateJoinCardinality(100, 30, 1.0, Right, any), 30);
+    EXPECT_EQ(estimateJoinCardinality(100, 30, 1.0, Right, right_any), 30);
+    EXPECT_EQ(estimateJoinCardinality(100, 1000, 1.0, Left, asof), 100);
+    EXPECT_EQ(estimateJoinRowsUpperBound(100, 1000, Left, asof), 100);
+    /// An inner one emits at most that side, and only the matched rows.
+    EXPECT_EQ(estimateJoinCardinality(100, 100, 1.0, Inner, any), 100);
+    EXPECT_EQ(estimateJoinCardinality(100, 100, 0.001, Inner, any), 10);
+    EXPECT_EQ(estimateJoinRowsUpperBound(100, 1000, Inner, any), 100);
+    EXPECT_EQ(estimateJoinRowsUpperBound(100, 1000, Inner, right_any), 1000);
+    EXPECT_EQ(estimateJoinRowsUpperBound(100, 0, Inner, any), 0);
+    EXPECT_EQ(estimateJoinRowsUpperBound(100, 0, Left, any), 100);
+}
+
+TEST(JoinOrderBounds, ContainmentOfEqualValueCounts)
+{
+    /// Two sides with equally many values out of a larger domain overlap in proportion, as the
+    /// NDV update models it, instead of one side counting as contained in the other.
+    EXPECT_DOUBLE_EQ(*keyContainment(500, 500, 1000), 0.5);
+    EXPECT_DOUBLE_EQ(*keyContainment(500, 500), 1.0);
+    EXPECT_DOUBLE_EQ(*keyContainment(500, 501, 1000), 0.501);
+    EXPECT_DOUBLE_EQ(*keyContainment(500, 499, 1000), 0.998);
+}
+
+TEST(JoinOrderBounds, SaturatingConversions)
+{
+    constexpr UInt64 max = std::numeric_limits<UInt64>::max();
+    /// The upper half of the range stays itself; a signed rounding would fold it into 2^63.
+    EXPECT_EQ(roundToRowCount(Float64(UInt64(3) << 62)), UInt64(3) << 62);
+    EXPECT_EQ(roundToRowCount(Float64(max)), max);
+    EXPECT_EQ(roundToRowCount(1e30), max);
+    EXPECT_EQ(roundToRowCount(-5.0), 0);
+    EXPECT_EQ(roundToRowCount(std::nan("")), 0);
+    EXPECT_EQ(roundToRowCount(2.5), 3);
+    EXPECT_EQ(ceilToRowCount(2.1), 3);
+    EXPECT_EQ(ceilToRowCount(Float64(UInt64(3) << 62)), UInt64(3) << 62);
+
+    /// A kept fraction below the double precision still leaves the values its rows keep; nothing
+    /// survives when no row does.
+    EXPECT_EQ(distinctValuesAfterFilter(1000000000000ULL, 1000000000000000000ULL, 1), 1);
+    EXPECT_EQ(distinctValuesAfterFilter(5, 0, 0), 0);
+    EXPECT_EQ(distinctValuesAfterFilter(5, 100, 0), 0);
 }

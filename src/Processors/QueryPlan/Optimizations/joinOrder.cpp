@@ -46,6 +46,7 @@ DPJoinEntry::DPJoinEntry(size_t id, const RelationStats & relation_stats)
     , cost(0.0)
     , estimated_rows(relation_stats.estimated_rows)
     , max_rows(relation_stats.max_rows)
+    , estimate_from_defaults(relation_stats.estimate_from_defaults)
     , column_stats(relation_stats.column_stats)
     , relation_id(static_cast<int>(id))
 {
@@ -67,6 +68,7 @@ DPJoinEntry::DPJoinEntry(DPJoinEntryPtr lhs,
     , estimated_rows(cardinality_)
     , max_rows(estimateJoinRowsUpperBound(left->max_rows, right->max_rows, join_operator_.kind, join_operator_.strictness))
     , cost_from_unknown_rows(!left->estimated_rows || !right->estimated_rows || left->cost_from_unknown_rows || right->cost_from_unknown_rows)
+    , estimate_from_defaults(left->estimate_from_defaults || right->estimate_from_defaults)
     , join_operator(std::move(join_operator_))
     , join_method(join_method_)
 {
@@ -77,7 +79,7 @@ DPJoinEntry::DPJoinEntry(DPJoinEntryPtr lhs,
     for (const auto & predicate : join_operator.expression)
     {
         auto [op, left_node, right_node] = predicate.asBinaryPredicate();
-        if (op != JoinConditionOperator::Equals)
+        if (op != JoinConditionOperator::Equals && op != JoinConditionOperator::NullSafeEquals)
             continue;
 
         if (left_node.fromRight() && right_node.fromLeft())
@@ -89,15 +91,17 @@ DPJoinEntry::DPJoinEntry(DPJoinEntryPtr lhs,
         const auto & right_col = right_node.getColumnName();
         auto left_it = column_stats.find(left_col);
         auto right_it = column_stats.find(right_col);
+        const bool left_known = left_it != column_stats.end() && left_it->second.num_distinct_values > 0;
+        const bool right_known = right_it != column_stats.end() && right_it->second.num_distinct_values > 0;
+        if (!left_known && !right_known)
+            continue;
 
-        if (left_it != column_stats.end() && right_it != column_stats.end())
-        {
-            QueryPlanOptimizations::updateJoinKeyDistinctCounts(
-                left_it->second,
-                right_it->second,
-                join_operator.kind,
-                join_operator.strictness);
-        }
+        /// A key without an entry gets one, so that the known side's values bound it.
+        QueryPlanOptimizations::updateJoinKeyDistinctCounts(
+            column_stats[left_col],
+            column_stats[right_col],
+            join_operator.kind,
+            join_operator.strictness);
     }
 
     /// Cap all NDVs at the estimated output rows.

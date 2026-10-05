@@ -44,6 +44,8 @@ struct DPJoinEntry
     /// The cost of this entry or of a sub-plan used a search value for a missing row estimate
     /// (`searchRows`), so the plan was ranked on a bound or a placeholder, not on an estimate.
     bool cost_from_unknown_rows = false;
+    /// A default selectivity stood in for a predicate in some relation of this entry.
+    bool estimate_from_defaults = false;
     std::unordered_map<String, ColumnStats> column_stats = {};
 
     /// For join nodes

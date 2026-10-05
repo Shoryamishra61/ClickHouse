@@ -10,6 +10,8 @@
 -- fifth of the preserved rows.
 SET allow_experimental_statistics = 1;
 SET use_statistics = 1;
+-- The test runner may turn this off; the inserted parts need their statistics.
+SET materialize_statistics_on_insert = 1;
 SET explain_query_plan_default = 'legacy';
 SET enable_analyzer = 1;
 SET enable_parallel_replicas = 0;

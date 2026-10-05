@@ -63,16 +63,18 @@ String dumpStatsForLogs(const RelationStats & stats)
 RelationStats estimateGroupStats(const Names & keys, const RelationStats & input_stats, const RelationEstimationSettings & settings)
 {
     RelationStats aggregation_stats;
-    /// Carry imprecision and source from the input, or the annotation is lost for aggregation subqueries.
+    /// Carry imprecision, defaults and source from the input, or the annotation is lost for aggregation subqueries.
     aggregation_stats.imprecise_estimate = input_stats.imprecise_estimate;
+    aggregation_stats.estimate_from_defaults = input_stats.estimate_from_defaults;
     aggregation_stats.source = input_stats.source;
     std::vector<UInt64> key_distinct_values;
     for (const auto & key : keys)
     {
         auto key_stats = input_stats.column_stats.find(key);
         UInt64 distinct_values = key_stats == input_stats.column_stats.end() ? 0 : key_stats->second.num_distinct_values;
-        if (distinct_values && input_stats.estimated_rows)
-            distinct_values = std::min(distinct_values, *input_stats.estimated_rows);
+        /// A key has at most as many values as the input has rows.
+        if (distinct_values && input_stats.max_rows)
+            distinct_values = std::min(distinct_values, *input_stats.max_rows);
         if (distinct_values == 0)
         {
             /// A key without an NDV leaves the group count to the other keys, or unknown, and marks
@@ -93,11 +95,6 @@ RelationStats estimateGroupStats(const Names & keys, const RelationStats & input
     return aggregation_stats;
 }
 
-RelationStats estimateAggregatingStepStats(const AggregatingStep & aggregating_step, const RelationStats & input_stats, const RelationEstimationSettings & settings)
-{
-    return estimateGroupStats(aggregating_step.getAggregatorParameters().keys, input_stats, settings);
-}
-
 /// Sum of two row counts, unknown when either is; saturates instead of wrapping.
 std::optional<UInt64> addRows(std::optional<UInt64> left, std::optional<UInt64> right)
 {
@@ -107,6 +104,17 @@ std::optional<UInt64> addRows(std::optional<UInt64> left, std::optional<UInt64> 
     if (__builtin_add_overflow(*left, *right, &sum))
         return std::numeric_limits<UInt64>::max();
     return sum;
+}
+
+/// A row count times a factor, unknown when the count is; saturates instead of wrapping.
+std::optional<UInt64> multiplyRows(std::optional<UInt64> rows, UInt64 factor)
+{
+    if (!rows)
+        return {};
+    UInt64 product = 0;
+    if (__builtin_mul_overflow(*rows, factor, &product))
+        return std::numeric_limits<UInt64>::max();
+    return product;
 }
 
 /// Rows dropped by a limit are not a value-uniform sample (e.g. a TopN keeps one end of the
@@ -128,6 +136,21 @@ void clearColumnValueRanges(std::unordered_map<String, ColumnStats> & column_sta
 RelationEstimationSettings::RelationEstimationSettings(const QueryPlanOptimizationSettings & optimization_settings)
     : group_count_damped_product(optimization_settings.group_count_damped_product)
 {
+}
+
+RelationStats estimateAggregatingStepStats(const AggregatingStep & aggregating_step, const RelationStats & input_stats, const RelationEstimationSettings & settings)
+{
+    auto stats = estimateGroupStats(aggregating_step.getAggregatorParameters().keys, input_stats, settings);
+    /// `GROUPING SETS` emits the groups of every set: at most the groups of all the keys per set,
+    /// and at most the input rows per set, which can exceed the input.
+    if (aggregating_step.isGroupingSets())
+    {
+        const UInt64 sets = aggregating_step.getGroupingSetsParamsList().size();
+        stats.estimated_rows = multiplyRows(stats.estimated_rows, sets);
+        stats.max_rows = multiplyRows(input_stats.max_rows, sets);
+        stats.imprecise_estimate = true;
+    }
+    return stats;
 }
 
 RelationStats estimateReadRowsCount(QueryPlan::Node & node, const ActionsDAG::Node * filter, const RelationEstimationSettings & estimation_settings)
@@ -288,22 +311,29 @@ RelationStats estimateReadRowsCount(QueryPlan::Node & node, const ActionsDAG::No
             .max_rows = join_step->getResultRowsUpperBound(),
             .column_stats = join_step->getResultColumnStats(),
             .table_name = join_step->getReadableRelationName(),
-            .imprecise_estimate = join_step->hasImpreciseEstimate()};
+            .imprecise_estimate = join_step->hasImpreciseEstimate(),
+            .estimate_from_defaults = join_step->isEstimateFromDefaults()};
     }
 
-    if (typeid_cast<const UnionStep *>(step))
+    if (const auto * union_step = typeid_cast<const UnionStep *>(step))
     {
         /// `UNION ALL`: the rows and the bounds of the inputs add up, each unknown when an input's
-        /// is. Column statistics are not combined, so a column of the union has no NDV.
+        /// is; a column's values add up too, matched by position, unknown when an input's are.
         RelationStats stats;
         stats.estimated_rows = 0;
         stats.max_rows = 0;
-        for (auto * child : node.children)
+        const auto & input_headers = union_step->getInputHeaders();
+        for (size_t child_index = 0; child_index < node.children.size(); ++child_index)
         {
-            auto child_stats = estimateReadRowsCount(*child, filter, estimation_settings);
+            auto child_stats = estimateReadRowsCount(*node.children[child_index], filter, estimation_settings);
             stats.estimated_rows = addRows(stats.estimated_rows, child_stats.estimated_rows);
             stats.max_rows = addRows(stats.max_rows, child_stats.max_rows);
             stats.imprecise_estimate |= child_stats.imprecise_estimate;
+            stats.estimate_from_defaults |= child_stats.estimate_from_defaults;
+            if (child_index == 0)
+                stats.column_stats = std::move(child_stats.column_stats);
+            else if (child_index < input_headers.size())
+                addUnionColumnStats(stats.column_stats, input_headers[0]->getNames(), child_stats.column_stats, input_headers[child_index]->getNames());
         }
         return stats;
     }
@@ -324,11 +354,16 @@ RelationStats estimateReadRowsCount(QueryPlan::Node & node, const ActionsDAG::No
     if (const auto * limit_step = typeid_cast<const LimitStep *>(step))
     {
         auto estimated = estimateReadRowsCount(*node.children.front(), filter, estimation_settings);
-        auto limit = limit_step->getLimit();
-        if (!estimated.estimated_rows || estimated.estimated_rows > limit)
-            estimated.estimated_rows = limit;
-        if (!estimated.max_rows || estimated.max_rows > limit)
-            estimated.max_rows = limit;
+        /// `WITH TIES` can keep every row equal to the last one, so the limit bounds nothing then. A
+        /// missing estimate stays missing: the limit is a bound, not an estimate of the rows below it.
+        if (!limit_step->withTies())
+        {
+            const auto limit = limit_step->getLimit();
+            if (estimated.estimated_rows && *estimated.estimated_rows > limit)
+                estimated.estimated_rows = limit;
+            if (!estimated.max_rows || *estimated.max_rows > limit)
+                estimated.max_rows = limit;
+        }
         clearColumnValueRanges(estimated.column_stats);
         return estimated;
     }
@@ -362,9 +397,10 @@ RelationStats estimateReadRowsCount(QueryPlan::Node & node, const ActionsDAG::No
         auto stats = estimateReadRowsCount(*node.children.front(), filter, estimation_settings);
         if (sorting_step->getLimit())
         {
-            if (!stats.estimated_rows || stats.estimated_rows > sorting_step->getLimit())
+            /// A missing estimate stays missing: the limit is a bound, not an estimate.
+            if (stats.estimated_rows && *stats.estimated_rows > sorting_step->getLimit())
                 stats.estimated_rows = sorting_step->getLimit();
-            if (!stats.max_rows || stats.max_rows > sorting_step->getLimit())
+            if (!stats.max_rows || *stats.max_rows > sorting_step->getLimit())
                 stats.max_rows = sorting_step->getLimit();
             clearColumnValueRanges(stats.column_stats);
         }

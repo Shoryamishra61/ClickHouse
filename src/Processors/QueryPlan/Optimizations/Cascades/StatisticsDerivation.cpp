@@ -2,6 +2,7 @@
 #include <Core/Settings.h>
 #include <Interpreters/Context.h>
 #include <Processors/QueryPlan/AggregatingStep.h>
+#include <Processors/QueryPlan/ArrayJoinStep.h>
 #include <Processors/QueryPlan/DistinctStep.h>
 #include <Processors/QueryPlan/ExpressionStep.h>
 #include <Processors/QueryPlan/FilterStep.h>
@@ -38,7 +39,53 @@ namespace Setting
     extern const SettingsBool allow_statistics_optimize;
 }
 
+/// A `Float64` row count as an integer; the unbounded value stays the largest integer.
+static UInt64 toRowCount(Float64 rows)
+{
+    if (!(rows < Float64(std::numeric_limits<UInt64>::max())))
+        return std::numeric_limits<UInt64>::max();
+    return rows <= 0 ? 0 : UInt64(rows);
+}
+
 void StatisticsDerivation::deriveStatistics(GroupId group_id)
+{
+    /// The leaves first, so that the search value of a source without statistics, the largest known
+    /// leaf, does not depend on the order the groups are derived in.
+    if (!leaves_derived)
+    {
+        leaves_derived = true;
+        deriveLeafGroups();
+    }
+    deriveGroupStatistics(group_id);
+}
+
+void StatisticsDerivation::deriveLeafGroups()
+{
+    const auto is_leaf = [](const GroupPtr & group)
+    {
+        return !group->logical_expressions.empty() && group->logical_expressions.front()->inputs.empty();
+    };
+    for (GroupId group_id = 0; group_id < memo.getGroupCount(); ++group_id)
+    {
+        const auto group = memo.getGroup(group_id);
+        if (!group->statistics && is_leaf(group))
+            deriveGroupStatistics(group_id);
+    }
+    /// A source without an estimate and without a bound takes the largest known leaf as its search
+    /// value, now that every leaf is derived.
+    const auto largest = largestKnownLeafRowCount();
+    if (!largest)
+        return;
+    for (GroupId group_id = 0; group_id < memo.getGroupCount(); ++group_id)
+    {
+        const auto group = memo.getGroup(group_id);
+        if (is_leaf(group) && group->statistics && group->statistics->rows_unknown
+            && group->statistics->max_row_count >= Float64(std::numeric_limits<UInt64>::max()))
+            group->statistics->estimated_row_count = *largest;
+    }
+}
+
+void StatisticsDerivation::deriveGroupStatistics(GroupId group_id)
 {
     auto group = memo.getGroup(group_id);
 
@@ -58,7 +105,7 @@ void StatisticsDerivation::deriveStatistics(GroupId group_id)
     {
         auto input_group = memo.getGroup(input.group_id);
         if (!input_group->statistics.has_value())
-            deriveStatistics(input.group_id);
+            deriveGroupStatistics(input.group_id);
     }
 
     /// Returns the statistics of the expression's input #index; throws if the expression has
@@ -114,6 +161,11 @@ void StatisticsDerivation::deriveStatistics(GroupId group_id)
         /// matching duplicate of the first input at this step (a separate `Distinct` above
         /// deduplicates), and `EXCEPT` keeps at most the first input.
         ExpressionStatistics result = input_statistics(0);
+        for (size_t input_index = 1; input_index < expression->inputs.size(); ++input_index)
+        {
+            result.rows_unknown |= input_statistics(input_index).rows_unknown;
+            result.estimate_from_defaults |= input_statistics(input_index).estimate_from_defaults;
+        }
         const auto op = intersect_or_except_step->getOperator();
         if (op == IntersectOrExceptStep::Operator::INTERSECT_ALL
             || op == IntersectOrExceptStep::Operator::INTERSECT_DISTINCT)
@@ -153,10 +205,25 @@ void StatisticsDerivation::deriveStatistics(GroupId group_id)
         result.min_row_count = 0;
         group->statistics = std::move(result);
     }
+    else if (typeid_cast<const ArrayJoinStep *>(plan_step))
+    {
+        /// Rows multiply by the array sizes, which nothing here estimates: unknown, without a bound.
+        ExpressionStatistics result = input_statistics(0);
+        result.rows_unknown = true;
+        result.min_row_count = 0;
+        result.max_row_count = Float64(std::numeric_limits<UInt64>::max());
+        group->statistics = std::move(result);
+    }
     else if (!expression->inputs.empty())
     {
-        /// By default take statistics from the first input
+        /// By default take statistics from the first input; a result derived from an input without an
+        /// estimate has none either.
         group->statistics = input_statistics(0);
+        for (size_t input_index = 1; input_index < expression->inputs.size(); ++input_index)
+        {
+            group->statistics->rows_unknown |= input_statistics(input_index).rows_unknown;
+            group->statistics->estimate_from_defaults |= input_statistics(input_index).estimate_from_defaults;
+        }
     }
     else
     {
@@ -167,19 +234,6 @@ void StatisticsDerivation::deriveStatistics(GroupId group_id)
         unknown.estimated_row_count = largestKnownLeafRowCount().value_or(CascadesDefaults::DEFAULT_UNKNOWN_READ_ROWS);
         group->statistics = std::move(unknown);
     }
-
-    /// A result derived from an input without an estimate has none either, unless an input is proven
-    /// empty, which decides the result on its own.
-    bool input_proven_empty = false;
-    bool input_unknown = false;
-    for (const auto & input : expression->inputs)
-    {
-        const auto & input_stats = *memo.getGroup(input.group_id)->statistics;
-        input_proven_empty |= input_stats.max_row_count == 0;
-        input_unknown |= input_stats.rows_unknown;
-    }
-    if (input_unknown && !input_proven_empty)
-        group->statistics->rows_unknown = true;
 
     LOG_TEST(log, "Derived statistics for group #{}:\n{}",
         group_id, group->statistics->dump());
@@ -200,76 +254,6 @@ std::optional<Float64> StatisticsDerivation::largestKnownLeafRowCount() const
     return largest;
 }
 
-Float64 clampJoinRowCount(JoinKind kind, JoinStrictness strictness, Float64 base, Float64 left, Float64 right)
-{
-    /// Paste is position-wise (no keys): one output row per aligned pair.
-    if (kind == JoinKind::Paste)
-        return std::min(left, right);
-    /// Cross/comma product keeps the multiplicative estimate.
-    if (kind == JoinKind::Cross || kind == JoinKind::Comma)
-        return base;
-
-    /// A full join keeps unmatched rows from both sides, so it is at least the larger side regardless
-    /// of strictness. (Checked before the semi/any bounds, which apply only to one preserved side.)
-    if (kind == JoinKind::Full)
-        return std::max({base, left, right});
-
-    const Float64 preserved = (kind == JoinKind::Right) ? right : left;
-
-    /// Semi/anti filter the preserved side, so the output cannot exceed it.
-    if (strictness == JoinStrictness::Semi || strictness == JoinStrictness::Anti)
-        return std::min(base, preserved);
-
-    if (strictness == JoinStrictness::Any || strictness == JoinStrictness::RightAny || strictness == JoinStrictness::Asof)
-    {
-        /// Outer any/asof keep every preserved-side row (one match each).
-        if (kind == JoinKind::Left || kind == JoinKind::Right)
-            return preserved;
-        /// Inner asof keeps one nearest match per left row, so it is bounded by the left side.
-        if (strictness == JoinStrictness::Asof)
-            return std::min(base, left);
-        /// Inner any emits at most one row per matching key, so it cannot exceed either side.
-        return std::min({base, left, right});
-    }
-
-    /// Strictness All/Unspecified: an outer join keeps every preserved-side row, so the output is at
-    /// least the preserved side.
-    if (kind == JoinKind::Left)
-        return std::max(base, left);
-    if (kind == JoinKind::Right)
-        return std::max(base, right);
-    return base;
-}
-
-Float64 clampJoinMaxRowCount(JoinKind kind, JoinStrictness strictness, Float64 product, Float64 left, Float64 right)
-{
-    /// Position-wise: exactly the shorter side.
-    if (kind == JoinKind::Paste)
-        return std::min(left, right);
-    /// A full join can emit every row from both sides when the keys are disjoint.
-    if (kind == JoinKind::Full)
-        return std::max(product, left + right);
-
-    const Float64 preserved = (kind == JoinKind::Right) ? right : left;
-    const bool reduces_to_preserved =
-        strictness == JoinStrictness::Semi || strictness == JoinStrictness::Anti
-        || strictness == JoinStrictness::Any || strictness == JoinStrictness::RightAny
-        || strictness == JoinStrictness::Asof;
-
-    /// Semi/anti/any keep at most one row per preserved-side row (anti can keep the whole preserved
-    /// side even when the other side is empty), so the preserved side is the upper bound.
-    if (reduces_to_preserved && (kind == JoinKind::Left || kind == JoinKind::Right))
-        return preserved;
-
-    /// An outer join with matches can multiply up to the product but never drops below the preserved
-    /// side (unmatched rows are kept).
-    if (kind == JoinKind::Left)
-        return std::max(product, left);
-    if (kind == JoinKind::Right)
-        return std::max(product, right);
-    /// Inner (any strictness), cross, comma: the product is a valid upper bound.
-    return product;
-}
 
 ExpressionStatistics StatisticsDerivation::deriveJoinStatistics(
     const JoinStepLogical & join_step,
@@ -332,14 +316,14 @@ ExpressionStatistics StatisticsDerivation::deriveJoinStatistics(
         auto known_distinct_values = [](const auto & found, const auto & end, const ExpressionStatistics & side) -> std::optional<UInt64>
         {
             if (found != end && found->second.num_distinct_values > 0)
-                return std::min(found->second.num_distinct_values, UInt64(side.estimated_row_count));
+                return std::min(found->second.num_distinct_values, toRowCount(side.estimated_row_count));
             return std::nullopt;
         };
         const auto left_known_distinct_values = known_distinct_values(left_column_statistics, left_statistics.column_statistics.end(), left_statistics);
         const auto right_known_distinct_values = known_distinct_values(right_column_statistics, right_statistics.column_statistics.end(), right_statistics);
 
-        const UInt64 left_distinct_values = left_known_distinct_values.value_or(UInt64(left_statistics.estimated_row_count));
-        const UInt64 right_distinct_values = right_known_distinct_values.value_or(UInt64(right_statistics.estimated_row_count));
+        const UInt64 left_distinct_values = left_known_distinct_values.value_or(toRowCount(left_statistics.estimated_row_count));
+        const UInt64 right_distinct_values = right_known_distinct_values.value_or(toRowCount(right_statistics.estimated_row_count));
         const auto predicate_selectivity = QueryPlanOptimizations::equalitySelectivity(left_distinct_values, right_distinct_values);
 
         /// The shared update then narrows only sides whose rows can be filtered by this join; a side
@@ -392,7 +376,18 @@ ExpressionStatistics StatisticsDerivation::deriveJoinStatistics(
 
     /// The multiplicative value is the search value when no estimate exists.
     const Float64 search_value = left_statistics.estimated_row_count * right_statistics.estimated_row_count * join_selectivity;
-    const bool inputs_known = !left_statistics.rows_unknown && !right_statistics.rows_unknown;
+    statistics.estimate_from_defaults = left_statistics.estimate_from_defaults || right_statistics.estimate_from_defaults;
+
+    /// The one formula of every planner, with an unknown side given as unknown: it decides the
+    /// result an empty side determines and leaves the rest unknown.
+    const auto side_rows = [](const ExpressionStatistics & side) -> std::optional<UInt64>
+    {
+        if (side.rows_unknown)
+            return std::nullopt;
+        return toRowCount(side.estimated_row_count);
+    };
+    const auto shared_estimate = estimateJoinCardinality(
+        side_rows(left_statistics), side_rows(right_statistics), join_selectivity, join_operator.kind, join_operator.strictness, preserved_match_fraction);
 
     const auto join_order_estimate = join_step.isEstimatedByJoinOrder() ? join_step.getResultRowsEstimation() : std::nullopt;
     if (join_order_estimate)
@@ -401,13 +396,11 @@ ExpressionStatistics StatisticsDerivation::deriveJoinStatistics(
         /// estimate of this result.
         statistics.estimated_row_count = Float64(*join_order_estimate);
     }
-    else if (inputs_known)
+    else if (shared_estimate)
     {
         /// The join order optimizer did not see this join, or could not estimate an input this derivation
-        /// can (its estimator knows fewer operators, `Distinct` for one). The shared formula applies.
-        statistics.estimated_row_count = Float64(estimateJoinCardinality(
-            UInt64(left_statistics.estimated_row_count), UInt64(right_statistics.estimated_row_count),
-            join_selectivity, join_operator.kind, join_operator.strictness, preserved_match_fraction).value());
+        /// can (its estimator knows fewer operators, `Distinct` for one).
+        statistics.estimated_row_count = Float64(*shared_estimate);
     }
     else
     {
@@ -418,13 +411,16 @@ ExpressionStatistics StatisticsDerivation::deriveJoinStatistics(
         statistics.estimated_row_count = upper_bound ? Float64(*upper_bound) : search_value;
     }
 
-    /// Constrain the inner-product estimate to the join semantics (outer joins keep the preserved side,
-    /// semi/anti/any bound it). Applied after the join-order hint so a hint cannot exceed a semantic
-    /// upper bound (e.g. a semi join above its preserved-side row count).
-    statistics.estimated_row_count = clampJoinRowCount(join_operator.kind, join_operator.strictness,
-        statistics.estimated_row_count, left_statistics.estimated_row_count, right_statistics.estimated_row_count);
-    statistics.max_row_count = clampJoinMaxRowCount(join_operator.kind, join_operator.strictness,
-        statistics.max_row_count, left_statistics.max_row_count, right_statistics.max_row_count);
+    /// The bound follows the join semantics from the input bounds, by the shared rule.
+    const auto side_bound = [](const ExpressionStatistics & side) -> std::optional<UInt64>
+    {
+        if (side.max_row_count >= Float64(std::numeric_limits<UInt64>::max()))
+            return std::nullopt;
+        return toRowCount(side.max_row_count);
+    };
+    const auto bound = estimateJoinRowsUpperBound(
+        side_bound(left_statistics), side_bound(right_statistics), join_operator.kind, join_operator.strictness);
+    statistics.max_row_count = bound ? Float64(*bound) : Float64(std::numeric_limits<UInt64>::max());
 
     /// Column equivalences: both inputs' classes survive (the sides do not share column names).
     /// An inner join also makes its equality keys equal on every output row, so each key pair
@@ -443,7 +439,7 @@ ExpressionStatistics StatisticsDerivation::deriveJoinStatistics(
 
     for (auto & column_statistics : statistics.column_statistics)
         if (Float64(column_statistics.second.num_distinct_values) > statistics.estimated_row_count)
-            column_statistics.second.num_distinct_values = UInt64(statistics.estimated_row_count);
+            column_statistics.second.num_distinct_values = toRowCount(statistics.estimated_row_count);
 
     if (statistics.estimated_row_count < 0.01)
     {
@@ -609,37 +605,54 @@ const ActionsDAG::Node * skipAliases(const ActionsDAG::Node * node)
 /// equivalence classes. The input of a standalone filter is an arbitrary subplan (e.g. an
 /// aggregation for `HAVING`), so there are no table statistics here, and the column statistics
 /// carry no value ranges: an equality uses 1/NDV, everything else uses the default factors.
-Float64 estimatePredicateSelectivity(const ActionsDAG::Node * node, const ExpressionStatistics & input_statistics)
+Float64 estimatePredicateSelectivity(const ActionsDAG::Node * node, const ExpressionStatistics & input_statistics, bool & used_default)
 {
     node = skipAliases(node);
     /// A constant filter column: the planner removes an always-false filter, so assume true.
     if (node->type == ActionsDAG::ActionType::COLUMN)
         return 1.0;
+    used_default = true;
     if (node->type != ActionsDAG::ActionType::FUNCTION)
         return CascadesDefaults::DEFAULT_UNKNOWN_SELECTIVITY;
 
     const String & name = node->function_base->getName();
 
+    /// A default in any argument makes the whole predicate a guess; each child reports on its own.
+    const auto child_selectivity = [&](const ActionsDAG::Node * child)
+    {
+        bool child_used_default = false;
+        const Float64 selectivity = estimatePredicateSelectivity(child, input_statistics, child_used_default);
+        used_default |= child_used_default;
+        return selectivity;
+    };
     if (name == "and")
     {
+        used_default = false;
         Float64 selectivity = 1.0;
         for (const auto * child : node->children)
-            selectivity *= estimatePredicateSelectivity(child, input_statistics);
+            selectivity *= child_selectivity(child);
         return selectivity;
     }
     if (name == "or")
     {
+        used_default = false;
         Float64 none_passes = 1.0;
         for (const auto * child : node->children)
-            none_passes *= 1.0 - estimatePredicateSelectivity(child, input_statistics);
+            none_passes *= 1.0 - child_selectivity(child);
         return 1.0 - none_passes;
     }
     if (name == "not" && node->children.size() == 1)
-        return 1.0 - estimatePredicateSelectivity(node->children.front(), input_statistics);
+    {
+        used_default = false;
+        return 1.0 - estimatePredicateSelectivity(node->children.front(), input_statistics, used_default);
+    }
 
     /// A runtime join filter repeats the join selectivity, which the join estimate carries.
     if (name == "__applyFilter")
+    {
+        used_default = false;
         return 1.0;
+    }
     if (name == "like" || name == "ilike")
         return CascadesDefaults::DEFAULT_LIKE_SELECTIVITY;
     if (name == "notLike" || name == "notILike")
@@ -676,15 +689,24 @@ Float64 estimatePredicateSelectivity(const ActionsDAG::Node * node, const Expres
             /// formula 1 / max(NDV) applies.
             auto left_class = input_statistics.equivalences.getClass(left->result_name);
             if (left_class && left_class == input_statistics.equivalences.getClass(right->result_name))
+            {
                 equal_selectivity = 1.0;
+                used_default = false;
+            }
             else if (UInt64 max_ndv = std::max(column_ndv(left), column_ndv(right)))
+            {
                 equal_selectivity = 1.0 / Float64(max_ndv);
+                used_default = false;
+            }
         }
         else
         {
             const auto * column_side = left_is_constant ? right : left;
             if (UInt64 ndv = column_ndv(column_side))
+            {
                 equal_selectivity = 1.0 / Float64(ndv);
+                used_default = false;
+            }
         }
         return is_equals ? equal_selectivity : 1.0 - equal_selectivity;
     }
@@ -692,14 +714,12 @@ Float64 estimatePredicateSelectivity(const ActionsDAG::Node * node, const Expres
     return CascadesDefaults::DEFAULT_UNKNOWN_SELECTIVITY;
 }
 
-
-/// A `Float64` row count as an integer; the unbounded value stays the largest integer.
-static UInt64 toRowCount(Float64 rows)
+Float64 estimatePredicateSelectivity(const ActionsDAG::Node * node, const ExpressionStatistics & input_statistics)
 {
-    if (!(rows < Float64(std::numeric_limits<UInt64>::max())))
-        return std::numeric_limits<UInt64>::max();
-    return rows <= 0 ? 0 : UInt64(rows);
+    bool used_default = false;
+    return estimatePredicateSelectivity(node, input_statistics, used_default);
 }
+
 
 ExpressionStatistics StatisticsDerivation::deriveFilterStatistics(const FilterStep & filter_step, const ExpressionStatistics & input_statistics)
 {
@@ -719,7 +739,9 @@ ExpressionStatistics StatisticsDerivation::deriveFilterStatistics(const FilterSt
 
     if (filter_node)
     {
-        const Float64 selectivity = estimatePredicateSelectivity(filter_node, input_statistics);
+        bool used_default = false;
+        const Float64 selectivity = estimatePredicateSelectivity(filter_node, input_statistics, used_default);
+        result_statistics.estimate_from_defaults |= used_default;
         result_statistics.estimated_row_count *= selectivity;
         result_statistics.min_row_count = 0;
         /// A value survives the filter when any of its rows does.
@@ -737,10 +759,17 @@ ExpressionStatistics StatisticsDerivation::deriveExpressionStatistics(const Expr
     ExpressionStatistics result_statistics = input_statistics;
     QueryPlanOptimizations::remapColumnStats(result_statistics.column_statistics, expression_step.getExpression());
     result_statistics.equivalences = remapEquivalences(input_statistics.equivalences, expression_step.getExpression());
+    /// An `arrayJoin` multiplies the rows by the array sizes, which nothing here estimates: the
+    /// result is unknown and has no bound.
+    if (expression_step.getExpression().hasArrayJoin())
+    {
+        result_statistics.rows_unknown = true;
+        result_statistics.min_row_count = 0;
+        result_statistics.max_row_count = Float64(std::numeric_limits<UInt64>::max());
+    }
     /// Keep the input row width: most projections pass columns through, and the input width may carry
     /// storage-derived or hinted byte sizes that a header-based type-default estimate would discard.
-    /// TODO: recompute only for added/dropped columns (needs per-column widths); an arrayJoin also
-    /// grows the row count (preserves_number_of_rows is false), which we do not estimate yet.
+    /// TODO: recompute only for added/dropped columns (needs per-column widths).
     return result_statistics;
 }
 
@@ -790,6 +819,7 @@ ExpressionStatistics StatisticsDerivation::deriveAggregatingStatistics(const Agg
 {
     const auto & aggregator_params = aggregating_step.getAggregatorParameters();
     ExpressionStatistics aggregation_statistics;
+    aggregation_statistics.estimate_from_defaults = input_statistics.estimate_from_defaults;
     /// A key without an NDV stays without one in the output.
     for (const auto & key : aggregator_params.keys)
         aggregation_statistics.column_statistics[key].num_distinct_values = keyDistinctValues(key, input_statistics).value_or(0);
@@ -798,7 +828,18 @@ ExpressionStatistics StatisticsDerivation::deriveAggregatingStatistics(const Agg
     const auto groups = estimateGroupCount(aggregator_params.keys, input_statistics, group_count_damped_product);
     aggregation_statistics.estimated_row_count = groups.estimated_rows;
     aggregation_statistics.max_row_count = groups.max_rows;
-    aggregation_statistics.rows_unknown = groups.unknown;
+    /// Groups counted from the key NDVs alone do not depend on the input rows; a keyed aggregation of
+    /// an unknown input is unknown all the same, a keyless one is its one row.
+    aggregation_statistics.rows_unknown = groups.unknown || (!aggregator_params.keys.empty() && input_statistics.rows_unknown);
+    /// `GROUPING SETS` emits the groups of every set: at most the groups of all the keys per set,
+    /// and at most the input rows per set, which can exceed the input.
+    if (aggregating_step.isGroupingSets())
+    {
+        const Float64 sets = Float64(aggregating_step.getGroupingSetsParamsList().size());
+        const Float64 unbounded = Float64(std::numeric_limits<UInt64>::max());
+        aggregation_statistics.estimated_row_count = std::min(aggregation_statistics.estimated_row_count * sets, unbounded);
+        aggregation_statistics.max_row_count = std::min(input_statistics.max_row_count * sets, unbounded);
+    }
     /// Group-by keys pass through with their input value sizes and domains.
     for (auto & [column_name, column_stats] : aggregation_statistics.column_statistics)
     {
@@ -837,7 +878,7 @@ static void trimStatisticsByLimit(ExpressionStatistics & statistics, UInt64 limi
     statistics.max_row_count = std::min(statistics.max_row_count, Float64(limit));
     for (auto & column_statistics : statistics.column_statistics)
         if (Float64(column_statistics.second.num_distinct_values) > statistics.estimated_row_count)
-            column_statistics.second.num_distinct_values = UInt64(statistics.estimated_row_count);
+            column_statistics.second.num_distinct_values = toRowCount(statistics.estimated_row_count);
 }
 
 ExpressionStatistics StatisticsDerivation::deriveSortingStatistics(const SortingStep & sorting_step, const ExpressionStatistics & input_statistics)
@@ -854,8 +895,9 @@ ExpressionStatistics StatisticsDerivation::deriveSortingStatistics(const Sorting
 ExpressionStatistics StatisticsDerivation::deriveLimitStatistics(const LimitStep & limit_step, const ExpressionStatistics & input_statistics)
 {
     ExpressionStatistics result_statistics = input_statistics;
-    /// Without a `LIMIT` value the step does not change statistics
-    if (limit_step.getLimit())
+    /// Without a `LIMIT` value the step does not change statistics; `WITH TIES` can keep every row
+    /// equal to the last one, so the limit bounds nothing then.
+    if (limit_step.getLimit() && !limit_step.withTies())
     {
         trimStatisticsByLimit(result_statistics, limit_step.getLimit());
     }
@@ -874,24 +916,14 @@ ExpressionStatistics StatisticsDerivation::deriveUnionStatistics(
     for (size_t input_index = 1; input_index < input_count; ++input_index)
     {
         const auto & other = input_statistics(input_index);
+        result.rows_unknown |= other.rows_unknown;
+        result.estimate_from_defaults |= other.estimate_from_defaults;
         result.estimated_row_count += other.estimated_row_count;
         result.min_row_count += other.min_row_count;
         result.max_row_count += other.max_row_count;
         result.estimated_distinct_bound += other.estimated_distinct_bound;
-        for (size_t position = 0; position < input_headers.at(0)->columns(); ++position)
-        {
-            auto output_column = result.column_statistics.find(input_headers.at(0)->getByPosition(position).name);
-            if (output_column == result.column_statistics.end())
-                continue;
-            auto other_column = other.column_statistics.find(input_headers.at(input_index)->getByPosition(position).name);
-            const UInt64 other_distinct_values = other_column == other.column_statistics.end() ? 0 : other_column->second.num_distinct_values;
-            output_column->second.num_distinct_values = output_column->second.num_distinct_values == 0 || other_distinct_values == 0
-                ? 0
-                : output_column->second.num_distinct_values + other_distinct_values;
-            if (other_column != other.column_statistics.end())
-                output_column->second.domain_distinct_values
-                    = std::max(output_column->second.domain_distinct_values, other_column->second.domain_distinct_values);
-        }
+        QueryPlanOptimizations::addUnionColumnStats(
+            result.column_statistics, input_headers.at(0)->getNames(), other.column_statistics, input_headers.at(input_index)->getNames());
     }
     return result;
 }

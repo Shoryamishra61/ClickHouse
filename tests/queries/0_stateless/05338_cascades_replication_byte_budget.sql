@@ -19,6 +19,9 @@ SET param__internal_cascades_cluster_node_count = 3;
 DROP TABLE IF EXISTS t_cb_fact;
 DROP TABLE IF EXISTS t_cb_dim;
 DROP TABLE IF EXISTS t_cb_unk;
+DROP TABLE IF EXISTS t_cb_scan;
+CREATE TABLE t_cb_scan (k UInt64, v UInt64) ENGINE = MergeTree ORDER BY k SETTINGS auto_statistics_types = '';
+INSERT INTO t_cb_scan SELECT number % 5, number FROM numbers(100000);
 CREATE TABLE t_cb_fact (k UInt64, v UInt64) ENGINE = MergeTree ORDER BY k SETTINGS auto_statistics_types = '';
 CREATE TABLE t_cb_dim (k UInt64, name String) ENGINE = MergeTree ORDER BY k SETTINGS auto_statistics_types = '';
 CREATE TABLE t_cb_unk (k UInt64, v UInt64) ENGINE = MergeTree ORDER BY k SETTINGS auto_statistics_types = '';
@@ -48,6 +51,21 @@ SELECT '-- and does not fit a budget of 1000 bytes: no replication of the unknow
 EXPLAIN estimates = 1 SELECT count() FROM t_cb_fact AS f JOIN t_cb_unk AS u ON f.k = u.k WHERE u.v < 5
 SETTINGS make_distributed_plan = 1, enable_cascades_optimizer = 1, distributed_plan_max_bytes_to_broadcast = 1000;
 
+SELECT '-- a small result over a large scan: the broadcast ships the result and fits, the scan is read once';
+-- 100000 rows are scanned for 5 hinted rows; a budget of 2000 bytes fits the 5 rows, not the scan.
+SET param__internal_join_table_stat_hints = '{"t_cb_fact": {"cardinality": 10000000, "avg_row_bytes": 16, "distinct_keys": {"k": 5}}, "t_cb_scan": {"cardinality": 5, "avg_row_bytes": 16, "distinct_keys": {"k": 5}}}';
+EXPLAIN SELECT count() FROM t_cb_fact AS f JOIN (SELECT k FROM t_cb_scan WHERE v = 7) AS s ON f.k = s.k
+SETTINGS make_distributed_plan = 1, enable_cascades_optimizer = 1, distributed_plan_max_bytes_to_broadcast = 2000;
+
+SELECT '-- a default in one of two AND-ed predicates of a filter makes the side a guess: its bound does not fit, no broadcast';
+-- The filter stays above the aggregation (no push-down), so the Cascades optimizer estimates it
+-- itself: the `LIKE` with its default, `k = 3` from the key NDV. The 0.1 estimated rows would fit any
+-- budget; the bound, the aggregated rows, does not fit 2000 bytes.
+SET param__internal_join_table_stat_hints = '{"t_cb_fact": {"cardinality": 10000000, "avg_row_bytes": 16, "distinct_keys": {"k": 5}}, "t_cb_scan": {"cardinality": 100000, "avg_row_bytes": 16, "distinct_keys": {"k": 5, "v": 100000}}}';
+EXPLAIN SELECT count() FROM t_cb_fact AS f
+JOIN (SELECT k FROM (SELECT k, count() AS c FROM t_cb_scan GROUP BY k) WHERE toString(k) LIKE '%3%' AND k = 3) AS s ON f.k = s.k
+SETTINGS make_distributed_plan = 1, enable_cascades_optimizer = 1, distributed_plan_max_bytes_to_broadcast = 2000, query_plan_filter_push_down = 0;
+
 SELECT '-- results do not depend on the shape';
 SELECT count(), any(name) FROM t_cb_fact AS f JOIN t_cb_dim AS d ON f.k = d.k
 SETTINGS make_distributed_plan = 1, enable_cascades_optimizer = 1, distributed_plan_execute_locally = 1;
@@ -57,3 +75,4 @@ SETTINGS make_distributed_plan = 1, enable_cascades_optimizer = 1, distributed_p
 DROP TABLE t_cb_fact;
 DROP TABLE t_cb_dim;
 DROP TABLE t_cb_unk;
+DROP TABLE t_cb_scan;

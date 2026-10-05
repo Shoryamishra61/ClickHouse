@@ -476,14 +476,13 @@ static void estimateJoinInPlace(JoinStepLogical & join_step, QueryPlan::Node & n
     DPJoinEntry joined(left_entry, right_entry, /*cost*/ 0.0, keys.selectivity, rows, join_operator);
 
     const bool imprecise_estimate = left_stats.imprecise_estimate || right_stats.imprecise_estimate;
-    join_step.setOptimized(
+    join_step.setInPlaceEstimation(
         joined.estimated_rows,
         joined.column_stats,
         imprecise_estimate,
-        /*estimated_cost*/ std::nullopt,
         keys.selectivity,
-        /*cluster_id*/ 0,
-        joined.max_rows);
+        joined.max_rows,
+        left_stats.estimate_from_defaults || right_stats.estimate_from_defaults);
 
     /// Annotate the plan nodes like the join-order path does, so that `EXPLAIN estimates` and the
     /// profile log see the estimate. An input that already carries an annotation keeps it.
@@ -1436,7 +1435,9 @@ static QueryPlan::Node chooseJoinOrder(QueryGraphBuilder query_graph_builder, Qu
                 .imprecise_estimate = imprecise_estimate,
                 .composite = true};
 
-            join_step->setJoinOrderEstimation(entry->estimated_rows, entry->column_stats, imprecise_estimate, entry->cost, entry->selectivity, cluster_id, entry->max_rows);
+            join_step->setJoinOrderEstimation(
+                entry->estimated_rows, entry->column_stats, imprecise_estimate, entry->cost, entry->selectivity, cluster_id, entry->max_rows,
+                entry->estimate_from_defaults);
 
             auto & new_node = nodes.emplace_back();
 

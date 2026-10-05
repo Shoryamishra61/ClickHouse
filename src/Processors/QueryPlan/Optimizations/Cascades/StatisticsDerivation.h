@@ -11,19 +11,10 @@
 namespace DB
 {
 
-/// Clamp an inner-join-style row-count estimate to the semantics of the join kind and strictness.
-/// `base` is the multiplicative inner estimate; `left`/`right` are the input row estimates. A
-/// directional cost heuristic, not exact cardinality. Exposed for testing.
-Float64 clampJoinRowCount(JoinKind kind, JoinStrictness strictness, Float64 base, Float64 left, Float64 right);
-
-/// A valid upper bound on the join output row count, given the input max counts. Unlike the estimate
-/// clamp, this must never fall below a possible output: a FULL join over disjoint sides can emit
-/// `left + right` rows, and an ANTI join can emit the whole preserved side. `product` is
-/// `left * right`. Exposed for testing.
-Float64 clampJoinMaxRowCount(JoinKind kind, JoinStrictness strictness, Float64 product, Float64 left, Float64 right);
-
 /// The TRUE fraction of a filter expression, estimated from the input column NDVs and
-/// equivalence classes. Exposed for testing.
+/// equivalence classes. `used_default` is set when a default factor stood in for a predicate the
+/// statistics could not estimate. Exposed for testing.
+Float64 estimatePredicateSelectivity(const ActionsDAG::Node * node, const ExpressionStatistics & input_statistics, bool & used_default);
 Float64 estimatePredicateSelectivity(const ActionsDAG::Node * node, const ExpressionStatistics & input_statistics);
 
 
@@ -56,10 +47,16 @@ public:
     {}
 
     /// Derive statistics for a group based on one of its logical expressions, recursively
-    /// deriving the input groups' statistics first.
+    /// deriving the input groups' statistics first. The first call derives every leaf group.
     void deriveStatistics(GroupId group_id);
 
 private:
+    void deriveGroupStatistics(GroupId group_id);
+    /// Derives every leaf group, then gives the sources without an estimate or a bound the largest
+    /// known leaf as their search value.
+    void deriveLeafGroups();
+    bool leaves_derived = false;
+
     ExpressionStatistics deriveJoinStatistics(const JoinStepLogical & join_step, const ExpressionStatistics & left_statistics, const ExpressionStatistics & right_statistics);
     ExpressionStatistics deriveReadStatistics(const ReadFromMergeTree & read_step);
     ExpressionStatistics deriveFilterStatistics(const FilterStep & filter_step, const ExpressionStatistics & input_statistics);

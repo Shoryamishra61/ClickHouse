@@ -19,21 +19,9 @@ GroupCountEstimate estimateGroupCount(
         return GroupCountEstimate{.estimated_rows = 1, .max_rows = 1};
 
     std::vector<UInt64> known;
-    std::optional<UInt64> product = 1;
     for (UInt64 distinct_values : key_distinct_values)
-    {
-        if (distinct_values == 0)
-        {
-            product.reset();
-            continue;
-        }
-        known.push_back(distinct_values);
-        if (product)
-        {
-            UInt64 multiplied = 0;
-            product = __builtin_mul_overflow(*product, distinct_values, &multiplied) ? std::numeric_limits<UInt64>::max() : multiplied;
-        }
-    }
+        if (distinct_values != 0)
+            known.push_back(distinct_values);
 
     GroupCountEstimate result;
     if (!known.empty())
@@ -48,9 +36,7 @@ GroupCountEstimate estimateGroupCount(
                 damped *= std::pow(static_cast<double>(distinct_values), exponent);
                 exponent /= 2;
             }
-            result.estimated_rows = damped >= static_cast<double>(std::numeric_limits<UInt64>::max())
-                ? std::numeric_limits<UInt64>::max()
-                : static_cast<UInt64>(std::llround(damped));
+            result.estimated_rows = roundToRowCount(damped);
         }
         else
         {
@@ -59,10 +45,35 @@ GroupCountEstimate estimateGroupCount(
     }
     if (result.estimated_rows && rows)
         result.estimated_rows = std::min(*result.estimated_rows, *rows);
+    /// The NDVs are sketches and models, not proofs, so their product does not tighten the bound:
+    /// a group count can exceed it when a sketch undercounts, and the bound is what admits a
+    /// replication.
     result.max_rows = max_rows;
-    if (product && (!result.max_rows || *product < *result.max_rows))
-        result.max_rows = product;
     return result;
+}
+
+void addUnionColumnStats(
+    std::unordered_map<String, ColumnStats> & result,
+    const Names & result_columns,
+    const std::unordered_map<String, ColumnStats> & other,
+    const Names & other_columns)
+{
+    for (size_t position = 0; position < result_columns.size() && position < other_columns.size(); ++position)
+    {
+        auto result_column = result.find(result_columns[position]);
+        if (result_column == result.end())
+            continue;
+        auto other_column = other.find(other_columns[position]);
+        const UInt64 other_distinct_values = other_column == other.end() ? 0 : other_column->second.num_distinct_values;
+        auto & stats = result_column->second;
+        /// The values of the union are at most the values of the inputs together; unknown when an input's are.
+        if (stats.num_distinct_values == 0 || other_distinct_values == 0)
+            stats.num_distinct_values = 0;
+        else if (__builtin_add_overflow(stats.num_distinct_values, other_distinct_values, &stats.num_distinct_values))
+            stats.num_distinct_values = std::numeric_limits<UInt64>::max();
+        if (other_column != other.end())
+            stats.domain_distinct_values = std::max(stats.domain_distinct_values, other_column->second.domain_distinct_values);
+    }
 }
 
 std::optional<double> equalitySelectivity(UInt64 left_distinct_values, UInt64 right_distinct_values)
@@ -75,22 +86,24 @@ std::optional<double> equalitySelectivity(UInt64 left_distinct_values, UInt64 ri
 
 UInt64 distinctValuesAfterFilter(UInt64 distinct_values, UInt64 rows_before, UInt64 rows_after)
 {
-    if (distinct_values == 0)
+    if (distinct_values == 0 || rows_after == 0)
         return 0;
     if (rows_before == 0 || rows_after >= rows_before)
-        return std::min(distinct_values, std::max<UInt64>(rows_after, distinct_values == 0 ? 0 : 1));
+        return std::min(distinct_values, rows_after);
     const double kept = static_cast<double>(rows_after) / static_cast<double>(rows_before);
     const double rows_per_value = static_cast<double>(rows_before) / static_cast<double>(distinct_values);
-    const double surviving = static_cast<double>(distinct_values) * (1.0 - std::pow(1.0 - kept, rows_per_value));
+    /// 1 - (1 - kept)^rows_per_value, computed so that a kept fraction below the double precision
+    /// still leaves the values its rows keep.
+    const double surviving = static_cast<double>(distinct_values) * -std::expm1(rows_per_value * std::log1p(-kept));
     const UInt64 bound = std::min(distinct_values, rows_after);
-    return std::min<UInt64>(bound, static_cast<UInt64>(std::llround(surviving)));
+    return std::min<UInt64>(bound, std::max<UInt64>(1, roundToRowCount(surviving)));
 }
 
 std::optional<double> keyContainment(UInt64 side_distinct_values, UInt64 other_distinct_values, UInt64 domain_distinct_values)
 {
     if (side_distinct_values == 0 || other_distinct_values == 0)
         return std::nullopt;
-    if (other_distinct_values <= side_distinct_values)
+    if (other_distinct_values < side_distinct_values)
         return static_cast<double>(other_distinct_values) / static_cast<double>(side_distinct_values);
     if (domain_distinct_values >= other_distinct_values)
         return static_cast<double>(other_distinct_values) / static_cast<double>(domain_distinct_values);
@@ -101,9 +114,9 @@ double combineKeySelectivities(std::vector<double> selectivities, bool exponenti
 {
     if (selectivities.empty())
         return 1.0;
-    std::sort(selectivities.begin(), selectivities.end());
     if (!exponential_backoff)
-        return selectivities.front();
+        return *std::min_element(selectivities.begin(), selectivities.end());
+    std::sort(selectivities.begin(), selectivities.end());
 
     double result = 1.0;
     double exponent = 1.0;
@@ -155,7 +168,7 @@ void updateJoinKeyDistinctCounts(
     if (left_distinct_values && right_distinct_values && domain >= std::max(left_distinct_values, right_distinct_values))
     {
         const double overlap = static_cast<double>(left_distinct_values) * static_cast<double>(right_distinct_values) / static_cast<double>(domain);
-        minimum = std::min(minimum, std::max<UInt64>(1, static_cast<UInt64>(std::llround(overlap))));
+        minimum = std::min(minimum, std::max<UInt64>(1, roundToRowCount(overlap)));
     }
 
     if (update_left)
@@ -194,7 +207,9 @@ void remapColumnStats(std::unordered_map<String, ColumnStats> & mapped, const Ac
 
         ColumnStats stats = stats_it->second;
         /// Add the offset, guarding against overflow when the source NDV is near the maximum.
-        if (stats.num_distinct_values <= std::numeric_limits<UInt64>::max() - output_lineage.input->ndv_delta)
+        /// An unknown NDV (zero) stays unknown; a delta on it would invent a count.
+        if (stats.num_distinct_values != 0
+            && stats.num_distinct_values <= std::numeric_limits<UInt64>::max() - output_lineage.input->ndv_delta)
             stats.num_distinct_values += output_lineage.input->ndv_delta;
         /// A hop that changes the type (e.g. `toString(k)`) changes the value bytes, so drop the
         /// width to unknown.

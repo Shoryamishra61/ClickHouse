@@ -64,7 +64,7 @@ protected:
         /// Every node recomputes the step over replicated inputs, so each input is data copied
         /// to every node and has to fit the byte budget.
         for (const auto & input : expression->inputs)
-            if (!decideReplicationOf(*memo.getGroup(input.group_id), memo.getContext(), getName()).allowed)
+            if (!decideReplicationOf(*memo.getGroup(input.group_id), memo.getContext(), getName(), /*repeats_scan*/ true).allowed)
                 return {};
 
         DistributionDescription replicated_distribution;

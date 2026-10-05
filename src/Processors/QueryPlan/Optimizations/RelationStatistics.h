@@ -5,6 +5,7 @@
 #include <vector>
 
 #include <Core/Joins.h>
+#include <Core/Names.h>
 #include <Processors/QueryPlan/CostEstimationInfo.h>
 #include <Processors/QueryPlan/RelationEstimateInfo.h>
 #include <Storages/Statistics/ConditionSelectivityEstimator.h>
@@ -27,8 +28,8 @@ struct RelationStats
 
     String table_name;
     bool imprecise_estimate = false;
-    /// A default selectivity stood in for a predicate the statistics could not estimate, so
-    /// `estimated_rows` is a guess. Set at the read; the steps above do not carry it.
+    /// A default selectivity stood in for a predicate the statistics could not estimate somewhere
+    /// below, so `estimated_rows` is a guess; the steps above a read carry it.
     bool estimate_from_defaults = false;
 
     /// Diagnostic annotation of where `estimated_rows` came from; see `RowEstimateSource`.
@@ -61,12 +62,21 @@ struct GroupCountEstimate
 {
     /// Capped by the rows; unknown when no key has an NDV. Every planner uses this one formula, so
     /// an aggregation is the same relation wherever it is estimated. By default the largest known
-    /// key NDV, a lower bound on the groups. With `damped_product` the keys count as partially
-    /// correlated: sorted from the largest NDV, they take the exponents 1, 1/2, 1/4, ... .
+    /// key NDV (the groups are at least that many when the NDV is exact). With `damped_product`
+    /// the keys count as partially correlated: sorted from the largest NDV, they take the
+    /// exponents 1, 1/2, 1/4, ... .
     std::optional<UInt64> estimated_rows;
-    /// The product of the key NDVs when all are known, else the rows the input cannot exceed.
+    /// The rows the input cannot exceed. The key NDVs are estimates and do not tighten it.
     std::optional<UInt64> max_rows;
 };
+
+/// Column statistics of a `UNION ALL`: adds the `other` input's values to `result`, matching the
+/// columns by position (`result_columns` names the output, `other_columns` the other input).
+void addUnionColumnStats(
+    std::unordered_map<String, ColumnStats> & result,
+    const Names & result_columns,
+    const std::unordered_map<String, ColumnStats> & other,
+    const Names & other_columns);
 
 /// `key_distinct_values` holds one NDV per key, zero for a key without one.
 GroupCountEstimate estimateGroupCount(

@@ -47,7 +47,7 @@ std::vector<GroupExpressionPtr> ReplicatedReadImplementation::applyImpl(GroupExp
 
     /// Every node reads the whole table and keeps all of its rows: the bytes it scans and the
     /// rows it outputs both have to fit the byte budget.
-    if (!decideReplicationOf(*memo.getGroup(expression->group_id), memo.getContext(), getName()).allowed)
+    if (!decideReplicationOf(*memo.getGroup(expression->group_id), memo.getContext(), getName(), /*repeats_scan*/ true).allowed)
         return {};
 
     LOG_TEST(getLogger("ReplicatedRead"), "Creating replicated read for '{}' at {} nodes",

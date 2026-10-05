@@ -65,7 +65,8 @@ ColumnsDescription ProcessorProfileLogElement::getColumnsDescription()
             "NULL if the step has no estimate. Compare with the sum of `output_rows` over the processors of the step whose consumers belong to other steps."},
         {"plan_step_estimate_source", std::make_shared<DataTypeLowCardinality>(std::make_shared<DataTypeString>()),
             "Where the estimate came from: `statistics`, `primary_index`, `no_statistics`, `hint`, `randomized` or `hash_table_cache`. "
-            "Empty if the estimate has no recorded origin or the step has no estimate."},
+            "Empty if the step carries no annotation or the origin of its estimate is not recorded. "
+            "`no_statistics` with a NULL `plan_step_estimated_rows` means the optimizer found no statistics to estimate the step from."},
     };
 }
 

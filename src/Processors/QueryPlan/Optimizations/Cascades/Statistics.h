@@ -26,6 +26,9 @@ struct ExpressionStatistics
     /// never reported as an estimate. Set for a read the estimator could not estimate and for
     /// everything derived from it.
     bool rows_unknown = false;
+    /// A default selectivity stood in for a predicate somewhere below: `estimated_row_count` is a
+    /// guess, which the replication budget does not take on its own.
+    bool estimate_from_defaults = false;
     /// Proven minimum number of rows
     Float64 min_row_count = 0;
     /// Proven maximum number of rows. E.g. after a `LIMIT` step

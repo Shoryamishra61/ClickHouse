@@ -462,7 +462,7 @@ std::vector<GroupExpressionPtr> HashJoinImplementation::applyImpl(GroupExpressio
     /// same budget, so a variant that asked for an oversized replication would get no plan;
     /// skipping it here saves the search.
     const bool broadcast_within_budget = decideReplicationOf(
-        *memo.getGroup(expression->inputs[1].group_id), memo.getContext(), getName()).allowed;
+        *memo.getGroup(expression->inputs[1].group_id), memo.getContext(), getName(), /*repeats_scan*/ false).allowed;
 
     /// Enumerate distributed strategies at each candidate node count.
     for (size_t candidate_node_count : candidate_node_counts)

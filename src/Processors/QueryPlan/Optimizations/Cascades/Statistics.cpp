@@ -285,6 +285,7 @@ std::optional<ExpressionStatistics> estimateStatistics(QueryPlan::Node & node, c
         {
             stats.emplace();
             stats->rows_unknown = !relation_stats.estimated_rows;
+            stats->estimate_from_defaults = relation_stats.estimate_from_defaults;
             stats->estimated_row_count = Float64(relation_stats.estimated_rows ? *relation_stats.estimated_rows : *relation_stats.max_rows);
             stats->column_statistics = relation_stats.column_stats;
             /// Hinted column widths are already in the stats; fill the rest so downstream width
@@ -327,6 +328,7 @@ std::optional<ExpressionStatistics> estimateStatistics(QueryPlan::Node & node, c
         {
             stats.emplace();
             stats->rows_unknown = !relation_stats.estimated_rows;
+            stats->estimate_from_defaults = relation_stats.estimate_from_defaults;
             stats->estimated_row_count = Float64(relation_stats.estimated_rows ? *relation_stats.estimated_rows : *relation_stats.max_rows);
             stats->max_row_count = relation_stats.max_rows ? Float64(*relation_stats.max_rows) : stats->estimated_row_count;
             stats->column_statistics = relation_stats.column_stats;

@@ -154,8 +154,11 @@ public:
     /// used. Both are empty for a join it never saw.
     bool isEstimatedByJoinOrder() const { return estimated_by_join_order; }
     /// Some planner estimated this join: the join order optimizer, or the estimate in place of a join
-    /// it leaves as it is. A join marked optimized to forbid reordering has none until then.
-    bool hasRowsEstimation() const { return estimated_by_join_order || result_rows_estimation || result_rows_upper_bound; }
+    /// it leaves as it is. A join marked optimized to forbid reordering has none until then. True
+    /// even when the estimate came out unknown, so the join is not estimated again.
+    bool hasRowsEstimation() const { return rows_estimated; }
+    /// A default selectivity stood in for a predicate somewhere in the inputs of the estimate.
+    bool isEstimateFromDefaults() const { return estimate_from_defaults; }
 
     /// Called by the join order optimizer for every join it builds.
     void setJoinOrderEstimation(
@@ -165,10 +168,27 @@ public:
         std::optional<double> estimated_cost_,
         std::optional<double> estimated_selectivity_,
         UInt64 cluster_id_,
-        std::optional<UInt64> rows_upper_bound_)
+        std::optional<UInt64> rows_upper_bound_,
+        bool estimate_from_defaults_)
     {
         setOptimized(estimated_rows_, std::move(column_stats_), imprecise_estimate_, estimated_cost_, estimated_selectivity_, cluster_id_, rows_upper_bound_);
         estimated_by_join_order = true;
+        rows_estimated = true;
+        estimate_from_defaults = estimate_from_defaults_;
+    }
+
+    /// Called for a join the join order optimizer leaves in place, estimated from its inputs.
+    void setInPlaceEstimation(
+        std::optional<UInt64> estimated_rows_,
+        std::unordered_map<String, ColumnStats> column_stats_,
+        bool imprecise_estimate_,
+        std::optional<double> estimated_selectivity_,
+        std::optional<UInt64> rows_upper_bound_,
+        bool estimate_from_defaults_)
+    {
+        setOptimized(estimated_rows_, std::move(column_stats_), imprecise_estimate_, std::nullopt, estimated_selectivity_, 0, rows_upper_bound_);
+        rows_estimated = true;
+        estimate_from_defaults = estimate_from_defaults_;
     }
     std::optional<double> getEstimatedCost() const { return estimated_cost; }
     std::optional<double> getEstimatedSelectivity() const { return estimated_selectivity; }
@@ -276,6 +296,8 @@ protected:
     /// Rows the join result cannot exceed, from the bounds of its inputs; see `estimateJoinRowsUpperBound`.
     std::optional<UInt64> result_rows_upper_bound = {};
     bool estimated_by_join_order = false;
+    bool rows_estimated = false;
+    bool estimate_from_defaults = false;
 
     /// True when the row count estimation used by join reordering was derived from the primary index
     /// rather than column statistics (because `use_statistics` is enabled but statistics are missing).

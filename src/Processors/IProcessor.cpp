@@ -56,7 +56,7 @@ void IProcessor::setQueryPlanStep(const IQueryPlanStep * step, size_t group)
         if (const auto & estimation = step->getEstimation())
         {
             if (estimation->rows)
-                plan_step_estimated_rows = static_cast<UInt64>(std::llround(*estimation->rows));
+                plan_step_estimated_rows = roundToRowCount(*estimation->rows);
             plan_step_estimate_source = String(rowEstimateSourceName(estimation->source));
         }
     }

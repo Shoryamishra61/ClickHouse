@@ -1,7 +1,9 @@
 -- The shared relation estimator takes the optimized join inside a subquery as the estimate of that
--- subquery, adds up the inputs of `UNION ALL` and counts the distinct values of a `DISTINCT`.
--- Without this a subquery with a join, a union or a distinct is a relation without an estimate in
--- the query around it. The hints stand in for column statistics.
+-- subquery, adds up the inputs of `UNION ALL` (the rows, and a column's distinct values as a bound:
+-- 100 and 100 values give at most 200, so the join on the union key estimates 11000 rows / 200
+-- values per key) and counts the distinct values of a `DISTINCT`. Without this a subquery with a
+-- join, a union or a distinct is a relation without an estimate in the query around it. The hints
+-- stand in for column statistics.
 SET explain_query_plan_default = 'legacy';
 SET enable_analyzer = 1;
 SET enable_parallel_replicas = 0;

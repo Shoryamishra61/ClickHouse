@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cmath>
+#include <limits>
 #include <optional>
 #include <string_view>
 #include <base/types.h>
@@ -7,6 +9,30 @@
 
 namespace DB
 {
+
+/// A row or byte count from floating point arithmetic, rounded to the nearest integer: NaN and
+/// negative values are 0, values at or above 2^64 saturate at the largest integer. A conversion
+/// through a signed `llround` would fold the upper half of the range into 2^63.
+inline UInt64 roundToRowCount(Float64 value)
+{
+    if (std::isnan(value) || value <= 0)
+        return 0;
+    const Float64 rounded = std::round(value);
+    if (rounded >= Float64(std::numeric_limits<UInt64>::max()))
+        return std::numeric_limits<UInt64>::max();
+    return static_cast<UInt64>(rounded);
+}
+
+/// The same conversion rounded up, for a quantity that must not understate (bytes against a budget).
+inline UInt64 ceilToRowCount(Float64 value)
+{
+    if (std::isnan(value) || value <= 0)
+        return 0;
+    const Float64 rounded = std::ceil(value);
+    if (rounded >= Float64(std::numeric_limits<UInt64>::max()))
+        return std::numeric_limits<UInt64>::max();
+    return static_cast<UInt64>(rounded);
+}
 
 /// Where the row count estimate used by join reordering came from. `CostEstimationInfo.h` declares
 /// the enum opaque and relies on zero being `NoSource`, so `NoSource` stays first.

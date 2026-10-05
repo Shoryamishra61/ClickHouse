@@ -66,8 +66,9 @@ struct JoinKeyEstimate
 /// NDV of a column as the join order optimizer knows it: from the relation's statistics, or from
 /// the DP entry of a joined relation set (narrowed through joins). A column without an NDV (no
 /// entry, or a zero NDV that only carries other column facts) counts its relation's rows as its
-/// NDV: the key is taken as unique, the guess DuckDB and Orca make too. Zero when the rows are
-/// unknown as well.
+/// NDV: the key is taken as unique on both sides, so a join on two such keys estimates the smaller
+/// input (DuckDB and Orca guess a key-to-foreign-key join there, the larger input). Zero when the
+/// rows are unknown as well.
 inline UInt64 getColumnStats(
     const QueryGraph & query_graph,
     const PlanMemo & dp_table,
@@ -151,9 +152,8 @@ inline const EdgeSelectivity & computeEdgeSelectivity(
     return result;
 }
 
-/// Adds the equality edges between `left` and `right` to `factors`, one per distinct pair of
-/// equivalence classes (the most selective when several edges relate the same pair), and skips the
-/// edges between two class members, which the class term of the caller counts.
+/// Adds the equality edges between `left` and `right` to `factors`, one factor per edge, and
+/// skips the edges between two class members, which the class term of the caller counts.
 inline void collectEdgeFactors(
     const QueryGraph & query_graph,
     const PlanMemo & dp_table,
@@ -162,7 +162,6 @@ inline void collectEdgeFactors(
     const BitSet & left,
     JoinKeyFactors & factors)
 {
-    std::vector<std::pair<const void *, const void *>> pairs;
     for (const auto * edge : edges)
     {
         const auto & edge_selectivity = computeEdgeSelectivity(query_graph, dp_table, expression_selectivity, *edge);
@@ -174,43 +173,66 @@ inline void collectEdgeFactors(
         const bool lhs_on_left = isSubsetOf(edge_selectivity.lhs_relations, left);
         const UInt64 left_distinct_values = lhs_on_left ? edge_selectivity.lhs_distinct_values : edge_selectivity.rhs_distinct_values;
         const UInt64 right_distinct_values = lhs_on_left ? edge_selectivity.rhs_distinct_values : edge_selectivity.lhs_distinct_values;
-
-        /// An edge with a side outside every class is a pair of its own.
-        std::pair<const void *, const void *> pair{edge_selectivity.left_class, edge_selectivity.right_class};
-        if (!pair.first || !pair.second)
-            pair = {edge, nullptr};
-        auto found = std::find(pairs.begin(), pairs.end(), pair);
-        if (found == pairs.end())
-        {
-            pairs.push_back(pair);
-            factors.add(left_distinct_values, right_distinct_values, edge_selectivity.domain_distinct_values);
-        }
-        else
-        {
-            const size_t index = found - pairs.begin();
-            JoinKeyFactors repeated;
-            repeated.add(left_distinct_values, right_distinct_values, edge_selectivity.domain_distinct_values);
-            factors.selectivities[index] = std::min(factors.selectivities[index], repeated.selectivities.front());
-            factors.left_in_right[index] = std::min(factors.left_in_right[index], repeated.left_in_right.front());
-            factors.right_in_left[index] = std::min(factors.right_in_left[index], repeated.right_in_left.front());
-        }
+        factors.add(left_distinct_values, right_distinct_values, edge_selectivity.domain_distinct_values);
     }
 }
 
-/// Rows a join cannot exceed, from the bounds of its inputs: an inner or cross join at most the
-/// product; an outer join at most one row per preserved row times the matches it can have, at
-/// least one, plus every row of the other side for a full join; a semi or anti join at most its
-/// preserved input. Unknown when a needed input bound is unknown. The arithmetic saturates at the
-/// maximum `UInt64` instead of wrapping; a saturated bound is still a bound.
+/// The input whose rows a join emits at most once each: the preserved side of a semi or anti
+/// join, the side that takes one match per row in an `ANY` or `ASOF` join (the left side, or
+/// the right side of a `RIGHT` join and of a right-any join). None for the other strictnesses.
+inline std::optional<bool> singleMatchSideIsLeft(JoinKind join_kind, JoinStrictness strictness)
+{
+    switch (strictness)
+    {
+        case JoinStrictness::Semi:
+        case JoinStrictness::Anti:
+        case JoinStrictness::Any:
+        case JoinStrictness::Asof:
+            return !isRight(join_kind);
+        case JoinStrictness::RightAny:
+            return join_kind == JoinKind::Left;
+        default:
+            return {};
+    }
+}
+
+/// Rows a join cannot exceed, from the bounds of its inputs: a paste join the shorter side; a semi,
+/// anti, any or asof join the side it emits at most once (empty for a semi join and an inner any
+/// or asof join when the other side is); an inner or cross join the product, empty when a side is;
+/// an outer join one row per preserved row times the matches it can have, at least one, plus every
+/// row of the other side for a full join. Unknown when a needed input bound is; the arithmetic
+/// saturates instead of wrapping, and a saturated bound is still a bound.
 inline std::optional<UInt64> estimateJoinRowsUpperBound(
     std::optional<UInt64> left_max, std::optional<UInt64> right_max, JoinKind join_kind, JoinStrictness strictness)
 {
     constexpr UInt64 max = std::numeric_limits<UInt64>::max();
     auto saturating_mul = [](UInt64 a, UInt64 b) { UInt64 r; return __builtin_mul_overflow(a, b, &r) ? max : r; };
     auto saturating_add = [](UInt64 a, UInt64 b) { UInt64 r; return __builtin_add_overflow(a, b, &r) ? max : r; };
+    const bool left_empty = left_max && *left_max == 0;
+    const bool right_empty = right_max && *right_max == 0;
 
-    if (strictness == JoinStrictness::Semi || strictness == JoinStrictness::Anti)
-        return isRight(join_kind) ? right_max : left_max;
+    if (join_kind == JoinKind::Paste)
+    {
+        if (left_max && right_max)
+            return std::min(*left_max, *right_max);
+        return left_max ? left_max : right_max;
+    }
+
+    if (const auto single_side_is_left = singleMatchSideIsLeft(join_kind, strictness))
+    {
+        const auto & single_max = *single_side_is_left ? left_max : right_max;
+        const bool other_empty = *single_side_is_left ? right_empty : left_empty;
+        /// Only an anti join and an outer any or asof join keep rows the other side does not match.
+        const bool keeps_unmatched = strictness == JoinStrictness::Anti
+            || (strictness != JoinStrictness::Semi && join_kind != JoinKind::Inner);
+        if (other_empty && !keeps_unmatched)
+            return 0;
+        return single_max;
+    }
+
+    if (join_kind == JoinKind::Inner || join_kind == JoinKind::Cross || join_kind == JoinKind::Comma)
+        if (left_empty || right_empty)
+            return 0;
 
     if (!left_max || !right_max)
         return {};
@@ -240,10 +262,10 @@ inline double searchRows(const DPJoinEntryPtr & entry, const QueryGraph & query_
     return static_cast<double>(query_graph.unknown_rows_fallback.value_or(1));
 }
 
-/// Single source of truth for join cardinality estimation. For outer joins the result is
-/// floored by the number of rows from the preserved side(s), since those are always emitted
-/// (NULL-padded when there is no match): LEFT keeps all left rows, RIGHT all right rows, FULL
-/// at least the larger side.
+/// Single source of truth for join cardinality estimation, for every planner. For outer joins the
+/// result is floored by the number of rows from the preserved side(s), since those are always
+/// emitted (NULL-padded when there is no match): LEFT keeps all left rows, RIGHT all right rows,
+/// FULL at least the larger side.
 ///
 /// Semi/anti joins are filters on their preserved side (LEFT preserves the left input, RIGHT the
 /// right), so they never expand and must NOT be floored at the preserved side's row count. A
@@ -253,6 +275,10 @@ inline double searchRows(const DPJoinEntryPtr & entry, const QueryGraph & query_
 /// `preserved_match_fraction` is the fraction of the preserved side's rows whose key values the
 /// other side has, for a semi or anti join; without it the other side's rows per preserved key
 /// stand in, which overstates the matches when the other side repeats its keys.
+///
+/// A paste join pairs rows by position: the shorter side. An `ANY` or `ASOF` join emits each row
+/// of one side at most once: exactly that side for an outer join, at most that side for an inner
+/// join.
 inline std::optional<UInt64> estimateJoinCardinality(
     std::optional<UInt64> left_rows,
     std::optional<UInt64> right_rows,
@@ -261,12 +287,18 @@ inline std::optional<UInt64> estimateJoinCardinality(
     JoinStrictness strictness = JoinStrictness::All,
     std::optional<double> preserved_match_fraction = {})
 {
+    /// A paste join has no keys: its result follows the inputs alone, as the bound does.
+    if (join_kind == JoinKind::Paste)
+        return estimateJoinRowsUpperBound(left_rows, right_rows, join_kind, strictness);
+
     /// An input known to be empty decides the result without the other input: an inner, cross or
     /// semi join is empty; an anti join and an outer join keep the preserved side.
     const bool left_empty = left_rows && *left_rows == 0;
     const bool right_empty = right_rows && *right_rows == 0;
     if (left_empty || right_empty)
     {
+        if (strictness == JoinStrictness::Semi)
+            return 0;
         const bool preserves_left = join_kind == JoinKind::Left || join_kind == JoinKind::Full
             || (strictness == JoinStrictness::Anti && !isRight(join_kind));
         const bool preserves_right = join_kind == JoinKind::Right || join_kind == JoinKind::Full
@@ -285,6 +317,16 @@ inline std::optional<UInt64> estimateJoinCardinality(
 
     double lhs = static_cast<double>(*left_rows);
     double rhs = static_cast<double>(*right_rows);
+
+    if (strictness == JoinStrictness::Any || strictness == JoinStrictness::RightAny || strictness == JoinStrictness::Asof)
+    {
+        const bool single_side_is_left = *singleMatchSideIsLeft(join_kind, strictness);
+        const double single_side = single_side_is_left ? lhs : rhs;
+        /// An outer join emits every row of that side once; an inner join only the matched ones.
+        if (join_kind != JoinKind::Inner)
+            return static_cast<UInt64>(single_side);
+        return static_cast<UInt64>(std::max(std::min(selectivity * lhs * rhs, single_side), 1.0));
+    }
 
     if (strictness == JoinStrictness::Semi || strictness == JoinStrictness::Anti)
     {

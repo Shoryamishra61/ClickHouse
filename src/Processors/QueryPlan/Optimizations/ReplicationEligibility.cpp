@@ -1,7 +1,6 @@
 #include <Processors/QueryPlan/Optimizations/ReplicationEligibility.h>
+#include <Processors/QueryPlan/RelationEstimateInfo.h>
 
-#include <cmath>
-#include <limits>
 #include <fmt/format.h>
 
 namespace DB
@@ -9,13 +8,6 @@ namespace DB
 
 namespace
 {
-
-UInt64 roundBytes(Float64 bytes)
-{
-    if (bytes >= Float64(std::numeric_limits<UInt64>::max()))
-        return std::numeric_limits<UInt64>::max();
-    return UInt64(std::llround(bytes));
-}
 
 String formatOptional(const std::optional<UInt64> & value)
 {
@@ -69,7 +61,7 @@ ReplicationDecision decideReplication(const ReplicationSize & size, const Replic
         return decision;
     }
 
-    decision.modeled_bytes = roundBytes(Float64(*decision.counted_rows) * size.bytes_per_row);
+    decision.modeled_bytes = ceilToRowCount(Float64(*decision.counted_rows) * size.bytes_per_row);
     if (*decision.modeled_bytes > budget.max_bytes)
     {
         decision.reason = trusted_estimate

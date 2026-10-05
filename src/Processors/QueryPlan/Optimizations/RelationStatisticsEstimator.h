@@ -6,6 +6,7 @@
 namespace DB
 {
 struct QueryPlanOptimizationSettings;
+class AggregatingStep;
 }
 
 namespace DB::QueryPlanOptimizations
@@ -26,5 +27,10 @@ struct RelationEstimationSettings
 /// over these columns to account for.
 RelationStats estimateReadRowsCount(
     QueryPlan::Node & node, const ActionsDAG::Node * filter = nullptr, const RelationEstimationSettings & settings = {});
+
+/// Rows and key statistics of an aggregation over `input_stats`, by the shared group count formula;
+/// unknown for `GROUPING SETS`.
+RelationStats estimateAggregatingStepStats(
+    const AggregatingStep & aggregating_step, const RelationStats & input_stats, const RelationEstimationSettings & settings);
 
 }
