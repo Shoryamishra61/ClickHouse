@@ -30,9 +30,12 @@ namespace
 constexpr UInt64 current_version = DBMS_QUERY_PLAN_SERIALIZATION_VERSION;
 constexpr UInt64 pre_setting_version = DBMS_MIN_QUERY_PLAN_SERIALIZATION_VERSION_WITH_LEGACY_JOIN_SIZE_LIMITS - 1;
 
+/// The cases below are written against a non-zero `max_bytes_ratio_before_external_join` "out of the box", which is
+/// no longer the default, so the baseline sets it explicitly; a case can still override it.
 JoinSettings makeJoinSettings(const std::vector<std::pair<String, Field>> & changes)
 {
     Settings query_settings;
+    query_settings.set("max_bytes_ratio_before_external_join", 0.5);
     for (const auto & [name, value] : changes)
         query_settings.set(name, value);
     return JoinSettings(query_settings);
