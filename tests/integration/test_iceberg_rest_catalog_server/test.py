@@ -824,11 +824,35 @@ def test_unsupported_format_is_refused(started_cluster):
     list_namespaces()
 
 
+def test_bucket_root_base_location(started_cluster):
+    # node_aux is configured with `s3://warehouse/`, the bucket root with a trailing slash.
+    # The server accepted that config at startup. Tables land directly under the bucket.
+    ns = f"root_{uuid.uuid4().hex[:8]}"
+    ns_url = catalog_url("/v1/my_warehouse/namespaces", node_aux)
+    assert requests.post(ns_url, json={"namespace": [ns]}).status_code == 200
+
+    tables = catalog_url(tables_url(ns), node_aux)
+    result = requests.post(tables, json={"name": "events", "schema": DEFAULT_SCHEMA})
+    assert result.status_code == 200, result.text
+    metadata = result.json()["metadata"]
+    assert metadata["location"] == f"s3://{BUCKET}/{ns}/events-{metadata['table-uuid']}"
+
+    # The bucket root itself is not a valid table location, with or without the slash.
+    for location in (f"s3://{BUCKET}", f"s3://{BUCKET}/"):
+        response = requests.post(tables, json={"name": "root", "schema": DEFAULT_SCHEMA, "location": location})
+        assert response.status_code == 400, response.text
+        assert "bucket root" in response.json()["error"]["message"]
+
+    # Another bucket is rejected even when its name starts with ours.
+    response = requests.post(tables, json={"name": "other", "schema": DEFAULT_SCHEMA, "location": f"s3://{BUCKET}2/t"})
+    assert response.status_code == 400, response.text
+
+
 def test_auxiliary_keeper(started_cluster):
     # node_aux stores its state in the aux Keeper, which is chrooted to /aux_root.
     url = catalog_url("/v1/my_warehouse/namespaces", node_aux)
     assert requests.post(url, json={"namespace": ["aux_ns"]}).status_code == 200
-    assert requests.get(url).json()["namespaces"] == [["aux_ns"]]
+    assert ["aux_ns"] in requests.get(url).json()["namespaces"]
 
     zk = get_keeper()
     assert zk.exists(f"/aux_root{KEEPER_ROOT}/namespaces/aux_ns")

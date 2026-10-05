@@ -538,7 +538,7 @@ void IcebergRESTCatalogHandler::handleCreateNamespace(const IcebergRESTCatalogWa
         }
 
         /// Tables of the namespace go under `location`. The server has credentials for one bucket only, so refuse others now.
-        if (const auto it = properties.find("location"); it != properties.end() && !warehouse.ownsLocation(it->second))
+        if (const auto it = properties.find("location"); it != properties.end() && !warehouse.isInBucket(it->second))
             throw Poco::Exception("the 'location' property must be inside the warehouse bucket");
     }
     catch (const Poco::Exception & e)
@@ -720,7 +720,7 @@ void IcebergRESTCatalogHandler::handleCreateTable(
         }
 
         /// The server has credentials for one bucket only.
-        if (!warehouse.ownsLocation(location))
+        if (!warehouse.isInBucket(location))
             throw Exception(ErrorCodes::BAD_ARGUMENTS, "'location' {} must be inside the warehouse bucket", location);
         /// A table at the bucket root would own every object in the bucket.
         if (warehouse.objectKey(location).empty())

@@ -5,6 +5,8 @@
 
 #include <fmt/format.h>
 
+#include <optional>
+
 namespace DB
 {
 
@@ -19,10 +21,22 @@ namespace
 
 constexpr std::string_view S3_SCHEME = "s3://";
 
-/// `s3://<bucket>/` of the object storage.
-String bucketPrefix(const IObjectStorage & object_storage)
+/// Splits `s3://<bucket>/<key>` into the bucket and the key. The key may be empty.
+struct S3Location
 {
-    return fmt::format("{}{}/", S3_SCHEME, object_storage.getObjectsNamespace());
+    String bucket;
+    String key;
+};
+
+std::optional<S3Location> parseS3Location(const String & location)
+{
+    /// TODO: support s3a:// and s3n://
+    if (!location.starts_with(S3_SCHEME))
+        return std::nullopt;
+    const auto slash = location.find('/', S3_SCHEME.size());
+    if (slash == String::npos)
+        return S3Location{.bucket = location.substr(S3_SCHEME.size()), .key = ""};
+    return S3Location{.bucket = location.substr(S3_SCHEME.size(), slash - S3_SCHEME.size()), .key = location.substr(slash + 1)};
 }
 
 }
@@ -32,7 +46,7 @@ IcebergRESTCatalogWarehouse::IcebergRESTCatalogWarehouse(
     : name(std::move(name_)), base_location(std::move(base_location_)), store(std::move(store_)), object_storage(std::move(object_storage_))
 {
     /// The server has credentials for one bucket only, so the default table location must be in it.
-    if (!ownsLocation(base_location))
+    if (!isInBucket(base_location))
         throw Exception(
             ErrorCodes::INVALID_CONFIG_PARAMETER,
             "base_location {} of warehouse {} is not inside bucket '{}' of its object storage",
@@ -41,17 +55,18 @@ IcebergRESTCatalogWarehouse::IcebergRESTCatalogWarehouse(
             object_storage->getObjectsNamespace());
 }
 
-/// TODO: support s3a:// and s3n://
-bool IcebergRESTCatalogWarehouse::ownsLocation(const String & location) const
+bool IcebergRESTCatalogWarehouse::isInBucket(const String & location) const
 {
-    return location.starts_with(bucketPrefix(*object_storage));
+    const auto parsed = parseS3Location(location);
+    return parsed && parsed->bucket == object_storage->getObjectsNamespace();
 }
 
 String IcebergRESTCatalogWarehouse::objectKey(const String & location) const
 {
-    if (!ownsLocation(location))
+    const auto parsed = parseS3Location(location);
+    if (!parsed || parsed->bucket != object_storage->getObjectsNamespace())
         throw Exception(ErrorCodes::INCORRECT_DATA, "Location {} is outside the bucket of warehouse {}", location, name);
-    return location.substr(bucketPrefix(*object_storage).size());
+    return parsed->key;
 }
 
 String stripTrailingSlashes(String location)

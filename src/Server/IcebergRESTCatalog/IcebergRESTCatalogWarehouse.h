@@ -25,8 +25,9 @@ struct IcebergRESTCatalogWarehouse
     const KeeperIcebergRESTCatalogStorePtr store;
     const ObjectStoragePtr object_storage;
 
-    bool ownsLocation(const String & location) const;
-    /// Throws `INCORRECT_DATA`. Callers validate client input with `ownsLocation` first.
+    /// Whether the S3 client of this warehouse can address `location`.
+    bool isInBucket(const String & location) const;
+    /// Throws `INCORRECT_DATA`. Callers validate client input with `isInBucket` first.
     String objectKey(const String & location) const;
 };
 
