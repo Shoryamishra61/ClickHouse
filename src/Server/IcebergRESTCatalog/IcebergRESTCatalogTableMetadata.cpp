@@ -102,19 +102,14 @@ std::vector<Poco::JSON::Object::Ptr> getSpecFields(const Poco::JSON::Object & sp
     return fields;
 }
 
-/// Returns `last-partition-id`: the largest `field-id` of the spec, or the conventional value for an unpartitioned table.
-/// Assigns a `field-id` to every partition field that has none.
+/// Assigns `field-id` 1000, 1001, ... to the partition fields in order and returns `last-partition-id`.
+/// A `field-id` sent by the client is ignored, like Java's `TableMetadata.newTableMetadata` does.
+/// Before the table exists no manifest references these ids, so the server owns them. This also rules out duplicates.
 Int64 getLastPartitionId(const Poco::JSON::Object & spec, const std::set<Int64> & schema_ids)
 {
     Int64 last_partition_id = PARTITION_FIELD_ID_START - 1;
     for (auto & field : getSpecFields(spec, "partition-spec", schema_ids))
-    {
-        /// If field-id is specified and valid, use it and bump the counter. Otherwise assign the next one.
-        if (field->has(f_field_id))
-            last_partition_id = std::max(last_partition_id, getInteger(*field, f_field_id, "'partition-spec' field"));
-        else
-            field->set(f_field_id, ++last_partition_id);
-    }
+        field->set(f_field_id, ++last_partition_id);
     return last_partition_id;
 }
 

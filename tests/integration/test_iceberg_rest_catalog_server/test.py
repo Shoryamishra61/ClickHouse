@@ -630,15 +630,17 @@ def test_create_and_load_table(started_cluster):
         **{"partition-spec": spec, "write-order": order, "properties": {"format-version": "2", "owner": "asya"}},
     ).json()
     assert result["metadata"]["last-column-id"] == 4
-    assert result["metadata"]["last-partition-id"] == 1001
+    # Client spec-id and field-id are ignored. The server assigns its own.
+    assert result["metadata"]["last-partition-id"] == 1000
     assert result["metadata"]["partition-specs"][0]["spec-id"] == 0
+    assert result["metadata"]["partition-specs"][0]["fields"][0]["field-id"] == 1000
     # Order id 0 is reserved for the unsorted order, so a sorted table gets 1.
     assert result["metadata"]["sort-orders"][0]["order-id"] == 1
     assert result["metadata"]["default-sort-order-id"] == 1
     assert result["metadata"]["properties"] == {"owner": "asya"}
 
 
-def test_partition_spec_without_field_ids(started_cluster):
+def test_partition_spec_field_ids(started_cluster):
     ns = f"spec_ids_{uuid.uuid4().hex[:8]}"
     create_namespace([ns])
 
@@ -654,17 +656,18 @@ def test_partition_spec_without_field_ids(started_cluster):
     assert [field["field-id"] for field in fields] == [1000, 1001]
     assert metadata["last-partition-id"] == 1001
 
-    # A missing field-id continues after the largest explicit one.
+    # Explicit field-ids are ignored, like the Java reference catalog does on create.
+    # This also makes duplicate ids impossible.
     spec = {
         "fields": [
             {"source-id": 1, "field-id": 1005, "name": "id_p", "transform": "identity"},
-            {"source-id": 2, "name": "name_p", "transform": "identity"},
+            {"source-id": 2, "field-id": 1005, "name": "name_p", "transform": "identity"},
         ]
     }
-    metadata = create_table(ns, "mixed_ids", **{"partition-spec": spec}).json()["metadata"]
+    metadata = create_table(ns, "client_ids", **{"partition-spec": spec}).json()["metadata"]
     fields = metadata["partition-specs"][0]["fields"]
-    assert [field["field-id"] for field in fields] == [1005, 1006]
-    assert metadata["last-partition-id"] == 1006
+    assert [field["field-id"] for field in fields] == [1000, 1001]
+    assert metadata["last-partition-id"] == 1001
 
 
 def test_table_location(started_cluster):
