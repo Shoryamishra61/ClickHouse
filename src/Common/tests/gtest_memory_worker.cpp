@@ -114,8 +114,8 @@ void testNegativeTrackerIsCorrectedToAllocatedNotResident(DB::MemoryWorker::Memo
     ASSERT_GT(allocated_at_peak, static_cast<Int64>(chunks * chunk_size));
 
     /// Drive the tracker negative in the same way as late frees of memory it never saw allocated.
-    const Int64 amount_before = total_memory_tracker.get();
-    adjustTotalMemoryTrackerOnly(-(std::max<Int64>(amount_before, 0) + 64 * MEBIBYTE));
+    const Int64 negative_shift = std::max<Int64>(total_memory_tracker.get(), 0) + 64 * MEBIBYTE;
+    adjustTotalMemoryTrackerOnly(-negative_shift);
     ASSERT_LT(total_memory_tracker.get(), 0);
 
     DB::MemoryWorkerConfig config;
@@ -125,8 +125,8 @@ void testNegativeTrackerIsCorrectedToAllocatedNotResident(DB::MemoryWorker::Memo
         DB::MemoryWorker worker(config, nullptr);
         if (worker.getSource() != expected_source)
         {
-            /// Restore the tracker so that the skipped test does not leave it negative for the others.
-            adjustTotalMemoryTrackerOnly(-total_memory_tracker.get());
+            /// Undo the shift so that the skipped test leaves the tracker as it found it for the other tests.
+            adjustTotalMemoryTrackerOnly(negative_shift);
             GTEST_SKIP() << "The requested memory usage source is not available in this environment";
         }
         worker.start();
