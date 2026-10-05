@@ -2026,10 +2026,13 @@ BlockIO InterpreterCreateQuery::createTable(ASTCreateQuery & create)
                 create.is_materialized_view ? "MATERIALIZED VIEW" : "VIEW");
 
         // Expand CTE before filling default database
-        /// A definition loaded from metadata was bounded when it was created.
+        /// A definition replayed from metadata was bounded when it was created. A full `ATTACH ... AS SELECT`
+        /// is user input, so it is bounded as well.
         ApplyWithSubqueryVisitor::visit(
             *create.select,
-            mode <= LoadingStrictnessLevel::CREATE ? getContext()->getSettingsRef()[Setting::max_expanded_ast_elements].value : 0);
+            isFreshTableDefinition(mode, create.attach_short_syntax)
+                ? getContext()->getSettingsRef()[Setting::max_expanded_ast_elements].value
+                : 0);
         AddDefaultDatabaseVisitor visitor(getContext(), current_database);
         visitor.visit(*create.select);
     }
