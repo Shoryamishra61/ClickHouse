@@ -221,6 +221,11 @@ void AggregatingStep::applyOrder(SortDescription sort_description_for_merging_, 
     sort_description_for_merging = std::move(sort_description_for_merging_);
     group_by_sort_description = std::move(group_by_sort_description_);
     explicit_sorting_required_for_aggregation_in_order = false;
+    /// The in-order executors (`FinalizeAggregatedTransform`, `MergingAggregatedBucketTransform`)
+    /// never reach `Aggregator::mergeAndConvertOneBucketToChunk`, so the top-K threshold merge
+    /// set by the first optimization pass would be a silent no-op there. Drop it, so that the
+    /// plan does not claim an optimization the pipeline does not perform.
+    params.threshold_top_k.reset();
 }
 
 void AggregatingStep::applyTopKOptimization(Aggregator::Params::TopKParams top_k)

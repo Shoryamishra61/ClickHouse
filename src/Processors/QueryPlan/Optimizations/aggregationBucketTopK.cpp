@@ -134,7 +134,9 @@ size_t tryPushBucketTopKIntoAggregation(QueryPlan::Node * parent_node, QueryPlan
         /// count's conversion-stage selection below (a plain scan there beats the value-peeking
         /// walk) and stands down in a few other cases (single-level tables, dataflow statistics
         /// collection).
-        if (!description.front().collator)
+        /// The in-order aggregation never runs the threshold merge (see `AggregatingStep::applyOrder`,
+        /// which also drops it when the order is applied after this pass).
+        if (!description.front().collator && !aggregating->inOrder())
         {
             const auto bound = aggregate.function->getMergedValueBound();
             /// The `Subadditive` bound serves only the descending order. It is one-sided (see
