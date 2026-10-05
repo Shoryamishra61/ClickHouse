@@ -17,6 +17,7 @@
 #include "Poco/String.h"
 #include "Poco/UnicodeConverter.h"
 #include "Poco/UnWindows.h"
+#include <algorithm>
 
 
 namespace Poco {
@@ -476,12 +477,16 @@ void FileImpl::convertPath(const std::string& utf8Path, std::wstring& utf16Path)
 	UnicodeConverter::toUTF16(utf8Path, utf16Path);
 	if (utf16Path.size() > MAX_PATH - 12) // Note: CreateDirectory has a limit of MAX_PATH - 12 (room for 8.3 file name)
 	{
+		/// An extended-length path is passed to the file system as is, without the
+		/// normalization that would accept `/` as a separator.
+		std::replace(utf16Path.begin(), utf16Path.end(), L'/', L'\\');
 		if (utf16Path[0] == '\\' || utf16Path[1] == ':')
 		{
 			if (utf16Path.compare(0, 4, L"\\\\?\\", 4) != 0)
 			{
+				/// `\\server\share` becomes `\\?\UNC\server\share`: the prefix replaces the leading `\\`.
 				if (utf16Path[1] == '\\')
-					utf16Path.insert(0, L"\\\\?\\UNC\\", 8);
+					utf16Path.replace(0, 2, L"\\\\?\\UNC\\", 8);
 				else
 					utf16Path.insert(0, L"\\\\?\\", 4);
 			}
