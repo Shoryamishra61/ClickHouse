@@ -76,4 +76,9 @@ String stripTrailingSlashes(String location)
     return location;
 }
 
+bool hasS3Scheme(const String & location)
+{
+    return location.starts_with(S3_SCHEME);
+}
+
 }

@@ -538,8 +538,13 @@ void IcebergRESTCatalogHandler::handleCreateNamespace(const IcebergRESTCatalogWa
         }
 
         /// Tables of the namespace go under `location`. The server has credentials for one bucket only, so refuse others now.
-        if (const auto it = properties.find("location"); it != properties.end() && !warehouse.isInBucket(it->second))
-            throw Poco::Exception("the 'location' property must be inside the warehouse bucket");
+        if (const auto it = properties.find("location"); it != properties.end())
+        {
+            if (!hasS3Scheme(it->second))
+                throw Poco::Exception("the 'location' property must be an s3:// URI");
+            if (!warehouse.isInBucket(it->second))
+                throw Poco::Exception("the 'location' property must be inside the warehouse bucket");
+        }
     }
     catch (const Poco::Exception & e)
     {
@@ -719,6 +724,9 @@ void IcebergRESTCatalogHandler::handleCreateTable(
             location = fmt::format("{}/{}/{}-{}", warehouse.base_location, fmt::join(ns, "/"), name, uuid);
         }
 
+        /// The ClickHouse client sends a bare key unless `write_full_path_in_iceberg_metadata` is set. Name the problem.
+        if (!hasS3Scheme(location))
+            throw Exception(ErrorCodes::BAD_ARGUMENTS, "'location' {} must be an s3:// URI", location);
         /// The server has credentials for one bucket only.
         if (!warehouse.isInBucket(location))
             throw Exception(ErrorCodes::BAD_ARGUMENTS, "'location' {} must be inside the warehouse bucket", location);

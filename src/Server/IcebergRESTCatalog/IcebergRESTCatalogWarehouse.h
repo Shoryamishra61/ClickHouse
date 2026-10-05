@@ -34,6 +34,8 @@ struct IcebergRESTCatalogWarehouse
 using IcebergRESTCatalogWarehousePtr = std::shared_ptr<const IcebergRESTCatalogWarehouse>;
 
 String stripTrailingSlashes(String location);
+/// The server reads only `s3://` locations. A bare key cannot be checked against the bucket.
+bool hasS3Scheme(const String & location);
 
 /// Experimental scaffolding. Currently, the server config holds the warehouse definition.
 /// It is only read on startup.
