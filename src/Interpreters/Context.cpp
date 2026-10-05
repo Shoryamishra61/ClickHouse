@@ -67,7 +67,7 @@
 #include <IO/LongConnectionLimit.h>
 #include <IO/S3Settings.h>
 #include <Disks/DiskObjectStorage/ObjectStorages/AzureBlobStorage/AzureBlobStorageCommon.h>
-#include <Disks/CustomDiskRegistration.h>
+#include <Disks/CustomDiskRegistry.h>
 #include <Disks/DiskLocal.h>
 #include <Disks/DiskObjectStorage/ObjectStorages/IObjectStorage.h>
 #include <Disks/SingleDiskVolume.h>
@@ -726,10 +726,10 @@ struct ContextSharedPart : boost::noncopyable
     mutable std::shared_ptr<const DiskSelector> merge_tree_disk_selector TSA_GUARDED_BY(storage_policies_mutex);
     /// Storage policy chooser for MergeTree engines
     mutable std::shared_ptr<const StoragePolicySelector> merge_tree_storage_policy_selector TSA_GUARDED_BY(storage_policies_mutex);
-    /// Disks defined inline with `disk(...)` in a table or database definition. Weak pointers: the
-    /// registrations are owned by the tables and databases that use the disk, and the disk is
-    /// unregistered when the last of them is gone.
-    mutable std::map<String, std::weak_ptr<CustomDiskRegistration>> custom_disk_registrations TSA_GUARDED_BY(storage_policies_mutex);
+    /// Disks defined inline with `disk(...)` in a table or database definition. The registrations
+    /// are owned by the tables and databases that use the disk, and the disk is unregistered when the
+    /// last of them is gone. Locked after `storage_policies_mutex`.
+    mutable CustomDiskRegistry custom_disk_registry;
 
     ServerSettings server_settings;
 
@@ -1193,6 +1193,10 @@ struct ContextSharedPart : boost::noncopyable
         }
 
         {
+            /// The custom disks released while the tables were being shut down are not in the disk
+            /// selector anymore.
+            custom_disk_registry.shutdown();
+
             // Disk selector might not be initialized if there was some error during
             // its initialization. Don't try to initialize it again on shutdown.
             if (merge_tree_disk_selector)
@@ -7650,25 +7654,13 @@ std::pair<DiskPtr, CustomDiskRegistrationPtr> Context::getOrCreateCustomDisk(con
     /// An existing registration already owns the registrations of the nested disks: the name of a
     /// disk is derived from its definition with the nested definitions replaced by the names of
     /// the disks they describe, so the same name means the same nested disks.
-    auto & weak_registration = shared->custom_disk_registrations[name];
-    auto registration = weak_registration.lock();
-    if (!registration)
-    {
-        registration = std::make_shared<CustomDiskRegistration>(name, std::move(nested));
-        weak_registration = registration;
-    }
-
-    return {disk, registration};
+    return {disk, shared->custom_disk_registry.getOrCreate(name, std::move(nested))};
 }
 
 CustomDiskRegistrationPtr Context::tryGetCustomDiskRegistration(const String & name) const
 {
     std::lock_guard lock(shared->storage_policies_mutex);
-
-    auto it = shared->custom_disk_registrations.find(name);
-    if (it == shared->custom_disk_registrations.end())
-        return nullptr;
-    return it->second.lock();
+    return shared->custom_disk_registry.tryGet(name);
 }
 
 void Context::releaseCustomDisk(const String & name) const
@@ -7678,16 +7670,9 @@ void Context::releaseCustomDisk(const String & name) const
     {
         std::lock_guard lock(shared->storage_policies_mutex);
 
-        auto it = shared->custom_disk_registrations.find(name);
-        if (it == shared->custom_disk_registrations.end())
+        /// The disk has been registered again while the last registration was being destroyed.
+        if (!shared->custom_disk_registry.remove(name))
             return;
-
-        /// A table or database has taken the same disk definition again while the last registration
-        /// was being destroyed, and the entry now points to a new registration - the disk stays.
-        if (!it->second.expired())
-            return;
-
-        shared->custom_disk_registrations.erase(it);
 
         auto disk_selector = getDiskSelector(lock);
         disk = disk_selector->tryGet(name);
@@ -7706,16 +7691,7 @@ void Context::releaseCustomDisk(const String & name) const
         return;
 
     LOG_INFO(shared->log, "Unregistering custom disk {}, it is not used by any table or database anymore", backQuote(name));
-
-    /// `shutdown` makes the disk reject further requests, so it may only be called when nothing can
-    /// use the disk anymore. The disk is no longer reachable by name, so no new reference to it can
-    /// appear, and holding the only one left means there is no user of it either. A disk nested in
-    /// the definition of another one is referenced by that wrapper disk, and is released only after
-    /// the wrapper has been (see `CustomDiskRegistration`), so this holds for it as well.
-    if (disk.use_count() == 1)
-        disk->shutdown();
-    else
-        LOG_DEBUG(shared->log, "Custom disk {} is still referenced after being unregistered, it will not be shut down explicitly", backQuote(name));
+    shared->custom_disk_registry.scheduleShutdown(std::move(disk));
 }
 
 StoragePolicyPtr Context::getStoragePolicy(const String & name) const
