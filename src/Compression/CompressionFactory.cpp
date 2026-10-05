@@ -204,7 +204,22 @@ String CompressionCodecFactory::getReasonUnsafeForUntypedData(const ASTPtr & cod
         /// where fresh user input enters (`validateCodecAndGetPreprocessedAST` and the codec-valued
         /// MergeTree settings gates in `registerStorageMergeTree` / `MergeTreeData::checkAlterIsPossible`),
         /// while stored metadata carrying an experimental codec must remain loadable and writable.
-        auto codec = getImpl(codec_family_name, codec_arguments, nullptr);
+        /// A codec registered without its library (`PCO` in a build without Rust) throws `SUPPORT_IS_DISABLED`
+        /// from its creator. It can not compress anything in this build, untyped data included, so classify it
+        /// instead of throwing: the metadata-load sanitization must be able to reset such a setting rather than
+        /// fail the load. Any other failure to resolve the codec propagates.
+        CompressionCodecPtr codec;
+        try
+        {
+            codec = getImpl(codec_family_name, codec_arguments, nullptr);
+        }
+        catch (const Exception & e)
+        {
+            if (e.code() != ErrorCodes::SUPPORT_IS_DISABLED)
+                throw;
+            return fmt::format("it is not available in this build ({})", e.message());
+        }
+
         if (codec->requiresColumnTypeToCompress())
             return "it requires a column type and can not be applied to untyped data";
         if (codec->isLossyCompression())
