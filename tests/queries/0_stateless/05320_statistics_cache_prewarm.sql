@@ -1,4 +1,6 @@
--- Tags: no-parallel-replicas, no-random-merge-tree-settings
+-- Tags: no-parallel, no-parallel-replicas, no-random-merge-tree-settings
+-- Tag no-parallel: dropping a table without UUID (e.g. in an `Ordinary` database) in a concurrent test
+-- clears all caches of the server, including the statistics cache, which turns the expected hits into misses.
 -- Tag no-parallel-replicas: the statistics are loaded on the initiator only.
 
 -- With `prewarm_statistics_cache`, the statistics of a new part and of all parts at startup are
