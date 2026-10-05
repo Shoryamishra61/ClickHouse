@@ -1,15 +1,28 @@
--- Tags: zookeeper, no-replicated-database
--- no-replicated-database: the mutations must stay pending, but `SYSTEM STOP REPLICATION QUEUES` stops
--- only the local replica, and executing `DELETE WHERE is_hit` on another one hits the `Not-ready Set`
--- exception of https://github.com/ClickHouse/ClickHouse/issues/117276
--- https://github.com/ClickHouse/ClickHouse/issues/117113
--- Mutation partition pruning must leave a predicate with a deferred `IN` set unpruned: the pruning
--- pass and the asynchronous mutation execution evaluate the set independently, so rows in a partition
--- that matches only the execution-time set would have no block number and escape the mutation. A
--- parsed `IN some_table` carries a plain `ASTIdentifier`, not an `ASTTableIdentifier`, so the guard
--- used to miss exactly the form the mutation validation lets through - an explicit subquery is
--- rejected up front, a bare table identifier is not.
+#!/usr/bin/env bash
+# Tags: zookeeper, no-replicated-database
+# no-replicated-database: the mutations must stay pending, but `SYSTEM STOP REPLICATION QUEUES` stops
+# only the local replica, and executing `DELETE WHERE is_hit` on another one hits the `Not-ready Set`
+# exception of https://github.com/ClickHouse/ClickHouse/issues/117276
+#
+# A `.sh` test, so the targeted AST fuzzer, which takes only `.sql` files, does not pick up its queries,
+# and the server-side AST fuzzer is disabled with `ast_fuzzer_runs = 0`: fuzzed mutations over the
+# `ALIAS ... IN t_prune_in_table_keys` column below hit the `Not-ready Set` exception of
+# https://github.com/ClickHouse/ClickHouse/issues/117276 when they execute, and its fix
+# https://github.com/ClickHouse/ClickHouse/pull/119664 is separate.
 
+# https://github.com/ClickHouse/ClickHouse/issues/117113
+# Mutation partition pruning must leave a predicate with a deferred `IN` set unpruned: the pruning
+# pass and the asynchronous mutation execution evaluate the set independently, so rows in a partition
+# that matches only the execution-time set would have no block number and escape the mutation. A
+# parsed `IN some_table` carries a plain `ASTIdentifier`, not an `ASTTableIdentifier`, so the guard
+# used to miss exactly the form the mutation validation lets through - an explicit subquery is
+# rejected up front, a bare table identifier is not.
+
+CUR_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=../shell_config.sh
+. "$CUR_DIR"/../shell_config.sh
+
+${CLICKHOUSE_CLIENT} --ast_fuzzer_runs 0 << 'EOF'
 SET mutations_sync = 0;
 
 DROP TABLE IF EXISTS t_prune_in_table_keys;
@@ -83,3 +96,4 @@ WHERE database = currentDatabase() AND table = 't_prune_in_table_alias' ORDER BY
 DROP TABLE t_prune_in_table_alias;
 DROP TABLE t_prune_in_table;
 DROP TABLE t_prune_in_table_keys;
+EOF
