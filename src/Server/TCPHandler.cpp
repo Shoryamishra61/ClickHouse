@@ -1643,7 +1643,7 @@ void TCPHandler::processOrdinaryQuery(QueryState & state)
     }
 
     {
-        PullingAsyncPipelineExecutor executor(pipeline);
+        PullingAsyncPipelineExecutor executor(pipeline, /*with_query_result_previews=*/ true);
         pipeline.setConcurrencyControl(state.query_context->getSettingsRef()[Setting::use_concurrency_control]);
         CurrentMetrics::Increment query_thread_metric_increment{CurrentMetrics::QueryThread};
 

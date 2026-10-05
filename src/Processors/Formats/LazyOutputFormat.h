@@ -15,7 +15,9 @@ class LazyOutputFormat : public IOutputFormat
 {
 
 public:
-    explicit LazyOutputFormat(SharedHeader header);
+    /// `with_query_result_previews` must be set only by consumers that tell preview chunks apart
+    /// from the result (by `Block::info.is_preview`), such as `TCPHandler` and `LocalConnection`.
+    explicit LazyOutputFormat(SharedHeader header, bool with_query_result_previews_ = false);
 
     String getName() const override { return "LazyOutputFormat"; }
 
@@ -64,8 +66,10 @@ public:
     bool supportsSpecialSerializationKinds() const override { return true; }
 
     /// Preview chunks are queued like data (keeping their annotation) and delivered to the client
-    /// by the native protocol as `PreviewData` packets (see `TCPHandler`).
-    bool canWriteQueryResultPreviews() const override { return true; }
+    /// by the native protocol as `PreviewData` packets (see `TCPHandler`). Only when the consumer
+    /// asked for them: other consumers (scalar subqueries, gRPC, Prometheus) would take a preview
+    /// for a part of the result.
+    bool canWriteQueryResultPreviews() const override { return with_query_result_previews; }
 
 protected:
     void consume(Chunk chunk) override
@@ -84,6 +88,7 @@ protected:
 private:
 
     ConcurrentBoundedQueue<Chunk> queue;
+    const bool with_query_result_previews;
     std::atomic<bool> keep_queued_chunks_on_cancel{false};
     Chunk totals;
     Chunk extremes;
