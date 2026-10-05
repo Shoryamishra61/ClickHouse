@@ -9,6 +9,7 @@
 #include <memory>
 #include <optional>
 #include <unordered_map>
+#include <Processors/QueryPlan/Optimizations/RelationStatisticsEstimator.h>
 
 namespace DB
 {
@@ -93,7 +94,7 @@ Float64 estimateRowWidthFromHeader(const Block & header);
 /// over the type-based estimate.
 Float64 estimateRowWidth(const Block & header, const std::unordered_map<String, ColumnStats> & column_statistics);
 
-std::optional<ExpressionStatistics> estimateStatistics(QueryPlan::Node & node);
+std::optional<ExpressionStatistics> estimateStatistics(QueryPlan::Node & node, const QueryPlanOptimizations::RelationEstimationSettings & settings);
 
 /// Sets `physical_read_bytes` from the rows the primary key keeps (`physical_selected_rows`,
 /// from the index analysis): a filter off the sorting key prunes no granules, and each

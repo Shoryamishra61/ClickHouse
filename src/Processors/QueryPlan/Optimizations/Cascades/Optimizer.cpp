@@ -112,7 +112,7 @@ CascadesOptimizer::CascadesOptimizer(QueryPlan & query_plan_, const QueryPlanOpt
     , optimization_settings(optimization_settings_)
     , statistics(createOptimizerStatistics(getQueryContextOrThrow()))
     , cost_estimator(memo)
-    , statistics_derivation(memo, *statistics)
+    , statistics_derivation(memo, *statistics, optimization_settings_.join_selectivity_exponential_backoff, optimization_settings_.group_count_damped_product)
 {
     memo.setContext(buildContext(getQueryContextOrThrow(), optimization_settings));
 
@@ -174,7 +174,8 @@ std::pair<GroupId, ExpressionProperties> CascadesOptimizer::addGroup(QueryPlan::
         return {child_group_id, stripped_props};
     }
 
-    std::optional<ExpressionStatistics> prepopulated_statistics = estimateStatistics(node);
+    std::optional<ExpressionStatistics> prepopulated_statistics
+        = estimateStatistics(node, QueryPlanOptimizations::RelationEstimationSettings(optimization_settings));
 
     auto group_expression = std::make_shared<GroupExpression>(std::move(node.step));
     auto group_id = memo.addGroup(group_expression);

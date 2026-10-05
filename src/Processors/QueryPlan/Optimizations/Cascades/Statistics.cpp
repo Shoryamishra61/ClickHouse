@@ -264,7 +264,7 @@ void fillPhysicalReadBytes(ExpressionStatistics & statistics, Float64 physical_s
     statistics.physical_read_bytes = physical_rows * statistics.estimated_bytes_per_row;
 }
 
-std::optional<ExpressionStatistics> estimateStatistics(QueryPlan::Node & node)
+std::optional<ExpressionStatistics> estimateStatistics(QueryPlan::Node & node, const QueryPlanOptimizations::RelationEstimationSettings & settings)
 {
     std::optional<ExpressionStatistics> stats;
 
@@ -280,7 +280,7 @@ std::optional<ExpressionStatistics> estimateStatistics(QueryPlan::Node & node)
         /// `estimateReadRowsCount` handles `FilterStep` and `PREWHERE` sampling internally.
         /// Without a point estimate the rows the read cannot exceed still give the cost model a
         /// search value; the result is marked unknown.
-        auto relation_stats = QueryPlanOptimizations::estimateReadRowsCount(node);
+        auto relation_stats = QueryPlanOptimizations::estimateReadRowsCount(node, nullptr, settings);
         if (relation_stats.estimated_rows || relation_stats.max_rows)
         {
             stats.emplace();
@@ -322,7 +322,7 @@ std::optional<ExpressionStatistics> estimateStatistics(QueryPlan::Node & node)
         /// Other sources go through the same shared estimator, which knows `system.one`, `Memory`
         /// tables and the hints; a source it does not know stays without statistics here and is
         /// marked unknown when its group is derived.
-        auto relation_stats = QueryPlanOptimizations::estimateReadRowsCount(node);
+        auto relation_stats = QueryPlanOptimizations::estimateReadRowsCount(node, nullptr, settings);
         if (relation_stats.estimated_rows || relation_stats.max_rows)
         {
             stats.emplace();

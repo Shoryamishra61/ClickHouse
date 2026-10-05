@@ -1,6 +1,8 @@
 #pragma once
 
 #include <Processors/QueryPlan/Optimizations/joinOrder.h>
+#include <Processors/QueryPlan/Optimizations/RelationStatistics.h>
+#include <Interpreters/ActionsDAG.h>
 
 #include <algorithm>
 #include <limits>
@@ -9,9 +11,25 @@ namespace DB
 {
 
 using PlanMemo = std::unordered_map<BitSet, DPJoinEntryPtr>;
-using SelectivityCache = std::unordered_map<JoinActionRef, double>;
+/// What one join edge contributes to the selectivity of a join, computed once per edge.
+struct EdgeSelectivity
+{
+    /// One over the larger key NDV; nothing for a non-equality edge, or when neither side has an
+    /// NDV nor a row count to stand in for it.
+    std::optional<double> selectivity;
+    /// The equivalence classes of the two sides when they are plain input columns. The class term
+    /// of the algorithms counts an edge between two class members, so the edge itself is skipped.
+    const void * left_class = nullptr;
+    const void * right_class = nullptr;
+};
+using SelectivityCache = std::unordered_map<JoinActionRef, EdgeSelectivity>;
 
-inline size_t getColumnStats(
+/// NDV of a column as the join order optimizer knows it: from the relation's statistics, or from
+/// the DP entry of a joined relation set (narrowed through joins). A column without an NDV (no
+/// entry, or a zero NDV that only carries other column facts) counts its relation's rows as its
+/// NDV: the key is taken as unique, the guess DuckDB and Orca make too. Zero when the rows are
+/// unknown as well.
+inline UInt64 getColumnStats(
     const QueryGraph & query_graph,
     const PlanMemo & dp_table,
     const BitSet & rels,
@@ -21,10 +39,8 @@ inline size_t getColumnStats(
     auto rel_id = rels.getSingleBit();
     if (!rel_id.has_value())
     {
-        /// Look up NDV from the dp_table entry's column_stats (propagated through joins).
         if (auto it = dp_table.find(rels); it != dp_table.end())
         {
-            /// A zero NDV is an unknown NDV: the entry only carries other column facts.
             auto col_it = it->second->column_stats.find(column_name);
             if (col_it != it->second->column_stats.end() && col_it->second.num_distinct_values > 0)
                 return col_it->second.num_distinct_values;
@@ -40,40 +56,72 @@ inline size_t getColumnStats(
     return relation_stat.estimated_rows.value_or(0);
 }
 
-inline double computeSelectivity(
+inline const EdgeSelectivity & computeEdgeSelectivity(
     const QueryGraph & query_graph,
     const PlanMemo & dp_table,
     SelectivityCache & expression_selectivity,
     const JoinActionRef & edge)
 {
-    auto [it, inserted] = expression_selectivity.try_emplace(edge, 1.0);
-    auto & selectivity = it->second;
+    auto [it, inserted] = expression_selectivity.try_emplace(edge);
+    auto & result = it->second;
     if (!inserted)
-        return selectivity;
+        return result;
 
     auto [op, lhs, rhs] = edge.asBinaryPredicate();
-
     if (op != JoinConditionOperator::Equals && op != JoinConditionOperator::NullSafeEquals)
-        return 1.0;
+        return result;
 
-    UInt64 lhs_ndv = getColumnStats(query_graph, dp_table, lhs.getSourceRelations(), lhs.getColumnName());
-    UInt64 rhs_ndv = getColumnStats(query_graph, dp_table, rhs.getSourceRelations(), rhs.getColumnName());
-    UInt64 max_ndv = std::max(lhs_ndv, rhs_ndv);
-    if (max_ndv > 0)
-        selectivity = std::min(selectivity, 1.0 / static_cast<double>(max_ndv));
-    return selectivity;
+    result.selectivity = QueryPlanOptimizations::equalitySelectivity(
+        getColumnStats(query_graph, dp_table, lhs.getSourceRelations(), lhs.getColumnName()),
+        getColumnStats(query_graph, dp_table, rhs.getSourceRelations(), rhs.getColumnName()));
+
+    auto input_class = [&](const JoinActionRef & ref) -> const void *
+    {
+        auto resolved = ref.resolveAliases();
+        if (resolved.getNode()->type != ActionsDAG::ActionType::INPUT || !resolved.getSourceRelations().getSingleBit())
+            return nullptr;
+        return query_graph.column_equivalences.getClass(resolved).get();
+    };
+    result.left_class = input_class(lhs);
+    result.right_class = input_class(rhs);
+    return result;
 }
 
-inline double computeSelectivity(
+/// Adds the selectivities of the equality edges to `selectivities`, one per distinct pair of
+/// equivalence classes (the most selective when several edges relate the same pair), and skips
+/// the edges between two class members, which the class term of the caller counts.
+inline void collectEdgeSelectivities(
     const QueryGraph & query_graph,
     const PlanMemo & dp_table,
     SelectivityCache & expression_selectivity,
-    const std::vector<JoinActionRef *> & edges)
+    const std::vector<JoinActionRef *> & edges,
+    std::vector<double> & selectivities)
 {
-    double selectivity = 1.0;
-    for (const auto & edge : edges)
-        selectivity = std::min(selectivity, computeSelectivity(query_graph, dp_table, expression_selectivity, *edge));
-    return selectivity;
+    std::vector<std::pair<const void *, const void *>> pairs;
+    for (const auto * edge : edges)
+    {
+        const auto & edge_selectivity = computeEdgeSelectivity(query_graph, dp_table, expression_selectivity, *edge);
+        if (!edge_selectivity.selectivity)
+            continue;
+        if (edge_selectivity.left_class && edge_selectivity.right_class)
+            continue;
+
+        /// An edge with a side outside every class is a pair of its own.
+        std::pair<const void *, const void *> pair{edge_selectivity.left_class, edge_selectivity.right_class};
+        if (!pair.first || !pair.second)
+            pair = {edge, nullptr};
+        auto found = std::find(pairs.begin(), pairs.end(), pair);
+        if (found == pairs.end())
+        {
+            pairs.push_back(pair);
+            selectivities.push_back(*edge_selectivity.selectivity);
+        }
+        else
+        {
+            auto & existing = selectivities[found - pairs.begin()];
+            existing = std::min(existing, *edge_selectivity.selectivity);
+        }
+    }
 }
 
 /// Rows a join cannot exceed, from the bounds of its inputs: an inner or cross join at most the

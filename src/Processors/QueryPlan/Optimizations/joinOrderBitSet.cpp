@@ -102,9 +102,12 @@ double computeSelectivity(
     const BitSet & left,
     const BitSet & right)
 {
-    double selectivity = DB::computeSelectivity(query_graph, dp_table, expression_selectivity, edges);
+    std::vector<double> selectivities;
+    collectEdgeSelectivities(query_graph, dp_table, expression_selectivity, edges, selectivities);
 
-    /// Also account for transitively-equivalent columns spanning both sides.
+    /// One factor per equivalence class with members on both sides: the maximum NDV over those
+    /// members, as evaluating every (left member, right member) pair and taking the minimum
+    /// selectivity would give, since min(1/max(l, r)) = 1/max(all l's and r's).
     using ConstClassPtr = EquivalenceClasses<JoinActionRef>::ConstClassPtr;
     std::unordered_set<ConstClassPtr> visited;
 
@@ -118,10 +121,6 @@ double computeSelectivity(
         if (!equiv_class || !visited.insert(equiv_class).second)
             continue;
 
-        /// Find the maximum NDV across all members of this class that belong
-        /// to either side of the join. This is equivalent to evaluating all
-        /// (left_member, right_member) pairs and taking the minimum selectivity,
-        /// since min(1/max(l,r)) = 1/max(all l's and r's).
         size_t max_ndv = 0;
         bool has_left = false;
         bool has_right = false;
@@ -142,10 +141,10 @@ double computeSelectivity(
             }
         }
         if (has_left && has_right && max_ndv > 0)
-            selectivity = std::min(selectivity, 1.0 / static_cast<double>(max_ndv));
+            selectivities.push_back(1.0 / static_cast<double>(max_ndv));
     }
 
-    return selectivity;
+    return QueryPlanOptimizations::combineKeySelectivities(std::move(selectivities), query_graph.join_selectivity_exponential_backoff);
 }
 
 }

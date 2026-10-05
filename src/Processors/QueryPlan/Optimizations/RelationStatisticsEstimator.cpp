@@ -17,6 +17,7 @@
 #include <Processors/QueryPlan/JoinStepLogical.h>
 #include <Processors/QueryPlan/LimitStep.h>
 #include <Processors/QueryPlan/LogicalExchangeStep.h>
+#include <Processors/QueryPlan/Optimizations/QueryPlanOptimizationSettings.h>
 #include <Processors/QueryPlan/Optimizations/RelationStatisticsUtils.h>
 #include <Processors/QueryPlan/ReadFromMemoryStorageStep.h>
 #include <Processors/QueryPlan/ReadFromMergeTree.h>
@@ -58,7 +59,7 @@ String dumpStatsForLogs(const RelationStats & stats)
 
 /// Rows of an aggregation or a `DISTINCT` over `keys`, by the shared group count formula; the output
 /// columns are the keys with their NDVs, zero for a key without one.
-RelationStats estimateGroupStats(const Names & keys, const RelationStats & input_stats)
+RelationStats estimateGroupStats(const Names & keys, const RelationStats & input_stats, const RelationEstimationSettings & settings)
 {
     RelationStats aggregation_stats;
     /// Carry imprecision and source from the input, or the annotation is lost for aggregation subqueries.
@@ -83,15 +84,15 @@ RelationStats estimateGroupStats(const Names & keys, const RelationStats & input
         key_distinct_values.push_back(distinct_values);
     }
 
-    auto groups = estimateGroupCount(key_distinct_values, input_stats.estimated_rows, input_stats.max_rows);
+    auto groups = estimateGroupCount(key_distinct_values, input_stats.estimated_rows, input_stats.max_rows, settings.group_count_damped_product);
     aggregation_stats.estimated_rows = groups.estimated_rows;
     aggregation_stats.max_rows = groups.max_rows;
     return aggregation_stats;
 }
 
-RelationStats estimateAggregatingStepStats(const AggregatingStep & aggregating_step, const RelationStats & input_stats)
+RelationStats estimateAggregatingStepStats(const AggregatingStep & aggregating_step, const RelationStats & input_stats, const RelationEstimationSettings & settings)
 {
-    return estimateGroupStats(aggregating_step.getAggregatorParameters().keys, input_stats);
+    return estimateGroupStats(aggregating_step.getAggregatorParameters().keys, input_stats, settings);
 }
 
 /// Sum of two row counts, unknown when either is; saturates instead of wrapping.
@@ -121,7 +122,12 @@ void clearColumnValueRanges(std::unordered_map<String, ColumnStats> & column_sta
 
 }
 
-RelationStats estimateReadRowsCount(QueryPlan::Node & node, const ActionsDAG::Node * filter)
+RelationEstimationSettings::RelationEstimationSettings(const QueryPlanOptimizationSettings & optimization_settings)
+    : group_count_damped_product(optimization_settings.group_count_damped_product)
+{
+}
+
+RelationStats estimateReadRowsCount(QueryPlan::Node & node, const ActionsDAG::Node * filter, const RelationEstimationSettings & estimation_settings)
 {
     IQueryPlanStep * step = node.step.get();
     if (const auto * reading = typeid_cast<const ReadFromMergeTree *>(step))
@@ -260,7 +266,7 @@ RelationStats estimateReadRowsCount(QueryPlan::Node & node, const ActionsDAG::No
 
     if (const auto * reading = typeid_cast<const CommonSubplanReferenceStep *>(step))
     {
-        return estimateReadRowsCount(*reading->getSubplanReferenceRoot(), filter);
+        return estimateReadRowsCount(*reading->getSubplanReferenceRoot(), filter, estimation_settings);
     }
 
     if (const auto * join_step = typeid_cast<const JoinStepLogical *>(step); join_step && join_step->isOptimized())
@@ -284,7 +290,7 @@ RelationStats estimateReadRowsCount(QueryPlan::Node & node, const ActionsDAG::No
         stats.max_rows = 0;
         for (auto * child : node.children)
         {
-            auto child_stats = estimateReadRowsCount(*child, filter);
+            auto child_stats = estimateReadRowsCount(*child, filter, estimation_settings);
             stats.estimated_rows = addRows(stats.estimated_rows, child_stats.estimated_rows);
             stats.max_rows = addRows(stats.max_rows, child_stats.max_rows);
             stats.imprecise_estimate |= child_stats.imprecise_estimate;
@@ -299,15 +305,15 @@ RelationStats estimateReadRowsCount(QueryPlan::Node & node, const ActionsDAG::No
     {
         /// A preliminary `DISTINCT` only reduces the rows the final one sees; the estimate is the
         /// final one's.
-        auto stats = estimateReadRowsCount(*node.children.front(), filter);
+        auto stats = estimateReadRowsCount(*node.children.front(), filter, estimation_settings);
         if (distinct_step->isPreliminary())
             return stats;
-        return estimateGroupStats(distinct_step->getColumnNames(), stats);
+        return estimateGroupStats(distinct_step->getColumnNames(), stats, estimation_settings);
     }
 
     if (const auto * limit_step = typeid_cast<const LimitStep *>(step))
     {
-        auto estimated = estimateReadRowsCount(*node.children.front(), filter);
+        auto estimated = estimateReadRowsCount(*node.children.front(), filter, estimation_settings);
         auto limit = limit_step->getLimit();
         if (!estimated.estimated_rows || estimated.estimated_rows > limit)
             estimated.estimated_rows = limit;
@@ -320,7 +326,7 @@ RelationStats estimateReadRowsCount(QueryPlan::Node & node, const ActionsDAG::No
     if (const auto * expression_step = typeid_cast<const ExpressionStep *>(step);
         expression_step && !expression_step->getExpression().hasArrayJoin())
     {
-        auto stats = estimateReadRowsCount(*node.children.front(), filter);
+        auto stats = estimateReadRowsCount(*node.children.front(), filter, estimation_settings);
         remapColumnStats(stats.column_stats, expression_step->getExpression());
         return stats;
     }
@@ -329,21 +335,21 @@ RelationStats estimateReadRowsCount(QueryPlan::Node & node, const ActionsDAG::No
     {
         const auto & dag = filter_step->getExpression();
         const auto * predicate = static_cast<const ActionsDAG::Node *>(dag.tryFindInOutputs(filter_step->getFilterColumnName()));
-        auto stats = estimateReadRowsCount(*node.children.front(), predicate);
+        auto stats = estimateReadRowsCount(*node.children.front(), predicate, estimation_settings);
         remapColumnStats(stats.column_stats, filter_step->getExpression());
         return stats;
     }
 
     if (const auto * aggregating_step = typeid_cast<const AggregatingStep *>(step))
     {
-        auto stats = estimateReadRowsCount(*node.children.front(), filter);
-        auto aggregation_stats = estimateAggregatingStepStats(*aggregating_step, stats);
+        auto stats = estimateReadRowsCount(*node.children.front(), filter, estimation_settings);
+        auto aggregation_stats = estimateAggregatingStepStats(*aggregating_step, stats, estimation_settings);
         return aggregation_stats;
     }
 
     if (const auto * sorting_step = typeid_cast<const SortingStep *>(step))
     {
-        auto stats = estimateReadRowsCount(*node.children.front(), filter);
+        auto stats = estimateReadRowsCount(*node.children.front(), filter, estimation_settings);
         if (sorting_step->getLimit())
         {
             if (!stats.estimated_rows || stats.estimated_rows > sorting_step->getLimit())
@@ -359,11 +365,11 @@ RelationStats estimateReadRowsCount(QueryPlan::Node & node, const ActionsDAG::No
     /// already-distributed subtree would otherwise report unknown cardinality, degrading
     /// broadcast-vs-shuffle and join order decisions.
     if (dynamic_cast<LogicalExchangeStep *>(step))
-        return estimateReadRowsCount(*node.children.front(), filter);
+        return estimateReadRowsCount(*node.children.front(), filter, estimation_settings);
 
     if (const auto * transform = dynamic_cast<const ITransformingStep *>(step);
         transform && transform->getTransformTraits().preserves_number_of_rows)
-        return estimateReadRowsCount(*node.children.front(), filter);
+        return estimateReadRowsCount(*node.children.front(), filter, estimation_settings);
 
     return {};
 }

@@ -283,13 +283,16 @@ ExpressionStatistics StatisticsDerivation::deriveJoinStatistics(
     statistics.column_statistics.insert(left_statistics.column_statistics.begin(), left_statistics.column_statistics.end());
     statistics.column_statistics.insert(right_statistics.column_statistics.begin(), right_statistics.column_statistics.end());
 
-    Float64 join_selectivity = 1.0;
-
-    /// Columns already used in a predicate on each join side. A predicate that
-    /// reuses a column is redundant (implied by transitivity from a child join)
-    /// and should not contribute to selectivity.
-    std::unordered_set<String> left_bound_columns;
-    std::unordered_set<String> right_bound_columns;
+    /// One selectivity per distinct pair of key classes: a predicate between columns that other
+    /// predicates already relate (through the inputs' equivalences) restricts nothing more. The
+    /// class of a column is named by its first member.
+    auto class_representative = [](const EquivalenceClasses<String> & classes, const String & column) -> String
+    {
+        auto equivalence_class = classes.getClass(column);
+        return equivalence_class && !equivalence_class->empty() ? equivalence_class->front() : column;
+    };
+    std::vector<std::pair<String, String>> key_pairs;
+    std::vector<double> key_selectivities;
 
     /// Equality key pairs, for the output column equivalences.
     std::vector<std::pair<String, String>> equi_pairs;
@@ -315,61 +318,61 @@ ExpressionStatistics StatisticsDerivation::deriveJoinStatistics(
 
         equi_pairs.emplace_back(left_column, right_column);
 
-        bool left_already_bound = !left_bound_columns.insert(left_column).second;
-        bool right_already_bound = !right_bound_columns.insert(right_column).second;
-
         auto left_column_statistics = left_statistics.column_statistics.find(left_column);
         auto right_column_statistics = right_statistics.column_statistics.find(right_column);
 
         /// A key without an NDV (no entry, or an entry with a zero NDV that only carries the column's
-        /// width) counts its relation's rows as its NDV for the selectivity, the upper bound, as the
-        /// join order optimizer does in `getColumnStats`; the two planners must give the same join the
-        /// same selectivity. The result keeps such a key without an NDV: the bound written as an NDV
+        /// width) counts its relation's rows as its NDV for the selectivity, as the join order
+        /// optimizer does in `getColumnStats`; both planners must give the same join the same
+        /// selectivity. The result keeps such a key without an NDV: the stand-in written as an NDV
         /// would make an aggregation above the join estimate one group per row.
-        auto known_distinct_values = [](const auto & found, const auto & end) -> std::optional<UInt64>
+        auto known_distinct_values = [](const auto & found, const auto & end, const ExpressionStatistics & side) -> std::optional<UInt64>
         {
             if (found != end && found->second.num_distinct_values > 0)
-                return found->second.num_distinct_values;
+                return std::min(found->second.num_distinct_values, UInt64(side.estimated_row_count));
             return std::nullopt;
         };
-        const auto left_known_distinct_values = known_distinct_values(left_column_statistics, left_statistics.column_statistics.end());
-        const auto right_known_distinct_values = known_distinct_values(right_column_statistics, right_statistics.column_statistics.end());
-        const UInt64 left_rows = UInt64(left_statistics.estimated_row_count);
-        const UInt64 right_rows = UInt64(right_statistics.estimated_row_count);
-        const UInt64 left_number_of_distinct_values = std::min(left_known_distinct_values.value_or(left_rows), left_rows);
-        const UInt64 right_number_of_distinct_values = std::min(right_known_distinct_values.value_or(right_rows), right_rows);
+        const auto left_known_distinct_values = known_distinct_values(left_column_statistics, left_statistics.column_statistics.end(), left_statistics);
+        const auto right_known_distinct_values = known_distinct_values(right_column_statistics, right_statistics.column_statistics.end(), right_statistics);
 
-        /// Estimate `JOIN` equality predicate selectivity as 1 / max(NDV(A), NDV(B)) based on assumption that distinct values have equal probabilities.
-        /// An empty relation or a supplied hint can carry NDV = 0; clamp to 1, otherwise the division
-        /// would produce an infinite selectivity that poisons every cost downstream.
-        UInt64 max_number_of_distinct_values = std::max<UInt64>({left_number_of_distinct_values, right_number_of_distinct_values, 1});
-        Float64 predicate_selectivity = 1.0 / Float64(max_number_of_distinct_values);
+        const auto predicate_selectivity = QueryPlanOptimizations::equalitySelectivity(
+            left_known_distinct_values.value_or(UInt64(left_statistics.estimated_row_count)),
+            right_known_distinct_values.value_or(UInt64(right_statistics.estimated_row_count)));
 
         /// The shared update then narrows only sides whose rows can be filtered by this join; a side
         /// without an NDV takes the other side's NDV when the join bounds it, else stays without one.
-        statistics.column_statistics[left_column].num_distinct_values = left_known_distinct_values ? left_number_of_distinct_values : 0;
-        statistics.column_statistics[right_column].num_distinct_values = right_known_distinct_values ? right_number_of_distinct_values : 0;
+        statistics.column_statistics[left_column].num_distinct_values = left_known_distinct_values.value_or(0);
+        statistics.column_statistics[right_column].num_distinct_values = right_known_distinct_values.value_or(0);
         QueryPlanOptimizations::updateJoinKeyDistinctCounts(
             statistics.column_statistics.at(left_column),
             statistics.column_statistics.at(right_column),
             join_operator.kind,
             join_operator.strictness);
 
-        /// Predicate reuses a column already seen on one side - redundant for selectivity.
-        if (left_already_bound || right_already_bound)
+        if (!predicate_selectivity)
         {
-            LOG_TEST(log, "Predicate '{} = {}' is redundant (column already bound), skipping for selectivity",
-                left_column, right_column);
+            LOG_TEST(log, "Predicate '{} = {}' has no NDV and no rows on either side", left_column, right_column);
             continue;
         }
+        LOG_TEST(log, "Predicate '{} = {}' selectivity: 1 / {}", left_column, right_column, 1.0 / *predicate_selectivity);
 
-        LOG_TEST(log, "Predicate '{} = {}' selectivity: 1 / {}",
-            left_column, right_column, 1.0 / predicate_selectivity);
-
-        /// The most selective predicate decides, as in the join order optimizer (`computeSelectivity`
-        /// in `joinOrderCommon.h`); both planners must give the same join the same estimate.
-        join_selectivity = std::min(join_selectivity, predicate_selectivity);
+        std::pair<String, String> key_pair{
+            class_representative(left_statistics.equivalences, left_column),
+            class_representative(right_statistics.equivalences, right_column)};
+        auto found = std::find(key_pairs.begin(), key_pairs.end(), key_pair);
+        if (found == key_pairs.end())
+        {
+            key_pairs.push_back(key_pair);
+            key_selectivities.push_back(*predicate_selectivity);
+        }
+        else
+        {
+            auto & existing = key_selectivities[found - key_pairs.begin()];
+            existing = std::min(existing, *predicate_selectivity);
+        }
     }
+
+    const Float64 join_selectivity = QueryPlanOptimizations::combineKeySelectivities(std::move(key_selectivities), join_selectivity_exponential_backoff);
 
     /// The multiplicative value is the search value when no estimate exists.
     const Float64 search_value = left_statistics.estimated_row_count * right_statistics.estimated_row_count * join_selectivity;
@@ -750,13 +753,13 @@ struct GroupCount
 /// Distinct value combinations of the columns by the shared group count formula (the largest key
 /// NDV, bounded by the product): the output rows of an aggregation on the columns and of a
 /// `DISTINCT` over them.
-static GroupCount estimateGroupCount(const Names & columns, const ExpressionStatistics & input_statistics)
+static GroupCount estimateGroupCount(const Names & columns, const ExpressionStatistics & input_statistics, bool damped_product)
 {
     std::vector<UInt64> key_distinct_values;
     for (const auto & column : columns)
         key_distinct_values.push_back(keyDistinctValues(column, input_statistics).value_or(0));
     const auto shared = QueryPlanOptimizations::estimateGroupCount(
-        key_distinct_values, toRowCount(input_statistics.estimated_row_count), toRowCount(input_statistics.max_row_count));
+        key_distinct_values, toRowCount(input_statistics.estimated_row_count), toRowCount(input_statistics.max_row_count), damped_product);
 
     GroupCount result;
     result.unknown = !shared.estimated_rows;
@@ -776,7 +779,7 @@ ExpressionStatistics StatisticsDerivation::deriveAggregatingStatistics(const Agg
         aggregation_statistics.column_statistics[key].num_distinct_values = keyDistinctValues(key, input_statistics).value_or(0);
 
     aggregation_statistics.min_row_count = 0;
-    const auto groups = estimateGroupCount(aggregator_params.keys, input_statistics);
+    const auto groups = estimateGroupCount(aggregator_params.keys, input_statistics, group_count_damped_product);
     aggregation_statistics.estimated_row_count = groups.estimated_rows;
     aggregation_statistics.max_row_count = groups.max_rows;
     aggregation_statistics.rows_unknown = groups.unknown;
@@ -875,7 +878,7 @@ ExpressionStatistics StatisticsDerivation::deriveDistinctStatistics(const Distin
 {
     /// One output row per distinct value combination.
     ExpressionStatistics result = input_statistics;
-    const auto groups = estimateGroupCount(distinct_step.getColumnNames(), input_statistics);
+    const auto groups = estimateGroupCount(distinct_step.getColumnNames(), input_statistics, group_count_damped_product);
     result.estimated_row_count = std::min(groups.estimated_rows, input_statistics.estimated_distinct_bound);
     result.max_row_count = groups.max_rows;
     /// Without a key NDV the distinct rows are unknown, unless the input bounds its distinct rows

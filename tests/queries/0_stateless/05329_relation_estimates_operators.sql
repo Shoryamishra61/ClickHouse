@@ -35,7 +35,8 @@ SELECT count()
 FROM (SELECT a.k AS k, count() AS c FROM t_a AS a JOIN t_b AS b ON a.k = b.k GROUP BY a.k) AS s
 JOIN t_c AS c ON s.k = c.k;
 
--- 10000 + 1000 rows.
+-- 10000 + 1000 rows. The union's key has no NDV, so its rows stand in for it: the join is
+-- 11000 * 100 / 11000 rows.
 SELECT '-- UNION ALL adds up its inputs';
 EXPLAIN estimates = 1
 SELECT count()

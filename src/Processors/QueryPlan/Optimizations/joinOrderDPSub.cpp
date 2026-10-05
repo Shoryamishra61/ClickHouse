@@ -476,7 +476,8 @@ const std::vector<JoinActionRef *> & DPSubJoinOrderOptimizer::collectJoinEdgesMa
 double DPSubJoinOrderOptimizer::computeSelectivityMask(
     const std::vector<JoinActionRef *> & edges, UInt32 left_mask, UInt32 right_mask)
 {
-    double selectivity = DB::computeSelectivity(query_graph, dp_table, expression_selectivity, edges);
+    std::vector<double> selectivities;
+    collectEdgeSelectivities(query_graph, dp_table, expression_selectivity, edges, selectivities);
 
     /// Account for transitively-equivalent columns spanning both sides, visiting only the classes
     /// incident to the left relations. A generation stamp deduplicates classes without allocating
@@ -514,11 +515,11 @@ double DPSubJoinOrderOptimizer::computeSelectivityMask(
                 }
             }
             if (has_left && has_right && max_ndv > 0)
-                selectivity = std::min(selectivity, 1.0 / static_cast<double>(max_ndv));
+                selectivities.push_back(1.0 / static_cast<double>(max_ndv));
         }
     }
 
-    return selectivity;
+    return QueryPlanOptimizations::combineKeySelectivities(std::move(selectivities), query_graph.join_selectivity_exponential_backoff);
 }
 
 template <typename DPTable, std::unsigned_integral TUInt>

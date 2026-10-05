@@ -56,15 +56,28 @@ void remapColumnStats(std::unordered_map<String, ColumnStats> & mapped, const Ac
 /// `DISTINCT` over them.
 struct GroupCountEstimate
 {
-    /// The largest known key NDV, capped by the rows. Every planner uses this one formula, so an
-    /// aggregation is the same relation wherever it is estimated. Unknown when no key has an NDV.
+    /// Capped by the rows; unknown when no key has an NDV. Every planner uses this one formula, so
+    /// an aggregation is the same relation wherever it is estimated. By default the largest known
+    /// key NDV, a lower bound on the groups. With `damped_product` the keys count as partially
+    /// correlated: sorted from the largest NDV, they take the exponents 1, 1/2, 1/4, ... .
     std::optional<UInt64> estimated_rows;
     /// The product of the key NDVs when all are known, else the rows the input cannot exceed.
     std::optional<UInt64> max_rows;
 };
 
 /// `key_distinct_values` holds one NDV per key, zero for a key without one.
-GroupCountEstimate estimateGroupCount(const std::vector<UInt64> & key_distinct_values, std::optional<UInt64> rows, std::optional<UInt64> max_rows);
+GroupCountEstimate estimateGroupCount(
+    const std::vector<UInt64> & key_distinct_values, std::optional<UInt64> rows, std::optional<UInt64> max_rows, bool damped_product = false);
+
+/// Selectivity of one equality predicate from the NDVs of its sides (zero = unknown): one over
+/// the larger known NDV, nothing when neither is known.
+std::optional<double> equalitySelectivity(UInt64 left_distinct_values, UInt64 right_distinct_values);
+
+/// Selectivity of a conjunction of equality predicates from the selectivity of each. Without
+/// `exponential_backoff` the most selective decides alone. With it the keys count as partially
+/// correlated: sorted from the most selective, they take the exponents 1, 1/2, 1/4 and 1/8, and
+/// further keys are dropped. No predicates: 1.
+double combineKeySelectivities(std::vector<double> selectivities, bool exponential_backoff);
 
 /// Tighten equi-join key NDVs to their minimum, respecting which side each join kind preserves.
 /// Anti joins and full joins leave both inputs unchanged. A zero NDV is unknown: it is bounded by

@@ -1,6 +1,8 @@
 #include <Processors/QueryPlan/Optimizations/RelationStatistics.h>
 
 #include <algorithm>
+#include <cmath>
+#include <functional>
 #include <limits>
 
 #include <Interpreters/ActionsDAG.h>
@@ -9,13 +11,14 @@
 namespace DB::QueryPlanOptimizations
 {
 
-GroupCountEstimate estimateGroupCount(const std::vector<UInt64> & key_distinct_values, std::optional<UInt64> rows, std::optional<UInt64> max_rows)
+GroupCountEstimate estimateGroupCount(
+    const std::vector<UInt64> & key_distinct_values, std::optional<UInt64> rows, std::optional<UInt64> max_rows, bool damped_product)
 {
     /// No keys: one group.
     if (key_distinct_values.empty())
         return GroupCountEstimate{.estimated_rows = 1, .max_rows = 1};
 
-    std::optional<UInt64> largest;
+    std::vector<UInt64> known;
     std::optional<UInt64> product = 1;
     for (UInt64 distinct_values : key_distinct_values)
     {
@@ -24,7 +27,7 @@ GroupCountEstimate estimateGroupCount(const std::vector<UInt64> & key_distinct_v
             product.reset();
             continue;
         }
-        largest = std::max(largest.value_or(0), distinct_values);
+        known.push_back(distinct_values);
         if (product)
         {
             UInt64 multiplied = 0;
@@ -33,12 +36,58 @@ GroupCountEstimate estimateGroupCount(const std::vector<UInt64> & key_distinct_v
     }
 
     GroupCountEstimate result;
-    result.estimated_rows = largest;
+    if (!known.empty())
+    {
+        std::sort(known.begin(), known.end(), std::greater<>());
+        if (damped_product)
+        {
+            double damped = 1.0;
+            double exponent = 1.0;
+            for (UInt64 distinct_values : known)
+            {
+                damped *= std::pow(static_cast<double>(distinct_values), exponent);
+                exponent /= 2;
+            }
+            result.estimated_rows = damped >= static_cast<double>(std::numeric_limits<UInt64>::max())
+                ? std::numeric_limits<UInt64>::max()
+                : static_cast<UInt64>(std::llround(damped));
+        }
+        else
+        {
+            result.estimated_rows = known.front();
+        }
+    }
     if (result.estimated_rows && rows)
         result.estimated_rows = std::min(*result.estimated_rows, *rows);
     result.max_rows = max_rows;
     if (product && (!result.max_rows || *product < *result.max_rows))
         result.max_rows = product;
+    return result;
+}
+
+std::optional<double> equalitySelectivity(UInt64 left_distinct_values, UInt64 right_distinct_values)
+{
+    const UInt64 larger = std::max(left_distinct_values, right_distinct_values);
+    if (larger == 0)
+        return std::nullopt;
+    return 1.0 / static_cast<double>(larger);
+}
+
+double combineKeySelectivities(std::vector<double> selectivities, bool exponential_backoff)
+{
+    if (selectivities.empty())
+        return 1.0;
+    std::sort(selectivities.begin(), selectivities.end());
+    if (!exponential_backoff)
+        return selectivities.front();
+
+    double result = 1.0;
+    double exponent = 1.0;
+    for (size_t i = 0; i < selectivities.size() && i < 4; ++i)
+    {
+        result *= std::pow(selectivities[i], exponent);
+        exponent /= 2;
+    }
     return result;
 }
 

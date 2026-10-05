@@ -10707,6 +10707,14 @@ decide which join reorderings are valid. The following values are available:
 )", EXPERIMENTAL, \
         {"26.10", "", "", "New setting selecting the conflict detector that decides join reordering validity in the DPsub join order algorithm: `a` for the (correct but incomplete) CD-A, `c` for the (correct and complete) CD-C, empty for none."}, \
         {"26.9", "", "", "New setting selecting the conflict detector that decides join reordering validity in the DPsub join order algorithm: `a` for the (correct but incomplete) CD-A, `c` for the (correct and complete) CD-C, empty for none."}) \
+    DECLARE(Bool, query_plan_join_selectivity_exponential_backoff, false, R"(
+Combine the selectivities of the equality predicates of a join with exponential backoff instead of taking the most selective one alone: sorted from the most selective, the predicates count with the exponents 1, 1/2, 1/4 and 1/8, and further ones are ignored. This models keys that are partially correlated. Applies to the join order optimizer and the Cascades optimizer.
+)", EXPERIMENTAL, \
+        {"26.10", false, false, "New setting to combine multi-key join selectivities with exponential backoff."}) \
+    DECLARE(Bool, query_plan_group_count_damped_product, false, R"(
+Estimate the number of groups of an aggregation over several keys as a damped product of the key NDVs instead of the largest key NDV alone: sorted from the largest NDV, the keys count with the exponents 1, 1/2, 1/4 and so on. This models keys that are partially correlated. Applies to the join order optimizer, the distributed planner and the Cascades optimizer.
+)", EXPERIMENTAL, \
+        {"26.10", false, false, "New setting to estimate multi-key group counts as a damped product of the key NDVs."}) \
     DECLARE(Bool, allow_experimental_database_paimon_rest_catalog, false, R"(
 Allow experimental database engine DataLakeCatalog with catalog_type = 'paimon_rest'
 )", EXPERIMENTAL, \

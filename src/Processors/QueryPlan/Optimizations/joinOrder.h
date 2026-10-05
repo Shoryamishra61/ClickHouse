@@ -111,6 +111,10 @@ struct QueryGraph
     /// restrictions. Set from settings in `optimizeJoinOrder`; affects only the DPsub algorithm.
     JoinOrderConflictDetector conflict_detector = JoinOrderConflictDetector::NONE;
 
+    /// How the selectivities of several equality predicates of one join combine; see
+    /// `combineKeySelectivities`.
+    bool join_selectivity_exponential_backoff = false;
+
     /// Restriction for a null-supplying relation of an outer join.
     /// Maps (relation id) -> (set of relations referenced by the outer join's ON clause, join kind).
     /// The relation may be joined (as a singleton side) only against a set that contains all

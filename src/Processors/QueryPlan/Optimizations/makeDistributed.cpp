@@ -583,7 +583,7 @@ void tryMakeDistributedJoin(QueryPlan::Node & node, QueryPlan::Nodes & nodes, co
     QueryPlan::Node * source_a = node.children[0];
     QueryPlan::Node * source_b = node.children[1];
 
-    auto stats_b = estimateReadRowsCount(*source_b);
+    auto stats_b = estimateReadRowsCount(*source_b, nullptr, RelationEstimationSettings(optimization_settings));
     auto row_count_b = stats_b.estimated_rows;
     if (!source_b->cost_estimation)
         source_b->cost_estimation = toCostEstimationInfo(stats_b);
@@ -767,7 +767,7 @@ void tryMakeDistributedAggregation(QueryPlan::Node & node, QueryPlan::Nodes & no
     /// Choose Shuffle when the estimated number of groups is high.
     if (!aggregation_keys.empty())
     {
-        auto input_stats = estimateReadRowsCount(*source);
+        auto input_stats = estimateReadRowsCount(*source, nullptr, RelationEstimationSettings(optimization_settings));
         if (!source->cost_estimation)
             source->cost_estimation = toCostEstimationInfo(input_stats);
 
@@ -779,7 +779,7 @@ void tryMakeDistributedAggregation(QueryPlan::Node & node, QueryPlan::Nodes & no
             key_distinct_values.push_back(it == input_stats.column_stats.end() ? 0 : it->second.num_distinct_values);
         }
         std::optional<UInt64> estimated_groups
-            = estimateGroupCount(key_distinct_values, input_stats.estimated_rows, input_stats.max_rows).estimated_rows;
+            = estimateGroupCount(key_distinct_values, input_stats.estimated_rows, input_stats.max_rows, optimization_settings.group_count_damped_product).estimated_rows;
 
         /// Fall back to input row count as an upper bound when NDV is unavailable.
         if (!estimated_groups && input_stats.estimated_rows)

@@ -44,9 +44,15 @@ class UnionStep;
 class StatisticsDerivation
 {
 public:
-    explicit StatisticsDerivation(Memo & memo_, const IOptimizerStatistics & statistics_lookup_)
+    StatisticsDerivation(
+        Memo & memo_,
+        const IOptimizerStatistics & statistics_lookup_,
+        bool join_selectivity_exponential_backoff_ = false,
+        bool group_count_damped_product_ = false)
         : memo(memo_)
         , statistics_lookup(statistics_lookup_)
+        , join_selectivity_exponential_backoff(join_selectivity_exponential_backoff_)
+        , group_count_damped_product(group_count_damped_product_)
     {}
 
     /// Derive statistics for a group based on one of its logical expressions, recursively
@@ -78,6 +84,11 @@ private:
 
     Memo & memo;
     const IOptimizerStatistics & statistics_lookup;
+    /// How the selectivities of several equality predicates of one join combine; see
+    /// `combineKeySelectivities`.
+    bool join_selectivity_exponential_backoff = false;
+    /// How the NDVs of several group keys combine into a group count; see `estimateGroupCount`.
+    bool group_count_damped_product = false;
     LoggerPtr log = getLogger("StatisticsDerivation");
 };
 

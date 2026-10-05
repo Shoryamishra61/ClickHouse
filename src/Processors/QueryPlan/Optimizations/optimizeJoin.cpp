@@ -188,7 +188,7 @@ struct RuntimeHashStatisticsContext
     }
 };
 
-bool optimizeJoinLegacy(QueryPlan::Node & node, QueryPlan::Nodes & /*nodes*/, const QueryPlanOptimizationSettings &)
+bool optimizeJoinLegacy(QueryPlan::Node & node, QueryPlan::Nodes & /*nodes*/, const QueryPlanOptimizationSettings & optimization_settings)
 {
     auto * join_step = typeid_cast<JoinStep *>(node.step.get());
     if (!join_step || node.children.size() != 2 || join_step->isOptimized())
@@ -215,8 +215,9 @@ bool optimizeJoinLegacy(QueryPlan::Node & node, QueryPlan::Nodes & /*nodes*/, co
     bool need_swap = false;
     if (!join_step->swap_join_tables.has_value())
     {
-        auto lhs_extimation = estimateReadRowsCount(*node.children[0]).estimated_rows;
-        auto rhs_extimation = estimateReadRowsCount(*node.children[1]).estimated_rows;
+        const RelationEstimationSettings estimation_settings(optimization_settings);
+        auto lhs_extimation = estimateReadRowsCount(*node.children[0], nullptr, estimation_settings).estimated_rows;
+        auto rhs_extimation = estimateReadRowsCount(*node.children[1], nullptr, estimation_settings).estimated_rows;
         LOG_TRACE(getLogger("optimizeJoinLegacy"), "Left table estimation: {}, right table estimation: {}",
             lhs_extimation ? toString(lhs_extimation.value()) : "unknown",
             rhs_extimation ? toString(rhs_extimation.value()) : "unknown");
@@ -536,7 +537,7 @@ static size_t addChildQueryGraph(QueryGraphBuilder & graph, QueryPlan::Node * no
     }
 
     graph.inputs.push_back(node);
-    RelationStats stats = estimateReadRowsCount(*node);
+    RelationStats stats = estimateReadRowsCount(*node, nullptr, RelationEstimationSettings(graph.context->optimization_settings));
 
     std::optional<size_t> num_rows_from_cache = graph.context->statistics_context.getCachedHint(node);
     if (graph.context->join_settings.use_hash_table_stats_for_join_reordering && num_rows_from_cache
@@ -945,6 +946,7 @@ static QueryPlan::Node chooseJoinOrder(QueryGraphBuilder query_graph_builder, Qu
     query_graph.join_kinds = std::move(query_graph_builder.join_kinds);
     query_graph.outer_join_conditions = std::move(query_graph_builder.outer_join_conditions);
     query_graph.conflict_ops = std::move(query_graph_builder.conflict_ops);
+    query_graph.join_selectivity_exponential_backoff = query_graph_builder.context->optimization_settings.join_selectivity_exponential_backoff;
     for (size_t i = 0; i < query_graph_builder.inputs.size(); ++i)
     {
         if (typeid_cast<const JoinStepLogicalLookup *>(query_graph_builder.inputs[i]->step.get()))
