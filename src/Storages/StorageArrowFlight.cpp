@@ -48,7 +48,7 @@ namespace Setting
 StorageArrowFlight::Configuration StorageArrowFlight::getConfiguration(ASTs & args, ContextPtr context_, const StorageID * table_id, String * used_named_collection_name)
 {
     StorageArrowFlight::Configuration configuration;
-    if (auto named_collection = tryGetNamedCollectionWithOverrides(args, context_, true, nullptr, table_id, used_named_collection_name))
+    if (auto named_collection = tryGetNamedCollectionWithOverrides(args, context_, true, nullptr, table_id, /*settings=*/ nullptr, used_named_collection_name))
     {
         configuration = StorageArrowFlight::processNamedCollectionResult(*named_collection);
     }

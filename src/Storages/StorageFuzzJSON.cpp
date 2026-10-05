@@ -694,7 +694,7 @@ StorageFuzzJSON::Configuration StorageFuzzJSON::getConfiguration(ASTs & engine_a
 {
     StorageFuzzJSON::Configuration configuration{};
 
-    if (auto named_collection = tryGetNamedCollectionWithOverrides(engine_args, local_context, true, nullptr, table_id, used_named_collection_name))
+    if (auto named_collection = tryGetNamedCollectionWithOverrides(engine_args, local_context, true, nullptr, table_id, /*settings=*/ nullptr, used_named_collection_name))
     {
         /// Perform strict validation of ASTs in addition to name collection extraction.
         for (auto args_it = std::next(engine_args.begin()); args_it != engine_args.end(); ++args_it)

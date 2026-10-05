@@ -124,7 +124,7 @@ void TableFunctionURL::parseArguments(const ASTPtr & ast, ContextPtr context)
 
 void TableFunctionURL::parseArgumentsImpl(ASTs & args, const ContextPtr & context)
 {
-    if (auto named_collection = tryGetNamedCollectionWithOverrides(args, context, true, nullptr, nullptr, getUsedNamedCollectionNameForUpdate()))
+    if (auto named_collection = tryGetNamedCollectionWithOverrides(args, context, true, nullptr, nullptr, /*settings=*/ nullptr, getUsedNamedCollectionNameForUpdate()))
     {
         StorageURL::processNamedCollectionResult(configuration, *named_collection);
 
@@ -135,6 +135,10 @@ void TableFunctionURL::parseArgumentsImpl(ASTs & args, const ContextPtr & contex
         format = configuration.format;
 
         StorageURL::evalArgsAndCollectHeaders(args, configuration.headers, context);
+
+        /// Resolving the stored `url` against `url_base` replaces it, which could send the stored credentials to another host.
+        if (StorageURL::resolveURLBase(filename, context->getSettingsRef()[Setting::url_base].value) != filename)
+            checkNamedCollectionOverride(*named_collection, "url", context);
     }
     else
     {

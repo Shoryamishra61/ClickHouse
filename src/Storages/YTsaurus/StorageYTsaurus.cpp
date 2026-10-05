@@ -135,7 +135,7 @@ YTsaurusStorageConfiguration StorageYTsaurus::getConfiguration(
     const StorageID * table_id,
     String * used_named_collection_name)
 {
-    if (auto named_collection = tryGetNamedCollectionWithOverrides(engine_args, context, true, nullptr, table_id, used_named_collection_name))
+    if (auto named_collection = tryGetNamedCollectionWithOverrides(engine_args, context, true, nullptr, table_id, /*settings=*/ nullptr, used_named_collection_name))
     {
         return StorageYTsaurus::processNamedCollectionResult(*named_collection, settings);
     }

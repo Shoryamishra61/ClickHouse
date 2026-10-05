@@ -96,7 +96,7 @@ ParsedRemoteFunctionArguments parseRemoteFunctionArguments(
     const bool throw_unknown_collection = second_arg_function && second_arg_function->name == "equals";
     if (!is_cluster_function)
         named_collection = tryGetNamedCollectionWithOverrides(
-            args, context, throw_unknown_collection, &complex_args, dependent_table_id, used_named_collection_name);
+            args, context, throw_unknown_collection, &complex_args, dependent_table_id, /*settings=*/ nullptr, used_named_collection_name);
 
     if (named_collection)
     {
