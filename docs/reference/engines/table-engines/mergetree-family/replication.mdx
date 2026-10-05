@@ -7,7 +7,9 @@ doc_type: 'reference'
 ---
 
 <Note>
-In ClickHouse Cloud replication is managed for you. Please create your tables without adding arguments.  For example, in the text below you would replace:
+In ClickHouse Cloud replication is managed for you. You don't need to change the server configuration. ClickHouse Cloud manages ClickHouse Keeper, the `zookeeper` section, and the `{shard}` and `{replica}` macros. The server configuration steps on this page apply only to self-managed ClickHouse.
+
+Create your tables without adding arguments. For example, in the text below you would replace:
 
 ```sql
 ENGINE = ReplicatedMergeTree(
@@ -49,6 +51,8 @@ Compressed data for `INSERT` and `ALTER` queries is replicated (for more informa
 ClickHouse uses [ClickHouse Keeper](/guides/oss/deployment-and-scaling/keeper/index) for storing replicas meta information. It is possible to use ZooKeeper version 3.4.5 or newer, but ClickHouse Keeper is recommended.
 
 To use replication, set parameters in the [zookeeper](/reference/settings/server-settings/settings/zookeeper#zookeeper) server configuration section.
+
+This step applies only to self-managed ClickHouse. In ClickHouse Cloud, you can skip it.
 
 <Note>
 Don't neglect the security setting. ClickHouse supports the `digest` [ACL scheme](https://zookeeper.apache.org/doc/current/zookeeperProgrammers.html#sc_ZooKeeperAccessControl) of the ZooKeeper security subsystem.
