@@ -2,26 +2,24 @@
 slug: /clickstack/observability/example-datasets/local-data
 title: 'Local logs & metrics'
 toc_max_heading_level: 2
-description: 'Getting started with ClickStack local and system data and metrics'
+description: 'Collect local logs and system metrics with fully managed ClickHouse Observability'
 doc_type: 'guide'
 keywords: ['clickstack', 'example data', 'sample dataset', 'logs', 'observability']
 sidebarTitle: 'Local logs & metrics'
 ---
 
-<Warning>
-This guide is a placeholder for fully managed ClickHouse Observability. The instructions below have not yet been updated or verified for this offering and may describe a different setup.
-</Warning>
-
 import { Image } from "/snippets/components/Image.jsx";
 
-This getting started guide allows you to collect local logs and metrics from your system, sending them to ClickStack for visualization and analysis.
+Collect local logs and system metrics and send them to **ClickHouse Observability** for visualization and analysis.
 
-**This example works on OSX and Linux systems only**
+**This example uses Docker on Linux or Docker Desktop on macOS.**
 
-<Tabs>
-<Tab title="Managed ClickStack">
+Before you begin, you need:
 
-This guide assumes you have completed the [Getting Started Guide for Managed ClickStack](/clickstack/deployment/managed) and have the [connection credentials recorded](/clickstack/getting-started/managed#next-steps).
+- Docker installed and running, with permission to run `docker` commands. On macOS, start Docker Desktop.
+- An existing fully managed ClickHouse Observability service. See the [fully managed Getting Started guide](/clickstack/observability/getting-started) for an introduction to connecting your data.
+
+In your ClickHouse Observability service, open **Team Settings → Managed Telemetry** and copy the OTLP HTTP endpoint and API key.
 
 <Steps>
 <Step title="Create a custom OpenTelemetry configuration" id="create-otel-configuration">
@@ -30,272 +28,170 @@ Create a `custom-local-config.yaml` file with the following content:
 
 ```yaml
 receivers:
-  filelog:
+  file_log:
     include:
-      - /host/var/log/**/*.log        # Linux logs from host
+      - /host/var/log/**/*.log
       - /host/var/log/syslog
       - /host/var/log/messages
-      - /host/private/var/log/*.log   # macOS logs from host
-    start_at: beginning
+    start_at: end
     resource:
-      service.name: "system-logs"
+      service.name: system-logs
 
-  hostmetrics:
-    collection_interval: 1s
+  host_metrics:
+    root_path: ${env:HOST_METRICS_ROOT_PATH}
+    collection_interval: 30s
     scrapers:
       cpu:
         metrics:
-          system.cpu.time:
-            enabled: true
           system.cpu.utilization:
             enabled: true
       memory:
         metrics:
-          system.memory.usage:
-            enabled: true
           system.memory.utilization:
             enabled: true
       filesystem:
-        metrics:
-          system.filesystem.usage:
-            enabled: true
-          system.filesystem.utilization:
-            enabled: true
       paging:
-        metrics:
-          system.paging.usage:
-            enabled: true
-          system.paging.utilization:
-            enabled: true
-          system.paging.faults:
-            enabled: true
       disk:
       load:
       network:
-      processes:
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+    spike_limit_mib: 64
+  resource:
+    attributes:
+      - key: host.name
+        value: ${env:HOST_NAME}
+        action: upsert
+  batch:
+    timeout: 5s
+    send_batch_size: 1024
+
+exporters:
+  otlp_http:
+    endpoint: ${env:OTEL_EXPORTER_OTLP_ENDPOINT}
+    headers:
+      authorization: "Bearer ${env:OTEL_EXPORTER_OTLP_API_KEY}"
 
 service:
   pipelines:
-    logs/local:
-      receivers: [filelog]
-      processors:
-        - memory_limiter
-        - batch
-      exporters:
-        - clickhouse
-    metrics/hostmetrics:
-      receivers: [hostmetrics]
-      processors:
-        - memory_limiter
-        - batch
-      exporters:
-        - clickhouse
+    logs:
+      receivers: [file_log]
+      processors: [memory_limiter, resource, batch]
+      exporters: [otlp_http]
+    metrics:
+      receivers: [host_metrics]
+      processors: [memory_limiter, resource, batch]
+      exporters: [otlp_http]
 ```
 
-This configuration collects system logs and metrics for OSX and Linux systems, sending the results to ClickStack. The configuration extends the ClickStack collector by adding new receivers and pipelines—you reference the existing `clickhouse` exporter and processors (`memory_limiter`, `batch`) that are already configured in the base ClickStack collector.
+The `file_log` receiver tails local log files, and the `host_metrics` receiver collects system metrics. Both pipelines send data to your managed telemetry endpoint over HTTPS.
 
 <Info>
-**Ingestion timestamps**
-
-This configuration adjusts timestamps at ingest, assigning an updated time value to each event. You should ideally [preprocess or parse timestamps](/clickstack/ingesting-data/collector#processing-filtering-transforming-enriching) using OTel processors or operators in their log files to ensure accurate event time is retained.
-
-With this example setup, if the receiver or file processor is configured to start at the beginning of the file, all existing log entries will be assigned the same adjusted timestamp - the time of processing rather than the original event time. Any new events appended to the file will receive timestamps approximating their actual generation time.
-
-To avoid this behavior, you can set the start position to `end` in the receiver configuration. This ensures only new entries are ingested and timestamped near their true arrival time.
+This example reads new log entries only (`start_at: end`). It does not parse timestamps from the log body. Add a timestamp parser to the file receiver if you need to preserve the original event time. Use `start_at: beginning` to also ingest existing entries in newly discovered files.
 </Info>
 
 For more details on the OpenTelemetry (OTel) configuration structure, we recommend [the official guide](https://opentelemetry.io/docs/collector/configuration/).
 </Step>
 <Step title="Start the OpenTelemetry collector" id="start-the-otel-collector">
 
-Run a standalone collector with the following command:
+Set the endpoint and API key copied from **Team Settings → Managed Telemetry**:
 
 ```shell
-docker run -d \
-  -p 4317:4317 -p 4318:4318 \
-  --user 0:0 \
-  -e CUSTOM_OTELCOL_CONFIG_FILE=/etc/otelcol-contrib/custom.config.yaml \
-  -e CLICKHOUSE_ENDPOINT=${CLICKHOUSE_ENDPOINT} \
-  -e CLICKHOUSE_USER=${CLICKHOUSE_USER} \
-  -e CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD} \
-  -v "$(pwd)/custom-local-config.yaml:/etc/otelcol-contrib/custom.config.yaml:ro" \
-  -v /var/log:/host/var/log:ro \
-  -v /private/var/log:/host/private/var/log:ro \
-  clickhouse/clickstack-otel-collector:latest
+export OTEL_EXPORTER_OTLP_ENDPOINT='https://YOUR_OTEL_ENDPOINT:4318'
+printf "API key: "
+read -r -s OTEL_EXPORTER_OTLP_API_KEY
+printf "\n"
+export OTEL_EXPORTER_OTLP_API_KEY
 ```
 
-The collector will immediately begin collecting local system logs and metrics.
-</Step>
-<Step title="Select your service" id="select-your-service">
+The endpoint is the base OTLP HTTP URL, without `/v1/logs` or `/v1/metrics`. The collector appends the appropriate path.
 
-Select the service with Managed ClickStack from the main ClickHouse cloud landing page.
+<Tabs>
+<Tab title="Linux">
 
-<Image img="/images/clickstack/select_service.webp" alt="Select Service" size="lg"/>
+Mount the host filesystem read-only so the collector can read host metrics and log files:
+
+```shell
+docker run -d --name local-otel-collector \
+  --user 0:0 \
+  -e OTEL_EXPORTER_OTLP_ENDPOINT \
+  -e OTEL_EXPORTER_OTLP_API_KEY \
+  -e HOST_NAME="$(hostname)" \
+  -e HOST_METRICS_ROOT_PATH=/hostfs \
+  -v "$(pwd)/custom-local-config.yaml:/etc/otelcol-contrib/config.yaml:ro" \
+  -v /:/hostfs:ro \
+  -v /var/log:/host/var/log:ro \
+  otel/opentelemetry-collector-contrib:0.161.0
+```
+
+</Tab>
+<Tab title="macOS (Docker Desktop)">
+
+Mount the macOS log directory read-only. Metrics describe the Docker Desktop Linux VM and use a corresponding host label:
+
+```shell
+docker run -d --name local-otel-collector \
+  --user 0:0 \
+  -e OTEL_EXPORTER_OTLP_ENDPOINT \
+  -e OTEL_EXPORTER_OTLP_API_KEY \
+  -e HOST_NAME="$(hostname)-docker-desktop" \
+  -e HOST_METRICS_ROOT_PATH=/ \
+  -v "$(pwd)/custom-local-config.yaml:/etc/otelcol-contrib/config.yaml:ro" \
+  -v /private/var/log:/host/var/log:ro \
+  otel/opentelemetry-collector-contrib:0.161.0
+```
+
+Docker Desktop must have permission to share `/private/var/log`.
+
+</Tab>
+</Tabs>
+
+Check that the collector starts without configuration or export errors:
+
+```shell
+docker logs local-otel-collector
+```
+
+Metrics are collected every 30 seconds. Logs appear when new entries are appended to a matching file. Keep the collector running while you explore the data in the following steps.
 </Step>
 <Step title="Explore system logs" id="navigate-to-the-hyperdx-ui">
 
-Select `ClickStack` from the left menu to navigate to the ClickStack UI, where you will be automatically authenticated.
+Open [Search](/clickstack/observability/features/search) and select the **Logs** source. Choose a time range that includes when the collector was running, then filter **ServiceName** to `system-logs` to find the logs collected by this configuration:
 
-The search UI should be populated with local system logs. Expand the filters to select the `system.log`:
+Expand an event to inspect its attributes. The example below shows a verification message collected from a local `system.log` file, with `service.name` set to `system-logs` and `host.name` set to `local-docs-docker-desktop`.
 
-<Image img="/images/use-cases/observability/hyperdx-20.webp" alt="HyperDX Local logs" size="lg"/>
+<Image img="/images/clickstack/observability-local-logs.png" alt="Local sample log in fully managed ClickHouse Observability, showing the log file name and host attributes" size="lg"/>
 </Step>
 <Step title="Explore system metrics" id="explore-system-metrics">
 
-We can explore our metrics using charts.
+Open **Chart Explorer** and select **Time Series** and the **Metrics** source. Choose **Maximum** as the aggregation, then select `system.memory.utilization`. Leave **Delta** unchecked.
 
-Navigate to the Chart Explorer via the left menu. Select the source `Metrics` and `Maximum` as the aggregation type. 
+In the **Where** field, use the following Lucene filter, replacing `YOUR_HOST_NAME` with the `HOST_NAME` value passed to the collector:
 
-For the `Select a Metric` menu simply type `memory` before selecting `system.memory.utilization (Gauge)`.
+```text
+Attributes.state:"used" AND ResourceAttributes.host.name:"YOUR_HOST_NAME"
+```
 
-Press the run button to visualize your memory utilization over time.
+Select a time range that includes when the collector was running, then select **Run**. The example below shows used memory utilization for `local-docs-docker-desktop`. The metric is a ratio from 0 to 1: a value of `0.62` represents 62% utilization.
 
-<Image img="/images/use-cases/observability/hyperdx-21.webp" alt="Memory over time" size="lg"/>
+<Image img="/images/clickstack/observability-local-memory-utilization.png" alt="Memory utilization filtered to used memory on the local Docker Desktop test host in fully managed ClickHouse Observability" size="lg"/>
 
-Note the number is returned as a floating point `%`. To render it more clearly, select `Set number format`. 
+To display utilization as a percentage, open **Display Settings** and choose **Percentage** from **Output format**.
 
-<Image img="/images/use-cases/observability/hyperdx-22.webp" alt="Number format" size="lg"/>
+<Image img="/images/clickstack/observability-local-memory-display-settings.png" alt="Chart Explorer Display Settings with Percentage selected as the output format" size="lg"/>
 
-From the subsequent menu you can select `Percentage` from the `Output format` drop down before clicking `Apply`.
+Select **Apply** to update the chart.
 
-<Image img="/images/use-cases/observability/hyperdx-23.webp" alt="Memory % of time" size="lg"/>
+<Image img="/images/clickstack/observability-local-memory-percentage.png" alt="Memory utilization displayed as a percentage for the local Docker Desktop test host" size="lg"/>
 </Step>
 </Steps>
 
-</Tab>
-<Tab title="ClickStack Open Source">
-
-### Create a custom OpenTelemetry configuration {#create-otel-configuration-oss}
-
-Create a `custom-local-config.yaml` file with the following content:
-
-```yaml
-receivers:
-  filelog:
-    include:
-      - /host/var/log/**/*.log        # Linux logs from host
-      - /host/var/log/syslog
-      - /host/var/log/messages
-      - /host/private/var/log/*.log   # macOS logs from host
-    start_at: beginning
-    resource:
-      service.name: "system-logs"
-
-  hostmetrics:
-    collection_interval: 1s
-    scrapers:
-      cpu:
-        metrics:
-          system.cpu.time:
-            enabled: true
-          system.cpu.utilization:
-            enabled: true
-      memory:
-        metrics:
-          system.memory.usage:
-            enabled: true
-          system.memory.utilization:
-            enabled: true
-      filesystem:
-        metrics:
-          system.filesystem.usage:
-            enabled: true
-          system.filesystem.utilization:
-            enabled: true
-      paging:
-        metrics:
-          system.paging.usage:
-            enabled: true
-          system.paging.utilization:
-            enabled: true
-          system.paging.faults:
-            enabled: true
-      disk:
-      load:
-      network:
-      processes:
-
-service:
-  pipelines:
-    logs/local:
-      receivers: [filelog]
-      processors:
-        - memory_limiter
-        - batch
-      exporters:
-        - clickhouse
-    metrics/hostmetrics:
-      receivers: [hostmetrics]
-      processors:
-        - memory_limiter
-        - batch
-      exporters:
-        - clickhouse
-```
-
-This configuration collects system logs and metrics for OSX and Linux systems, sending the results to ClickStack. The configuration extends the ClickStack collector by adding new receivers and pipelines—you reference the existing `clickhouse` exporter and processors (`memory_limiter`, `batch`) that are already configured in the base ClickStack collector.
-
-<Info>
-**Ingestion timestamps**
-
-This configuration adjusts timestamps at ingest, assigning an updated time value to each event. You should ideally [preprocess or parse timestamps](/clickstack/ingesting-data/collector#processing-filtering-transforming-enriching) using OTel processors or operators in their log files to ensure accurate event time is retained.
-
-With this example setup, if the receiver or file processor is configured to start at the beginning of the file, all existing log entries will be assigned the same adjusted timestamp - the time of processing rather than the original event time. Any new events appended to the file will receive timestamps approximating their actual generation time.
-
-To avoid this behavior, you can set the start position to `end` in the receiver configuration. This ensures only new entries are ingested and timestamped near their true arrival time.
-</Info>
-
-For more details on the OpenTelemetry (OTel) configuration structure, we recommend [the official guide](https://opentelemetry.io/docs/collector/configuration/).
-
-### Start ClickStack with custom configuration {#start-clickstack}
-
-Run the following docker command to start the all-in-one container with your custom configuration:
+When you finish, stop collection and remove the container:
 
 ```shell
-docker run -d --name clickstack \
-  -p 8080:8080 -p 4317:4317 -p 4318:4318 \
-  --user 0:0 \
-  -e CUSTOM_OTELCOL_CONFIG_FILE=/etc/otelcol-contrib/custom.config.yaml \
-  -v "$(pwd)/custom-local-config.yaml:/etc/otelcol-contrib/custom.config.yaml:ro" \
-  -v /var/log:/host/var/log:ro \
-  -v /private/var/log:/host/private/var/log:ro \
-  clickhouse/clickstack-all-in-one:latest
+docker stop local-otel-collector
+docker rm local-otel-collector
 ```
-
-<Info>
-**Root user**
-
-We run the collector as the root user to access all system logs—this is necessary to capture logs from protected paths on Linux-based systems. However, this approach isn't recommended for production. In production environments, the OpenTelemetry Collector should be deployed as a local agent with only the minimal permissions required to access the intended log sources.
-
-Note that we mount the host's `/var/log` to `/host/var/log` inside the container to avoid conflicts with the container's own log files.
-</Info>
-
-### Explore system logs {#navigate-to-the-hyperdx-ui-oss}
-
-Visit [http://localhost:8080](http://localhost:8080) to access the ClickStack UI if deploying locally. 
-
-Data sources should be pre-created for you. The search UI should be populated with local system logs. Expand the filters to select the `system.log`:
-
-<Image img="/images/use-cases/observability/hyperdx-20.webp" alt="HyperDX Local logs" size="lg"/>
-
-### Explore system metrics {#explore-system-metrics-oss}
-
-We can explore our metrics using charts.
-
-Navigate to the Chart Explorer via the left menu. Select the source `Metrics` and `Maximum` as the aggregation type. 
-
-For the `Select a Metric` menu simply type `memory` before selecting `system.memory.utilization (Gauge)`.
-
-Press the run button to visualize your memory utilization over time.
-
-<Image img="/images/use-cases/observability/hyperdx-21.webp" alt="Memory over time" size="lg"/>
-
-Note the number is returned as a floating point `%`. To render it more clearly, select `Set number format`. 
-
-<Image img="/images/use-cases/observability/hyperdx-22.webp" alt="Number format" size="lg"/>
-
-From the subsequent menu you can select `Percentage` from the `Output format` drop down before clicking `Apply`.
-
-<Image img="/images/use-cases/observability/hyperdx-23.webp" alt="Memory % of time" size="lg"/>
-</Tab>
-</Tabs>
