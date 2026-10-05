@@ -70,6 +70,12 @@ CREATE DATABASE \`${CLICKHOUSE_DATABASE_1}\`;
 # The renamed-to database is absent, so this names a table that does not exist yet.
 $CLICKHOUSE_CLIENT -q "
 CREATE TABLE \`${CLICKHOUSE_DATABASE_1}\`.renamed ENGINE = Alias(\`${CLICKHOUSE_DATABASE_2}\`, renamed);
+"
+
+echo '-- RENAME DATABASE refuses to make an attached Alias self-referential'
+$CLICKHOUSE_CLIENT -q "RENAME DATABASE \`${CLICKHOUSE_DATABASE_1}\` TO \`${CLICKHOUSE_DATABASE_2}\`;" 2>&1 | grep -m 1 -o -F 'INFINITE_LOOP'
+
+$CLICKHOUSE_CLIENT -q "
 DETACH TABLE \`${CLICKHOUSE_DATABASE_1}\`.renamed;
 RENAME DATABASE \`${CLICKHOUSE_DATABASE_1}\` TO \`${CLICKHOUSE_DATABASE_2}\`;
 "
