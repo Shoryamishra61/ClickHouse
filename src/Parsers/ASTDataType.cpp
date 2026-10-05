@@ -458,6 +458,20 @@ bool substituteBareUUIDInColumnsListLiteralArgument(ASTFunction & function)
     return false;
 }
 
+/** Whether the arguments of a table function can themselves be table functions, e.g. `loop(url(...))`,
+  * `viewIfPermitted(SELECT ... ELSE url(...))` or `remote('addresses', url(...))`. Other table functions take only
+  * scalar arguments, and a scalar function among them can share its name with a table function (the string
+  * formatting `format(pattern, ...)` in `mongodb('host', 'db', format('{} {}', 'id UUID', 'x'), ...)`), so it must
+  * not be treated as one.
+  */
+bool isTableFunctionTakingTableFunctions(const ASTFunction & function)
+{
+    for (const auto * name : {"loop", "viewIfPermitted", "remote", "remoteSecure", "cluster", "clusterAllReplicas"})
+        if (equalsCaseInsensitiveString(function.name, name))
+            return true;
+    return false;
+}
+
 /** Rewrite bare `UUID` type names in a persisted definition.
   *
   * `in_table_function_position` tells whether `ast` is (or is nested inside the arguments of) a table function.
@@ -494,8 +508,12 @@ bool substituteBareUUIDInPlace(IAST & ast, bool in_table_function_position)
         table_function_child = create->as_table_function;
 
     /// A table function nested in a wrapper (for example, `loop(url(...))`) does not have a dedicated
-    /// table-expression node of its own, so the whole argument subtree of a table function keeps the position.
-    const bool propagate_position = in_table_function_position && (function || ast.as<ASTExpressionList>());
+    /// table-expression node of its own, so the direct arguments of a wrapper keep the position (through the
+    /// argument list, and through `equals` for a named argument such as `remote(collection, database = url(...))`).
+    /// Arguments of any other function, including scalar functions nested in table function arguments, do not.
+    const bool propagate_position = in_table_function_position
+        && (ast.as<ASTExpressionList>()
+            || (function && (isTableFunctionTakingTableFunctions(*function) || equalsCaseInsensitiveString(function->name, "equals"))));
 
     for (const auto & child : ast.children)
         if (child)
