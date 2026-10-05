@@ -8,6 +8,7 @@
 
 #include <Core/Settings.h>
 
+#include <Columns/ColumnsCommon.h>
 #include <Columns/ColumnsNumber.h>
 #include <Columns/FilterDescription.h>
 #include <DataTypes/DataTypesNumber.h>
@@ -377,7 +378,9 @@ private:
                 {
                     const size_t begin = granule * granule_rows;
                     const size_t end = std::min(begin + granule_rows, num_src_rows);
-                    if (std::find(combined_mask.begin() + begin, combined_mask.begin() + end, 1) != combined_mask.begin() + end)
+                    /// The mask can hold any non-zero value for a passing row: it is taken from the filter column
+                    /// as is, which is e.g. the column itself for `PREWHERE k`.
+                    if (!memoryIsZero(combined_mask.data(), begin, end))
                         continue;
                     if (!granules_without_matches.empty() && granules_without_matches.back().end == granule)
                         ++granules_without_matches.back().end;
