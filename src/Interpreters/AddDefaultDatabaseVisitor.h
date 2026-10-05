@@ -59,6 +59,14 @@ public:
         }
     }
 
+    /// Leave the qualified names (`ns.t`) as written instead of binding them to the tables they denote now (see
+    /// `visitCompound`). For the definitions loaded from the metadata: their names were bound when they were
+    /// created, and the tables they refer to may not be loaded yet, so they must not be looked up.
+    void doNotBindQualifiedNames()
+    {
+        bind_qualified_names = false;
+    }
+
     void visitDDL(ASTPtr & ast) const
     {
         visitDDLWithParent(nullptr, ast);
@@ -175,6 +183,7 @@ private:
 
     bool only_replace_current_database_function = false;
     bool only_replace_in_join = false;
+    bool bind_qualified_names = true;
 
     void visitTableExpressionsImpl(IAST & ast) const
     {
@@ -675,7 +684,7 @@ private:
     /// query (a view, `ON CLUSTER`) is not silently retargeted when a database `ns` is created later.
     void visitCompound(const ASTTableIdentifier & identifier, ASTPtr & ast) const
     {
-        if (database_name.empty())
+        if (!bind_qualified_names || database_name.empty())
             return;
 
         StorageID as_written = identifier.getTableId();
