@@ -52,6 +52,31 @@ TEST(AIAgentProtocol, ParseMultipleToolCallsAndSurroundingText)
     EXPECT_EQ(step.text, "First.\n\nBetween.\n\nAfter.");
 }
 
+TEST(AIAgentProtocol, ToolCallInCodeIsNotExecuted)
+{
+    /// A model asked to show the syntax of the protocol prints a block as an example: inside code,
+    /// it is text for the user and not a call.
+    size_t counter = 1;
+    auto step = AIServerFunctionTransport::parseResponse(
+        "The syntax is:\n"
+        "```\n"
+        "<tool_call>{\"name\": \"run_readonly_query\", \"arguments\": {\"query\": \"SELECT 1\"}}</tool_call>\n"
+        "```\n"
+        "or inline: `<tool_call>{\"name\": \"list_tables\", \"arguments\": {}}</tool_call>`.\n"
+        "<tool_call>{\"name\": \"a\", \"arguments\": {\"query\": \"SELECT `x`\"}}</tool_call>",
+        counter);
+
+    ASSERT_EQ(step.tool_calls.size(), 1u);
+    EXPECT_EQ(step.tool_calls[0].tool_name, "a");
+    EXPECT_EQ(step.tool_calls[0].arguments.at("query").get<std::string>(), "SELECT `x`");
+    EXPECT_NE(step.text.find("run_readonly_query"), String::npos);
+    EXPECT_NE(step.text.find("list_tables"), String::npos);
+
+    /// Unclosed code extends to the end: the call is shown rather than executed.
+    step = AIServerFunctionTransport::parseResponse("A stray ` and <tool_call>{\"name\": \"a\"}</tool_call>", counter);
+    EXPECT_TRUE(step.tool_calls.empty());
+}
+
 TEST(AIAgentProtocol, ParseArgumentsAsEncodedString)
 {
     size_t counter = 1;

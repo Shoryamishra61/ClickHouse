@@ -182,7 +182,9 @@ String AIServerFunctionTransport::renderSystemPrompt(const String & system_promp
         "and any text outside the blocks is shown to the user as your commentary. "
         "After your tool calls, stop and wait: the results will be provided in the next message as "
         "'Tool result [<n>]' entries, in the order of your calls. "
-        "When you do not call any tools, your message is the final answer.\n\n",
+        "When you do not call any tools, your message is the final answer. "
+        "A block inside Markdown code - a code span or a fenced code block - is not a call: "
+        "to show the syntax of a tool call without making it, put it in code.\n\n",
         out);
 
     writeString(
@@ -404,6 +406,37 @@ size_t findJSONValueEnd(const String & s, size_t start)
     return String::npos;
 }
 
+/// The position of the next `open_tag` at or after `pos` that is outside of Markdown code - a code
+/// span or a fenced code block, both opened and closed by a run of backticks of the same length -
+/// or `npos`. A tool call block inside code is an example of the syntax the model shows, e.g. when
+/// asked how the protocol looks, and must not be executed: the read-only and schema tools run
+/// without a confirmation. Code that is never closed extends to the end of the response, so a stray
+/// backtick can only make a call be shown instead of executed, never the other way around.
+size_t findToolCallOutsideCode(const String & s, size_t pos, std::string_view open_tag)
+{
+    size_t code_backticks = 0;
+    size_t i = pos;
+    while (i < s.size())
+    {
+        if (s[i] == '`')
+        {
+            size_t run = 1;
+            while (i + run < s.size() && s[i + run] == '`')
+                ++run;
+            if (code_backticks == 0)
+                code_backticks = run;
+            else if (run == code_backticks)
+                code_backticks = 0;
+            i += run;
+            continue;
+        }
+        if (code_backticks == 0 && s.compare(i, open_tag.size(), open_tag) == 0)
+            return i;
+        ++i;
+    }
+    return String::npos;
+}
+
 }
 
 AIAgentStep AIServerFunctionTransport::parseResponse(const String & response, size_t & call_id_counter)
@@ -417,7 +450,7 @@ AIAgentStep AIServerFunctionTransport::parseResponse(const String & response, si
     size_t pos = 0;
     while (pos < response.size())
     {
-        size_t open_pos = response.find(open_tag, pos);
+        size_t open_pos = findToolCallOutsideCode(response, pos, open_tag);
         if (open_pos == String::npos)
         {
             writeString(response.substr(pos), text);
