@@ -170,7 +170,7 @@ size_t tryMergeFilters(QueryPlan::Node * parent_node, QueryPlan::Nodes &, const 
     return 0;
 }
 
-/// only a dropped filter column hides its `materialize` wrapper (#78166)
+/// only a dropped filter column hides its `materialize` wrapper
 size_t tryFoldFilterThroughMaterialize(QueryPlan::Node * node, QueryPlan::Nodes &, const Optimization::ExtraSettings &)
 {
     auto * filter = typeid_cast<FilterStep *>(node->step.get());
@@ -181,7 +181,7 @@ size_t tryFoldFilterThroughMaterialize(QueryPlan::Node * node, QueryPlan::Nodes 
     const auto & filter_column_name = filter->getFilterColumnName();
     const bool folded = dag.foldFilterPredicateThroughMaterialize(filter_column_name);
 
-    /// an always-true `FilterStep` is never pushed over a join and splits the join graph (TPC-DS `query_11`)
+    /// an always-true `FilterStep` stays above a join and splits the join graph
     const auto & filter_node = dag.findInOutputs(filter_column_name);
     if (filter_node.type == ActionsDAG::ActionType::COLUMN && ConstantFilterDescription(*filter_node.column).always_true)
     {

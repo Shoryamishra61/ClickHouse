@@ -1076,7 +1076,7 @@ const std::unordered_set<std::string> & foldablePredicateFunctions()
     return functions;
 }
 
-/// evaluates on one row; `materialize` is executed, not stripped, so functions see runtime argument shapes (#121723)
+/// evaluates on one row; `materialize` is executed, not stripped, so functions see runtime argument shapes
 /// If the evaluation throws, the predicate is left unfolded and runtime keeps its exact behavior,
 /// including `short_circuit_function_evaluation` semantics for `and` / `or` arguments.
 std::optional<FoldResult> tryFoldPredicate(const ActionsDAG::Node * node, FoldCache & cache);
