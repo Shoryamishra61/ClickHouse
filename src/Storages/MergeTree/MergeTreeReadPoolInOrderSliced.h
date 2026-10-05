@@ -21,8 +21,9 @@ using ExpressionActionsPtr = std::shared_ptr<ExpressionActions>;
 /// Every part is a lane. Slices are cut from the front of the lane's unread marks (the back in reverse
 /// order), and a slice is one MergeTreeReadTask. Lanes with unread marks are queued by the primary key at
 /// their next unread mark, so the head of the queue is the slice the merge needs next, whichever part it
-/// belongs to. The slices of a lane start small and double up to `min_marks_for_concurrent_read`: the
-/// first rows of a part arrive after one granule, and a lane the merge stays on is read in large slices.
+/// belongs to. The slices of a lane start with one granule and double up to `min_marks_for_concurrent_read`:
+/// the first rows of a part arrive after one granule, and a lane the merge stays on is read in large
+/// slices.
 ///
 /// The pool owns all state and makes all decisions; MergeTreeInOrderSliceRouter only moves chunks between
 /// its ports and the pool. `schedule` cuts slices into a FIFO when the merge asks for data. Sources take
@@ -125,8 +126,6 @@ private:
         MarkRanges ranges = {};
         /// Marks when cut, counted in `issued_marks` until the slice is consumed or dropped.
         size_t marks = 0;
-        /// Rows in those marks before any filtering, to tell a slice whose rows were mostly filtered out.
-        size_t rows_in_marks = 0;
         size_t rows_received = 0;
         /// The mark the rows of the slice start at in reading order; announced while the slice is in flight.
         size_t boundary_mark = 0;
@@ -147,6 +146,9 @@ private:
         std::vector<SizedReaders> parked_readers = {};
         /// Issued slices by first mark.
         Slices slices = {};
+        /// Marks of the slices with rows the merge took in full since it last asked for the lane. They
+        /// become consumed when it asks again: then it went through them and wanted more.
+        size_t taken_marks = 0;
         /// The primary key announced to the merge last; empty before the first announcement.
         Block announced_key = {};
         /// The merge waits for this lane right now and nothing is ready for it.
@@ -195,13 +197,6 @@ private:
     const size_t num_sources;
     const size_t num_lanes;
     const size_t max_slice_marks;
-    /// Scheduling knobs, see the `read_in_order_sliced_pool_*` settings.
-    const size_t first_slice_marks;
-    const size_t read_ahead_factor;
-    const size_t min_read_ahead_marks;
-    const size_t breadth;
-    /// Marks of the slices a lane reads before its slices reach full size.
-    size_t ramp_marks = 0;
     const Block primary_key_header;
     const ExpressionActionsPtr virtual_row_conversions;
     const bool reverse;
@@ -220,10 +215,10 @@ private:
     std::vector<size_t> last_readers_marks TSA_GUARDED_BY(mutex);
     /// Marks of the slices cut and not yet consumed by the merge in full.
     size_t issued_marks TSA_GUARDED_BY(mutex) = 0;
-    /// Marks of the slices the merge has consumed: taken in full, or dropped without rows.
+    /// Marks of the slices the merge went through and asked past, and of the slices that came back
+    /// without any rows. Both are the evidence the read-ahead depth follows, see readAheadMarks.
     size_t consumed_marks TSA_GUARDED_BY(mutex) = 0;
-    /// A slice ended with most of its rows filtered out: reading, not merging, is the bottleneck.
-    bool has_miss TSA_GUARDED_BY(mutex) = false;
+    size_t empty_marks TSA_GUARDED_BY(mutex) = 0;
     /// The merge asked for a lane anew since the last `schedule`.
     bool merge_asked TSA_GUARDED_BY(mutex) = false;
     bool finished TSA_GUARDED_BY(mutex) = false;

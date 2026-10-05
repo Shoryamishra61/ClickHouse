@@ -1,21 +1,12 @@
 #include <Storages/MergeTree/MergeTreeReadPoolInOrderSliced.h>
 
 #include <Processors/Merges/Algorithms/MergeTreeReadInfo.h>
-#include <Core/Settings.h>
-#include <Interpreters/Context.h>
 
 #include <algorithm>
+#include <utility>
 
 namespace DB
 {
-
-namespace Setting
-{
-    extern const SettingsUInt64 read_in_order_sliced_pool_first_slice_marks;
-    extern const SettingsUInt64 read_in_order_sliced_pool_read_ahead_factor;
-    extern const SettingsUInt64 read_in_order_sliced_pool_min_read_ahead_marks;
-    extern const SettingsUInt64 read_in_order_sliced_pool_breadth;
-}
 
 namespace ErrorCodes
 {
@@ -162,10 +153,6 @@ MergeTreeReadPoolInOrderSliced::MergeTreeReadPoolInOrderSliced(
     , num_sources(num_sources_)
     , num_lanes(parts_ranges.size())
     , max_slice_marks(std::max<size_t>(1, pool_settings.min_marks_for_concurrent_read))
-    , first_slice_marks(std::max<size_t>(1, context_->getSettingsRef()[Setting::read_in_order_sliced_pool_first_slice_marks]))
-    , read_ahead_factor(context_->getSettingsRef()[Setting::read_in_order_sliced_pool_read_ahead_factor])
-    , min_read_ahead_marks(context_->getSettingsRef()[Setting::read_in_order_sliced_pool_min_read_ahead_marks])
-    , breadth(context_->getSettingsRef()[Setting::read_in_order_sliced_pool_breadth])
     , primary_key_header(primary_key_header_)
     , virtual_row_conversions(std::move(virtual_row_conversions_))
     , reverse(read_in_reverse_order_)
@@ -173,9 +160,6 @@ MergeTreeReadPoolInOrderSliced::MergeTreeReadPoolInOrderSliced(
     , last_task_lane(num_sources_)
     , last_readers_marks(num_sources_)
 {
-    for (size_t marks = first_slice_marks; marks < max_slice_marks; marks *= 2)
-        ramp_marks += marks;
-
     std::lock_guard lock(mutex);
 
     lanes.reserve(num_lanes);
@@ -222,7 +206,7 @@ size_t MergeTreeReadPoolInOrderSliced::laneOf(const MergeTreeSliceTag & tag) con
 size_t MergeTreeReadPoolInOrderSliced::nextSliceMarks(size_t lane) const
 {
     const auto & lane_state = lanes[lane];
-    const size_t ramp = first_slice_marks << std::min<size_t>(lane_state.slices_cut, 16);
+    const size_t ramp = size_t(1) << std::min<size_t>(lane_state.slices_cut, 16);
     return std::min({max_slice_marks, ramp, lane_state.unread.getNumberOfMarks()});
 }
 
@@ -288,16 +272,14 @@ void MergeTreeReadPoolInOrderSliced::cutSlice(size_t lane)
         throw Exception(ErrorCodes::LOGICAL_ERROR, "Lane {} has no marks left", lane);
 
     dequeueLane(lane);
-    const size_t ramp = first_slice_marks << std::min<size_t>(lane_state.slices_cut, 16);
-    MarkRanges ranges = cutMarks(lane_state.unread, std::min(max_slice_marks, ramp), reverse);
+    MarkRanges ranges = cutMarks(lane_state.unread, nextSliceMarks(lane), reverse);
     ++lane_state.slices_cut;
     enqueueLane(lane);
 
     const size_t first_mark = ranges.front().begin;
     const size_t boundary_mark = reverse ? ranges.back().end : first_mark;
     const size_t marks = ranges.getNumberOfMarks();
-    const size_t rows_in_marks = per_part_infos[lane]->data_part_info->getIndexGranularity().getRowsCountInRanges(ranges);
-    Slice slice{.ranges = std::move(ranges), .marks = marks, .rows_in_marks = rows_in_marks, .boundary_mark = boundary_mark};
+    Slice slice{.ranges = std::move(ranges), .marks = marks, .boundary_mark = boundary_mark};
 
     issued_marks += marks;
     if (!lane_state.slices.try_emplace(first_mark, std::move(slice)).second)
@@ -318,9 +300,6 @@ void MergeTreeReadPoolInOrderSliced::completeSlice(const MergeTreeSliceTag & tag
 
     auto & slice = it->second;
     slice.complete = true;
-    /// Most rows of the slice were filtered out: reading is the bottleneck, not merging.
-    if (slice.rows_received * 4 < slice.rows_in_marks)
-        has_miss = true;
     if (slice.chunks.empty())
         dropSlice(lane, it);
 }
@@ -328,7 +307,10 @@ void MergeTreeReadPoolInOrderSliced::completeSlice(const MergeTreeSliceTag & tag
 void MergeTreeReadPoolInOrderSliced::dropSlice(size_t lane, Slices::iterator slice)
 {
     issued_marks -= slice->second.marks;
-    consumed_marks += slice->second.marks;
+    if (slice->second.rows_received == 0)
+        empty_marks += slice->second.marks;
+    else
+        lanes[lane].taken_marks += slice->second.marks;
     lanes[lane].slices.erase(slice);
 }
 
@@ -366,12 +348,14 @@ Chunk MergeTreeReadPoolInOrderSliced::announce(size_t lane, size_t mark, const B
 
 size_t MergeTreeReadPoolInOrderSliced::readAheadMarks() const
 {
-    /// Nothing until a slice comes back mostly filtered out: until then merging, not reading, is the
-    /// bottleneck. Then the rest of the ramp in one round (on object storage every round of slices is a
-    /// round trip), and from there the depth follows the merge's progress, up to a full slice per source.
-    const size_t cap = num_sources * max_slice_marks;
-    const size_t after_miss = has_miss ? std::max(ramp_marks, read_ahead_factor * consumed_marks) : 0;
-    return std::min(cap, std::max(after_miss, min_read_ahead_marks));
+    /// Nothing before the merge has gone through a slice and asked for more: a query answered by its
+    /// first slices reads nothing else. From there the depth follows the evidence. A slice the merge went
+    /// through buys four times its marks: the depth follows the merge's progress, which a LIMIT may end
+    /// any moment. A slice that came back without any rows buys sixteen times its marks: the query is
+    /// scanning for rows that are far away or not there, and on object storage every round of slices is
+    /// a round trip, so the rest of a lane's ramp is read in one round and every source is reading after
+    /// a few. At most a full slice per source.
+    return std::min(num_sources * max_slice_marks, 4 * consumed_marks + 16 * empty_marks);
 }
 
 MergeTreeReadTaskPtr MergeTreeReadPoolInOrderSliced::getTask(size_t task_idx, MergeTreeReadTask * previous_task)
@@ -440,7 +424,6 @@ MergeTreeReadTaskPtr MergeTreeReadPoolInOrderSliced::getTask(size_t task_idx, Me
             /// router, which then serves the lane.
             if (ranges.empty())
             {
-                has_miss = true;
                 dropSlice(lane, lane_state.slices.find(first_mark));
                 continue;
             }
@@ -564,6 +547,10 @@ MergeTreeReadPoolInOrderSliced::Served MergeTreeReadPoolInOrderSliced::serve(siz
     if (lane_state.finished)
         return Served{.finished = true};
 
+    /// The merge asks for the lane: whatever it took in full before this, it went through and wants more.
+    /// A merge that stops after a chunk (a LIMIT) never comes back, and its slices never count.
+    consumed_marks += std::exchange(lane_state.taken_marks, 0);
+
     /// Rows leave a lane through its first issued slice only, so the lane stays in reading order.
     auto head = headSlice(lane_state);
     if (head != lane_state.slices.end() && !head->second.chunks.empty())
@@ -636,25 +623,6 @@ size_t MergeTreeReadPoolInOrderSliced::schedule(size_t idle_sources)
     /// must not trigger reads it never needs.
     if (asked || merge_waits)
     {
-        /// Breadth: lanes with nothing in flight start their next slice whatever the budget, in key order.
-        if (breadth > 0)
-        {
-            std::vector<size_t> idle_lanes;
-            for (const auto & queued : queue)
-            {
-                if (idle_lanes.size() >= breadth)
-                    break;
-                if (lanes[queued.lane].slices.empty())
-                    idle_lanes.push_back(queued.lane);
-            }
-            for (size_t lane : idle_lanes)
-            {
-                if (!can_cut())
-                    return fifo.size();
-                cutSlice(lane);
-            }
-        }
-
         /// Read ahead in the order the merge is going to need the data, never past the budget.
         const size_t budget = readAheadMarks();
         while (auto lane = nextLane())
