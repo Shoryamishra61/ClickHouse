@@ -51,8 +51,25 @@ void writeMessageToFile(
     const std::string & write_if_match = "",
     DB::CompressionMethod compression_method = DB::CompressionMethod::None);
 
-/// Tries to write metadata file and version hint file. Uses If-None-Match header to avoid overwriting existing files.
-/// Returns false if the metadata file could not be committed.
+/// Writes the metadata file with If-None-Match; false means the write was not confirmed or the path already exists.
+bool writeMetadataFile(
+    const IcebergPathResolver & resolver,
+    const DB::GeneratedMetadataFileWithInfo & metadata_file_info,
+    const std::string & metadata_file_content,
+    DB::ObjectStoragePtr object_storage,
+    DB::ContextPtr context);
+
+/// Advances the hint, creating it when requested; exact mode confirms that it resolves to this metadata file.
+bool tryWriteVersionHintFile(
+    const IcebergPathResolver & resolver,
+    const DB::GeneratedMetadataFileWithInfo & metadata_file_info,
+    const IcebergPathFromMetadata & version_hint_path,
+    DB::ObjectStoragePtr object_storage,
+    DB::ContextPtr context,
+    bool create,
+    bool assert_version_exactly);
+
+/// Existing callers keep the opportunistic hint update, including updates of an already-existing hint.
 bool writeMetadataFileAndVersionHint(
     const IcebergPathResolver & resolver,
     const DB::GeneratedMetadataFileWithInfo & metadata_file_info,
@@ -60,8 +77,7 @@ bool writeMetadataFileAndVersionHint(
     const IcebergPathFromMetadata & version_hint_path,
     DB::ObjectStoragePtr object_storage,
     DB::ContextPtr context,
-    bool try_write_version_hint,
-    bool * version_hint_confirmed = nullptr);
+    bool try_write_version_hint);
 
 struct TransformAndArgument
 {

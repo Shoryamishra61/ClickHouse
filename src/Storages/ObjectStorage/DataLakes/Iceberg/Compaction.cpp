@@ -1037,7 +1037,7 @@ void checkIfIcebergHistorySupported(const IcebergHistory & history)
 
 }
 
-static void writeMetadataFiles(
+static bool writeMetadataFiles(
     Plan & plan, const IcebergPathResolver & path_resolver, ObjectStoragePtr object_storage, ContextPtr context, SharedHeader sample_block_, String write_format, String table_path)
 {
     auto log = getLogger("IcebergCompaction");
@@ -1339,22 +1339,22 @@ static void writeMetadataFiles(
         std::string json_representation = stringifyJSON(metadata_object, 4);
 
         auto hint_path = plan.generator.generateVersionHint();
-        bool version_hint_confirmed = false;
-        if (!writeMetadataFileAndVersionHint(
+        if (!writeMetadataFile(
                 path_resolver,
                 generated_metadata_info,
                 json_representation,
-                hint_path,
                 object_storage,
-                context,
-                /* try_write_version_hint */ true,
-                &version_hint_confirmed))
+                context))
             throw Exception(ErrorCodes::FILE_ALREADY_EXISTS, "Metadata file {} already exists", generated_metadata_info.path.serialize());
-        if (!version_hint_confirmed)
-            throw Exception(
-                ErrorCodes::LOGICAL_ERROR,
-                "Metadata file {} was written but version-hint.text was not confirmed; old files were not removed",
-                generated_metadata_info.path.serialize());
+
+        return tryWriteVersionHintFile(
+            path_resolver,
+            generated_metadata_info,
+            hint_path,
+            object_storage,
+            context,
+            /* create */ true,
+            /* assert_version_exactly */ true);
     }
 }
 
@@ -1505,8 +1505,10 @@ void compactIcebergTable(
             context_,
             write_format,
             persistent_table_components.metadata_compression_method);
-        writeMetadataFiles(plan, persistent_table_components.path_resolver, object_storage_, context_, sample_block_, write_format, persistent_table_components.table_path);
-        clearOldFiles(object_storage_, old_files);
+        if (writeMetadataFiles(plan, persistent_table_components.path_resolver, object_storage_, context_, sample_block_, write_format, persistent_table_components.table_path))
+            clearOldFiles(object_storage_, old_files);
+        else
+            LOG_WARNING(getLogger("IcebergCompaction"), "Compacted metadata was written but its version hint was not confirmed; old files were retained");
     }
 }
 
