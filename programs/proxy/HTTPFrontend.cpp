@@ -249,7 +249,7 @@ void handleHTTP(FiberSocket & client, const FrontendContext & ctx)
                 body_framing.content_length = content_length;
         }
         else if (name == "transfer-encoding")
-            body_framing.chunked |= Poco::toLower(value).find("chunked") != String::npos;
+            body_framing.chunked |= Poco::toLower(value).contains("chunked");
         else if (name == "content-encoding")
             body_framing.encoded |= !value.empty() && Poco::icompare(value, "identity") != 0;
         else if (name == "expect")
