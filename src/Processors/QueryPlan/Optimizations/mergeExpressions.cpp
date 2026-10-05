@@ -170,7 +170,7 @@ size_t tryMergeFilters(QueryPlan::Node * parent_node, QueryPlan::Nodes &, const 
     return 0;
 }
 
-/// an always-true `FilterStep` is never pushed over a join and splits the join graph (TPC-DS `query_11`)
+/// an always-true `FilterStep` stays above a join and splits the join graph
 size_t tryReplaceAlwaysTrueFilter(QueryPlan::Node * node, QueryPlan::Nodes &, const Optimization::ExtraSettings &)
 {
     auto * filter = typeid_cast<FilterStep *>(node->step.get());
