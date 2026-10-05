@@ -11,6 +11,11 @@
 namespace DB
 {
 
+namespace ErrorCodes
+{
+    extern const int TABLE_IS_DROPPED;
+}
+
 /// Lazily creates underlying storage for tables in databases with `lazy_load_tables` setting.
 /// Similar to `StorageTableFunctionProxy`, but for real on-disk tables.
 class StorageTableProxy final : public StorageProxy
@@ -102,6 +107,14 @@ public:
         if (nested)
             return nested;
 
+        /// `DETACH`, `DROP` and the server shutdown call `shutdown` before they stop tracking the table,
+        /// and they track only what exists by then: the stand-in, or the storage behind it if it has been
+        /// materialized. A storage started up after that would run its background tasks for a table that
+        /// is no longer attached, outside of the tracking that `cleanupDetachedTables` and the dropped
+        /// tables queue rely on. The flags cover a stand-in that is detached or dropped without `shutdown`.
+        if (shutdown_called || is_detached || is_dropped)
+            throw Exception(ErrorCodes::TABLE_IS_DROPPED, "Table {} is dropped or detached", getStorageID().getNameForLogs());
+
         LOG_TRACE(log, "Loading lazy table on first access");
 
         auto nested_storage = get_nested();
@@ -126,6 +139,7 @@ public:
     void shutdown(bool is_drop) override
     {
         std::lock_guard lock{nested_mutex};
+        shutdown_called = true;
         if (nested)
             nested->shutdown(is_drop);
     }
@@ -251,6 +265,7 @@ private:
     mutable std::recursive_mutex nested_mutex; /// Guards both `get_nested` and `nested`.
     mutable std::function<StoragePtr()> get_nested; /// Factory that creates the real storage. Cleared after first use.
     mutable StoragePtr nested; /// The materialized real storage, set on first access.
+    bool shutdown_called = false; /// Forbids the first materialization, see `getNested`. Guarded by `nested_mutex`.
     LoggerPtr log;
 };
 
