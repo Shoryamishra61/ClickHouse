@@ -141,6 +141,13 @@ struct QueryGraph
     /// other algorithm may plan it, and DPsub must not turn it down.
     bool requires_conflict_detector = false;
 
+    /// The two input subtrees of every cross product of the original tree (`CROSS JOIN`, a comma join,
+    /// or an inner join without any condition). A cross product joins on nothing, so it adds no edge,
+    /// and a graph that only cross products hold together would otherwise fall apart. Each one links
+    /// its two sides instead, as a join with selectivity 1: the reordered join it ends up as still has
+    /// no condition, so it stays `Cross`.
+    std::vector<std::pair<BitSet, BitSet>> cross_product_links;
+
     /// Column equivalence classes derived from equi-join edges (e.g., A.x = B.x AND B.x = C.x
     /// implies A.x, B.x, C.x are all equivalent). Used by the join order optimizer to detect
     /// transitive connectivity between relations without synthesizing extra edges.

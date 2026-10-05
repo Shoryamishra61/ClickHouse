@@ -299,6 +299,8 @@ struct QueryGraphBuilder
     /// See QueryGraph::null_supplying_subtree_relations and QueryGraph::requires_conflict_detector
     BitSet null_supplying_subtree_relations;
     bool requires_conflict_detector = false;
+    /// See QueryGraph::cross_product_links
+    std::vector<std::pair<BitSet, BitSet>> cross_product_links;
 
     /// One record per binary join operator of the original tree, captured for the optional conflict
     /// detector (CD-A/CD-C). Relation ids are local to this (sub)graph and shifted in `uniteGraphs`.
@@ -396,6 +398,13 @@ static void uniteGraphs(QueryGraphBuilder & lhs, QueryGraphBuilder rhs)
     rhs.null_supplying_subtree_relations.shift(shift);
     lhs.null_supplying_subtree_relations |= rhs.null_supplying_subtree_relations;
     lhs.requires_conflict_detector = lhs.requires_conflict_detector || rhs.requires_conflict_detector;
+
+    for (auto & [left, right] : rhs.cross_product_links)
+    {
+        left.shift(shift);
+        right.shift(shift);
+        lhs.cross_product_links.emplace_back(std::move(left), std::move(right));
+    }
 }
 
 void buildQueryGraph(QueryGraphBuilder & query_graph, QueryPlan::Node & node, QueryPlan::Nodes & nodes, int join_steps_limit);
@@ -895,6 +904,13 @@ void buildQueryGraph(QueryGraphBuilder & query_graph, QueryPlan::Node & node, Qu
     /// by `uniteGraphs`.
     query_graph.conflict_ops.push_back(ConflictJoinOp{left_mask, right_mask, join_expression_sources, cda_nr_rels, join_kind, join_operator.strictness});
 
+    /// A cross product, or an inner join whose condition does not reference both sides (`ON 1`,
+    /// `ON t2.x = 5`, which is a cross product followed by a filter), links its two sides; see
+    /// `QueryGraph::cross_product_links`.
+    const bool condition_spans_sides = areIntersecting(join_expression_sources, left_mask) && areIntersecting(join_expression_sources, right_mask);
+    if (isCrossOrComma(join_kind) || (isInner(join_kind) && !condition_spans_sides))
+        query_graph.cross_product_links.emplace_back(left_mask, right_mask);
+
     /// `join_kinds` describes a null-supplying side of a single relation. Only the conflict detector
     /// flattens a larger one (see `isFlattenableJoinSide`), and it goes by `conflict_ops` instead; the
     /// relations of such a side are only kept out of column equivalences, and the graph is left to
@@ -1010,6 +1026,7 @@ static QueryPlan::Node chooseJoinOrder(QueryGraphBuilder query_graph_builder, Qu
     query_graph.semi_anti_flattened = query_graph_builder.context->allow_semi_anti_flattening;
     query_graph.join_strictness = join_strictness;
     query_graph.null_supplying_subtree_relations = std::move(query_graph_builder.null_supplying_subtree_relations);
+    query_graph.cross_product_links = std::move(query_graph_builder.cross_product_links);
     query_graph.requires_conflict_detector = query_graph_builder.requires_conflict_detector
         || (query_graph.semi_anti_flattened
             && std::ranges::any_of(query_graph.conflict_ops, [](const auto & op) { return op.strictness != JoinStrictness::All; }));

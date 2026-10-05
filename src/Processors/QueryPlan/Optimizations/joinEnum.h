@@ -124,6 +124,30 @@ void EnumCcpSub<TConsumer, TDPTable, TQueryGraph>::initDPTable(TDPTable & dp_tab
         dp_table[right_mask].column_stats = query_graph.relation_stats[relations[1]].column_stats;
     }
 
+    /// A cross product links its two sides (see `QueryGraph::cross_product_links`): it joins on
+    /// nothing, so it is an inner join of selectivity 1 that may go anywhere an inner join may, and
+    /// the validity check still gates every ordering. Seeded whatever the conflict detector, so a
+    /// graph that cross products hold together is connected for DPsub.
+    for (const auto & [left, right] : query_graph.cross_product_links)
+    {
+        if (!left || !right)
+            continue;
+        const size_t rep_left = *left.begin();
+        const size_t rep_right = *right.begin();
+        const UInt left_mask = static_cast<UInt>(1) << rep_left;
+        const UInt right_mask = static_cast<UInt>(1) << rep_right;
+
+        dp_table[left_mask].neighbor |= right_mask;
+        dp_table[left_mask].estimated_rows = query_graph.relation_stats[rep_left].estimated_rows;
+        dp_table[left_mask].sel = 1.0;
+        dp_table[left_mask].column_stats = query_graph.relation_stats[rep_left].column_stats;
+
+        dp_table[right_mask].neighbor |= left_mask;
+        dp_table[right_mask].estimated_rows = query_graph.relation_stats[rep_right].estimated_rows;
+        dp_table[right_mask].sel = 1.0;
+        dp_table[right_mask].column_stats = query_graph.relation_stats[rep_right].column_stats;
+    }
+
     /// A join whose ON clause references only one input side (or none -- a cross product) adds no
     /// binary edge, so its two subtrees are never linked and DPsub cannot assemble the full set.
     /// Seed one connectivity link per such operator so its relation set is reachable; the validity

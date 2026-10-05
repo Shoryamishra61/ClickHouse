@@ -221,11 +221,10 @@ void DPSubJoinOrderOptimizer::initDPsubScratch()
     dpsub_data.class_visited.assign(dpsub_data.equiv_classes.size(), 0);
     dpsub_data.equiv_generation = 0;
 
-    /// Connectivity: every predicate over two or more relations, plus, with a conflict detector, one
-    /// link per operator whose predicate does not span its two sides.
-    /// Cross products are left out - they join on nothing, so a graph they alone hold together is
-    /// disconnected. A query whose other predicates tie the same relations together still counts as
-    /// connected, which is what lets DPsub plan a cross product feeding an inner join.
+    /// Connectivity: every predicate over two or more relations, every cross product (it links its two
+    /// sides, see `QueryGraph::cross_product_links`), plus, with a conflict detector, one link per
+    /// operator whose predicate does not span its two sides. What is still disconnected after that
+    /// cannot be stitched together by DPsub.
     std::vector<size_t> component(num_relations);
     for (size_t i = 0; i < num_relations; ++i)
         component[i] = i;
@@ -260,16 +259,19 @@ void DPSubJoinOrderOptimizer::initDPsubScratch()
             unite(lowest, rest & (~rest + 1));
     }
 
-    /// `initDPTable` seeds an operator link only for a degenerate operator - one whose predicate does
-    /// not span its two sides. A spanning predicate is already linked by its binary edge above, and
-    /// uniting the operator's whole subtrees instead would attach a relation that only a nested cross
-    /// product holds on (`t1` in `t1 CROSS JOIN t2 JOIN t3 ON t2.k = t3.k`).
+    /// An operator counts here only when degenerate - its predicate does not span its two sides. A
+    /// spanning predicate is already linked by its edge above, and uniting the operator's whole
+    /// subtrees instead would attach a relation that only a nested cross product holds on (`t1` in
+    /// `t1 CROSS JOIN t2 JOIN t3 ON t2.k = t3.k`); that one is linked by its cross product below.
     for (const auto & op : dpsub_data.conflict_operators)
     {
         if (isCrossOrComma(op.kind) || !op.degenerate)
             continue;
         unite(op.left_relations, op.relations & ~op.left_relations);
     }
+
+    for (const auto & [left, right] : query_graph.cross_product_links)
+        unite(toMask(left), toMask(right));
 
     dpsub_data.disconnected_graph = false;
     for (size_t i = 1; i < num_relations; ++i)
