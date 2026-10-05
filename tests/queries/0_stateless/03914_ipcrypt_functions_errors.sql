@@ -19,6 +19,8 @@ SELECT ipcryptEncrypt(toIPv4('1.2.3.4'), 'ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ'); --
 -- Malformed string IP input
 SELECT ipcryptEncrypt('not_an_ip', unhex('00112233445566778899aabbccddeeff')); -- { serverError BAD_ARGUMENTS }
 SELECT ipcryptEncrypt('999.999.999.999', unhex('00112233445566778899aabbccddeeff')); -- { serverError BAD_ARGUMENTS }
+SELECT ipcryptEncrypt('1.2.3.4junk', unhex('00112233445566778899aabbccddeeff')); -- { serverError BAD_ARGUMENTS }
+SELECT ipcryptPrefixEncrypt('2001:db8::1 trailing', unhex('00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100')); -- { serverError BAD_ARGUMENTS }
 
 -- Prefix-preserving key with identical halves
 SELECT ipcryptPrefixEncrypt(toIPv4('1.2.3.4'), unhex('00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff')); -- { serverError BAD_ARGUMENTS }

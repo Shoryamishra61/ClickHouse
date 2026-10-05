@@ -222,7 +222,8 @@ private:
     {
         const char * pos = src;
         const char * end = src + str_len;
-        if (!parseIPv6orIPv4(pos, [&]() { return pos >= end; }, reinterpret_cast<unsigned char *>(buf)))
+        /// The whole string must be consumed, as in `toIPv4` / `toIPv6`: reject trailing garbage like `1.2.3.4junk`.
+        if (!parseIPv6orIPv4(pos, [&]() { return pos >= end; }, reinterpret_cast<unsigned char *>(buf)) || pos != end)
             throw Exception(
                 ErrorCodes::BAD_ARGUMENTS,
                 "Cannot parse IP address from string '{}'",
