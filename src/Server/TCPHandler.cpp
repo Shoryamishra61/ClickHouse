@@ -1818,8 +1818,7 @@ void TCPHandler::processTablesStatusRequest()
     }
 
     TablesStatusResponse response;
-
-    for (const QualifiedTableName & table_name : request.tables)
+    for (const QualifiedTableName & table_name: request.tables)
     {
         if (hide_table_status)
         {
