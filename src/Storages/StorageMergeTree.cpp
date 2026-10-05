@@ -103,11 +103,13 @@ namespace FailPoints
     extern const char storage_shared_merge_tree_mutate_pause_before_wait[];
     extern const char storage_merge_tree_background_schedule_merge_fail[];
     extern const char mt_skip_scheduling_merge_once[];
+    extern const char mt_drop_selected_ttl_merge_once[];
     extern const char mt_fail_selected_merge_before_start_once[];
     extern const char mt_alter_throw_in_start_mutation[];
     extern const char mt_alter_settings_throw_before_metadata_commit[];
     extern const char mt_alter_settings_pause_before_metadata_commit[];
     extern const char mt_alter_readonly_pause_after_metadata_commit[];
+    extern const char mt_move_partition_pause_before_commit[];
     extern const char mt_alter_readonly_throw_in_start_background_workers[];
     extern const char mt_alter_throw_after_mutation_registered[];
     extern const char mt_throw_after_mutation_commit[];
@@ -1923,31 +1925,27 @@ std::expected<MergeMutateSelectedEntryPtr, SelectMergeFailure> StorageMergeTree:
 
     const auto construct_merge_select_entry = [&](FutureMergedMutatedPartPtr future_part) -> std::expected<MergeMutateSelectedEntryPtr, SelectMergeFailure>
     {
-        /// Account TTL merge here to avoid exceeding the max_number_of_merges_with_ttl_in_pool limit
+        /// Account TTL merge here to avoid exceeding the max_number_of_merges_with_ttl_in_pool limit.
+        /// The slot is handed over to the selected entry below, so it is given back when that entry
+        /// dies - on this path if anything throws before the hand-over, later on whether the merge
+        /// ran, was cancelled, or was dropped before it ever started.
+        MergeList::TTLMergeSlot ttl_merge_slot;
         if (isTTLMergeType(future_part->merge_type))
-            getContext()->getMergeList().bookMergeWithTTL();
+            ttl_merge_slot = MergeList::TTLMergeSlot(getContext()->getMergeList());
 
-        try
+        /// Test hook: a selected merge that fails before it starts, as when the parts cannot be
+        /// tagged or the disk space for the result cannot be reserved.
+        fiu_do_on(FailPoints::mt_fail_selected_merge_before_start_once,
         {
-            /// Test hook: a selected merge that fails before it starts, as when the parts cannot be
-            /// tagged or the disk space for the result cannot be reserved.
-            fiu_do_on(FailPoints::mt_fail_selected_merge_before_start_once,
-            {
-                throw Exception(ErrorCodes::FAULT_INJECTED, "Failpoint mt_fail_selected_merge_before_start_once is triggered");
-            });
+            throw Exception(ErrorCodes::FAULT_INJECTED, "Failpoint mt_fail_selected_merge_before_start_once is triggered");
+        });
 
-            uint64_t needed_disk_space = CompactionStatistics::estimateNeededDiskSpace(future_part->parts, true);
-            auto tagger = std::make_unique<CurrentlyMergingPartsTagger>(future_part, needed_disk_space, *this, metadata_snapshot, false);
+        uint64_t needed_disk_space = CompactionStatistics::estimateNeededDiskSpace(future_part->parts, true);
+        auto tagger = std::make_unique<CurrentlyMergingPartsTagger>(future_part, needed_disk_space, *this, metadata_snapshot, false);
 
-            return std::make_shared<MergeMutateSelectedEntry>(future_part, std::move(tagger), std::make_shared<MutationCommands>());
-        }
-        catch (...)
-        {
-            if (isTTLMergeType(future_part->merge_type))
-                getContext()->getMergeList().cancelMergeWithTTL();
-
-            throw;
-        }
+        auto entry = std::make_shared<MergeMutateSelectedEntry>(future_part, std::move(tagger), std::make_shared<MutationCommands>());
+        entry->ttl_merge_slot = std::move(ttl_merge_slot);
+        return entry;
     };
 
     const auto select_without_hint = [&]() -> std::expected<MergeMutateSelectedEntryPtr, SelectMergeFailure>
@@ -2197,14 +2195,13 @@ bool StorageMergeTree::merge(
                 /// postpones again if it picks a TTL merge once more.
                 if (isTTLMergeType(merge_entry->future_part->merge_type))
                 {
-                    getContext()->getMergeList().cancelMergeWithTTL();
-
                     std::lock_guard lock(currently_processing_in_background_mutex);
                     merger_mutator.rollbackTTLMergeTime(
                         merge_entry->future_part->part_info.getPartitionId(), merge_entry->future_part->merge_type);
                 }
 
-                /// Untag the parts and release the disk reservation of the discarded selection.
+                /// Untag the parts and release the disk reservation of the discarded selection;
+                /// dropping `merge_entry` gives its TTL merge slot back.
                 merge_entry->finalize();
                 merge_entry.reset();
 
@@ -2596,6 +2593,22 @@ bool StorageMergeTree::scheduleDataProcessingJob(BackgroundJobsAssignee & assign
         auto task = std::make_shared<MergePlainMergeTreeTask>(*this, metadata_snapshot, /* deduplicate */ false, Names{}, cleanup, merge_entry, shared_lock, common_assignee_trigger);
         task->setCurrentTransaction(std::move(transaction_for_merge), std::move(txn));
 
+        /// Test hook: drop the merge task before it ever runs, the way the background pool discards
+        /// a queued task when its table is dropped. The task is already constructed, so the selected
+        /// entry - and with it the slot a merge with TTL takes - is owned by the task, exactly as for
+        /// a queued task, and everything the selection reserved has to be given back when it dies.
+        /// The merge type is checked first so that the one-shot fires on a merge with TTL and is not
+        /// spent on whichever unrelated merge the server happened to select first.
+        if (isTTLMergeType(merge_entry->future_part->merge_type))
+        {
+            fiu_do_on(FailPoints::mt_drop_selected_ttl_merge_once,
+            {
+                merge_entry.reset();
+                task.reset();
+                return false;
+            });
+        }
+
         /// Test hook: pretend the background pool is full for a manually scheduled merge and drop
         /// the selected merge without scheduling it. The merge must be retried (its queue entry in
         /// ManualMergeSelector must not be lost), otherwise SYSTEM SYNC MERGES would hang.
@@ -2608,14 +2621,11 @@ bool StorageMergeTree::scheduleDataProcessingJob(BackgroundJobsAssignee & assign
         }
 
         bool scheduled = assignee.scheduleMergeMutateTask(task);
-        /// The problem that we already booked a slot for TTL merge, but a merge list entry will be created only in a prepare method
-        /// in MergePlainMergeTreeTask. So, this slot will never be freed.
-        /// Likewise, selecting the TTL merge postponed the next TTL merge of its partition; a merge that
-        /// never starts gives that back, so the next selection can pick it up again (see `selectPartsToMerge`).
+        /// Selecting the TTL merge postponed the next TTL merge of its partition; a merge that never
+        /// starts gives that back, so the next selection can pick it up again (see `selectPartsToMerge`).
+        /// Its TTL merge slot is given back by `merge_entry` itself.
         if (!scheduled && isTTLMergeType(merge_entry->future_part->merge_type))
         {
-            getContext()->getMergeList().cancelMergeWithTTL();
-
             std::lock_guard lock(currently_processing_in_background_mutex);
             merger_mutator.rollbackTTLMergeTime(merge_entry->future_part->part_info.getPartitionId(), merge_entry->future_part->merge_type);
         }
@@ -3733,6 +3743,13 @@ void StorageMergeTree::replacePartitionFrom(const StoragePtr & source_table, con
         merges_blocker = stopMergesAndWaitForPartition(partition_id);
     }
 
+    /// `REPLACE` removes the parts of the destination partition, so it must not interleave with the other
+    /// operations that alter the set of parts, like `MOVE PARTITION` from this table. That one reads the
+    /// parts to move, and later covers them with empty parts. If `REPLACE` removed them in between, the
+    /// empty parts would be committed over the parts that are already outdated and would intersect the
+    /// empty part covering the drop range, so the table could not be loaded after a restart.
+    auto operation_data_parts_lock = lockOperationsWithParts();
+
     auto source_metadata_snapshot = source_table->getInMemoryMetadataPtr(local_context, false);
     auto my_metadata_snapshot = getInMemoryMetadataPtr(local_context, false);
 
@@ -4068,6 +4085,8 @@ void StorageMergeTree::movePartitionToTable(const StoragePtr & dest_table, const
     /// empty part set
     if (dst_parts.empty())
         return;
+
+    FailPointInjection::pauseFailPoint(FailPoints::mt_move_partition_pause_before_commit);
 
     /// Move new parts to the destination table. NOTE It doesn't look atomic.
     try
