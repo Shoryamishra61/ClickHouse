@@ -325,7 +325,8 @@ void buildSortingDAG(
     std::optional<ActionsDAG> & dag,
     FixedColumns & fixed_columns,
     size_t & limit,
-    size_t * query_limit = nullptr)
+    size_t * query_limit,
+    bool & passed_limit_preserving_join)
 {
     IQueryPlanStep * step = node.step.get();
     if (const auto * reading = typeid_cast<const ReadFromMergeTree *>(step))
@@ -368,7 +369,11 @@ void buildSortingDAG(
     if (node.children.empty())
         return;
 
-    buildSortingDAG(*node.children.front(), dag, fixed_columns, limit, query_limit);
+    buildSortingDAG(*node.children.front(), dag, fixed_columns, limit, query_limit, passed_limit_preserving_join);
+
+    /// Set after descending: steps are applied bottom-up below, so only the steps above the join see it.
+    if (typeid_cast<const JoinStep *>(step) || typeid_cast<const FilledJoinStep *>(step))
+        passed_limit_preserving_join = true;
 
     /// A preliminary DISTINCT can swallow an arbitrarily long prefix of the input while
     /// producing few rows, so the SQL `LIMIT` above it no longer bounds the read either.
@@ -400,6 +405,13 @@ void buildSortingDAG(
         /// Should ignore limit if there is filtering.
         limit = 0;
 
+        /// A filter above a join can discard an arbitrary prefix of the joined rows, e.g. a filter on
+        /// the right-side columns of a `LEFT JOIN`, which is exactly the row drop that keeps an
+        /// `INNER JOIN` from preserving the left-side bound. Then the SQL `LIMIT` no longer bounds the
+        /// left read either.
+        if (query_limit && passed_limit_preserving_join)
+            *query_limit = 0;
+
         appendExpression(dag, filter->getExpression());
         if (const auto * filter_expression = dag->tryFindInOutputs(filter->getFilterColumnName()))
             appendFixedColumnsFromFilterExpression(*filter_expression, fixed_columns);
@@ -425,6 +437,17 @@ void buildSortingDAG(
             dag->removeFromOutputs(NameSet(array_joined_columns.begin(), array_joined_columns.end()));
         }
     }
+}
+
+void buildSortingDAG(
+    const QueryPlan::Node & node,
+    std::optional<ActionsDAG> & dag,
+    FixedColumns & fixed_columns,
+    size_t & limit,
+    size_t * query_limit = nullptr)
+{
+    bool passed_limit_preserving_join = false;
+    buildSortingDAG(node, dag, fixed_columns, limit, query_limit, passed_limit_preserving_join);
 }
 
 /// Add more functions to fixed columns.
