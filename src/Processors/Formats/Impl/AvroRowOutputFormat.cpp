@@ -334,6 +334,7 @@ AvroSerializer::SchemaWithSerializeFn AvroSerializer::createSchemaWithSerializeF
         }
         case TypeIndex::UUID2:
         {
+            uuid2_paths.push_back(column_path);
             auto schema = avro::StringSchema();
             schema.root()->setLogicalType(avro::LogicalType(avro::LogicalType::UUID));
             return {schema, [](const IColumn & column, size_t row_num, avro::Encoder & encoder)
@@ -681,6 +682,21 @@ void AvroRowOutputFormat::createFileWriter()
         serializer.getSchema(),
         settings.avro.output_sync_interval,
         getCodec(settings.avro.output_codec));
+
+    const auto & uuid2_paths = serializer.getUUID2Paths();
+    if (!uuid2_paths.empty())
+    {
+        WriteBufferFromOwnString buf;
+        writeChar('[', buf);
+        for (size_t i = 0; i < uuid2_paths.size(); ++i)
+        {
+            if (i)
+                writeChar(',', buf);
+            writeJSONString(uuid2_paths[i], buf, settings);
+        }
+        writeChar(']', buf);
+        file_writer_ptr->setMetadata(AVRO_UUID2_PATHS_METADATA_KEY, buf.str());
+    }
 }
 
 void AvroRowOutputFormat::writePrefix()

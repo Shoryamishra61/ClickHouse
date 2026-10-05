@@ -63,7 +63,7 @@ A `UUID2` value can be converted to and from `String`, `FixedString(16)` (canoni
 
 ## Formats {#formats}
 
-In the [Arrow](/reference/formats/Arrow/Arrow) and [Parquet](/reference/formats/Parquet/Parquet) formats, both `UUID` and `UUID2` are written as the standard UUID type of the corresponding format (the `arrow.uuid` extension type / the parquet `UUID` logical type) with the same canonical bytes, so other systems read the two ClickHouse types identically. The file additionally records which columns were written from `UUID2` (Arrow field metadata `ClickHouse:type`; parquet footer key-value metadata `ClickHouse:uuid2_leaf_columns`), and ClickHouse schema inference uses it to restore the exact type on a round-trip. An explicitly specified schema takes precedence over the recorded type.
+In the [Arrow](/reference/formats/Arrow/Arrow), [Parquet](/reference/formats/Parquet/Parquet) and [Avro](/reference/formats/Avro/Avro) formats, both `UUID` and `UUID2` are written as the standard UUID type of the corresponding format (the `arrow.uuid` extension type / the parquet `UUID` logical type / the Avro `uuid` logical type) with the same canonical value, so other systems read the two ClickHouse types identically. The file additionally records which columns were written from `UUID2` (Arrow field metadata `ClickHouse:type`; parquet footer key-value metadata `ClickHouse:uuid2_leaf_columns`; Avro file metadata `ClickHouse:uuid2_paths`), and ClickHouse schema inference uses it to restore the exact type on a round-trip. An explicitly specified schema takes precedence over the recorded type.
 
 ## Related content {#related-content}
 

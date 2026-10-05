@@ -21,6 +21,9 @@ namespace DB
 class Block;
 class WriteBuffer;
 
+/// The key of the Avro file metadata entry with the JSON array of the dotted paths of the `UUID2` values.
+inline constexpr auto AVRO_UUID2_PATHS_METADATA_KEY = "ClickHouse:uuid2_paths";
+
 class AvroSerializerTraits;
 class ConfluentSchemaRegistry;
 class OutputStreamWriteBufferAdapter : public avro::OutputStream
@@ -45,6 +48,11 @@ class AvroSerializer
 public:
     AvroSerializer(const ColumnsWithTypeAndName & columns, std::unique_ptr<AvroSerializerTraits>, const FormatSettings & settings_, ColumnMapperPtr column_mapper_ = nullptr);
     const avro::ValidSchema & getSchema() const { return valid_schema; }
+
+    /// Dotted paths (see `column_path` below) of the `UUID2` values. Avro has a single `uuid` logical type for both
+    /// ClickHouse UUID types, so the writer records them in the file metadata (`AVRO_UUID2_PATHS_METADATA_KEY`) to
+    /// let schema inference tell `UUID2` apart from `UUID`.
+    const Strings & getUUID2Paths() const { return uuid2_paths; }
     void serializeRow(const Columns & columns, size_t row_num, avro::Encoder & encoder);
 
     using SerializeFn = std::function<void(const IColumn & column, size_t row_num, avro::Encoder & encoder)>;
@@ -72,6 +80,7 @@ private:
     void setIcebergFieldIds(const avro::NodePtr & node, const String & path);
 
     std::vector<SerializeFn> serialize_fns;
+    Strings uuid2_paths;
     avro::ValidSchema valid_schema;
     std::unique_ptr<AvroSerializerTraits> traits;
     const FormatSettings & settings;
