@@ -31,6 +31,7 @@
 #include <Storages/PostgreSQL/PostgreSQLReplicationHandler.h>
 #include <Storages/PostgreSQL/StorageMaterializedPostgreSQL.h>
 #include <Storages/StorageFactory.h>
+#include <Storages/StorageProxy.h>
 #include <Storages/StorageReplicatedMergeTree.h>
 #include <Parsers/ASTDropQuery.h>
 #include <Parsers/ASTCreateQuery.h>
@@ -1821,7 +1822,7 @@ void PostgreSQLReplicationHandler::ensureNestedTablesExist()
             /// The StoragePtr must not outlive this scope: the synchronous drop below waits until the dropped
             /// table is not referenced anywhere, so holding the reference across the drop would deadlock it.
             auto nested = materialized_storage->tryGetNested();
-            const auto * replicated = nested ? nested->as<StorageReplicatedMergeTree>() : nullptr;
+            auto replicated = nested ? castStorage<StorageReplicatedMergeTree>(nested, DeferredTable::Load) : nullptr;
             nested_is_shut_down = replicated && replicated->isShutdownCalled();
             if (nested)
                 nested_uuid = nested->getStorageID().uuid;
@@ -1965,7 +1966,7 @@ bool PostgreSQLReplicationHandler::markCaughtUpNestedTablesAvailable()
         /// visible to every replica. A `ReplicatedReplacingMergeTree` replica has to fetch the parts itself:
         /// the lightweight sync pulls the replication log (which already contains every snapshot insert, as the
         /// marker was written after them) and waits until the fetches of the pulled entries are executed.
-        if (auto * replicated = nested->as<StorageReplicatedMergeTree>())
+        if (auto replicated = castStorage<StorageReplicatedMergeTree>(nested, DeferredTable::Load))
         {
             if (!replicated->waitForProcessingQueue(catch_up_wait_ms, SyncReplicaMode::LIGHTWEIGHT, {}))
             {
