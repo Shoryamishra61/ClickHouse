@@ -11,8 +11,8 @@
 #include <DataTypes/DataTypeDateTime.h>
 #include <DataTypes/DataTypeMap.h>
 #include <Storages/System/StorageSystemReplicas.h>
+#include <Storages/StorageProxy.h>
 #include <Storages/StorageReplicatedMergeTree.h>
-#include <Storages/StorageTableProxy.h>
 #include <Storages/VirtualColumnUtils.h>
 #include <Storages/System/StatusRequestsPool.h>
 #include <Interpreters/ProcessList.h>
@@ -194,15 +194,8 @@ void StorageSystemReplicas::readImpl(
         const bool check_access_for_tables = check_access_for_databases && !access->isGranted(AccessType::SHOW_TABLES, db.first);
         for (auto iterator = db.second->getTablesIterator(context); iterator->isValid(); iterator->next())
         {
-            /// Resolve a lazily loaded table's stand-in, which is not a `StorageReplicatedMergeTree`
-            /// and would keep the table out of this system table for as long as the server runs. Only
-            /// the stand-ins whose tables are already loaded: reading a system table must not load the
-            /// catalog and defeat `lazy_load_tables`.
-            const auto table = resolveLazyTableIfLoaded(iterator->table());
+            auto table = castStorage<StorageReplicatedMergeTree>(iterator->table(), DeferredTable::Skip);
             if (!table)
-                continue;
-
-            if (!dynamic_cast<const StorageReplicatedMergeTree *>(table.get()))
                 continue;
             if (check_access_for_tables && !access->isGranted(AccessType::SHOW_TABLES, db.first, iterator->name()))
                 continue;

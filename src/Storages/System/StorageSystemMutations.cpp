@@ -6,8 +6,8 @@
 #include <DataTypes/DataTypeDateTime.h>
 #include <DataTypes/DataTypeArray.h>
 #include <DataTypes/DataTypeMap.h>
+#include <Storages/StorageProxy.h>
 #include <Storages/MergeTree/MergeTreeData.h>
-#include <Storages/StorageTableProxy.h>
 #include <Storages/MergeTree/MergeTreeMutationStatus.h>
 #include <Storages/VirtualColumnUtils.h>
 #include <Access/ContextAccess.h>
@@ -89,15 +89,8 @@ void StorageSystemMutations::fillData(MutableColumns & res_columns, ContextPtr c
 
         for (auto iterator = db.second->getTablesIterator(context); iterator->isValid(); iterator->next())
         {
-            /// Resolve a lazily loaded table's stand-in: it is not a `MergeTreeData`, so without this
-            /// a loaded lazy table would stay missing from `system.mutations` for as long as the
-            /// server runs. Only the stand-ins whose tables are already loaded - listing mutations
-            /// must not be what loads the catalog and defeats `lazy_load_tables`.
-            const auto table = resolveLazyTableIfLoaded(iterator->table());
+            auto table = castStorage<MergeTreeData>(iterator->table(), DeferredTable::Skip);
             if (!table)
-                continue;
-
-            if (!dynamic_cast<const MergeTreeData *>(table.get()))
                 continue;
 
             if (check_access_for_tables && !access->isGranted(AccessType::SHOW_TABLES, db.first, iterator->name()))
@@ -147,6 +140,7 @@ void StorageSystemMutations::fillData(MutableColumns & res_columns, ContextPtr c
         std::vector<MergeTreeMutationStatus> statuses;
         {
             const IStorage * storage = merge_tree_tables[database][table].get();
+            /// NOLINT(storage-cast): `merge_tree_tables` is filled with already resolved storages.
             if (const auto * merge_tree = dynamic_cast<const MergeTreeData *>(storage))
                 statuses = merge_tree->getMutationsStatus();
         }

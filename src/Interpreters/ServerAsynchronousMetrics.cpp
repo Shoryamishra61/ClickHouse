@@ -34,10 +34,10 @@
 #include <IO/S3/Client.h>
 #endif
 
+#include <Storages/StorageProxy.h>
 #include <Storages/MergeTree/MergeTreeData.h>
 #include <Storages/StorageMergeTree.h>
 #include <Storages/StorageReplicatedMergeTree.h>
-#include <Storages/StorageTableProxy.h>
 #if CLICKHOUSE_CLOUD
 #include <Storages/StorageSharedMergeTree.h>
 #endif
@@ -496,15 +496,11 @@ void ServerAsynchronousMetrics::updateImpl(TimePoint update_time, TimePoint curr
                 if (is_system)
                     ++total_number_of_tables_system;
 
-                /// Resolve a lazily loaded table's stand-in, which is neither a `MergeTreeData` nor a
-                /// `StorageReplicatedMergeTree` and would be left out of every metric below for as long
-                /// as the server runs. Only the stand-ins whose tables are already loaded: a metrics
-                /// thread must not load the catalog and defeat `lazy_load_tables`.
-                const auto table = resolveLazyTableIfLoaded(iterator->table());
+                auto table = iterator->table();
                 if (!table)
                     continue;
 
-                if (MergeTreeData * table_merge_tree = dynamic_cast<MergeTreeData *>(table.get()))
+                if (auto table_merge_tree = castStorage<MergeTreeData>(table, DeferredTable::Skip))
                 {
                     calculateMax(max_part_count_for_partition, table_merge_tree->getMaxPartsCountAndSizeForPartition().first);
 
@@ -546,7 +542,7 @@ void ServerAsynchronousMetrics::updateImpl(TimePoint update_time, TimePoint curr
                     }
                 }
 
-                if (StorageReplicatedMergeTree * table_replicated_merge_tree = typeid_cast<StorageReplicatedMergeTree *>(table.get()))
+                if (StorageReplicatedMergeTree * table_replicated_merge_tree = castStorage<StorageReplicatedMergeTree>(table, DeferredTable::Skip).get())
                 {
                     StorageReplicatedMergeTree::ReplicatedStatus status;
                     table_replicated_merge_tree->getStatus(status, false);
@@ -689,14 +685,7 @@ void ServerAsynchronousMetrics::updateMutationAndDetachedPartsStats()
 
         for (auto iterator = db.second->getTablesIterator(getContext(), {}, true); iterator->isValid(); iterator->next())
         {
-            /// Resolve a lazily loaded table's stand-in, for the same reason as in
-            /// `updateHeavyMetrics`: it is not a `MergeTreeData`, and a loaded lazy table would
-            /// otherwise stay missing from `NumberOfDetachedParts` and `NumberOfPendingMutations`.
-            const auto table = resolveLazyTableIfLoaded(iterator->table());
-            if (!table)
-                continue;
-
-            if (MergeTreeData * table_merge_tree = dynamic_cast<MergeTreeData *>(table.get()))
+            if (auto table_merge_tree = castStorage<MergeTreeData>(iterator->table(), DeferredTable::Skip))
             {
                 for (const auto & detached_part: table_merge_tree->getDetachedParts())
                 {

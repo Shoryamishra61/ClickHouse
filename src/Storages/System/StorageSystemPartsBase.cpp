@@ -18,8 +18,8 @@
 #include <DataTypes/DataTypeDateTime.h>
 #include <DataTypes/DataTypeDate.h>
 #include <DataTypes/DataTypeUUID.h>
+#include <Storages/StorageProxy.h>
 #include <Storages/MergeTree/MergeTreeData.h>
-#include <Storages/StorageTableProxy.h>
 #include <Storages/VirtualColumnUtils.h>
 #include <Storages/System/getQueriedColumnsMaskAndHeader.h>
 #include <Access/ContextAccess.h>
@@ -168,7 +168,7 @@ StoragesInfo StoragesInfoStreamBase::next()
 
         info.engine = info.storage->getName();
 
-        info.data = dynamic_cast<MergeTreeData *>(info.storage.get());
+        info.data = castStorage<MergeTreeData>(info.storage, DeferredTable::Skip).get();
         if (!info.data)
             throw Exception(ErrorCodes::LOGICAL_ERROR, "Unknown engine {}", info.engine);
 
@@ -335,11 +335,7 @@ StoragesInfoStream::StoragesInfoStream(std::optional<ActionsDAG> filter_by_datab
 
                     slowDownSystemPartsDiscovery(table_name);
 
-                    /// With `lazy_load_tables` the catalog holds a stand-in that keeps wrapping the table
-                    /// after it is loaded; without resolving it, a loaded lazy table would stay missing from
-                    /// `system.parts` and its siblings for as long as the server runs. Only the stand-ins
-                    /// whose tables are already loaded - listing parts must not be what loads the catalog.
-                    StoragePtr storage = resolveLazyTableIfLoaded(iterator->table());
+                    auto storage = castStorage<MergeTreeData>(iterator->table(), DeferredTable::Skip);
                     if (!storage)
                         continue;
 
@@ -352,9 +348,6 @@ StoragesInfoStream::StoragesInfoStream(std::optional<ActionsDAG> filter_by_datab
                         hash.update(table_name);
                         storage_uuid = hash.get128();
                     }
-
-                    if (!dynamic_cast<MergeTreeData *>(storage.get()))
-                        continue;
 
                     if (check_access_for_tables_in_db && !access->isGranted(AccessType::SHOW_TABLES, database_name, table_name))
                         continue;

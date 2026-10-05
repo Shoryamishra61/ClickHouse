@@ -2,23 +2,20 @@
 
 #include <Interpreters/Context.h>
 #include <Interpreters/DatabaseCatalog.h>
-#include <Storages/StorageTableProxy.h>
+#include <Storages/StorageProxy.h>
 
 namespace DB
 {
 
 StoragePtr resolveStatusRequestTable(const StorageID & storage_id)
 {
-    /// The catalog object of a lazily loaded table is a stand-in, not the engine it stands in for, so
-    /// without resolving it the caller takes the table for one that "was replaced by an object of
-    /// another type" and drops its row. The caller resolved the table to enqueue the request in the
-    /// first place, hence `resolveLazyTableIfLoaded`: re-resolution must not be what loads a table.
-
+    /// The status is read by casting to the engine, so a lazily loaded table has to be resolved to
+    /// the storage behind its proxy. A table with no storage yet has no status to report.
     /// Resolution by UUID does not depend on the current table name, so it survives renames.
     if (storage_id.hasUUID())
-        return resolveLazyTableIfLoaded(DatabaseCatalog::instance().tryGetByUUID(storage_id.uuid).second);
+        return resolveStorageProxy(DatabaseCatalog::instance().tryGetByUUID(storage_id.uuid).second);
 
-    return resolveLazyTableIfLoaded(
+    return resolveStorageProxy(
         DatabaseCatalog::instance().tryGetTable(storage_id, Context::getGlobalContextInstance()));
 }
 
