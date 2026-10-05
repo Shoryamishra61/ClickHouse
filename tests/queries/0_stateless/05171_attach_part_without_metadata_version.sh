@@ -149,4 +149,43 @@ ALTER TABLE dropped_added ATTACH PARTITION tuple();
 SELECT 'dropped and added columns attach', count(), sum(a), sum(b) FROM dropped_added;
 "
 
+# A column dropped and then added again under the same name: the names match, but the part's `value`
+# is the stale data from before the drop, while the re-added column must read as its default. The
+# table's record of the drop tells them apart.
+${CLICKHOUSE_LOCAL} --path "${workdir}" -q "
+CREATE TABLE readded (id UInt64, value UInt32) ENGINE = MergeTree ORDER BY id SETTINGS min_bytes_for_wide_part = 0;
+INSERT INTO readded SELECT number, number FROM numbers(1000);
+ALTER TABLE readded DETACH PARTITION tuple();
+ALTER TABLE readded DROP COLUMN value;
+ALTER TABLE readded ADD COLUMN value UInt32 DEFAULT 7;
+"
+
+drop_metadata_version all_1_1_0
+
+echo -n 're-added column refused: '
+${CLICKHOUSE_LOCAL} --path "${workdir}" -q "ALTER TABLE readded ATTACH PARTITION tuple()" 2>&1 |
+    grep -c -m1 'added to the table again'
+
+${CLICKHOUSE_LOCAL} --path "${workdir}" -q "
+SELECT 'still detached', count() FROM system.detached_parts WHERE database = currentDatabase() AND table = 'readded';
+SELECT 'nothing attached', count() FROM readded;
+"
+
+# A part with a persistent virtual column (`_row_exists`, written by a lightweight delete) and a column
+# added meanwhile: the virtual column is not among the table's columns, but it is not a sign of a rename.
+${CLICKHOUSE_LOCAL} --path "${workdir}" -q "
+CREATE TABLE with_virtual (id UInt64, a UInt32) ENGINE = MergeTree ORDER BY id SETTINGS min_bytes_for_wide_part = 0;
+INSERT INTO with_virtual SELECT number, number FROM numbers(1000);
+DELETE FROM with_virtual WHERE id >= 500;
+ALTER TABLE with_virtual DETACH PARTITION tuple();
+ALTER TABLE with_virtual ADD COLUMN b UInt32 DEFAULT 7;
+"
+
+drop_metadata_version 'all_1_1_0*'
+
+${CLICKHOUSE_LOCAL} --path "${workdir}" -q "
+ALTER TABLE with_virtual ATTACH PARTITION tuple();
+SELECT 'persistent virtual column attaches', count(), sum(a), sum(b) FROM with_virtual;
+"
+
 rm -rf "${workdir}"

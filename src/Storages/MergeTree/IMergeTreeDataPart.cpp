@@ -2763,6 +2763,22 @@ void IMergeTreeDataPart::assertColumnsReadableAtCurrentMetadataVersion(
                 part_data_version);
     }
 
+    /// A column the part holds, dropped after the part was written and then added again under the same
+    /// name, is not the column the table has now: the part's file is the stale data from before the drop,
+    /// while the re-added column must read as its default. Only the remembered drop tells them apart.
+    for (const auto & column_name : columns_dropped_after_part)
+        if (part_column_names.contains(column_name) && current_metadata.getColumns().hasPhysical(column_name))
+            throw Exception(
+                ErrorCodes::CORRUPTED_DATA,
+                "Part {} has no {} and still holds column {}, which was dropped after the part's data was written "
+                "(its data version is {}) and then added to the table again, so the part's data for it is stale. "
+                "Reading it at the table's current version would skip the drop and answer with the stale values. "
+                "Restore the file with the part's own metadata version, or drop the part",
+                name,
+                METADATA_VERSION_FILE_NAME,
+                column_name,
+                part_data_version);
+
     /** Second, the names themselves: the claim is also provably false when the part holds a column the
       * schema does not while the schema holds a column the part does not - the signature of a rename
       * this part has not applied, even one the table no longer remembers. A part that only carries a
@@ -2775,9 +2791,12 @@ void IMergeTreeDataPart::assertColumnsReadableAtCurrentMetadataVersion(
       */
     const auto & current_columns = current_metadata.getColumns();
 
+    /// Persistent virtual columns, such as `_row_exists`, are stored in the part but are not among the
+    /// table's physical columns, and no `ALTER` renames them.
     Names columns_only_in_part;
     for (const auto & column : part_columns)
-        if (!current_columns.hasPhysical(column.name) && !columns_dropped_after_part.contains(column.name))
+        if (!current_columns.hasPhysical(column.name) && !columns_dropped_after_part.contains(column.name)
+            && !current_metadata.virtuals.tryGet(column.name, VirtualsKind::Persistent, VirtualsMaterializationPlace::All))
             columns_only_in_part.push_back(column.name);
 
     Names columns_only_in_table;
