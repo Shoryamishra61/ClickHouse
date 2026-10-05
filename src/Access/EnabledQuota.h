@@ -76,13 +76,20 @@ public:
     /// needs it, keeping the feature close to zero-cost when unused. The flag is a conservative
     /// hint: it may be `true` while the published set has no such limits (then there is nothing
     /// to account), but it is never `false` while the published set has them.
-    bool hasProfileEventLimits() const { return has_profile_event_limits.load(std::memory_order_relaxed); }
+    /// The load is sequentially consistent, like the stores in `QuotaCache` and the publication of
+    /// `quotas`, so the reader participates in the publication order the invariant relies on.
+    bool hasProfileEventLimits() const { return has_profile_event_limits.load(); }
 
     /// Tracks consumption of profile events against every governing quota that defines limits
-    /// over profile events. `counters` are the counters accumulated by one finished query, so
-    /// this is called once per query at its end. If a quota is exceeded and
-    /// `check_exceeded == true`, throws an exception.
-    void usedProfileEvents(UInt64 normalized_query_hash, const ProfileEvents::Counters::Snapshot & counters, bool check_exceeded) const;
+    /// over profile events. `counters` are the counters accumulated by one finished query (for a
+    /// distributed query: the local counters and what the remote servers reported; null entries
+    /// are skipped), so this is called once per query at its end. All of them are charged as one
+    /// usage at a single point in time, so one query never straddles two quota intervals. If a
+    /// quota is exceeded and `check_exceeded == true`, throws an exception.
+    void usedProfileEvents(
+        UInt64 normalized_query_hash,
+        std::initializer_list<const ProfileEvents::Counters::Snapshot *> counters,
+        bool check_exceeded) const;
 
     /// Checks if any of the governing quotas is exceeded for any of the profile events it
     /// defines limits over. If so, throws an exception.

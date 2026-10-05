@@ -58,7 +58,7 @@ struct EnabledQuota::Impl
     static void usedProfileEvents(
         const String & user_name,
         const Intervals & intervals,
-        const ProfileEvents::Counters::Snapshot & counters,
+        std::initializer_list<const ProfileEvents::Counters::Snapshot *> counters,
         std::chrono::system_clock::time_point current_time,
         bool check_exceeded)
     {
@@ -66,7 +66,10 @@ struct EnabledQuota::Impl
         {
             for (const auto & limit : interval.profile_event_limits)
             {
-                QuotaValue value = counters[limit.event];
+                QuotaValue value = 0;
+                for (const auto * snapshot : counters)
+                    if (snapshot)
+                        value += (*snapshot)[limit.event];
                 if (!value)
                     continue;
 
@@ -516,7 +519,10 @@ void EnabledQuota::usedForQuery(UInt64 normalized_query_hash, std::initializer_l
 }
 
 
-void EnabledQuota::usedProfileEvents(UInt64 normalized_query_hash, const ProfileEvents::Counters::Snapshot & counters, bool check_exceeded) const
+void EnabledQuota::usedProfileEvents(
+    UInt64 normalized_query_hash,
+    std::initializer_list<const ProfileEvents::Counters::Snapshot *> counters,
+    bool check_exceeded) const
 {
     if (empty)
         return;

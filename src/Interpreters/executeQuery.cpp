@@ -780,14 +780,16 @@ static void usedQuotaProfileEvents(
         return;
 
     auto counters = process_list_elem->getInfo(false, /* get_profile_events= */ true).profile_counters;
+    /// What the remote servers did for a distributed query, as they reported it (see `RemoteQueryExecutor`).
+    auto remote_counters = process_list_elem->getRemoteProfileEvents();
+
+    /// Both are charged in one call, so they land in the same quota interval.
     /// `check_exceeded == false`: the query has already done its work, so it is allowed to
     /// finish; the quota, now exhausted, rejects the following queries.
-    if (counters)
-        quota->usedProfileEvents(normalized_query_hash, *counters, /* check_exceeded = */ false);
-
-    /// What the remote servers did for a distributed query, as they reported it (see `RemoteQueryExecutor`).
-    if (auto remote_counters = process_list_elem->getRemoteProfileEvents())
-        quota->usedProfileEvents(normalized_query_hash, *remote_counters, /* check_exceeded = */ false);
+    quota->usedProfileEvents(
+        normalized_query_hash,
+        {counters.get(), remote_counters ? &*remote_counters : nullptr},
+        /* check_exceeded = */ false);
 }
 
 /// Whether the query is charged against the quotas over profile events. Like the predefined `errors`
@@ -1168,7 +1170,10 @@ void logExceptionBeforeStart(
         if (process_list_elem)
             usedQuotaProfileEvents(quota, process_list_elem, normalized_query_hash);
         else if (quota && quota->hasProfileEventLimits())
-            quota->usedProfileEvents(normalized_query_hash, failed_query_counters.getPartiallyAtomicSnapshot(), /* check_exceeded = */ false);
+        {
+            auto failed_query_snapshot = failed_query_counters.getPartiallyAtomicSnapshot();
+            quota->usedProfileEvents(normalized_query_hash, {&failed_query_snapshot}, /* check_exceeded = */ false);
+        }
     }
 
     QueryStatusInfoPtr info;
