@@ -105,7 +105,8 @@ struct MergeTreeSettings
     void applyCompatibilitySetting(const String & compatibility_value);
 
     /// NOTE: will rewrite the AST to add immutable settings.
-    void loadFromQuery(ASTStorage & storage_def, ContextPtr context, bool is_loading_from_existing_metadata, bool for_system_database = false);
+    /// Returns the registration of a disk defined inline with `disk = disk(...)`, see `resolveDiskSetting`.
+    CustomDiskRegistrationPtr loadFromQuery(ASTStorage & storage_def, ContextPtr context, bool is_loading_from_existing_metadata, bool for_system_database = false);
     void loadFromConfig(const String & config_elem, const Poco::Util::AbstractConfiguration & config);
 
     bool needSyncPart(size_t input_rows, size_t input_bytes) const;
@@ -129,7 +130,7 @@ struct MergeTreeSettings
     static bool isDiskSettingChanged(const SettingsChanges & old_changes, const SettingsChanges & new_changes);
     /// Replaces an inline `disk(...)` definition with the name of the disk it describes, creating
     /// that disk if needed. The returned registration has to be kept for as long as the disk is
-    /// used; `loadFromQuery`, `applyChanges` and `applyChange` store it in the settings themselves.
+    /// used, which is done by the table (see `MergeTreeData::setCustomDiskRegistration`).
     static CustomDiskRegistrationPtr resolveDiskSetting(SettingsChanges & changes, ContextPtr context, bool is_loading_from_existing_metadata, bool for_system_database = false);
     static CustomDiskRegistrationPtr resolveDiskSetting(SettingChange & change, ContextPtr context, bool is_loading_from_existing_metadata, bool for_system_database = false);
 

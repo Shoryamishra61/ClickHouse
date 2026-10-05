@@ -2846,14 +2846,10 @@ DECLARE_SETTINGS_TRAITS(MergeTreeSettingsTraits, LIST_OF_MERGE_TREE_SETTINGS, ME
 struct MergeTreeSettingsImpl : public BaseSettings<MergeTreeSettingsTraits>
 {
     /// NOTE: will rewrite the AST to add immutable settings.
-    void loadFromQuery(ASTStorage & storage_def, ContextPtr context, bool is_loading_from_existing_metadata, bool for_system_database);
+    CustomDiskRegistrationPtr loadFromQuery(ASTStorage & storage_def, ContextPtr context, bool is_loading_from_existing_metadata, bool for_system_database);
 
     /// Check that the values are sane taking also query-level settings into account.
     void sanityCheck(size_t background_pool_tasks, bool background_pool_auto_lowered) const;
-
-    /// Keeps a disk defined inline with `disk = disk(...)` registered for as long as these settings
-    /// exist. A table holds its settings, so the disk is released on DROP or DETACH TABLE.
-    CustomDiskRegistrationPtr custom_disk_registration;
 
     /// Subscript operators so that MergeTreeSetting::NAME can be used inside Impl methods.
     /// Delegate to `BaseSettings::operator[]` so the Impl->Data subobject offset is handled
@@ -2888,8 +2884,10 @@ static void validateTableDisk(const DiskPtr & disk)
 
 IMPLEMENT_SETTINGS_TRAITS_CUSTOM_IMPL(MergeTreeSettingsTraits, LIST_OF_MERGE_TREE_SETTINGS, MergeTreeSettings, MergeTreeSetting)
 
-void MergeTreeSettingsImpl::loadFromQuery(ASTStorage & storage_def, ContextPtr context, bool is_loading_from_existing_metadata, bool for_system_database)
+CustomDiskRegistrationPtr MergeTreeSettingsImpl::loadFromQuery(ASTStorage & storage_def, ContextPtr context, bool is_loading_from_existing_metadata, bool for_system_database)
 {
+    CustomDiskRegistrationPtr custom_disk_registration;
+
     if (storage_def.settings)
     {
         try
@@ -2900,10 +2898,8 @@ void MergeTreeSettingsImpl::loadFromQuery(ASTStorage & storage_def, ContextPtr c
             DiskPtr disk;
 
             auto changes = storage_def.settings->changes;
-            auto registration
+            custom_disk_registration
                 = MergeTreeSettings::resolveDiskSetting(changes, context, is_loading_from_existing_metadata, for_system_database);
-            if (changes.tryGet("disk"))
-                custom_disk_registration = std::move(registration);
 
             for (const auto & [name, value, _] : changes)
             {
@@ -2959,6 +2955,8 @@ void MergeTreeSettingsImpl::loadFromQuery(ASTStorage & storage_def, ContextPtr c
 
     APPLY_FOR_IMMUTABLE_MERGE_TREE_SETTINGS(ADD_IF_ABSENT)
 #undef ADD_IF_ABSENT
+
+    return custom_disk_registration;
 }
 
 void MergeTreeSettingsImpl::sanityCheck(size_t background_pool_tasks, bool background_pool_auto_lowered) const
@@ -3243,19 +3241,18 @@ SettingsChanges MergeTreeSettings::changesFrom(const MergeTreeSettings & base) c
 void MergeTreeSettings::applyChanges(const SettingsChanges & changes, ContextPtr context, bool is_loading_from_existing_metadata)
 {
     auto resolved_changes = changes;
+    /// The disk only has to exist while it is resolved: it is used by the table these settings are
+    /// for, which holds the registration, or these settings are only being validated.
     auto registration = resolveDiskSetting(resolved_changes, context, is_loading_from_existing_metadata);
     impl->applyChanges(resolved_changes);
-    if (resolved_changes.tryGet("disk"))
-        impl->custom_disk_registration = std::move(registration);
 }
 
 void MergeTreeSettings::applyChange(const SettingChange & change, ContextPtr context, bool is_loading_from_existing_metadata)
 {
     auto resolved_change = change;
+    /// See `applyChanges`.
     auto registration = resolveDiskSetting(resolved_change, context, is_loading_from_existing_metadata);
     impl->applyChange(resolved_change);
-    if (resolved_change.name == "disk")
-        impl->custom_disk_registration = std::move(registration);
 }
 
 CustomDiskRegistrationPtr MergeTreeSettings::resolveDiskSetting(SettingsChanges & changes, ContextPtr context, bool is_loading_from_existing_metadata, bool for_system_database)
@@ -3413,9 +3410,9 @@ SettingsTierType MergeTreeSettings::getTier(std::string_view name) const
     return impl->getTier(name);
 }
 
-void MergeTreeSettings::loadFromQuery(ASTStorage & storage_def, ContextPtr context, bool is_loading_from_existing_metadata, bool for_system_database)
+CustomDiskRegistrationPtr MergeTreeSettings::loadFromQuery(ASTStorage & storage_def, ContextPtr context, bool is_loading_from_existing_metadata, bool for_system_database)
 {
-    impl->loadFromQuery(storage_def, context, is_loading_from_existing_metadata, for_system_database);
+    return impl->loadFromQuery(storage_def, context, is_loading_from_existing_metadata, for_system_database);
 }
 
 void MergeTreeSettings::loadFromConfig(const String & config_elem, const Poco::Util::AbstractConfiguration & config)

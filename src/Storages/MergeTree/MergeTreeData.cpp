@@ -7072,7 +7072,7 @@ void MergeTreeData::changeSettings(
         bool has_storage_policy_changed = false;
 
         auto new_changes = new_settings->as<const ASTSetQuery &>().changes;
-        /// The registration keeps a newly defined disk alive until the settings below take it over.
+        /// The registration keeps a newly defined disk alive, the table takes it over below.
         auto disk_registration
             = MergeTreeSettings::resolveDiskSetting(new_changes, getContext(), /*is_loading_from_existing_metadata=*/true);
 
@@ -7142,6 +7142,7 @@ void MergeTreeData::changeSettings(
             = (*storage_settings.get())[MergeTreeSetting::refresh_statistics_interval].totalSeconds() != (*copy)[MergeTreeSetting::refresh_statistics_interval].totalSeconds();
 
         storage_settings.set(std::move(copy));
+        custom_disk_registration = std::move(disk_registration);
 
         /// Route the new `StorageInMemoryMetadata` clone (and the deeper clone produced by
         /// `setInMemoryMetadata`) into the dedicated MergeTree arena.
