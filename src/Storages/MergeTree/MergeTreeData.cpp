@@ -50,6 +50,7 @@
 #include <DataTypes/DataTypeUUID.h>
 #include <DataTypes/NestedUtils.h>
 #include <DataTypes/Serializations/ISerialization.h>
+#include <DataTypes/TypeTree.h>
 #include <DataTypes/hasNullable.h>
 #include <Disks/SingleDiskVolume.h>
 #include <Disks/TemporaryFileOnDisk.h>
@@ -1068,14 +1069,18 @@ static void checkKeyExpression(const ExpressionActions & expr, const Block & sam
     for (const ColumnWithTypeAndName & element : sample_block)
     {
         const ColumnPtr & column = element.column;
+        /// Name the offending element: a key can be long or an expression, and the message is the only
+        /// thing the user has to find which part of it is the problem.
         if (column && (isColumnConst(*column) || column->isDummy()))
-            throw Exception(ErrorCodes::ILLEGAL_COLUMN, "{} key cannot contain constants", key_name);
+            throw Exception(ErrorCodes::ILLEGAL_COLUMN, "{} key cannot contain constants, but {} is one",
+                key_name, backQuote(element.name));
 
         if (!allow_nullable_key && hasNullable(element.type))
             throw Exception(
                             ErrorCodes::ILLEGAL_COLUMN,
-                            "{} key contains nullable columns, "
-                            "but merge tree setting `allow_nullable_key` is disabled", key_name);
+                            "{} key contains nullable column {} of type {}, "
+                            "but merge tree setting `allow_nullable_key` is disabled",
+                            key_name, backQuote(element.name), element.type->getName());
     }
 }
 
@@ -1679,8 +1684,7 @@ void MergeTreeData::checkMinMaxIndexForJSON(const IndexDescription & index) cons
                     idx_column.type->getName(), idx_column.name);
             }
         };
-        check_json(*idx_column.type);
-        idx_column.type->forEachChild(check_json);
+        forEachInTypeTree(*idx_column.type, check_json);
     }
 }
 
@@ -10902,7 +10906,14 @@ std::optional<std::set<String>> MergeTreeData::getPartitionIdsPrunedByPredicate(
                     if (column_default->kind != ColumnDefaultKind::Alias && column_default->kind != ColumnDefaultKind::Ephemeral)
                         continue;
 
-                    if (self(column_default->expression, self))
+                    /// A column definition is authored at table scope, so an identifier inside it is a
+                    /// storage column even when a lambda of the predicate binds that name.
+                    std::vector<String> enclosing_lambda_parameters;
+                    lambda_parameters.swap(enclosing_lambda_parameters);
+                    const bool definition_is_nondeterministic = self(column_default->expression, self);
+                    lambda_parameters.swap(enclosing_lambda_parameters);
+
+                    if (definition_is_nondeterministic)
                         return true;
                 }
             }
