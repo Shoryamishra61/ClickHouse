@@ -45,3 +45,4 @@ a hidden name does not prune a JOIN side that carries a real column
 an enclosing materialized CTE is addressed by the name of the CTE
 2
 0
+2

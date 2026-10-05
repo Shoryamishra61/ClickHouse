@@ -1089,8 +1089,10 @@ IdentifierResolveResult IdentifierResolver::tryResolveIdentifierFromTableExpress
         && identifier.getPartsSize() > 1)
     {
         const auto & table_name_compat = table_expression_data.table_name;
+        const bool name_is_hidden_by_alias
+            = tableNameIsHiddenByAlias(identifier_lookup, table_expression_node, 1 /*identifier_column_qualifier_parts*/, scope);
         const bool prefix_matches_table_name = !table_name_compat.empty() && path_start == table_name_compat
-            && !tableNameIsHiddenByAlias(identifier_lookup, table_expression_node, 1 /*identifier_column_qualifier_parts*/, scope);
+            && !name_is_hidden_by_alias;
         const bool prefix_matches_alias
             = table_expression_node->hasAlias() && path_start == table_expression_node->getAlias();
         /** A materialized CTE is stored under an internal temporary table name, so its `table_name` never
@@ -1103,8 +1105,8 @@ IdentifierResolveResult IdentifierResolver::tryResolveIdentifierFromTableExpress
         if (table_expression_node_type == QueryTreeNodeType::TABLE)
         {
             const auto * table_node = table_expression_node->as<TableNode>();
-            prefix_matches_cte_name
-                = table_node->isMaterializedCTE() && path_start == table_node->getMaterializedCTE()->cte_name;
+            prefix_matches_cte_name = table_node->isMaterializedCTE()
+                && path_start == table_node->getMaterializedCTE()->cte_name && !name_is_hidden_by_alias;
         }
         if (prefix_matches_table_name || prefix_matches_alias || prefix_matches_cte_name)
         {

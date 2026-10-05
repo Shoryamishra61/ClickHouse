@@ -172,6 +172,12 @@ WITH cte_qualifier AS MATERIALIZED (SELECT number % 2 AS grp, number AS val FROM
 SELECT count() FROM cte_qualifier WHERE EXISTS (
     SELECT 1 FROM cte_qualifier AS c WHERE c.grp = cte_qualifier.grp AND c.val > cte_qualifier.val)
 SETTINGS enable_materialized_cte = 1;
+-- `analyzer_compatibility_prefer_alias_over_subcolumn` takes a separate path for the name of a materialized
+-- CTE, and the hidden name must not be a qualifier there either.
+WITH cte_qualifier AS MATERIALIZED (SELECT number % 2 AS grp, number AS val FROM numbers(4))
+SELECT count() FROM cte_qualifier WHERE EXISTS (
+    SELECT 1 FROM cte_qualifier AS c WHERE c.grp = cte_qualifier.grp AND c.val > cte_qualifier.val)
+SETTINGS analyzer_alias_hides_table_name = 1, analyzer_compatibility_prefer_alias_over_subcolumn = 1, enable_materialized_cte = 1;
 
 DROP TABLE t_qualifier_alias;
 DROP TABLE t_qualifier_other;
