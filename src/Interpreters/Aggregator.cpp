@@ -3130,33 +3130,52 @@ void Aggregator::mergeSingleLevelDataImplFixedMap(
 {
     AggregatedDataVariantsPtr & res = non_empty_data[0];
 
-    /// We merge all aggregation results to the first.
-    for (size_t result_num = 1, size = non_empty_data.size(); result_num < size; ++result_num)
+    /// Each worker owns a disjoint subset of the keys, so the destinations of the deferred pairs
+    /// of different workers never overlap, and every worker merges its own deferred pairs.
+    DeferredMerges deferred;
+    if (worthDeferringLargeMerges())
+        deferred.resize(params.aggregates_size);
+    DeferredMerges * deferred_ptr = deferred.empty() ? nullptr : &deferred;
+
+    try
     {
-        AggregatedDataVariants & current = *non_empty_data[result_num];
-        ParallelMergeWorker parallel_param{worker_id, total_worker};
+        /// We merge all aggregation results to the first.
+        for (size_t result_num = 1, size = non_empty_data.size(); result_num < size; ++result_num)
+        {
+            AggregatedDataVariants & current = *non_empty_data[result_num];
+            ParallelMergeWorker parallel_param{worker_id, total_worker};
 
 #if USE_EMBEDDED_COMPILER
-        if (compiled_aggregate_functions_holder)
-        {
-            mergeDataImpl<Method>(
-                getDataVariant<Method>(*res).data,
+            if (compiled_aggregate_functions_holder)
+            {
+                mergeDataImpl<Method>(
+                    getDataVariant<Method>(*res).data,
                     getDataVariant<Method>(current).data,
                     arena, true,
                     false, /*prefetch*/
-                is_cancelled, &parallel_param);
-        }
-        else
+                    is_cancelled, &parallel_param, deferred_ptr);
+            }
+            else
 #endif
-        {
-            mergeDataImpl<Method>(
-                getDataVariant<Method>(*res).data,
+            {
+                mergeDataImpl<Method>(
+                    getDataVariant<Method>(*res).data,
                     getDataVariant<Method>(current).data,
                     arena, false,
                     false, /*prefetch*/
-                is_cancelled, &parallel_param);
+                    is_cancelled, &parallel_param, deferred_ptr);
+            }
         }
     }
+    catch (...)
+    {
+        destroyDeferredMergeSources(deferred);
+        throw;
+    }
+
+    /// On cancellation this only frees the deferred source states: the result is thrown away.
+    if (deferred_ptr)
+        mergeDeferredLargeStates(deferred, arena, is_cancelled, /*destroy_sources=*/ true);
 }
 
 Aggregator::AggregatedChunk Aggregator::convertOneBucketToChunk(AggregatedDataVariants & variants, Arena * arena, bool final, Int32 bucket) const
