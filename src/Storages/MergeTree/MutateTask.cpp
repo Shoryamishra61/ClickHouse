@@ -4692,6 +4692,7 @@ bool MutateTask::prepare()
     {
         ctx->for_interpreter.clear();
         MutationCommands unused_file_renames;
+        size_t unused_num_file_renames_from_commands = 0;
         MutationHelpers::splitAndModifyMutationCommands(
             ctx->source_part,
             ctx->metadata_snapshot,
@@ -4699,6 +4700,7 @@ bool MutateTask::prepare()
             *commands_for_execution,
             ctx->for_interpreter,
             unused_file_renames,
+            unused_num_file_renames_from_commands,
             ctx->log);
     }
 
