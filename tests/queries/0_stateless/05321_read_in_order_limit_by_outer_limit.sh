@@ -44,8 +44,9 @@ do
       AND event_date >= yesterday();
     "
 
-    # The answer must not depend on the task sizing.
-    $CLICKHOUSE_CLIENT ${SETTINGS} -q "SELECT count(), sum(key) FROM (SELECT key FROM $table LIMIT 1 BY key LIMIT 10)"
+    # Without `ORDER BY` any 10 distinct keys are a valid answer (the streams are not merged in
+    # order, so they may come from either part), but `LIMIT 1 BY key` must still hold across them.
+    $CLICKHOUSE_CLIENT ${SETTINGS} -q "SELECT count(), uniqExact(key), max(key) < 40000 FROM (SELECT key FROM $table LIMIT 1 BY key LIMIT 10)"
 done
 
 $CLICKHOUSE_CLIENT -q "DROP TABLE t_limit_by_outer_limit_merge"
