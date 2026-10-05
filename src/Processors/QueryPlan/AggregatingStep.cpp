@@ -4,6 +4,7 @@
 #include <memory>
 #include <numeric>
 #include <ranges>
+#include <unordered_set>
 #include <Columns/ColumnConst.h>
 #include <Columns/ColumnFixedString.h>
 #include <Columns/ColumnNullable.h>
@@ -41,6 +42,7 @@
 #include <QueryPipeline/QueryPipelineBuilder.h>
 #include <Common/JSONBuilder.h>
 #include <Common/VectorWithMemoryTracking.h>
+#include <Common/typeid_cast.h>
 #include <Core/ProtocolDefines.h>
 #include <Core/SettingsEnums.h>
 
@@ -254,6 +256,41 @@ String AggregatingStep::getStepGroupName(size_t group) const
     throw Exception(ErrorCodes::LOGICAL_ERROR, "Unknown AggregatingStep group {}", group);
 }
 
+static StepAnalysisReport aggregationAnalysisReport(StepProcessors step_processors)
+{
+    /// The transforms of one aggregation share an aggregator; grouping sets have one per set.
+    std::unordered_set<const Aggregator *> aggregators;
+    UInt64 peak_memory = 0;
+    bool tracked = false;
+    for (const auto * processor : step_processors)
+    {
+        const auto * aggregating_transform = typeid_cast<const AggregatingTransform *>(processor);
+        if (!aggregating_transform)
+            continue;
+
+        const auto & aggregator = aggregating_transform->getAggregator();
+        if (!aggregators.insert(&aggregator).second)
+            continue;
+
+        if (auto peak = aggregator.getPeakMemoryUsage())
+        {
+            peak_memory += *peak;
+            tracked = true;
+        }
+    }
+
+    if (!tracked)
+        return {};
+
+    MetricList memory_metrics;
+    memory_metrics.emplace_back(MetricKey::Bytes, peak_memory);
+    return {{MetricGroupKey::Memory, std::move(memory_metrics)}};
+}
+
+StepAnalysisReport AggregatingStep::getAnalysisReport(StepProcessors step_processors) const
+{
+    return aggregationAnalysisReport(step_processors);
+}
 
 const SortDescription & AggregatingStep::getSortDescription() const
 {
@@ -1099,6 +1136,11 @@ String AggregatingProjectionStep::getStepGroupName(size_t group) const
         case AggregatingStep::AggregatingStage::Scatter: break;
     }
     throw Exception(ErrorCodes::LOGICAL_ERROR, "Unknown AggregatingProjectionStep group {}", group);
+}
+
+StepAnalysisReport AggregatingProjectionStep::getAnalysisReport(StepProcessors step_processors) const
+{
+    return aggregationAnalysisReport(step_processors);
 }
 
 void AggregatingProjectionStep::updateOutputHeader()
