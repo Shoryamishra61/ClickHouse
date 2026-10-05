@@ -35,6 +35,10 @@ SELECT sum(cityHash64(*)) FROM (SELECT * FROM t_memory_lazy ORDER BY cityHash64(
 SELECT sum(cityHash64(*)) FROM (SELECT * FROM t_memory_lazy_compressed WHERE v % 3 = 1 ORDER BY v DESC, k LIMIT 1000);
 SELECT sum(cityHash64(*)) FROM (SELECT * FROM t_memory_lazy_compressed WHERE v % 3 = 1 ORDER BY v DESC, k LIMIT 1000 SETTINGS query_plan_optimize_lazy_materialization = 0);
 
+SELECT '-- every column is deferred, the main branch reads only the global row index';
+SELECT s, n FROM t_memory_lazy ORDER BY rowNumberInAllBlocks() LIMIT 3 SETTINGS max_threads = 1;
+SELECT s, n FROM t_memory_lazy_compressed ORDER BY rand() LIMIT 1000 FORMAT Null;
+
 SELECT '-- a row policy over a column that is not otherwise needed before the LIMIT';
 DROP ROW POLICY IF EXISTS 05321_memory_lazy_policy ON t_memory_lazy_compressed;
 CREATE ROW POLICY 05321_memory_lazy_policy ON t_memory_lazy_compressed USING length(a) = 3 TO ALL;
