@@ -25,7 +25,7 @@ namespace DB
 class PCAPBlockInputFormat final : public IInputFormat
 {
 public:
-    PCAPBlockInputFormat(ReadBuffer & in_, SharedHeader header_, const FormatSettings & format_settings_);
+    PCAPBlockInputFormat(ReadBuffer & in_, SharedHeader header_, const FormatSettings & format_settings_, size_t max_block_size_rows_);
     ~PCAPBlockInputFormat() override;
 
     String getName() const override { return "PCAPBlockInputFormat"; }
@@ -40,6 +40,8 @@ protected:
 
 private:
     const FormatSettings format_settings;
+    /// The row budget of the query; `0` means no limit besides `input_format_pcap_max_block_size`.
+    const size_t max_block_size_rows;
 
     /// Lazily opened on the first read().
     bool initialized = false;

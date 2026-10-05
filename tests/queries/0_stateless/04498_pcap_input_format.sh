@@ -94,10 +94,13 @@ WHERE ip_protocol IN ('TCP', 'UDP')
 GROUP BY ip_protocol
 ORDER BY ip_protocol FORMAT TSV"
 
-echo "--- block size limits: rows, bytes, and both default ---"
+echo "--- block size limits: rows, query rows, bytes, and both default ---"
 $CLICKHOUSE_LOCAL -q "
 SELECT uniqExact(blockNumber()), count() FROM file('$DATA_DIR/packets.pcap', PCAP)
 SETTINGS input_format_pcap_max_block_size = 4 FORMAT TSV"
+$CLICKHOUSE_LOCAL -q "
+SELECT uniqExact(blockNumber()), count() FROM file('$DATA_DIR/packets.pcap', PCAP)
+SETTINGS max_block_size = 4 FORMAT TSV"
 $CLICKHOUSE_LOCAL -q "
 SELECT uniqExact(blockNumber()), count() FROM file('$DATA_DIR/packets.pcap', PCAP)
 SETTINGS input_format_pcap_prefer_block_bytes = 1 FORMAT TSV"

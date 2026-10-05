@@ -3,6 +3,7 @@
 #if USE_PCAP
 
 #include <Formats/FormatFactory.h>
+#include <Processors/Formats/IRowInputFormat.h>
 #include <Columns/ColumnArray.h>
 #include <Columns/ColumnLowCardinality.h>
 #include <Columns/ColumnNullable.h>
@@ -145,8 +146,9 @@ static const std::unordered_map<std::string, size_t> & getColumnNameToIdx()
     return name_to_idx;
 }
 
-PCAPBlockInputFormat::PCAPBlockInputFormat(ReadBuffer & in_, SharedHeader header_, const FormatSettings & format_settings_)
-    : IInputFormat(std::move(header_), &in_), format_settings(format_settings_)
+PCAPBlockInputFormat::PCAPBlockInputFormat(
+    ReadBuffer & in_, SharedHeader header_, const FormatSettings & format_settings_, size_t max_block_size_rows_)
+    : IInputFormat(std::move(header_), &in_), format_settings(format_settings_), max_block_size_rows(max_block_size_rows_)
 {
 }
 
@@ -468,8 +470,11 @@ Chunk PCAPBlockInputFormat::read()
     const int dlt = sniffer->link_type();
 
     /// A row carries the whole packet in `raw` (and most of it again in `payload`), so the
-    /// block is bounded by the captured bytes as well as by the number of rows.
-    const size_t max_rows = format_settings.pcap.max_block_size;
+    /// block is bounded by the captured bytes as well as by the number of rows. The row budget of
+    /// the query (`max_block_size`) caps the `PCAP`-specific one.
+    size_t max_rows = format_settings.pcap.max_block_size;
+    if (max_block_size_rows != 0)
+        max_rows = std::min(max_rows, max_block_size_rows);
     const size_t max_bytes = format_settings.pcap.prefer_block_bytes;
 
     size_t num_rows = 0;
@@ -689,15 +694,18 @@ Chunk PCAPBlockInputFormat::read()
         if (need[COL_PAYLOAD] || need[COL_PAYLOAD_LENGTH])
         {
             std::string_view payload;
-            Tins::PDU * inner = nullptr;
+            const Tins::PDU * inner = nullptr;
             if (tcp) inner = tcp->inner_pdu();
             else if (udp) inner = udp->inner_pdu();
 
-            Tins::PDU::serialization_type payload_bytes;
+            /// The payload is a contiguous range of the captured frame, so it is sliced from the frame
+            /// instead of being serialized again. Its size comes from the dissected layers, which leave
+            /// out the bytes past the IP length, such as the Ethernet padding of short frames.
             if (inner != nullptr)
             {
-                payload_bytes = inner->serialize();
-                payload = std::string_view(reinterpret_cast<const char *>(payload_bytes.data()), payload_bytes.size());
+                const size_t offset = std::min<size_t>(offsetOfLayer(*pdu, *inner), caplen);
+                const size_t size = std::min<size_t>(inner->size(), caplen - offset);
+                payload = std::string_view(reinterpret_cast<const char *>(data) + offset, size);
             }
 
             if (need[COL_PAYLOAD_LENGTH])
@@ -782,20 +790,18 @@ NamesAndTypesList PCAPSchemaReader::readSchema()
 void registerInputFormatPCAP(FormatFactory & factory);
 void registerInputFormatPCAP(FormatFactory & factory)
 {
-    factory.registerRandomAccessInputFormat(
+    factory.registerInputFormat(
         "PCAP",
         [](ReadBuffer & buf,
            const Block & sample,
-           const FormatSettings & settings,
-           const ReadSettings &,
-           bool /* is_remote_fs */,
-           FormatParserSharedResourcesPtr,
-           FormatFilterInfoPtr) -> InputFormatPtr
+           const RowInputFormatParams & params,
+           const FormatSettings & settings) -> InputFormatPtr
         {
-            return std::make_shared<PCAPBlockInputFormat>(buf, std::make_shared<const Block>(sample), settings);
+            return std::make_shared<PCAPBlockInputFormat>(
+                buf, std::make_shared<const Block>(sample), settings, params.max_block_size_rows);
         });
     factory.markFormatSupportsSubsetOfColumns("PCAP");
-    /// `registerRandomAccessInputFormat` maps only the `.pcap` extension, derived from the format name.
+    /// `registerInputFormat` maps only the `.pcap` extension, derived from the format name.
     factory.registerFileExtension("pcapng", "PCAP");
 
     factory.setDocumentation("PCAP", Documentation{

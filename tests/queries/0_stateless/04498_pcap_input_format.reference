@@ -76,7 +76,8 @@ ICMP	1
 --- protocol filters see extension-header traffic ---
 TCP	6	1
 UDP	4	1
---- block size limits: rows, bytes, and both default ---
+--- block size limits: rows, query rows, bytes, and both default ---
+3	11
 3	11
 11	11
 6	11
