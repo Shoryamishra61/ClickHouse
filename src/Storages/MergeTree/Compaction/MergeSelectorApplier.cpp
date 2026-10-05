@@ -8,6 +8,7 @@
 #include <Storages/MergeTree/MergeTreeSettings.h>
 #include <Storages/MergeTree/MergeTreeVirtualColumns.h>
 #include <Storages/StorageInMemoryMetadata.h>
+#include <DataTypes/NestedUtils.h>
 #include <Processors/Transforms/ColumnGathererTransform.h>
 
 #include <Common/MemoryTracker.h>
@@ -117,7 +118,7 @@ size_t getAffordablePartsToMergeAtOnce(const ChooseContext & ctx, size_t columns
 /// merge vertically: over-pricing such a range costs some merge width, under-pricing it costs the merge.
 size_t getAffordablePartsToMergeAtOnce(const ChooseContext & ctx)
 {
-    return getAffordablePartsToMergeAtOnce(ctx, ctx.metadata_snapshot.getColumns().size());
+    return getAffordablePartsToMergeAtOnce(ctx, ctx.metadata_snapshot.getColumns().getAllPhysical().size());
 }
 
 /// How many columns of every source part a vertical merge holds at the same time. Its horizontal stage
@@ -130,7 +131,7 @@ size_t getAffordablePartsToMergeAtOnce(const ChooseContext & ctx)
 /// The remaining columns are the ones the vertical stage gathers. Over-counting here is harmless - it
 /// prices a vertical merge a little higher and predicts vertical merges a little less often - so the
 /// count leans that way whenever the exact set depends on the parts and not on the table.
-size_t getColumnsMergedOnHorizontalStageOfVerticalMerge(const ChooseContext & ctx)
+NameSet getColumnsMergedOnHorizontalStageOfVerticalMergeSet(const ChooseContext & ctx)
 {
     const auto & metadata = ctx.metadata_snapshot;
     const auto & params = ctx.merging_params;
@@ -183,8 +184,13 @@ size_t getColumnsMergedOnHorizontalStageOfVerticalMerge(const ChooseContext & ct
     for (const auto & recompression_ttl : metadata.getRecompressionTTLs())
         add_ttl_expression_columns(recompression_ttl);
 
+    return key_columns;
+}
+
+size_t getColumnsMergedOnHorizontalStageOfVerticalMerge(const ChooseContext & ctx)
+{
     /// The merge merges at least one column even when the key is empty (`ORDER BY tuple()`).
-    return std::max<size_t>(1, key_columns.size());
+    return std::max<size_t>(1, getColumnsMergedOnHorizontalStageOfVerticalMergeSet(ctx).size());
 }
 
 /// Whether the table can merge vertically at all. The rest of the decision depends on the range itself,
@@ -208,9 +214,19 @@ bool tableCanMergeVertically(const ChooseContext & ctx)
     if (!supported_mode)
         return false;
 
-    const size_t num_columns = metadata.getColumns().size();
-    const size_t key_columns = getColumnsMergedOnHorizontalStageOfVerticalMerge(ctx);
-    const size_t gathering_columns = num_columns > key_columns ? num_columns - key_columns : 0;
+    /// Like `MergeTask`, split only the physical columns: the alias and ephemeral columns are not merged at all.
+    /// A key column that is a subcolumn keeps its whole storage column on the horizontal stage.
+    const auto physical_columns = metadata.getColumns().getAllPhysical().getNameSet();
+    NameSet key_columns_in_storage;
+    for (const auto & column : getColumnsMergedOnHorizontalStageOfVerticalMergeSet(ctx))
+    {
+        if (auto name_in_storage = Nested::tryGetColumnNameInStorage(column, physical_columns))
+            key_columns_in_storage.insert(std::move(*name_in_storage));
+    }
+
+    /// An empty key still merges the first column on the horizontal stage, see `extractMergingAndGatheringColumns`.
+    const size_t key_columns = std::max<size_t>(1, key_columns_in_storage.size());
+    const size_t gathering_columns = physical_columns.size() > key_columns ? physical_columns.size() - key_columns : 0;
     return gathering_columns >= settings[MergeTreeSetting::vertical_merge_algorithm_min_columns_to_activate];
 }
 
