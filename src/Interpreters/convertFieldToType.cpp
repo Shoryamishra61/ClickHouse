@@ -299,6 +299,23 @@ Field rescaleDecimal64Field(const Field & src, const ToDataType & to_type, bool 
     return DecimalField<T>(DecimalUtils::decimalFromComponentsWithMultiplier<T>(value, 0, 1), scale_to);
 }
 
+/// Only `to_type` is unwrapped by `convertFieldToType`, so the source type hint can still be wrapped
+/// into `Nullable` or `LowCardinality`, which do not change the `Field` representation of the value.
+const IDataType * removeNullableAndLowCardinalityFromHint(const IDataType * from_type_hint)
+{
+    const IDataType * unwrapped_hint = from_type_hint;
+    while (unwrapped_hint)
+    {
+        if (const auto * nullable_hint = typeid_cast<const DataTypeNullable *>(unwrapped_hint))
+            unwrapped_hint = nullable_hint->getNestedType().get();
+        else if (const auto * low_cardinality_hint = typeid_cast<const DataTypeLowCardinality *>(unwrapped_hint))
+            unwrapped_hint = low_cardinality_hint->getDictionaryType().get();
+        else
+            break;
+    }
+    return unwrapped_hint;
+}
+
 Field convertFieldToTypeImpl(const Field & src, const IDataType & type, const IDataType * from_type_hint, const FormatSettings & format_settings, bool strict, bool convert_inexact_floats)
 {
     if (from_type_hint && from_type_hint->equals(type))
@@ -715,7 +732,10 @@ Field convertFieldToTypeImpl(const Field & src, const IDataType & type, const ID
         /// while `UUID2` keeps the big-endian, correctly-sorting one. When the source constant came from the other
         /// type - which we can tell only from `from_type_hint` - swap the halves so the value matches the destination
         /// encoding; otherwise (same type, or no hint) it is expected to be already in the needed layout.
-        if ((which_type.isUUID() && which_from_type.isUUID2()) || (which_type.isUUID2() && which_from_type.isUUID()))
+        WhichDataType which_unwrapped_from_type;
+        if (const auto * unwrapped_hint = removeNullableAndLowCardinalityFromHint(from_type_hint))
+            which_unwrapped_from_type = WhichDataType(*unwrapped_hint);
+        if ((which_type.isUUID() && which_unwrapped_from_type.isUUID2()) || (which_type.isUUID2() && which_unwrapped_from_type.isUUID()))
             return UUIDHelpers::swapHalves(src.safeGet<UUID>());
         return src;
     }
@@ -752,17 +772,7 @@ Field convertFieldToTypeImpl(const Field & src, const IDataType & type, const ID
         }
 
         /// An Enum arrives as its underlying number, but `CAST(enum AS String)` uses the name.
-        /// Only `to_type` is unwrapped by the caller, so unwrap the hint here.
-        const IDataType * unwrapped_hint = from_type_hint;
-        while (unwrapped_hint)
-        {
-            if (const auto * nullable_hint = typeid_cast<const DataTypeNullable *>(unwrapped_hint))
-                unwrapped_hint = nullable_hint->getNestedType().get();
-            else if (const auto * low_cardinality_hint = typeid_cast<const DataTypeLowCardinality *>(unwrapped_hint))
-                unwrapped_hint = low_cardinality_hint->getDictionaryType().get();
-            else
-                break;
-        }
+        const IDataType * unwrapped_hint = removeNullableAndLowCardinalityFromHint(from_type_hint);
 
         /// Re-enter so that a `FixedString` target still zero-pads the name to its width.
         if (const auto * enum_from_type = dynamic_cast<const IDataTypeEnum *>(unwrapped_hint))
@@ -784,9 +794,10 @@ Field convertFieldToTypeImpl(const Field & src, const IDataType & type, const ID
             /// an array (e.g. the list from `IN (...)` pushed down to external storages).
             const IDataType * element_from_hint = nullptr;
             const DataTypeTuple * tuple_from_hint = nullptr;
-            if (const auto * array_from_hint = typeid_cast<const DataTypeArray *>(from_type_hint))
+            const IDataType * unwrapped_hint = removeNullableAndLowCardinalityFromHint(from_type_hint);
+            if (const auto * array_from_hint = typeid_cast<const DataTypeArray *>(unwrapped_hint))
                 element_from_hint = array_from_hint->getNestedType().get();
-            else if (const auto * maybe_tuple_hint = typeid_cast<const DataTypeTuple *>(from_type_hint);
+            else if (const auto * maybe_tuple_hint = typeid_cast<const DataTypeTuple *>(unwrapped_hint);
                      maybe_tuple_hint && maybe_tuple_hint->getElements().size() == src_arr_size)
                 tuple_from_hint = maybe_tuple_hint;
 
@@ -829,7 +840,7 @@ Field convertFieldToTypeImpl(const Field & src, const IDataType & type, const ID
                     src_tuple_size);
 
             /// As for arrays above, thread the per-element source types into the recursion.
-            const auto * tuple_from_hint = typeid_cast<const DataTypeTuple *>(from_type_hint);
+            const auto * tuple_from_hint = typeid_cast<const DataTypeTuple *>(removeNullableAndLowCardinalityFromHint(from_type_hint));
             if (tuple_from_hint && tuple_from_hint->getElements().size() != src_tuple_size)
                 tuple_from_hint = nullptr;
 
@@ -1023,7 +1034,7 @@ Field convertFieldToTypeImpl(const Field & src, const IDataType & type, const ID
             /// As for arrays above, thread the source key/value types into the recursion.
             const IDataType * key_from_hint = nullptr;
             const IDataType * value_from_hint = nullptr;
-            if (const auto * map_from_hint = typeid_cast<const DataTypeMap *>(from_type_hint))
+            if (const auto * map_from_hint = typeid_cast<const DataTypeMap *>(removeNullableAndLowCardinalityFromHint(from_type_hint)))
             {
                 key_from_hint = map_from_hint->getKeyType().get();
                 value_from_hint = map_from_hint->getValueType().get();
