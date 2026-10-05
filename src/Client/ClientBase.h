@@ -13,6 +13,7 @@
 #include <Common/ShellCommand.h>
 #include <Common/Stopwatch.h>
 #include <Core/ExternalTable.h>
+#include <Core/Field.h>
 #include <Interpreters/Context.h>
 
 #if USE_CLIENT_AI
@@ -157,14 +158,15 @@ protected:
     void processOrdinaryQuery(String query, ASTPtr parsed_query);
     void processInsertQuery(String query, ASTPtr parsed_query);
 
-    /// In the `clickhouse_json` dialect the client parses JSON locally, and in a foreign SQL dialect
-    /// (e.g. `polyglot`) it transpiles the query locally to classify it; both then send a query string
-    /// that the server re-parses using the session `dialect`. Pin the outbound `dialect` (and the
-    /// experimental gate) to match the form of `outbound_query` actually being sent — the text the client
-    /// parsed vs. ClickHouse SQL produced by a client-side AST rewrite, which the caller reports in
-    /// `outbound_text_is_serialized_ast` — so the server parses it the same way the client did. No-op for
-    /// the `clickhouse` dialect. The change is temporary (the caller restores the saved settings after the
-    /// query).
+    /// The other side re-parses the outbound query text using the `dialect` it receives, so that
+    /// dialect must be the one the client accepted the text with. Pin the outbound `dialect` (and the
+    /// experimental JSON gate) to match the form of `outbound_query` actually being sent — a JSON body,
+    /// SQL produced by a client-side AST rewrite (which the caller reports in
+    /// `outbound_text_is_serialized_ast`), or the text as it was typed — undoing a query-local
+    /// `SETTINGS dialect = ...` that only applies to the statements that follow. A foreign-dialect
+    /// (e.g. `polyglot`) query sent verbatim is reparsed (transpiled) by the server; when a client-side
+    /// rewrite replaced it with the already transpiled AST, the server is told to parse plain SQL. The
+    /// change is temporary (the caller restores the saved settings after the query).
     void pinOutboundDialect(const String & outbound_query, bool outbound_text_is_serialized_ast);
 
     /// Settings to pass to `Connection::sendQuery`: a copy of the client settings with `compatibility`-derived
@@ -377,7 +379,7 @@ protected:
     void initTTYBuffer(ProgressOption progress_option, ProgressOption progress_table_option);
     void initKeystrokeInterceptor();
 
-    String appendSmileyIfNeeded(const String & prompt);
+    static String appendSmileyIfNeeded(const String & prompt);
 
     /// Should be one of the first, to be destroyed the last,
     /// since other members can use them.
@@ -485,6 +487,9 @@ protected:
 
     UInt64 server_revision = 0;
     String server_version;
+    /// A template for the prompt rendered by getPrompt: the `{display_name}` placeholder
+    /// is substituted there on every call (the current dialect is appended to it when
+    /// it is not the default one), and the `:) ` smiley is appended if missing.
     String prompt;
     String server_display_name;
 
@@ -607,6 +612,22 @@ protected:
     /// dialect, so `pinOutboundDialect` can tell the server to parse plain SQL when a client-side AST
     /// rewrite replaced that verbatim text with the serialized (already transpiled) AST.
     bool current_query_sent_verbatim = false;
+
+    /// The `dialect`, `enable_json_ast_dialect`, `enable_trino_dialect` and `allow_experimental_logsql_dialect`
+    /// values the current query text was accepted with, kept only when the query's own `SETTINGS` clause changed them.
+    /// `pinOutboundDialect` restores them for the outbound settings, so a query-local
+    /// `SETTINGS dialect = ...` cannot change how this very query text is parsed on the other side.
+    /// Empty when the query left the setting alone: the client must not override values that arrive
+    /// from elsewhere in the meantime, such as the user's profile applied by
+    /// `applySettingsFromServerIfNeeded`, which the server is entitled to parse with.
+    std::optional<Field> current_query_parse_dialect;
+    std::optional<Field> current_query_parse_json_ast_gate;
+    std::optional<Field> current_query_parse_trino_gate;
+    std::optional<Field> current_query_parse_logsql_gate;
+
+    /// True when the current query is a SQL `SET` escape parsed with `ParserQuery` while a
+    /// non-ClickHouse dialect was active. Its outbound transport dialect must be `clickhouse`.
+    bool current_query_is_set_escape = false;
 
     std::atomic_bool cancelled = false;
     std::atomic_bool cancelled_printed = false;
