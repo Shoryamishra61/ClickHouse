@@ -526,33 +526,15 @@ bool IcebergMetadata::optimize(
             ErrorCodes::NOT_IMPLEMENTED,
             "OPTIMIZE is not supported for catalog-backed Iceberg tables in this build");
 
-    const auto lookup_settings = getMetadataLookupSettings();
-    if (lookup_settings[DataLakeStorageSetting::iceberg_use_version_hint].value)
-    {
-        auto resolve_metadata = [&](bool ignore_pointer)
-        {
-            return getLatestOrExplicitMetadataFileAndVersion(
-                object_storage,
-                persistent_components.table_path,
-                lookup_settings,
-                persistent_components.metadata_cache,
-                context,
-                log.get(),
-                persistent_components.table_uuid,
-                persistent_components.metadata_compression_method,
-                /* force_fetch_latest_metadata */ true,
-                ignore_pointer);
-        };
-        if (resolve_metadata(/* ignore_pointer */ false).path != resolve_metadata(/* ignore_pointer */ true).path)
-            throw Exception(
-                ErrorCodes::NOT_IMPLEMENTED,
-                "OPTIMIZE is not supported when version-hint.text does not point to the latest Iceberg metadata");
-    }
+    if (getMetadataLookupSettings()[DataLakeStorageSetting::iceberg_use_version_hint].value)
+        throw Exception(
+            ErrorCodes::NOT_IMPLEMENTED,
+            "OPTIMIZE is not supported with iceberg_use_version_hint on a standalone Iceberg table");
 
     if (settings[Setting::allow_experimental_iceberg_compaction])
     {
         const auto sample_block = std::make_shared<const Block>(metadata_snapshot->getSampleBlock());
-        auto snapshots_info = getHistory(context, /* ignore_metadata_pointer_overrides */ true);
+        auto snapshots_info = getHistory(context);
         compactIcebergTable(
             snapshots_info,
             persistent_components,
@@ -1090,7 +1072,7 @@ DataLakeMetadataPtr IcebergMetadata::create(
 }
 
 
-IcebergMetadata::IcebergHistory IcebergMetadata::getHistory(ContextPtr local_context, bool ignore_metadata_pointer_overrides) const
+IcebergMetadata::IcebergHistory IcebergMetadata::getHistory(ContextPtr local_context) const
 {
     const auto [metadata_version, metadata_file_path, compression_method] = getLatestOrExplicitMetadataFileAndVersion(
         object_storage,
@@ -1100,9 +1082,7 @@ IcebergMetadata::IcebergHistory IcebergMetadata::getHistory(ContextPtr local_con
         local_context,
         log.get(),
         persistent_components.table_uuid,
-        persistent_components.metadata_compression_method,
-        /* force_fetch_latest_metadata */ true,
-        ignore_metadata_pointer_overrides);
+        persistent_components.metadata_compression_method);
 
     auto metadata_object
         = getMetadataJSONObject(metadata_file_path, object_storage, persistent_components.metadata_cache, local_context, log, compression_method, persistent_components.table_uuid);
