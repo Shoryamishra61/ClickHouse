@@ -143,7 +143,11 @@ bool Environment::isUnix()
 
 bool Environment::isWindows()
 {
+#if defined(POCO_OS_FAMILY_WINDOWS)
+	return true;
+#else
 	return false;
+#endif
 }
 
 
