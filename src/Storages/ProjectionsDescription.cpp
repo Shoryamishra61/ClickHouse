@@ -962,7 +962,7 @@ Block ProjectionDescription::calculateByQuery(
                 name,
                 projection_column_name,
                 pipeline_block.dumpNames());
-        projection_block.insert({column.column, column.type, std::move(projection_column_name)});
+        projection_block.insert({column.column, column.type, projection_column_name});
     }
 
     /// Rename parent _part_offset to _parent_part_offset column
