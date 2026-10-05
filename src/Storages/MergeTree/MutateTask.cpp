@@ -4119,8 +4119,10 @@ bool MutateTask::prepare()
             ctx->temporary_directory_lock = std::move(lock);
         }
 
+        /// No longer shared with the source, so zero-copy replication must not keep their blobs for it.
         if (ctx->metadata_snapshot->hasUniqueKey())
-            DeleteBitmapFileOps::removeClonedBitmaps(*part);
+            for (const auto & file : DeleteBitmapFileOps::removeClonedBitmaps(*part))
+                ctx->hardlinked_files.hardlinks_from_source_part.erase(file.fileName());
 
         ProfileEvents::increment(ProfileEvents::MutationUntouchedParts);
         promise.set_value(std::move(part));

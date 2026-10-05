@@ -5601,12 +5601,17 @@ void MergeTreeData::checkAlterIsPossible(const AlterCommands & commands, Context
 }
 
 /// The MATERIALIZED UNIQUE KEY column computed from @column, directly or through other columns.
+/// A Nested group name stands for every column of the group.
 static std::optional<String> findUniqueKeyColumnComputedFrom(
     const StorageInMemoryMetadata & metadata, const String & column, const ContextPtr & context)
 {
+    NameSet changed{column};
+    for (const auto & nested_column : metadata.getColumns().getNested(column))
+        changed.insert(nested_column.name);
+
     const MaterializedColumnDependencies dependencies(metadata.getColumns(), context);
     for (const auto & key_column : metadata.unique_key.column_names)
-        if (!dependencies.findColumnsToRecalculate(key_column, {column}).empty())
+        if (!dependencies.findColumnsToRecalculate(key_column, changed).empty())
             return key_column;
     return {};
 }
@@ -5735,6 +5740,9 @@ void MergeTreeData::checkAlterEligibility(const AlterCommands & commands, Contex
             return s;
         };
 
+        /// The old names of the columns this ALTER renames; stock refuses transitive renames.
+        std::unordered_map<String, String> renamed_from;
+
         for (const auto & command : commands)
         {
             if (command.type == AlterCommand::MODIFY_ORDER_BY)
@@ -5751,11 +5759,18 @@ void MergeTreeData::checkAlterEligibility(const AlterCommands & commands, Contex
                 throw Exception(ErrorCodes::SUPPORT_IS_DISABLED,
                     "Column TTL is not supported on tables with UNIQUE KEY");
 
-            if (command.type == AlterCommand::DROP_COLUMN && command.clear)
-                if (auto key_column = findUniqueKeyColumnComputedFrom(old_metadata, command.column_name, local_context))
+            if (command.type == AlterCommand::RENAME_COLUMN)
+                renamed_from[command.rename_to] = command.column_name;
+
+            if (command.type == AlterCommand::DROP_COLUMN && command.clear && !command.ignore)
+            {
+                const auto renamed = renamed_from.find(command.column_name);
+                const String & old_name = renamed == renamed_from.end() ? command.column_name : renamed->second;
+                if (auto key_column = findUniqueKeyColumnComputedFrom(old_metadata, old_name, local_context))
                     throw Exception(ErrorCodes::ALTER_OF_COLUMN_IS_FORBIDDEN,
                         "ALTER CLEAR COLUMN {} is forbidden: UNIQUE KEY column {} is computed from it.",
                         backQuoteIfNeed(command.column_name), backQuoteIfNeed(*key_column));
+            }
 
             const bool affects_column =
                 command.type == AlterCommand::DROP_COLUMN

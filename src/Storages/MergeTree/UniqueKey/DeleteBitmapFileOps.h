@@ -68,7 +68,8 @@ namespace DeleteBitmapFileOps
     DeleteBitmapPtr tryReadBitmap(const IDataPartStorage & holder, const BitmapFile & file);
 
     /// Remove the bitmap files a mutation's clone took from its source, and from its `checksums.txt`.
-    void removeClonedBitmaps(IMergeTreeDataPart & clone);
+    /// Returns the removed files.
+    std::vector<BitmapFile> removeClonedBitmaps(IMergeTreeDataPart & clone);
 
 }
 

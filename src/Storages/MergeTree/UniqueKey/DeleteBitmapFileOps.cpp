@@ -134,12 +134,12 @@ DeleteBitmapPtr tryReadBitmap(const IDataPartStorage & holder, const BitmapFile 
     return tryReadBitmapFile(holder, file.fileName());
 }
 
-void removeClonedBitmaps(IMergeTreeDataPart & clone)
+std::vector<BitmapFile> removeClonedBitmaps(IMergeTreeDataPart & clone)
 {
     auto & storage = clone.getDataPartStorage();
-    const auto files = enumerateFiles(storage);
+    auto files = enumerateFiles(storage);
     if (files.empty())
-        return;
+        return files;
 
     for (const auto & file : files)
     {
@@ -155,6 +155,7 @@ void removeClonedBitmaps(IMergeTreeDataPart & clone)
     }
 
     clone.setBytesOnDisk(clone.checksums.getTotalSizeOnDisk());
+    return files;
 }
 
 }

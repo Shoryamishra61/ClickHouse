@@ -3,7 +3,7 @@
 --   1. ALTER DELETE, ALTER UPDATE of a key column or of `_row_exists`, a forced lightweight UPDATE: rejected
 --   2. MATERIALIZE COLUMN: rejected for a key column; CLEAR COLUMN runs, a Nested group included; CLEAR IF EXISTS of a missing one is a no-op
 --   2a. part rewrites: APPLY DELETED MASK / PATCHES, MATERIALIZE PROJECTION are rejected
---   2b. CLEAR / MATERIALIZE COLUMN, ALTER UPDATE: rejected when a MATERIALIZED key column is computed from the column; CLEAR runs under a DEFAULT key column
+--   2b. CLEAR / MATERIALIZE COLUMN, ALTER UPDATE: rejected when a MATERIALIZED key column is computed from the column, renamed in the same ALTER or a Nested group included; CLEAR runs under a DEFAULT key column
 --   3. row-preserving ALTERs run: DROP / RENAME / MODIFY / MATERIALIZE COLUMN, DROP / MATERIALIZE INDEX and STATISTICS, REWRITE PARTS, UPDATE
 --   4. plain table: the same operations still work without UNIQUE KEY
 -- no-async-insert: after an async INSERT, a CLEAR of a Nested group can leave the arrays in place, as on
@@ -92,12 +92,24 @@ INSERT INTO uk_mut_computed (id, a) VALUES (1, 1), (2, 2);
 SELECT 'clear_source_of_materialized_key' AS step;
 ALTER TABLE uk_mut_computed CLEAR COLUMN a; -- { serverError ALTER_OF_COLUMN_IS_FORBIDDEN }
 
+SELECT 'clear_renamed_source_of_materialized_key' AS step;
+ALTER TABLE uk_mut_computed RENAME COLUMN a TO a2, CLEAR COLUMN a2; -- { serverError ALTER_OF_COLUMN_IS_FORBIDDEN }
+
 SELECT 'materialize_source_of_materialized_key' AS step;
 ALTER TABLE uk_mut_computed MATERIALIZE COLUMN a; -- { serverError SUPPORT_IS_DISABLED }
 
 SELECT 'update_source_of_materialized_key' AS step;
 ALTER TABLE uk_mut_computed UPDATE a = a + 10 WHERE 1; -- { serverError SUPPORT_IS_DISABLED }
 DROP TABLE uk_mut_computed;
+
+DROP TABLE IF EXISTS uk_mut_computed_nested;
+CREATE TABLE uk_mut_computed_nested (id UInt32, n Nested(x UInt32, y UInt32), k UInt64 MATERIALIZED arraySum(n.x))
+ENGINE = MergeTree ORDER BY id UNIQUE KEY (k)
+SETTINGS share_nested_offsets = 1;
+
+SELECT 'clear_nested_source_of_materialized_key' AS step;
+ALTER TABLE uk_mut_computed_nested CLEAR COLUMN n; -- { serverError ALTER_OF_COLUMN_IS_FORBIDDEN }
+DROP TABLE uk_mut_computed_nested;
 
 DROP TABLE IF EXISTS uk_mut_default_key;
 CREATE TABLE uk_mut_default_key (id UInt32, a UInt64, k UInt64 DEFAULT a * 2)
