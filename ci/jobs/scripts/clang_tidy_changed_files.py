@@ -60,10 +60,11 @@ MAX_INCLUDERS_PER_HEADER = 3
 # and judges its work, without being analyzed themselves. A change to them alone
 # touches no translation unit, yet it can make the full check fail on `master`,
 # or break this gate. So instead of being skipped, such a change is validated on
-# the fixed `CANARY_TRANSLATION_UNITS`: they are analyzed, and every diagnostic
-# located in them is reported. `master` is clean under the full check, so a
-# diagnostic there is one the change introduced - a newly enabled check firing,
-# or this module misparsing clang-tidy output.
+# the fixed `CANARY_TRANSLATION_UNITS`: they are analyzed as the full check
+# analyzes them, and every diagnostic it would report for them is reported,
+# including those in the headers they include. `master` is clean under the full
+# check, so such a diagnostic is one the change introduced - a newly enabled
+# check firing, or this module misparsing clang-tidy output.
 TIDY_CONFIG_PATHS = (
     ".clang-tidy",
     "cmake/clang_tidy.cmake",
@@ -225,13 +226,25 @@ def generated_headers(path):
     return []
 
 
-def generated_header_consumers(changed_files, repo_dir, limit):
-    """Analyzed files that include a header generated from a changed input.
+def changed_generator_inputs(changed_files):
+    """The change's inputs of code generators from `GENERATOR_INPUTS`, sorted."""
+    return sorted(
+        path
+        for path in {normalize_changed_path(f) for f in changed_files}
+        if is_generator_input(path)
+    )
+
+
+def generated_header_consumers(inputs, repo_dir, limit, is_coverable):
+    """Analyzed files that include a header generated from one of `inputs`.
 
     At most `limit` per generated header, translation units before headers, so
     that a widely included one like `config.h` does not turn into a full check.
-    The include is matched by file name: the generated header is found through
-    the build directory's include path, so it is included by its name alone.
+    Candidates are filtered by `is_coverable` before the limit is applied, so
+    that files no translation unit in the build covers cannot crowd out ones it
+    does. The include is matched by file name: the generated header is found
+    through the build directory's include path, so it is included by its name
+    alone.
     """
     pathspecs = [
         f"{root}/*{suffix}"
@@ -239,11 +252,6 @@ def generated_header_consumers(changed_files, repo_dir, limit):
         for suffix in SOURCE_SUFFIXES + HEADER_SUFFIXES
     ]
     consumers = set()
-    inputs = sorted(
-        path
-        for path in {normalize_changed_path(f) for f in changed_files}
-        if is_generator_input(path)
-    )
     for path in inputs:
         for header in generated_headers(path):
             pattern = (
@@ -272,7 +280,13 @@ def generated_header_consumers(changed_files, repo_dir, limit):
                 ),
                 key=lambda f: (not f.endswith(SOURCE_SUFFIXES), f),
             )
-            consumers.update(found[:limit])
+            taken = 0
+            for candidate in found:
+                if taken == limit:
+                    break
+                if is_coverable(candidate):
+                    consumers.add(candidate)
+                    taken += 1
     return sorted(consumers)
 
 
@@ -338,6 +352,32 @@ def find_includers(header, repo_dir, limit, is_built):
     return []
 
 
+def lookup_translation_unit(path, repo_dir, compile_commands):
+    """The compilation database entry of the repo-relative `path`, or `None`."""
+    return compile_commands.get(os.path.normpath(f"{repo_dir}/{path}"))
+
+
+def is_coverable(path, repo_dir, compile_commands):
+    """True when `select_translation_units` finds a translation unit for `path`.
+
+    The same order of lookups: a source file itself, a header's sibling
+    translation unit, or a translation unit including the header directly.
+    """
+
+    def is_built(candidate):
+        return (
+            lookup_translation_unit(candidate, repo_dir, compile_commands)
+            is not None
+        )
+
+    if path.endswith(SOURCE_SUFFIXES):
+        return is_built(path)
+    stem = path.rsplit(".", 1)[0]
+    if any(is_built(f"{stem}{suffix}") for suffix in SOURCE_SUFFIXES):
+        return True
+    return bool(find_includers(path, repo_dir, 1, is_built))
+
+
 def select_translation_units(changed, repo_dir, compile_commands, config_changed=()):
     """Pick the translation units to analyze for `changed`.
 
@@ -352,7 +392,7 @@ def select_translation_units(changed, repo_dir, compile_commands, config_changed
     uncovered_headers = []
 
     def lookup(path):
-        return compile_commands.get(os.path.normpath(f"{repo_dir}/{path}"))
+        return lookup_translation_unit(path, repo_dir, compile_commands)
 
     def add(path, reason):
         entry = lookup(path)
@@ -513,15 +553,16 @@ def infrastructure_error(output, returncode):
     return ""
 
 
-def relevant_diagnostics(diagnostics, changed_real_paths):
+def relevant_diagnostics(diagnostics, changed_real_paths, report_all=False):
     """The diagnostics this check reports: those in the files the change touches.
 
     A compile error is reported wherever it occurs - it means the translation
-    unit was never analyzed, so silence about it would be a false green.
+    unit was never analyzed, so silence about it would be a false green. With
+    `report_all`, every diagnostic is reported (see `run_one`).
     """
     relevant = []
     for diagnostic in diagnostics:
-        if COMPILE_ERROR_CHECK in diagnostic["message"]:
+        if report_all or COMPILE_ERROR_CHECK in diagnostic["message"]:
             relevant.append(diagnostic)
         elif (
             diagnostic["file"]
@@ -532,21 +573,31 @@ def relevant_diagnostics(diagnostics, changed_real_paths):
 
 
 def run_one(
-    translation_unit, tidy, db_dir, filter_regex, log_dir, changed_real_paths, repo_dir
+    translation_unit,
+    tidy,
+    db_dir,
+    filter_regex,
+    log_dir,
+    changed_real_paths,
+    repo_dir,
+    is_canary=False,
 ):
-    """Analyze one translation unit and turn the outcome into a `Result`."""
+    """Analyze one translation unit and turn the outcome into a `Result`.
+
+    A canary translation unit is analyzed the way the full check analyzes it:
+    with the `HeaderFilterRegex` of `.clang-tidy` instead of `filter_regex`, and
+    with every diagnostic reported, including those in the headers it includes.
+    `master` is clean under the full check, so a diagnostic anywhere in a canary
+    is one a changed configuration introduced - and a newly enabled check that
+    fires only in a header must not stay green here.
+    """
     stop_watch = Utils.Stopwatch()
     name = os.path.relpath(translation_unit, repo_dir)
     log_file = f"{log_dir}/{Utils.normalize_string(name)}.log"
-    command = [
-        tidy,
-        "-p",
-        db_dir,
-        "--quiet",
-        NO_WARNINGS_AS_ERRORS,
-        f"--header-filter={filter_regex}",
-        translation_unit,
-    ]
+    command = [tidy, "-p", db_dir, "--quiet", NO_WARNINGS_AS_ERRORS]
+    if not is_canary:
+        command.append(f"--header-filter={filter_regex}")
+    command.append(translation_unit)
 
     print(f"> clang-tidy {name}")
     try:
@@ -579,7 +630,9 @@ def run_one(
     if error:
         status, info = Result.Status.ERROR, error
     else:
-        relevant = relevant_diagnostics(parse_diagnostics(output), changed_real_paths)
+        relevant = relevant_diagnostics(
+            parse_diagnostics(output), changed_real_paths, report_all=is_canary
+        )
         if relevant:
             status = Result.Status.FAIL
             info = "\n".join(diagnostic["text"] for diagnostic in relevant)
@@ -658,17 +711,11 @@ def run(changed_files, repo_dir, build_dir, temp_dir):
     stop_watch = Utils.Stopwatch()
     changed = analyzable_changed_files(changed_files, repo_dir)
     config_changed = changed_tidy_config_files(changed_files)
-    consumers = generated_header_consumers(
-        changed_files, repo_dir, MAX_INCLUDERS_PER_HEADER
-    )
+    generator_inputs = changed_generator_inputs(changed_files)
     print(f"Changed files clang-tidy analyzes: {changed}")
     print(f"Changed clang-tidy configuration files: {config_changed}")
-    print(f"Files including headers generated from changed inputs: {consumers}")
-    # The consumers are selected and reported as if they had changed: `master`
-    # is clean under the full check, so a diagnostic located in them is one the
-    # regenerated header introduced.
-    changed = sorted(set(changed) | set(consumers))
-    if not changed and not config_changed:
+    print(f"Changed inputs of code generators: {generator_inputs}")
+    if not changed and not config_changed and not generator_inputs:
         return Result.create_from(
             name=RESULT_NAME,
             status=Result.Status.SKIPPED,
@@ -677,9 +724,26 @@ def run(changed_files, repo_dir, build_dir, temp_dir):
         )
 
     compile_commands = load_compile_commands(build_dir)
+    consumers = generated_header_consumers(
+        generator_inputs,
+        repo_dir,
+        MAX_INCLUDERS_PER_HEADER,
+        lambda path: is_coverable(path, repo_dir, compile_commands),
+    )
+    print(f"Files including headers generated from changed inputs: {consumers}")
+    # The consumers are selected and reported as if they had changed: `master`
+    # is clean under the full check, so a diagnostic located in them is one the
+    # regenerated header introduced.
+    changed = sorted(set(changed) | set(consumers))
     translation_units, notes = select_translation_units(
         changed, repo_dir, compile_commands, config_changed
     )
+    if generator_inputs and not consumers:
+        notes.append(
+            "No translation unit in the build covers a file including the headers "
+            "generated from these changed inputs, so they are covered only by the "
+            "full clang-tidy check: " + ", ".join(generator_inputs)
+        )
     for note in notes:
         print(f"NOTE: {note}")
     if not translation_units:
@@ -713,8 +777,15 @@ def run(changed_files, repo_dir, build_dir, temp_dir):
     filter_regex = header_filter_regex(
         [path for path in changed if path.endswith(HEADER_SUFFIXES)]
     )
-    reported = changed + (list(CANARY_TRANSLATION_UNITS) if config_changed else [])
-    changed_real_paths = {os.path.realpath(f"{repo_dir}/{path}") for path in reported}
+    changed_real_paths = {os.path.realpath(f"{repo_dir}/{path}") for path in changed}
+    canary_units = (
+        {
+            lookup_translation_unit(canary, repo_dir, compile_commands)["file"]
+            for canary in CANARY_TRANSLATION_UNITS
+        }
+        if config_changed
+        else set()
+    )
     workers = max_workers(len(translation_units))
     print(
         f"Running [{tidy}] on {len(translation_units)} translation unit(s) "
@@ -732,6 +803,7 @@ def run(changed_files, repo_dir, build_dir, temp_dir):
                     log_dir,
                     changed_real_paths,
                     repo_dir,
+                    unit in canary_units,
                 ),
                 translation_units,
             )
