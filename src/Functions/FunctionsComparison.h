@@ -30,6 +30,7 @@
 #include <DataTypes/DataTypesDecimal.h>
 #include <DataTypes/DataTypesNumber.h>
 #include <DataTypes/NumberTraits.h>
+#include <DataTypes/TypeTree.h>
 #include <DataTypes/getLeastSupertype.h>
 #include <Functions/ComparisonOrderDomain.h>
 #include <Functions/FunctionHelpers.h>
@@ -1751,9 +1752,7 @@ private:
         /// element, like the scalars.
         auto contains_fixed_string = [](const IDataType & type)
         {
-            bool found = isFixedString(type);
-            type.forEachChild([&](const IDataType & child) { found = found || isFixedString(child); });
-            return found;
+            return anyInTypeTree(type, [](const IDataType & t) { return isFixedString(t); });
         };
         const bool fixed_string_against_other_type = !c0.type->equals(*c1.type)
             && (contains_fixed_string(*c0.type) || contains_fixed_string(*c1.type));
