@@ -70,8 +70,18 @@ function extractFunction(js, name) {
 
 /// ----- Fake browser --------------------------------------------------------------
 
-function makeContext() {
+/// A `localStorage` stand-in; passing the same one to two contexts simulates two visits of the page.
+function makeStorage() {
+    const items = new Map();
+    return {
+        getItem: key => items.has(key) ? items.get(key) : null,
+        setItem: (key, value) => { items.set(key, String(value)); },
+    };
+}
+
+function makeContext(storage) {
     const ctx = {
+        localStorage: storage,
         url_elem: { value: '' },
         user_elem: { value: '' },
         password_elem: { value: '' },
@@ -86,6 +96,8 @@ function makeContext() {
         console,
         encodeURIComponent,
         decodeURIComponent,
+        JSON,
+        Object,
     };
     ctx.PasswordCredential = class PasswordCredential {
         constructor({ id, password, name }) {
@@ -111,12 +123,14 @@ function makeContext() {
     return ctx;
 }
 
-const FUNCTIONS = ['effectiveConnectionUser', 'serverAddressWithoutSession', 'storeCredentials', 'getServerStatus', 'buildCompletionUrl'];
+const FUNCTIONS = ['effectiveConnectionUser', 'serverIdentityKey', 'learnedImplicitUser', 'rememberImplicitUser',
+    'serverAddressWithoutSession', 'storeCredentials', 'getServerStatus', 'buildCompletionUrl'];
 
-function boot(js, { withPasswordCredential = true } = {}) {
-    const ctx = makeContext();
+function boot(js, { withPasswordCredential = true, storage = makeStorage() } = {}) {
+    const ctx = makeContext(storage);
     if (!withPasswordCredential) delete ctx.PasswordCredential;
-    vm.runInContext(FUNCTIONS.map(name => extractFunction(js, name)).join('\n\n'), ctx);
+    vm.runInContext("const implicit_users_storage_key = 'implicit_users';\n"
+        + FUNCTIONS.map(name => extractFunction(js, name)).join('\n\n'), ctx);
     return ctx;
 }
 
@@ -175,11 +189,37 @@ async function implicitRoundTrip(ctx, server, implicit_user) {
     if (!after.completion_url.includes(param)) throw new Error(`refilled login does not select ${implicit_user}: ${after.completion_url}`);
     const status = await vm.runInContext('getServerStatus(url_elem.value, user_elem.value, password_elem.value)', ctx);
     assertEqual(status.u, implicit_user, 'refilled login authenticates as the same user');
+
+    /// The refilled login is the same connection as the implicit one it was saved from, so the
+    /// identity gates (selected database, run divergence, history restore) see no change.
+    assertEqual(connectionIdentity(ctx), implicit_user, 'identity of the refilled login');
+    ctx.user_elem.value = '';
+    assertEqual(connectionIdentity(ctx), implicit_user, 'identity of the implicit login once its user is learned');
 }
 
 scenario('implicit-default-round-trip', async js => {
     const ctx = boot(js);
     await implicitRoundTrip(ctx, 'http://host:8123/', 'default');
+});
+
+/// The password manager refills the login on the NEXT visit, where it is compared with history
+/// entries stamped with the empty user on the previous one: the learned name must survive a reload,
+/// and must not leak to a different server.
+scenario('refilled-login-same-identity-after-reload', async js => {
+    const storage = makeStorage();
+    const first = boot(js, { storage });
+    await implicitRoundTrip(first, 'http://host:8123/', 'alice');
+    const second = boot(js, { storage });
+    second.url_elem.value = 'http://host:8123';
+    second.user_elem.value = '';
+    assertEqual(connectionIdentity(second), 'alice', 'implicit identity after reload (cosmetic URL difference)');
+    second.user_elem.value = 'alice';
+    assertEqual(connectionIdentity(second), 'alice', 'refilled identity after reload');
+    second.url_elem.value = 'http://other:8123/';
+    second.user_elem.value = '';
+    assertEqual(connectionIdentity(second), '', 'nothing learned for another server');
+    second.url_elem.value = 'http://host:8123/?cluster=b';
+    assertEqual(connectionIdentity(second), '', 'nothing learned for another query string');
 });
 
 scenario('implicit-default-round-trip-with-query-string', async js => {

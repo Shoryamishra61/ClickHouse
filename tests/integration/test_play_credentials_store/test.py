@@ -87,6 +87,7 @@ def test_play_credentials_store(started_cluster, nodejs_container):
     for scenario in (
         "implicit-default-round-trip",
         "implicit-non-default-session-user",
+        "refilled-login-same-identity-after-reload",
         "explicit-default-sent-without-userinfo",
         "userinfo-nothing-stored",
         "probe-outside-of-session",

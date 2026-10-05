@@ -10357,7 +10357,10 @@ function checkCredentials() {
     const current_check_credentials_request_num = check_credentials_request_num;
     /// The indication this request is about to produce belongs to the tuple it is sent with.
     checked_connection = connectionTuple();
-    getServerStatus(url_elem.value, user_elem.value, password_elem.value).then(json => {
+    const server_address = url_elem.value;
+    const user = user_elem.value;
+    getServerStatus(server_address, user, password_elem.value).then(json => {
+        if (json && !user && json.u) rememberImplicitUser(server_address, json.u);
         if (current_check_credentials_request_num == check_credentials_request_num) {
             if (json) {
                 [user_elem, password_elem].forEach(e => { e.classList.remove('fail'); e.classList.add('ok'); });
@@ -16601,15 +16604,53 @@ function sameServerAddress(a, b) {
 /// `http://alice@host:8123/` and `http://bob@host:8123/` look like the same server there and must be
 /// separated by their user. The field takes precedence over the userinfo, mirroring how the request
 /// is built. The userinfo may be percent-encoded, so decode it (falling back to the raw value on a
-/// malformed escape) before comparing.
+/// malformed escape) before comparing. With neither, the server authenticates the request as its
+/// `default_session_user`: once the page has learned that name for the server (`learnedImplicitUser`),
+/// the empty spelling denotes the same identity as the explicit name, so a login refilled by the
+/// password manager under that name (`storeCredentials`) is the same connection as the implicit one
+/// it was saved from, and does not reset the selected database or count as a diverged run.
 function effectiveConnectionUser(serverAddress, fieldUser) {
     if (fieldUser) return fieldUser;
+    let raw;
     try {
-        const raw = new URL(serverAddress, location.href).username;
-        try { return decodeURIComponent(raw); } catch (e) { return raw; }
+        raw = new URL(serverAddress, location.href).username;
     } catch (e) {
         return '';
     }
+    if (raw) {
+        try { return decodeURIComponent(raw); } catch (e) { return raw; }
+    }
+    return learnedImplicitUser(serverAddress);
+}
+
+/// The key under which the implicit user of a server is remembered: the endpoint as compared by
+/// `sameServerAddress` (protocol, host, the path with the root trailing slash collapsed, and the query
+/// string), or `null` if the address does not parse.
+function serverIdentityKey(server_address) {
+    let url;
+    try { url = new URL(server_address, location.href); } catch (e) { return null; }
+    const path = (url.pathname === '/' || url.pathname === '') ? '/' : url.pathname;
+    return url.protocol + '//' + url.host + path + url.search;
+}
+
+/// The users that servers authenticate a request without a `user` as (their `default_session_user`),
+/// as reported by the servers themselves (`currentUser` in `getServerStatus`). Kept in `localStorage`,
+/// because the case it serves spans page loads: a history entry stamped with the empty user on one
+/// visit is compared with the name the password manager refills on the next one.
+const implicit_users_storage_key = 'implicit_users';
+function learnedImplicitUser(server_address) {
+    const key = serverIdentityKey(server_address);
+    if (key === null) return '';
+    const users = JSON.parse(localStorage.getItem(implicit_users_storage_key) || '{}');
+    return Object.hasOwn(users, key) ? users[key] : '';
+}
+function rememberImplicitUser(server_address, user) {
+    const key = serverIdentityKey(server_address);
+    if (key === null || !user) return;
+    const users = JSON.parse(localStorage.getItem(implicit_users_storage_key) || '{}');
+    if (users[key] === user) return;
+    users[key] = user;
+    localStorage.setItem(implicit_users_storage_key, JSON.stringify(users));
 }
 
 /// Has the live target moved away from the connection/selection the query that produced this run
@@ -17125,7 +17166,12 @@ window.onpopstate = function(event) {
     const target_server = popped_url.searchParams.get('url')
         || (opened_locally ? 'http://localhost:8123/' : location.origin);
     const target_user = popped_url.searchParams.get('user') || '';
-    if (url_elem.value !== target_server || user_elem.value !== target_user) {
+    /// The user is compared by identity (`effectiveConnectionUser`), not spelling: an entry written for
+    /// the implicit user (an empty field, omitted from the URL) and a live login refilled under the
+    /// learned name of that user are the same connection, and replacing the field would also drop the
+    /// password that authenticates it.
+    if (url_elem.value !== target_server
+        || effectiveConnectionUser(target_server, target_user) !== effectiveConnectionUser(url_elem.value, user_elem.value)) {
         url_elem.value = target_server;
         user_elem.value = target_user;
         /// The password that authenticated this entry's `target_server`/`target_user` is deliberately
@@ -17761,7 +17807,9 @@ function storeCredentials() {
     const probe_address = serverAddressWithoutSession(server_address);
     if (!probe_address) return Promise.resolve();
     return getServerStatus(probe_address, '', password).then(json => {
-        if (json && json.u) return store(json.u);
+        if (!json || !json.u) return;
+        rememberImplicitUser(server_address, json.u);
+        return store(json.u);
     });
 }
 
