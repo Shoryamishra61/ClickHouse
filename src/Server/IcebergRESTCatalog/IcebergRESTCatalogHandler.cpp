@@ -4,6 +4,7 @@
 #include <Core/Settings.h>
 #include <Core/UUID.h>
 #include <Disks/DiskObjectStorage/ObjectStorages/IObjectStorage.h>
+#include <IO/CompressionMethod.h>
 #include <IO/HTTPCommon.h>
 #include <IO/LimitReadBuffer.h>
 #include <IO/Operators.h>
@@ -36,6 +37,7 @@ namespace DB
 namespace Setting
 {
     extern const SettingsBool allow_ddl;
+    extern const SettingsUInt64 output_format_compression_level;
     extern const SettingsUInt64 readonly;
 }
 
@@ -63,6 +65,29 @@ constexpr size_t MAX_TABLE_NAME_LENGTH = 256;
 /// Metadata files with many snapshots reach tens of megabytes.
 constexpr size_t MAX_METADATA_FILE_SIZE = 64_MiB;
 constexpr char NAMESPACE_LEVEL_SEPARATOR = '\x1F';
+
+/// The Iceberg table property that names the codec of metadata files. The Java reference defaults to `none`.
+constexpr auto METADATA_COMPRESSION_CODEC_PROPERTY = "write.metadata.compression-codec";
+
+/// The spec defines only these two. Other codecs would leave files that other engines cannot open.
+CompressionMethod getMetadataCompressionMethod(const std::map<String, String> & properties)
+{
+    const auto it = properties.find(METADATA_COMPRESSION_CODEC_PROPERTY);
+    if (it == properties.end())
+        return CompressionMethod::None;
+    const auto codec = Poco::toLower(it->second);
+    if (codec == "none")
+        return CompressionMethod::None;
+    if (codec == "gzip")
+        return CompressionMethod::Gzip;
+    throw Exception(ErrorCodes::BAD_ARGUMENTS, "'{}' must be 'none' or 'gzip', got '{}'", METADATA_COMPRESSION_CODEC_PROPERTY, it->second);
+}
+
+/// Codec suffix inside a metadata file name: `v1-<uuid>.gz.metadata.json`. The spec spells gzip as `gz`.
+String getMetadataCompressionSuffix(CompressionMethod compression_method)
+{
+    return compression_method == CompressionMethod::Gzip ? ".gz" : "";
+}
 
 /// The handler maps `BAD_ARGUMENTS` to a 400 response.
 void validateNamespace(const IcebergNamespaceName & name)
@@ -593,7 +618,8 @@ Poco::JSON::Object::Ptr IcebergRESTCatalogHandler::readTableMetadata(
     const IcebergRESTCatalogWarehouse & warehouse, const IcebergTablePointer & pointer) const
 {
     const auto key = warehouse.objectKey(pointer.metadata_location);
-    const auto content = readObjectToString(*warehouse.object_storage, key, server.context()->getReadSettings(), MAX_METADATA_FILE_SIZE);
+    const auto content = readObjectToString(
+        *warehouse.object_storage, key, server.context()->getReadSettings(), MAX_METADATA_FILE_SIZE, getMetadataFileCompressionMethod(key));
     return parseJSONObject(content, fmt::format("Metadata file {}", pointer.metadata_location));
 }
 
@@ -691,6 +717,7 @@ void IcebergRESTCatalogHandler::handleCreateTable(
 
     String name;
     IcebergTablePointer pointer{.uuid = uuid, .metadata_location = {}};
+    CompressionMethod compression_method = CompressionMethod::None;
     String location;
     String object_key;
     String metadata_dir_key;
@@ -741,6 +768,8 @@ void IcebergRESTCatalogHandler::handleCreateTable(
                 properties[key] = value.convert<String>();
         }
 
+        compression_method = getMetadataCompressionMethod(properties);
+
         metadata = buildInitialTableMetadata(
             uuid,
             location,
@@ -750,7 +779,8 @@ void IcebergRESTCatalogHandler::handleCreateTable(
             std::move(properties));
 
         /// Same naming as the ClickHouse Iceberg writer: `<location>/metadata/v<version>-<uuid>.metadata.json`, starting at 1.
-        pointer.metadata_location = fmt::format("{}/metadata/v1-{}.metadata.json", location, uuid);
+        pointer.metadata_location
+            = fmt::format("{}/metadata/v1-{}{}.metadata.json", location, uuid, getMetadataCompressionSuffix(compression_method));
         object_key = warehouse.objectKey(pointer.metadata_location);
         metadata_dir_key = warehouse.objectKey(location + "/metadata/");
     }
@@ -789,7 +819,13 @@ void IcebergRESTCatalogHandler::handleCreateTable(
     }
 
     /// Object storage first, then the Keeper pointer. A crash in between leaves an orphan file, not a dangling pointer.
-    writeNewObject(*warehouse.object_storage, object_key, toJSONString(*metadata, 4), server.context()->getWriteSettings());
+    writeNewObject(
+        *warehouse.object_storage,
+        object_key,
+        toJSONString(*metadata, 4),
+        server.context()->getWriteSettings(),
+        compression_method,
+        static_cast<int>(server.context()->getSettingsRef()[Setting::output_format_compression_level]));
 
     /// A Keeper exception (timeout, session loss) leaves the file. The node may exist, so deleting could leave a dangling pointer.
     using CreateTableResult = KeeperIcebergRESTCatalogStore::CreateTableResult;

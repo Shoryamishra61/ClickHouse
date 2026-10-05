@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 
 import base64
+import gzip
 import io
+import json
 import time
 import uuid
 
@@ -547,7 +549,19 @@ def test_clickhouse_rest_catalog_client_create_table(started_cluster):
 
     # INSERT is not tested here: it commits through UpdateTable, which the server does not support yet.
     assert node.query(f"SELECT count() FROM rest_client_create_db.`{ns}.events`") == "0\n"
-    assert list_tables(ns) == ["events"]
+
+    # The session setting reaches the server as a table property, and the server writes the file compressed.
+    node.query(
+        f"""
+        CREATE TABLE rest_client_create_db.`{ns}.zipped` (id Int64, name String)
+        ENGINE = IcebergS3('http://minio1:9001/{BUCKET}/{ns}/zipped/', '{minio_access_key}', '{minio_secret_key}')
+        """,
+        settings={"write_full_path_in_iceberg_metadata": 1, "iceberg_metadata_compression_method": "gzip"},
+    )
+    assert node.query(f"SELECT count() FROM rest_client_create_db.`{ns}.zipped`") == "0\n"
+    table_uuid = catalog_request("GET", tables_url(ns, "zipped")).json()["metadata"]["table-uuid"]
+    assert list_metadata_files(f"s3://{BUCKET}/{ns}/zipped") == [f"{ns}/zipped/metadata/v1-{table_uuid}.gz.metadata.json"]
+    assert list_tables(ns) == ["events", "zipped"]
 
     node.query("DROP DATABASE IF EXISTS rest_client_create_db")
 
@@ -706,6 +720,34 @@ def test_table_location(started_cluster):
     assert_error_shape(response, "TableAlreadyExistsException")
     assert not table_exists(ns, "foreign")
     assert list_metadata_files(foreign) == [foreign_key]
+
+
+def test_metadata_compression(started_cluster):
+    ns = f"compression_{uuid.uuid4().hex[:8]}"
+    create_namespace([ns])
+
+    # The codec comes from the standard table property. The spec spells gzip as `gz` in the file name.
+    result = create_table(ns, "zipped", properties={"write.metadata.compression-codec": "gzip"}).json()
+    table_uuid = result["metadata"]["table-uuid"]
+    assert result["metadata-location"] == (
+        f"{result['metadata']['location']}/metadata/v1-{table_uuid}.gz.metadata.json"
+    )
+    assert result["metadata"]["properties"] == {"write.metadata.compression-codec": "gzip"}
+    raw = cluster.minio_client.get_object(BUCKET, metadata_key(result["metadata-location"])).read()
+    assert json.loads(gzip.decompress(raw))["table-uuid"] == table_uuid
+    # Loading reads the file back, so the server must decompress it.
+    assert catalog_request("GET", tables_url(ns, "zipped")).json() == result
+
+    # An explicit `none` is the default: plain file, plain name.
+    result = create_table(ns, "plain", properties={"write.metadata.compression-codec": "none"}).json()
+    assert result["metadata-location"].endswith(f"v1-{result['metadata']['table-uuid']}.metadata.json")
+    raw = cluster.minio_client.get_object(BUCKET, metadata_key(result["metadata-location"])).read()
+    assert json.loads(raw)["table-uuid"] == result["metadata"]["table-uuid"]
+
+    # Only the two codecs of the spec. A `zstd` file could not be opened by other engines.
+    response = create_table(ns, "bogus", properties={"write.metadata.compression-codec": "zstd"}, expected_code=400)
+    assert_error_shape(response, "BadRequestException")
+    assert not table_exists(ns, "bogus")
 
 
 def test_list_and_exists_and_drop(started_cluster):
