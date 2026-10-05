@@ -8996,7 +8996,8 @@ let selected_database = current_url.searchParams.get('database');
 /// edit must cancel a deferred startup auto-run (`defer_run_for_reconcile`), which is armed against
 /// this loaded connection. Once a stamped entry exists, that entry's own
 /// `connectionServer`/`connectionUser` stamp is authoritative.
-const initial_connection = {server: url_elem.value, user: user_elem.value};
+const initial_connection = {server: url_elem.value, user: user_elem.value,
+    implicitUser: implicitUserStamp(url_elem.value, user_elem.value)};
 
 /// The (server, user) connection the current `selected_database` belongs to.
 /// `resetConnectionScopedState` compares the live connection against this — via the same
@@ -9015,7 +9016,8 @@ let selected_database_connection = null;
 function stampSelectedDatabaseConnection() {
     selected_database_connection = selected_database === null
         ? null
-        : {server: url_elem.value, user: user_elem.value};
+        : {server: url_elem.value, user: user_elem.value,
+            implicitUser: implicitUserStamp(url_elem.value, user_elem.value)};
 }
 stampSelectedDatabaseConnection();
 
@@ -12512,6 +12514,7 @@ async function postSingle(cell, posted_request_num, query, history_query_text, p
     /// `last_url_for_download` docs).
     const query_url = connection.url;
     const query_user = connection.user;
+    const query_implicit_user = connection.implicitUser;
 
     cell.downloadVisible = false;
     cell.copyVisible = false;
@@ -12615,6 +12618,7 @@ async function postSingle(cell, posted_request_num, query, history_query_text, p
                 database: query_database,
                 url: query_url,
                 user: query_user,
+                implicitUser: query_implicit_user,
             }, undefined, tab, cell);
         }
         updateTabIndicator(tab);
@@ -12707,6 +12711,7 @@ async function postSingle(cell, posted_request_num, query, history_query_text, p
         database: query_database,
         url: query_url,
         user: query_user,
+        implicitUser: query_implicit_user,
     }, undefined, tab, cell);
 }
 
@@ -12738,6 +12743,7 @@ async function postMulti(cell, posted_request_num, parsed, paramValuesSnapshot, 
     /// `writeHistoryEntry`); the password authenticates this run's requests only.
     const query_url = connection.url;
     const query_user = connection.user;
+    const query_implicit_user = connection.implicitUser;
 
     /// A multi-statement run cannot be shaped: it sends one request per statement while a sort, a
     /// filter or a page names the columns of ONE result, so applying it would push an `ORDER BY` or a
@@ -12998,6 +13004,7 @@ async function postMulti(cell, posted_request_num, parsed, paramValuesSnapshot, 
         database: query_database,
         url: query_url,
         user: query_user,
+        implicitUser: query_implicit_user,
     }, parsed[0].query, tab, cell);
 }
 
@@ -16604,23 +16611,48 @@ function sameServerAddress(a, b) {
 /// `http://alice@host:8123/` and `http://bob@host:8123/` look like the same server there and must be
 /// separated by their user. The field takes precedence over the userinfo, mirroring how the request
 /// is built. The userinfo may be percent-encoded, so decode it (falling back to the raw value on a
-/// malformed escape) before comparing. With neither, the server authenticates the request as its
-/// `default_session_user`: once the page has learned that name for the server (`learnedImplicitUser`),
-/// the empty spelling denotes the same identity as the explicit name, so a login refilled by the
-/// password manager under that name (`storeCredentials`) is the same connection as the implicit one
-/// it was saved from, and does not reset the selected database or count as a diverged run.
+/// malformed escape) before comparing. With neither, the result is empty: the server authenticates the
+/// request as its `default_session_user` (see `sameConnectionUser`).
 function effectiveConnectionUser(serverAddress, fieldUser) {
     if (fieldUser) return fieldUser;
-    let raw;
     try {
-        raw = new URL(serverAddress, location.href).username;
+        const raw = new URL(serverAddress, location.href).username;
+        try { return decodeURIComponent(raw); } catch (e) { return raw; }
     } catch (e) {
         return '';
     }
-    if (raw) {
-        try { return decodeURIComponent(raw); } catch (e) { return raw; }
-    }
-    return learnedImplicitUser(serverAddress);
+}
+
+/// The implicit user to stamp next to a stored connection (a result snapshot, a history entry, a
+/// selection): the name the server was last reported to authenticate a request without a user as
+/// (`learnedImplicitUser`), or empty when the connection names its user explicitly or the name is not
+/// known. The stamp is taken when the connection is recorded, so a stored connection keeps denoting
+/// the account it was used with even when the server's `default_session_user` changes later.
+function implicitUserStamp(serverAddress, fieldUser) {
+    return effectiveConnectionUser(serverAddress, fieldUser) ? '' : learnedImplicitUser(serverAddress);
+}
+
+/// Do two connections on the same server (compared separately by `sameServerAddress`) use the same
+/// account? Equal effective users (`effectiveConnectionUser`) always do, including two implicit ones.
+/// An implicit user is additionally the same as an explicit name when its stamp (`implicitUserStamp`)
+/// names it, so a login refilled by the password manager under that name (`storeCredentials`) is the
+/// same connection as the implicit one it was saved from, and does not reset the selected database or
+/// count as a diverged run. A stored connection carries its own stamp, taken when it was recorded,
+/// never the current `learnedImplicitUser`: an entry stamped with no name (or written before the
+/// stamp existed) matches only an implicit live user, failing closed.
+function sameConnectionUser(a_server, a_user, a_implicit_user, b_server, b_user, b_implicit_user) {
+    const a = effectiveConnectionUser(a_server, a_user);
+    const b = effectiveConnectionUser(b_server, b_user);
+    if (a === b) return true;
+    const a_account = a || a_implicit_user || '';
+    const b_account = b || b_implicit_user || '';
+    return a_account !== '' && a_account === b_account;
+}
+
+/// `sameConnectionUser` of a stored connection and the live connection fields.
+function sameAsLiveConnectionUser(server, user, implicit_user) {
+    return sameConnectionUser(server, user, implicit_user,
+        url_elem.value, user_elem.value, implicitUserStamp(url_elem.value, user_elem.value));
 }
 
 /// The key under which the implicit user of a server is remembered: the endpoint as compared by
@@ -16637,20 +16669,22 @@ function serverIdentityKey(server_address) {
 /// as reported by the servers themselves (`currentUser` in `getServerStatus`). Kept in `localStorage`,
 /// because the case it serves spans page loads: a history entry stamped with the empty user on one
 /// visit is compared with the name the password manager refills on the next one.
-const implicit_users_storage_key = 'implicit_users';
+/// (A function rather than a constant: it is consulted at load, by `initial_connection`, before this
+/// point of the script runs.)
+function implicitUsersStorageKey() { return 'implicit_users'; }
 function learnedImplicitUser(server_address) {
     const key = serverIdentityKey(server_address);
     if (key === null) return '';
-    const users = JSON.parse(localStorage.getItem(implicit_users_storage_key) || '{}');
+    const users = JSON.parse(localStorage.getItem(implicitUsersStorageKey()) || '{}');
     return Object.hasOwn(users, key) ? users[key] : '';
 }
 function rememberImplicitUser(server_address, user) {
     const key = serverIdentityKey(server_address);
     if (key === null || !user) return;
-    const users = JSON.parse(localStorage.getItem(implicit_users_storage_key) || '{}');
+    const users = JSON.parse(localStorage.getItem(implicitUsersStorageKey()) || '{}');
     if (users[key] === user) return;
     users[key] = user;
-    localStorage.setItem(implicit_users_storage_key, JSON.stringify(users));
+    localStorage.setItem(implicitUsersStorageKey(), JSON.stringify(users));
 }
 
 /// Has the live target moved away from the connection/selection the query that produced this run
@@ -16681,8 +16715,7 @@ function liveDivergedFromRun(run_snapshot) {
            !snapshot_connection_known
         || effectiveDatabase(selected_database) !== effectiveDatabase(run_snapshot.database)
         || !sameServerAddress(run_snapshot.url, url_elem.value)
-        || effectiveConnectionUser(run_snapshot.url, run_snapshot.user)
-            !== effectiveConnectionUser(url_elem.value, user_elem.value));
+        || !sameAsLiveConnectionUser(run_snapshot.url, run_snapshot.user, run_snapshot.implicitUser));
 }
 
 /// Write a browser-history entry + URL derived from the tab. The top-level query/params
@@ -16752,6 +16785,9 @@ function writeHistoryEntry(tab, titleForDoc, forceReplace, fromRun, recorded) {
     const entry_database = use_snapshot ? run_snapshot.database : selected_database;
     const entry_server = use_snapshot ? run_snapshot.url : url_elem.value;
     const entry_user = use_snapshot ? run_snapshot.user : user_elem.value;
+    const entry_implicit_user = use_snapshot
+        ? (run_snapshot.implicitUser || '')
+        : implicitUserStamp(url_elem.value, user_elem.value);
     const carries_run = fromRun && !live_diverged;
     /// `run=1` additionally requires the tab's own `runnableUrl` policy (see `makeTab`): only a tab
     /// whose entries a genuine run produced under a `?run=1` load — or that adopted such a policy
@@ -16798,6 +16834,8 @@ function writeHistoryEntry(tab, titleForDoc, forceReplace, fromRun, recorded) {
         /// survives re-authentication with a different password on the same server/user.
         connectionServer: entry_server,
         connectionUser: entry_user,
+        /// The account an implicit `connectionUser` was authenticated as (see `sameConnectionUser`).
+        connectionImplicitUser: entry_implicit_user,
         /// The run identity this entry currently reflects (see `run_epoch`): the still-running launch
         /// while the entry's own cell is in flight (so a mid-run `result: null` entry is stamped with
         /// the run that wrote it), otherwise the completed snapshot's id. `window.onpopstate` matches
@@ -17015,6 +17053,8 @@ function saveHistory(stateData, titleForDoc, tab, cell) {
         /// connection has since changed. The password is deliberately never stored in history.
         url: stateData.url,
         user: stateData.user,
+        /// The account an implicit `user` was authenticated as (see `sameConnectionUser`).
+        implicitUser: stateData.implicitUser,
         format: stateData.format,
         /// The `X-ClickHouse-Exception-Tag` of a failed run, so restoring the snapshot (tab switch,
         /// reload, Back/Forward) can split a transport `__exception__` marker on the validated block —
@@ -17166,12 +17206,12 @@ window.onpopstate = function(event) {
     const target_server = popped_url.searchParams.get('url')
         || (opened_locally ? 'http://localhost:8123/' : location.origin);
     const target_user = popped_url.searchParams.get('user') || '';
-    /// The user is compared by identity (`effectiveConnectionUser`), not spelling: an entry written for
-    /// the implicit user (an empty field, omitted from the URL) and a live login refilled under the
-    /// learned name of that user are the same connection, and replacing the field would also drop the
+    /// The user is compared by identity (`sameConnectionUser`), not spelling: an entry written for the
+    /// implicit user (an empty field, omitted from the URL) and stamped with its name, and a live login
+    /// refilled under that name are the same connection, and replacing the field would also drop the
     /// password that authenticates it.
     if (url_elem.value !== target_server
-        || effectiveConnectionUser(target_server, target_user) !== effectiveConnectionUser(url_elem.value, user_elem.value)) {
+        || !sameAsLiveConnectionUser(target_server, target_user, event.state?.connectionImplicitUser)) {
         url_elem.value = target_server;
         user_elem.value = target_user;
         /// The password that authenticated this entry's `target_server`/`target_user` is deliberately
@@ -17324,8 +17364,8 @@ window.onpopstate = function(event) {
             applySelectedDatabaseHighlight();
         }
     } else if (sameServerAddress(event.state.connectionServer, url_elem.value)
-        && effectiveConnectionUser(event.state.connectionServer, event.state.connectionUser)
-            === effectiveConnectionUser(url_elem.value, user_elem.value)) {
+        && sameAsLiveConnectionUser(event.state.connectionServer, event.state.connectionUser,
+            event.state.connectionImplicitUser)) {
         selected_database = new URL(location.href).searchParams.get('database');
         /// The gate above confirmed the entry belongs to the live connection, so record it as the
         /// connection this restored selection belongs to (keeps `resetConnectionScopedState`'s later
@@ -17572,7 +17612,8 @@ async function postOne()
     /// reason: these inputs are shared, and re-reading them after the preflight await (as
     /// `postImpl` used to) would let a tab switch + connection edit during it send this run's
     /// snapshotted query to the newly entered server or identity.
-    const connection = { url: url_elem.value, user: user_elem.value, password: password_elem.value };
+    const connection = { url: url_elem.value, user: user_elem.value, password: password_elem.value,
+        implicitUser: implicitUserStamp(url_elem.value, user_elem.value) };
     /// Snapshot the selected database at launch too (see the connection above): the panel selection
     /// is shared, so re-reading it after the preflight await would let a mid-await database change
     /// retarget this run. It is threaded through to `postImpl` (the request URL) and the saved
@@ -17692,7 +17733,8 @@ async function postAll()
     const param_sources = Object.assign({}, tab.params || {}, param_values_at_launch);
     /// See `postOne`: the connection context and selected database are snapshotted at launch so a tab
     /// switch + connection/database edit during the preflight await cannot reroute this run.
-    const connection = { url: url_elem.value, user: user_elem.value, password: password_elem.value };
+    const connection = { url: url_elem.value, user: user_elem.value, password: password_elem.value,
+        implicitUser: implicitUserStamp(url_elem.value, user_elem.value) };
     const query_database = selected_database;
     ++activation_num;
     const my_run = ++tab.reqNum;
@@ -20323,8 +20365,8 @@ function resetConnectionScopedState() {
     /// stamp (no selection) fails the check the safe way, matching the previous unconditional clear.
     const identity_changed = selected_database_connection === null
         || !sameServerAddress(selected_database_connection.server, url_elem.value)
-        || effectiveConnectionUser(selected_database_connection.server, selected_database_connection.user)
-            !== effectiveConnectionUser(url_elem.value, user_elem.value);
+        || !sameAsLiveConnectionUser(selected_database_connection.server, selected_database_connection.user,
+            selected_database_connection.implicitUser);
     const cleared_selection = selected_database !== null && identity_changed;
     if (cleared_selection) {
         selected_database = null;
@@ -20361,8 +20403,8 @@ function resetConnectionScopedState() {
     const connection_diverged = current_entry
         && current_entry.connectionServer !== undefined
         && (!sameServerAddress(current_entry.connectionServer, url_elem.value)
-            || effectiveConnectionUser(current_entry.connectionServer, current_entry.connectionUser)
-                !== effectiveConnectionUser(url_elem.value, user_elem.value));
+            || !sameAsLiveConnectionUser(current_entry.connectionServer, current_entry.connectionUser,
+                current_entry.connectionImplicitUser));
     /// Before the first history write there is no entry to compare against, yet a deferred startup
     /// auto-run may already be armed (`defer_run_for_reconcile`) against the connection the page
     /// loaded with (`initial_connection`). A trusted connection edit in that window must cancel the
@@ -20381,8 +20423,8 @@ function resetConnectionScopedState() {
     /// suppresses the legitimate auto-run.
     const bootstrap_connection_diverged = (!current_entry || current_entry.connectionServer === undefined)
         && (!sameServerAddress(initial_connection.server, url_elem.value)
-            || effectiveConnectionUser(initial_connection.server, initial_connection.user)
-                !== effectiveConnectionUser(url_elem.value, user_elem.value));
+            || !sameAsLiveConnectionUser(initial_connection.server, initial_connection.user,
+                initial_connection.implicitUser));
     /// A Back/Forward restore replays these connection changes synthetically to reproduce the popped
     /// entry; it must NOT restamp history here. `history.state` is already that popped entry and
     /// `activeTabId` still points at the tab being left, so a restamp would overwrite the time-travel

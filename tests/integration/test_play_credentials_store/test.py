@@ -88,6 +88,7 @@ def test_play_credentials_store(started_cluster, nodejs_container):
         "implicit-default-round-trip",
         "implicit-non-default-session-user",
         "refilled-login-same-identity-after-reload",
+        "stored-implicit-entry-keeps-its-account",
         "explicit-default-sent-without-userinfo",
         "userinfo-nothing-stored",
         "probe-outside-of-session",
