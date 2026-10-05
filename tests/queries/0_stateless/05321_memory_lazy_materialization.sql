@@ -10,7 +10,8 @@ DROP TABLE IF EXISTS t_memory_lazy_compressed;
 CREATE TABLE t_memory_lazy (k UInt64, v Int64, s String, a Array(UInt32), t Tuple(x UInt8, y String), n Nullable(String)) ENGINE = Memory;
 CREATE TABLE t_memory_lazy_compressed (k UInt64, v Int64, s String, a Array(UInt32), t Tuple(x UInt8, y String), n Nullable(String)) ENGINE = Memory SETTINGS compress = 1;
 
-INSERT INTO t_memory_lazy SELECT number, (number * 7919) % 100003, toString(number % 97), range(number % 5), (number % 7, toString(number)), if(number % 3 = 0, NULL, 'n' || toString(number)) FROM numbers(100000) SETTINGS max_block_size = 1000;
+-- A single thread inserts the blocks in the order of `number`, which `rowNumberInAllBlocks` below relies on.
+INSERT INTO t_memory_lazy SELECT number, (number * 7919) % 100003, toString(number % 97), range(number % 5), (number % 7, toString(number)), if(number % 3 = 0, NULL, 'n' || toString(number)) FROM numbers(100000) SETTINGS max_block_size = 1000, max_threads = 1;
 INSERT INTO t_memory_lazy_compressed SELECT * FROM t_memory_lazy;
 
 SELECT '-- explain';
