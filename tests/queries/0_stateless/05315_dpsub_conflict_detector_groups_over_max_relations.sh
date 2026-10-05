@@ -37,17 +37,20 @@ check()
     [ "$reordered" = "$expected" ] && echo "same result" || echo "DIFFERENT RESULT: $reordered vs $expected"
 }
 
+# Unique keys and a chain over different columns (`g1.v = g2.k`, `g2.v = g3.k`, ...): every join
+# matches at most one row per row, so the query stays small, and no column is shared along the
+# chain, so the tables do not all fall into one equivalence class (a clique DPsub plans slowly).
 create=""
 for i in $(seq 1 14); do
     create+="DROP TABLE IF EXISTS g${i}_05315;
     CREATE TABLE g${i}_05315 (k Int32, v Int32) ENGINE = MergeTree ORDER BY k;
-    INSERT INTO g${i}_05315 SELECT number % 50, number FROM numbers(200);"
+    INSERT INTO g${i}_05315 SELECT number, number + 1 FROM numbers(200);"
 done
 $CLICKHOUSE_CLIENT -q "$create"
 
 from="g1_05315"
 for i in $(seq 2 12); do
-    from+=" JOIN g${i}_05315 ON g$((i - 1))_05315.k = g${i}_05315.k"
+    from+=" JOIN g${i}_05315 ON g$((i - 1))_05315.v = g${i}_05315.k"
 done
 from+=" LEFT SEMI JOIN g13_05315 ON g1_05315.k = g13_05315.k LEFT ANTI JOIN g14_05315 ON g1_05315.v = g14_05315.v + 1000"
 
