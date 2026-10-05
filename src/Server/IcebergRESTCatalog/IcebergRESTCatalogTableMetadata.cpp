@@ -47,7 +47,13 @@ void collectFieldId(const Poco::JSON::Object & holder, const String & key, std::
         throw Exception(ErrorCodes::BAD_ARGUMENTS, "Duplicate field id {} in schema", id);
 }
 
-void collectNestedFieldIds(const Poco::Dynamic::Var & type, std::set<Int64> & ids)
+void checkRequiredFlag(const Poco::JSON::Object & holder, const String & key, const String & what)
+{
+    if (!holder.has(key) || !holder.get(key).isBoolean())
+        throw Exception(ErrorCodes::BAD_ARGUMENTS, "{} must have a boolean '{}'", what, key);
+}
+
+void collectAndValidateNestedFields(const Poco::Dynamic::Var & type, std::set<Int64> & ids)
 {
     if (type.type() != typeid(Poco::JSON::Object::Ptr))
         return;
@@ -62,22 +68,27 @@ void collectNestedFieldIds(const Poco::Dynamic::Var & type, std::set<Int64> & id
                 throw Exception(ErrorCodes::BAD_ARGUMENTS, "Every schema field must be an object");
             const auto & field_object = field.extract<Poco::JSON::Object::Ptr>();
             collectFieldId(*field_object, f_id, ids);
+            if (!field_object->has(f_name) || !field_object->get(f_name).isString() || field_object->getValue<String>(f_name).empty())
+                throw Exception(ErrorCodes::BAD_ARGUMENTS, "Every schema field must have a non-empty string 'name'");
+            checkRequiredFlag(*field_object, f_required, "Every schema field");
             if (!field_object->has(f_type))
                 throw Exception(ErrorCodes::BAD_ARGUMENTS, "Every schema field must have a 'type'");
-            collectNestedFieldIds(field_object->get(f_type), ids);
+            collectAndValidateNestedFields(field_object->get(f_type), ids);
         }
     }
     else if (kind == f_list)
     {
         collectFieldId(*object, f_element_id, ids);
-        collectNestedFieldIds(object->get(f_element), ids);
+        checkRequiredFlag(*object, f_element_required, "A list type");
+        collectAndValidateNestedFields(object->get(f_element), ids);
     }
     else if (kind == f_map)
     {
         collectFieldId(*object, f_key_id, ids);
-        collectNestedFieldIds(object->get(f_key), ids);
+        collectAndValidateNestedFields(object->get(f_key), ids);
         collectFieldId(*object, f_value_id, ids);
-        collectNestedFieldIds(object->get(f_value), ids);
+        checkRequiredFlag(*object, f_value_required, "A map type");
+        collectAndValidateNestedFields(object->get(f_value), ids);
     }
     else
         throw Exception(ErrorCodes::BAD_ARGUMENTS, "Unknown nested type '{}' in schema", kind);
@@ -122,7 +133,7 @@ Int64 getSortOrderId(const Poco::JSON::Object & spec, const std::set<Int64> & sc
 std::set<Int64> getFieldIds(const Poco::JSON::Object::Ptr & schema)
 {
     std::set<Int64> ids;
-    collectNestedFieldIds(Poco::Dynamic::Var(schema), ids);
+    collectAndValidateNestedFields(Poco::Dynamic::Var(schema), ids);
     return ids;
 }
 
