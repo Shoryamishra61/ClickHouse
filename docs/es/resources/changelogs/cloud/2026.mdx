@@ -1,16 +1,48 @@
 ---
 slug: /whats-new/changelog/cloud
 sidebarTitle: '2026'
-title: 'Cloud changelog - 2026'
-description: 'Changelog de ClickHouse Cloud con descripciones de las novedades de cada versión de ClickHouse Cloud'
+title: 'Registro de cambios de Cloud - 2026'
+description: 'Registro de cambios de ClickHouse Cloud con las novedades de cada versión de ClickHouse Cloud'
 doc_type: 'changelog'
-keywords: ['changelog', 'notas de la versión', 'actualización', 'nuevas características', 'cambios en cloud']
+keywords: ['registro de cambios', 'notas de la versión', 'actualizaciones', 'nuevas características', 'cambios en Cloud']
 rss: true
 ---
 
 import { Image } from "/snippets/es/components/Image.jsx";
 
-Además de este changelog de ClickHouse Cloud, consulta la página de [compatibilidad con Cloud](/es/products/cloud/guides/cloud-compatibility).
+Además de este registro de cambios de ClickHouse Cloud, consulte la página [Compatibilidad de Cloud](/es/products/cloud/guides/cloud-compatibility).
+
+<Update label="Oct 5, 2026">
+  La versión de esta semana simplifica la facturación para los clientes con varias organizaciones de ClickHouse Cloud, amplía la compatibilidad de serialización de ClickPipes para Kafka y Kinesis e introduce una opción experimental de TCP nativo para desarrolladores de .NET. Ahora puede administrar el crédito prepagado entre organizaciones desde la consola u obtener los saldos mediante programación; los ClickPipes de streaming admiten los flujos de trabajo habituales con Avro y Protobuf, y el controlador de .NET ofrece un client nativo más rápido y con menos asignaciones de memoria.
+
+  ## Nuevas funcionalidades {#2026-10-05-new-features}
+
+  ### Transferencia de crédito prepagado entre organizaciones {#transfer-prepaid-credits-between-organizations}
+
+  Los clientes con varias organizaciones ahora pueden transferir crédito prepagado entre ellas desde la consola, sin necesidad de abrir un ticket de soporte. Una vista unificada muestra el crédito prepagado de todas sus organizaciones, lo que le permite hacer seguimiento del consumo y planificar las renovaciones. Para ello se requiere el rol Org Admin, Billing Admin o un rol personalizado con permisos de facturación en cada una de las organizaciones implicadas. Los créditos pueden repartirse entre niveles, pero no entre organizaciones de Cloud y BYOC ni entre distintos marketplaces de nube. Consulte la [documentación sobre la administración de autoservicio del crédito prepagado](/es/products/cloud/reference/billing/self-service-prepaid-credit-management).
+
+  ## API {#2026-10-05-api}
+
+  ### Nuevo endpoint de la API para consultar los saldos de créditos de la organización {#new-api-endpoint-for-organization-credit-balances}
+
+  El nuevo endpoint `GET /v1/organizations/{organizationId}/creditBalances` de la OpenAPI de ClickHouse Cloud devuelve los saldos de créditos activos de una organización, incluidos los créditos prepagados y de prueba. Utilícelo para supervisar el consumo de créditos desde sus propias herramientas. Consulte la [documentación sobre la administración de autoservicio del crédito prepagado](/es/products/cloud/reference/billing/self-service-prepaid-credit-management).
+
+  ## ClickPipes {#2026-10-05-clickpipes}
+
+  ### Compatibilidad con Avro y Protobuf en los ClickPipes de Kinesis {#avro-and-protobuf-support-for-kinesis-clickpipes}
+
+  Los ClickPipes de Kinesis ahora admiten **Avro** y **Protobuf**, además de JSON. Los esquemas pueden obtenerse del **AWS Glue Schema Registry** o de un archivo de esquema cargado. Con esto, los Kafka ClickPipes y los ClickPipes de Kinesis admiten los mismos formatos de serialización habituales, y la funcionalidad está disponible en la interfaz de usuario, la OpenAPI y Terraform. Consulte la [documentación de los ClickPipes de Kinesis](/es/integrations/clickpipes/kinesis/).
+
+  ### Carga de archivos de esquema Protobuf en los Kafka ClickPipes {#protobuf-schema-file-uploads-for-kafka-clickpipes}
+
+  Los Kafka ClickPipes ahora aceptan esquemas Protobuf cargados como archivos `.proto` o como conjuntos de descriptores de archivo (`.desc`). Si no utiliza un registro de esquemas, ahora puede proporcionar un esquema independiente para la deserialización. Consulte la [documentación de los Kafka ClickPipes](/es/integrations/clickpipes/kafka/create-kafka-clickpipe#7-select-your-topic).
+
+  ## Integraciones {#2026-10-05-integrations}
+
+  ### El controlador de .NET v1.5.0 incorpora un client TCP nativo {#net-driver-v150-adds-a-native-tcp-client}
+
+  La versión 1.5.0 del controlador de ClickHouse para .NET incorpora un nuevo client TCP nativo junto al client HTTP existente. Admite agrupación de conexiones, sesiones, TLS, compresión LZ4/ZSTD, parámetros de consulta y tracing de OpenTelemetry. En pruebas de rendimiento realizadas en ClickHouse Cloud, las lecturas fueron hasta 2 veces más rápidas, al igual que las inserciones concurrentes, y la asignación de memoria se redujo en varios órdenes de magnitud. La API TCP es experimental y puede cambiar; siga utilizando el client HTTP para `ADO.NET`, ORM y formatos sin procesar como CSV o Parquet. Consulte la [documentación del client TCP](/es/integrations/language-clients/csharp/tcp) y el [paquete de NuGet](https://www.nuget.org/packages/ClickHouse.Driver/1.5.0).
+</Update>
 
 <Update label="Sep 22, 2026">
   Las actualizaciones de esta semana amplían el alcance de compliance de ClickHouse Cloud a nuevas regiones de APAC, añaden enrutamiento con reconocimiento de réplicas en beta pública e incorporan nuevas capacidades para métricas, compute y dbt. Las cells reguladas por HIPAA y PCI ya están disponibles en AWS Seúl y Sídney; los clientes elegibles pueden evaluar workloads de métricas compatibles con Prometheus y On-Demand Compute; y ClickHouse está disponible a través de dbt Core v2 y dbt Platform.
@@ -29,7 +61,7 @@ Además de este changelog de ClickHouse Cloud, consulta la página de [compatibi
 
   ### Compatibilidad con PromQL en vista previa privada {#promql-support-in-private-preview}
 
-  Ahora puedes almacenar métricas de Prometheus en el motor de tablas `TimeSeries` y consultarlas con PromQL directamente contra tu ClickHouse servicio, sin necesidad de transpilador ni proxy, de modo que los colectores existentes, los paneles de Grafana y las herramientas de Prometheus siguen funcionando sin cambios. Escribe con Prometheus remote-write v1 y lee mediante la Prometheus HTTP API, o ejecuta PromQL desde una sesión SQL usando las funciones de tabla `prometheusQuery` y `prometheusQueryRange`. Disponible para clientes seleccionados de ClickHouse Cloud y BYOC a través de la [lista de espera de vista previa privada](https://clickhouse.com/cloud/promql-support-waitlist) en AWS, GCP y Azure. Consulta la [documentación de la interfaz de Prometheus](/es/concepts/features/interfaces/prometheus) y el [anuncio](https://clickhouse.com/blog/introducing-promql).
+  Ahora puedes almacenar métricas de Prometheus en el motor de tablas `TimeSeries` y consultarlas con PromQL directamente contra tu ClickHouse servicio, sin necesidad de transpilador ni proxy, de modo que los colectores existentes, los dashboards de Grafana y las herramientas de Prometheus siguen funcionando sin cambios. Escribe con Prometheus remote-write v1 y lee mediante la Prometheus HTTP API, o ejecuta PromQL desde una sesión SQL usando las funciones de tabla `prometheusQuery` y `prometheusQueryRange`. Disponible para clientes seleccionados de ClickHouse Cloud y BYOC a través de la [lista de espera de vista previa privada](https://clickhouse.com/cloud/promql-support-waitlist) en AWS, GCP y Azure. Consulta la [documentación de la interfaz de Prometheus](/es/concepts/features/interfaces/prometheus) y el [anuncio](https://clickhouse.com/blog/introducing-promql).
 
   ### On-Demand Compute ya en vista previa privada {#on-demand-compute-now-in-private-preview}
 

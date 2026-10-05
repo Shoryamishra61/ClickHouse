@@ -7,44 +7,44 @@
       "versionId": "ae00ec2598472ccb8856e4f1f4020869cb1221d8279c1e05e1753221f38f987b",
       "translations": {
         "ar": {
-          "updatedAt": "2026-10-05T09:09:27.254Z",
+          "updatedAt": "2026-10-05T12:36:10.956Z",
           "fileName": "docs.json",
-          "postProcessHash": "561202c834cd2d6c7e2c8899bbcdcd650afb5e5326545724abcbb47d4c6f08a0"
+          "postProcessHash": "5cfa39f5570d17f87b324b5a5044401bafa7abcda3eaf216f2c86b4d07818e01"
         },
         "fr": {
-          "updatedAt": "2026-10-05T09:09:27.471Z",
+          "updatedAt": "2026-10-05T12:36:11.147Z",
           "fileName": "docs.json",
-          "postProcessHash": "561202c834cd2d6c7e2c8899bbcdcd650afb5e5326545724abcbb47d4c6f08a0"
+          "postProcessHash": "5cfa39f5570d17f87b324b5a5044401bafa7abcda3eaf216f2c86b4d07818e01"
         },
         "ja": {
-          "updatedAt": "2026-10-05T09:09:27.675Z",
+          "updatedAt": "2026-10-05T12:36:09.993Z",
           "fileName": "docs.json",
-          "postProcessHash": "561202c834cd2d6c7e2c8899bbcdcd650afb5e5326545724abcbb47d4c6f08a0"
+          "postProcessHash": "5cfa39f5570d17f87b324b5a5044401bafa7abcda3eaf216f2c86b4d07818e01"
         },
         "es": {
-          "updatedAt": "2026-10-05T09:09:27.880Z",
+          "updatedAt": "2026-10-05T12:36:09.796Z",
           "fileName": "docs.json",
-          "postProcessHash": "561202c834cd2d6c7e2c8899bbcdcd650afb5e5326545724abcbb47d4c6f08a0"
+          "postProcessHash": "5cfa39f5570d17f87b324b5a5044401bafa7abcda3eaf216f2c86b4d07818e01"
         },
         "zh": {
-          "updatedAt": "2026-10-05T09:09:28.091Z",
+          "updatedAt": "2026-10-05T12:36:10.767Z",
           "fileName": "docs.json",
-          "postProcessHash": "561202c834cd2d6c7e2c8899bbcdcd650afb5e5326545724abcbb47d4c6f08a0"
+          "postProcessHash": "5cfa39f5570d17f87b324b5a5044401bafa7abcda3eaf216f2c86b4d07818e01"
         },
         "pt-BR": {
-          "updatedAt": "2026-10-05T09:09:28.287Z",
+          "updatedAt": "2026-10-05T12:36:10.385Z",
           "fileName": "docs.json",
-          "postProcessHash": "561202c834cd2d6c7e2c8899bbcdcd650afb5e5326545724abcbb47d4c6f08a0"
+          "postProcessHash": "5cfa39f5570d17f87b324b5a5044401bafa7abcda3eaf216f2c86b4d07818e01"
         },
         "ko": {
-          "updatedAt": "2026-10-05T09:09:28.490Z",
+          "updatedAt": "2026-10-05T12:36:10.193Z",
           "fileName": "docs.json",
-          "postProcessHash": "561202c834cd2d6c7e2c8899bbcdcd650afb5e5326545724abcbb47d4c6f08a0"
+          "postProcessHash": "5cfa39f5570d17f87b324b5a5044401bafa7abcda3eaf216f2c86b4d07818e01"
         },
         "ru": {
-          "updatedAt": "2026-10-05T09:09:28.701Z",
+          "updatedAt": "2026-10-05T12:36:10.571Z",
           "fileName": "docs.json",
-          "postProcessHash": "561202c834cd2d6c7e2c8899bbcdcd650afb5e5326545724abcbb47d4c6f08a0"
+          "postProcessHash": "5cfa39f5570d17f87b324b5a5044401bafa7abcda3eaf216f2c86b4d07818e01"
         }
       },
       "fileName": "docs.json"
@@ -36804,47 +36804,47 @@
     },
     {
       "fileId": "d21a71cf1433b448249ec7e8a3cc168369d0899a9916812cc7aacad972f5d4ba",
-      "versionId": "c6aac0e62cc2571531da033ade03f91cef08030f4357f5a055736cc4e7d31146",
+      "versionId": "7388990cd5dbbd4e641d6d245d957e749009331202b93d48f520bfc9f4a10c2a",
       "translations": {
-        "es": {
-          "updatedAt": "2026-09-24T10:24:04.924Z",
-          "fileName": "es/integrations/clickpipes/kafka/schema-registries.mdx",
-          "postProcessHash": "e9ffcae50dbeca49f283f179a2b510fdcfe89d55de23e6fb37e509a9946ee0df"
-        },
-        "ja": {
-          "updatedAt": "2026-09-24T10:24:04.924Z",
-          "fileName": "ja/integrations/clickpipes/kafka/schema-registries.mdx",
-          "postProcessHash": "dcd5beafcbedf40a3870ae2de79cee9404da87a5dc6f1874f2919fa10265afe4"
-        },
         "ko": {
-          "updatedAt": "2026-09-24T10:24:04.925Z",
+          "updatedAt": "2026-10-05T12:36:14.981Z",
           "fileName": "ko/integrations/clickpipes/kafka/schema-registries.mdx",
-          "postProcessHash": "391848331aa0700ee8490556e5ee39e73f65926ec9cc96859b281d8bfbc89e9e"
-        },
-        "pt-BR": {
-          "updatedAt": "2026-09-24T10:24:04.926Z",
-          "fileName": "pt-BR/integrations/clickpipes/kafka/schema-registries.mdx",
-          "postProcessHash": "abd4f5f33d4e406ed1bca45d515f539604a50b6c7de4e635a6111ccd07481f12"
+          "postProcessHash": "6f926f2d018b460503ca961a5990b59fd19243278850fa7790b1b73f043d58ce"
         },
         "ru": {
-          "updatedAt": "2026-09-24T10:24:04.926Z",
+          "updatedAt": "2026-10-05T12:36:14.984Z",
           "fileName": "ru/integrations/clickpipes/kafka/schema-registries.mdx",
-          "postProcessHash": "3978b0cc6314ab199d65f271d2087a9798da20905f3079511320ea4e8f06c2c4"
+          "postProcessHash": "79e0683a71b7c3e3e576c6271de9e6a94fb3a9f2d193e3353ec08dc9f498306d"
         },
-        "zh": {
-          "updatedAt": "2026-09-24T10:24:04.927Z",
-          "fileName": "zh/integrations/clickpipes/kafka/schema-registries.mdx",
-          "postProcessHash": "120fe084a29ebac58eb44a32406958756a963f9582c1785cb8306af984cd2cbd"
-        },
-        "ar": {
-          "updatedAt": "2026-09-24T10:24:04.927Z",
-          "fileName": "ar/integrations/clickpipes/kafka/schema-registries.mdx",
-          "postProcessHash": "2d21887d404156000a458d0a15985b366193929c628b2e9163fc2e04cddc3493"
+        "es": {
+          "updatedAt": "2026-10-05T12:36:14.986Z",
+          "fileName": "es/integrations/clickpipes/kafka/schema-registries.mdx",
+          "postProcessHash": "89f39d04914d7c6966686071fec2d6f474cb00286c5a1a7a1b33095438069015"
         },
         "fr": {
-          "updatedAt": "2026-09-24T10:24:04.928Z",
+          "updatedAt": "2026-10-05T12:36:14.988Z",
           "fileName": "fr/integrations/clickpipes/kafka/schema-registries.mdx",
-          "postProcessHash": "1ac5ad9e4112c1c53c6c4c454f7ba20574754a692e9c0d2c074b8da6c219a07a"
+          "postProcessHash": "aa4d114eb4ce5c7b14c548666f291036ceec6a1d59478356ff977f0679c52112"
+        },
+        "ar": {
+          "updatedAt": "2026-10-05T12:36:14.988Z",
+          "fileName": "ar/integrations/clickpipes/kafka/schema-registries.mdx",
+          "postProcessHash": "ecb883f0c76ccbd0ad90222033c47b89a3f3a979b1d8f1c04f216c20f36b96bd"
+        },
+        "pt-BR": {
+          "updatedAt": "2026-10-05T12:36:14.990Z",
+          "fileName": "pt-BR/integrations/clickpipes/kafka/schema-registries.mdx",
+          "postProcessHash": "775a1615250b31b7abaa06aae322aa74cb5e6676b790af15f2f46e73ef1154c7"
+        },
+        "zh": {
+          "updatedAt": "2026-10-05T12:36:14.992Z",
+          "fileName": "zh/integrations/clickpipes/kafka/schema-registries.mdx",
+          "postProcessHash": "c95547b46c24a77a39165ea4ce19c978f60812f89fc897d30ec1c2daadeb3243"
+        },
+        "ja": {
+          "updatedAt": "2026-10-05T12:36:14.998Z",
+          "fileName": "ja/integrations/clickpipes/kafka/schema-registries.mdx",
+          "postProcessHash": "2a12fc6d9657ce18cf3293169c1671b2800a60b6fc94ca05276e59f71c2d6232"
         }
       },
       "fileName": "integrations/clickpipes/kafka/schema-registries.mdx"
@@ -36947,47 +36947,47 @@
     },
     {
       "fileId": "4a98a58019e844e6752b3d5415bb8aacdfb75b06cdfa51317a12fbc549c23570",
-      "versionId": "aab7f1c01191a4a57762d5617b906ab2079beb032695ecbffaf2df5ce8d653ca",
+      "versionId": "f339b8dcb034da3d61663f6305d87a636a1cedd7b135d30a71e6fc6491a78134",
       "translations": {
-        "es": {
-          "updatedAt": "2026-09-24T10:24:04.929Z",
-          "fileName": "es/integrations/clickpipes/kinesis/overview.mdx",
-          "postProcessHash": "e1783b976a7fa56ba8a2e807760f00350c140632d408dbc494a58a33a52ba926"
-        },
-        "ja": {
-          "updatedAt": "2026-09-24T10:24:04.929Z",
-          "fileName": "ja/integrations/clickpipes/kinesis/overview.mdx",
-          "postProcessHash": "c1d9d6f9e242cd46af643f6053bc4232940c6db5dc929d630988853e83e4b9aa"
-        },
-        "ko": {
-          "updatedAt": "2026-09-24T10:24:04.930Z",
-          "fileName": "ko/integrations/clickpipes/kinesis/overview.mdx",
-          "postProcessHash": "84f759ca770cdd7c6c2860ad77c4935b36242d59208ac2cc5487c154cdba832b"
-        },
-        "pt-BR": {
-          "updatedAt": "2026-09-24T10:24:04.930Z",
-          "fileName": "pt-BR/integrations/clickpipes/kinesis/overview.mdx",
-          "postProcessHash": "b21167f956eaa900a8640a06384c64b56e1c37c5c8a359554c70d26cb9759d28"
-        },
         "ru": {
-          "updatedAt": "2026-09-24T10:24:04.931Z",
+          "updatedAt": "2026-10-05T12:36:14.989Z",
           "fileName": "ru/integrations/clickpipes/kinesis/overview.mdx",
-          "postProcessHash": "a21063f1868296f728c7f5e266bf3d01d92e36de29e076c748383241cf5b0d26"
-        },
-        "zh": {
-          "updatedAt": "2026-09-24T10:24:04.931Z",
-          "fileName": "zh/integrations/clickpipes/kinesis/overview.mdx",
-          "postProcessHash": "971e61a64ec078ad86e6855ca8ff5667f25acfba4b4f276331648a9cd5f9436f"
-        },
-        "ar": {
-          "updatedAt": "2026-09-24T10:24:04.931Z",
-          "fileName": "ar/integrations/clickpipes/kinesis/overview.mdx",
-          "postProcessHash": "c52b13a41d740b3239204466a1d5fc8728059b7302d6b60a6cc6b637e0bb8a54"
+          "postProcessHash": "9a5c2d89e0eaeaf635cc41d8e3c2972bdeb4c0add509b0f235df99815e5a898d"
         },
         "fr": {
-          "updatedAt": "2026-09-24T10:24:04.932Z",
+          "updatedAt": "2026-10-05T12:36:14.993Z",
           "fileName": "fr/integrations/clickpipes/kinesis/overview.mdx",
-          "postProcessHash": "34dbd2ada0c999540b219f3f643815187d963e4bb42f635be1a794c23261364c"
+          "postProcessHash": "4fc3e3700ae556242fc5afbe5a8368f26afec5a603858f806510f1c45088c51d"
+        },
+        "ko": {
+          "updatedAt": "2026-10-05T12:36:14.994Z",
+          "fileName": "ko/integrations/clickpipes/kinesis/overview.mdx",
+          "postProcessHash": "997950d99c5285975f7de3b32a482f0c057a4d64d53c01cdb12cf78ee3dc00f6"
+        },
+        "ja": {
+          "updatedAt": "2026-10-05T12:36:14.995Z",
+          "fileName": "ja/integrations/clickpipes/kinesis/overview.mdx",
+          "postProcessHash": "384296eebafe2a9099eaec21aba5c1c75931adc7f14e6564b539102f75c664e5"
+        },
+        "ar": {
+          "updatedAt": "2026-10-05T12:36:14.997Z",
+          "fileName": "ar/integrations/clickpipes/kinesis/overview.mdx",
+          "postProcessHash": "b20afe05aedcac2831added1ab753723d73b745d078dc2525243ab64b1d61854"
+        },
+        "zh": {
+          "updatedAt": "2026-10-05T12:36:14.999Z",
+          "fileName": "zh/integrations/clickpipes/kinesis/overview.mdx",
+          "postProcessHash": "2228e2c8ea5e97e06b1c748029926fb10ae3721b1eeb3d1d6257ed4c0a29e7f6"
+        },
+        "pt-BR": {
+          "updatedAt": "2026-10-05T12:36:15.000Z",
+          "fileName": "pt-BR/integrations/clickpipes/kinesis/overview.mdx",
+          "postProcessHash": "61c56b2e5e9ffe7b82607fbdf76f8aee9e9895f4df0861751f2f9b2bbba0ae21"
+        },
+        "es": {
+          "updatedAt": "2026-10-05T12:36:15.001Z",
+          "fileName": "es/integrations/clickpipes/kinesis/overview.mdx",
+          "postProcessHash": "493437fb0fb30a3d0730082b1bb5578d6f0273a1632e7d847e9b638003e0402f"
         }
       },
       "fileName": "integrations/clickpipes/kinesis/overview.mdx"
@@ -39103,99 +39103,97 @@
     },
     {
       "fileId": "5a80e986845a279f824633be8492f93124a4f971585ffc7e922e9bb0586fbb89",
-      "versionId": "c7e232cbb37d53c71fbbf73f1cb63ca050f6a0ff0727362675e31e547e0e3cca",
+      "versionId": "ead31efb940f7774e50132d79513ada9c8db8be60f5779c7df623c936b064f50",
       "translations": {
+        "ru": {
+          "updatedAt": "2026-10-05T12:36:14.976Z",
+          "fileName": "ru/integrations/clickpipes/programmatic-access/openapi.mdx",
+          "postProcessHash": "2a447fc8739e7dbb9450d0c24d1ac374c2e41512a3e08c287b882219c53f7c47"
+        },
         "es": {
-          "updatedAt": "2026-08-14T10:41:06.574Z",
+          "updatedAt": "2026-10-05T12:36:14.977Z",
           "fileName": "es/integrations/clickpipes/programmatic-access/openapi.mdx",
-          "postProcessHash": "1353852fe5c75f09fa1937d5ba1a5ef2d3012960949009efd8304f8207490b26"
+          "postProcessHash": "bf9d97e62b804ae5b614bfd31aec2adece64d2c1e3a7759404153c73eef0fbda"
         },
         "ja": {
-          "updatedAt": "2026-08-14T10:41:06.574Z",
+          "updatedAt": "2026-10-05T12:36:14.978Z",
           "fileName": "ja/integrations/clickpipes/programmatic-access/openapi.mdx",
-          "postProcessHash": "9693730e68828ae141660df5bc5db81b3055ecb2988bf88443c6c8ae0f7043c2"
-        },
-        "ko": {
-          "updatedAt": "2026-08-14T10:41:06.574Z",
-          "fileName": "ko/integrations/clickpipes/programmatic-access/openapi.mdx",
-          "postProcessHash": "464c7a24fc911ebdc399c7e602e3097d3c8528bcb43072f4a44231f23bbf86bb"
+          "postProcessHash": "58f08fd631455ff5df9aa93c2c9bbb5e4cf989ad4a60722bf17d4b132def347f"
         },
         "pt-BR": {
-          "updatedAt": "2026-08-14T10:41:06.574Z",
+          "updatedAt": "2026-10-05T12:36:14.979Z",
           "fileName": "pt-BR/integrations/clickpipes/programmatic-access/openapi.mdx",
-          "postProcessHash": "5b272cff5102f18a1d7cf1f9a720009b6f70e5d10561b8e7495fb746a0e69b6e"
+          "postProcessHash": "4c0e36de1161caadc312209494bf1df5ef90e8d754e3f034605d4ebd1fb6f98d"
         },
-        "ru": {
-          "updatedAt": "2026-08-14T10:41:06.574Z",
-          "fileName": "ru/integrations/clickpipes/programmatic-access/openapi.mdx",
-          "postProcessHash": "798e911f9dee2031a59a65e65ada23d235598182643cc2323c4945b5cc71c32e"
-        },
-        "zh": {
-          "updatedAt": "2026-08-14T10:41:06.574Z",
-          "fileName": "zh/integrations/clickpipes/programmatic-access/openapi.mdx",
-          "postProcessHash": "431d8d533024c08f3d1d22dfec453201f266e52ca1c262cb0298b99caa2bffe2"
+        "ko": {
+          "updatedAt": "2026-10-05T12:36:14.981Z",
+          "fileName": "ko/integrations/clickpipes/programmatic-access/openapi.mdx",
+          "postProcessHash": "899e1e0dd06b4c1bca54a38b7c7a6c5ad971758045a0519253cf8451044c6fbc"
         },
         "ar": {
-          "updatedAt": "2026-08-14T10:41:06.574Z",
+          "updatedAt": "2026-10-05T12:36:14.982Z",
           "fileName": "ar/integrations/clickpipes/programmatic-access/openapi.mdx",
-          "postProcessHash": "b503298a7273586da90c140d81b175f78d77ee9204ff1fc75a2c697247697d1c"
+          "postProcessHash": "16f303925a10971eaf764fc248c7074c0793a93ce5042b147a44869acc01ad0f"
         },
         "fr": {
-          "updatedAt": "2026-08-14T10:41:06.575Z",
+          "updatedAt": "2026-10-05T12:36:14.982Z",
           "fileName": "fr/integrations/clickpipes/programmatic-access/openapi.mdx",
-          "postProcessHash": "731ef92e03ba98a06217a0c4dc9f2b1d2e3f7ee5adf99d395e2b1b48518a71cb"
+          "postProcessHash": "2cc4168319ae9b1bcf59d56eee205bfb7c05b7acff7c34eb770eee55803c6678"
+        },
+        "zh": {
+          "updatedAt": "2026-10-05T12:36:14.984Z",
+          "fileName": "zh/integrations/clickpipes/programmatic-access/openapi.mdx",
+          "postProcessHash": "abd9deb0cda0d5a41e0877882da9a55d7f992ff601b5fe5ddce6abe017d39d7d"
         }
       },
-      "fileName": "integrations/clickpipes/programmatic-access/openapi.mdx",
-      "staged": false
+      "fileName": "integrations/clickpipes/programmatic-access/openapi.mdx"
     },
     {
       "fileId": "5841aa0e88556ee1c12f71bad44bd1b4ea30f076569c9a2694c691ad510f3cb2",
-      "versionId": "b0eaa3aa421b64903c5f9067719e3a3c8ad2d4c6dd8ee7d79ab6f1aa785fd378",
+      "versionId": "c5437fe2309c1424db09725368f59ed52703126da4848e98d55908500b3b2bba",
       "translations": {
-        "es": {
-          "updatedAt": "2026-08-14T10:41:06.575Z",
-          "fileName": "es/integrations/clickpipes/programmatic-access/terraform.mdx",
-          "postProcessHash": "30cca68ae0e24422c08c3c3790eb985e5e8fcad748bf8056a58a713288d0b350"
-        },
-        "ja": {
-          "updatedAt": "2026-08-14T10:41:06.575Z",
-          "fileName": "ja/integrations/clickpipes/programmatic-access/terraform.mdx",
-          "postProcessHash": "c2f1dc6c6445f4d96c1cf17082b87d3ba1d299acc66fd120c37318a8052e41fb"
+        "zh": {
+          "updatedAt": "2026-10-05T12:36:14.978Z",
+          "fileName": "zh/integrations/clickpipes/programmatic-access/terraform.mdx",
+          "postProcessHash": "74298cb001ae66c8cb6a9af8d6b0102635a2023c26bc89c5de2949f5385be4e8"
         },
         "ko": {
-          "updatedAt": "2026-08-14T10:41:06.575Z",
+          "updatedAt": "2026-10-05T12:36:14.979Z",
           "fileName": "ko/integrations/clickpipes/programmatic-access/terraform.mdx",
-          "postProcessHash": "6299c0f5c749cab5ddc5621edb75a3c5df51cff969c6c0f1edc6fe0d730a5c94"
+          "postProcessHash": "5dc2e4e9a93c7d629a56a3f13ffcbe582573cd8a8a8e030d15d212182dbce541"
         },
-        "pt-BR": {
-          "updatedAt": "2026-08-14T10:41:06.575Z",
-          "fileName": "pt-BR/integrations/clickpipes/programmatic-access/terraform.mdx",
-          "postProcessHash": "01a944d4d39c59531bda31e8ef3a12227370a3ea92362a700296bcf9820c7822"
-        },
-        "ru": {
-          "updatedAt": "2026-08-14T10:41:06.575Z",
-          "fileName": "ru/integrations/clickpipes/programmatic-access/terraform.mdx",
-          "postProcessHash": "27e10c27c303ff435728e9cedee060aa641fbbd314cf92f4b508f31c92af78a4"
-        },
-        "zh": {
-          "updatedAt": "2026-08-14T10:41:06.575Z",
-          "fileName": "zh/integrations/clickpipes/programmatic-access/terraform.mdx",
-          "postProcessHash": "2ca5b6f0e38e0b978dca5b6233d7e7c6c2ada533ac9a29af9b0152c53413ecde"
-        },
-        "ar": {
-          "updatedAt": "2026-08-14T10:41:06.575Z",
-          "fileName": "ar/integrations/clickpipes/programmatic-access/terraform.mdx",
-          "postProcessHash": "cf30d6c6c29b949e5b3dc2b3be93ff5b5c70f4513918f4b75c0f1d3d5ae0430c"
+        "ja": {
+          "updatedAt": "2026-10-05T12:36:14.980Z",
+          "fileName": "ja/integrations/clickpipes/programmatic-access/terraform.mdx",
+          "postProcessHash": "e9fa251735da6fa93a05c8825ec4fdff82367a5cfc0d35e3a534ecffdb075e85"
         },
         "fr": {
-          "updatedAt": "2026-08-14T10:41:06.575Z",
+          "updatedAt": "2026-10-05T12:36:14.980Z",
           "fileName": "fr/integrations/clickpipes/programmatic-access/terraform.mdx",
-          "postProcessHash": "c60b1da3c8c8c8185e14a77b0c5a0a569b2bac9aa47f885390c1ccf2f5ffc240"
+          "postProcessHash": "ab9f6351f4dd30e5a4e4d88e76ec447f94a0d7de384875dfc058c86d4f78c068"
+        },
+        "ar": {
+          "updatedAt": "2026-10-05T12:36:14.984Z",
+          "fileName": "ar/integrations/clickpipes/programmatic-access/terraform.mdx",
+          "postProcessHash": "4982413c63e26e3df2d48fd2e8de0c7d33efb3e672fb108c1b53aad5c83cec7a"
+        },
+        "ru": {
+          "updatedAt": "2026-10-05T12:36:14.985Z",
+          "fileName": "ru/integrations/clickpipes/programmatic-access/terraform.mdx",
+          "postProcessHash": "04093ad58f1e1785fc82e1de6d58a09e307d596b1f0a1f47a9cac0afa27be762"
+        },
+        "pt-BR": {
+          "updatedAt": "2026-10-05T12:36:14.988Z",
+          "fileName": "pt-BR/integrations/clickpipes/programmatic-access/terraform.mdx",
+          "postProcessHash": "e707251f2dae59ac7f05003583e08f9c1f15fcde17135697d9dab1806a927b81"
+        },
+        "es": {
+          "updatedAt": "2026-10-05T12:36:14.989Z",
+          "fileName": "es/integrations/clickpipes/programmatic-access/terraform.mdx",
+          "postProcessHash": "3dcc4594a0b5baa490d2f0e63f0657b530bdbfa29c7d28d8eee970567ed191be"
         }
       },
-      "fileName": "integrations/clickpipes/programmatic-access/terraform.mdx",
-      "staged": false
+      "fileName": "integrations/clickpipes/programmatic-access/terraform.mdx"
     },
     {
       "fileId": "6dec506c52be417225ad39653c6a749340be710b52d93545197a0edff983be23",
@@ -69162,47 +69160,47 @@
     },
     {
       "fileId": "e54116367db0fa6f073e5c719d12585d4886ddb55636538dd5fcad6b994d3300",
-      "versionId": "d0f62c941a5bb69558586b39e66f53908d84df25b9ac6cdfda7461bd07ce1fc8",
+      "versionId": "aa2dbd1f32c7158f320bdc9a4797eda132e901ad3e284d5e907871d08b940703",
       "translations": {
-        "ru": {
-          "updatedAt": "2026-10-02T22:13:01.419Z",
-          "fileName": "ru/resources/changelogs/cloud/2026.mdx",
-          "postProcessHash": "a27cc77dc764dbeb214ce01bd180c850df82cf9dfcbf09f527be4d93aad16fb9"
-        },
-        "ar": {
-          "updatedAt": "2026-10-02T22:13:01.420Z",
-          "fileName": "ar/resources/changelogs/cloud/2026.mdx",
-          "postProcessHash": "f400bdba914d123905ea765da52c7057065d0deee63f19426dc63030c4291b7c"
-        },
-        "es": {
-          "updatedAt": "2026-10-02T22:13:01.420Z",
-          "fileName": "es/resources/changelogs/cloud/2026.mdx",
-          "postProcessHash": "da1536b8d3f369f749d5a00bce54e49252d7e1aa8c114ad68c63938d0c129c00"
-        },
         "fr": {
-          "updatedAt": "2026-10-02T22:13:01.421Z",
+          "updatedAt": "2026-10-05T12:36:14.994Z",
           "fileName": "fr/resources/changelogs/cloud/2026.mdx",
-          "postProcessHash": "c1ffe7c4635df7fb7d66c364ff2355fdf7053f9e2f4072a1ef20200a7cac7207"
-        },
-        "ja": {
-          "updatedAt": "2026-10-02T22:13:01.421Z",
-          "fileName": "ja/resources/changelogs/cloud/2026.mdx",
-          "postProcessHash": "563d3fbc75f98a4fd69493a04a7c95385f2ec42b0eaa41381d758cd5735c08a2"
+          "postProcessHash": "202b60bd64a88b11f631d0fd4033d18433d48365b592ba3abee1450988fd627e"
         },
         "pt-BR": {
-          "updatedAt": "2026-10-02T22:13:01.422Z",
+          "updatedAt": "2026-10-05T12:36:14.996Z",
           "fileName": "pt-BR/resources/changelogs/cloud/2026.mdx",
-          "postProcessHash": "f791e464a9a62d602cf17d57a7e366296cae70e6697c615d5a095c90eb221a71"
+          "postProcessHash": "85d26e9ee76149657e1008ce2ab4118f22a8ec702077535d3a74f54f6f50bea4"
         },
         "zh": {
-          "updatedAt": "2026-10-02T22:13:01.422Z",
+          "updatedAt": "2026-10-05T12:36:14.998Z",
           "fileName": "zh/resources/changelogs/cloud/2026.mdx",
-          "postProcessHash": "28ca1aea7767b90d7e5487c9b15626201bd4f11a722c99ad9dc79512f9265d57"
+          "postProcessHash": "a43a1a71862beec061bf52c3095d6ad71f58e7dd806a6fca61d7032e70c48f7d"
+        },
+        "ru": {
+          "updatedAt": "2026-10-05T12:36:14.999Z",
+          "fileName": "ru/resources/changelogs/cloud/2026.mdx",
+          "postProcessHash": "8d8c6b86e32fa5adab130c9570b7b25db93fe56d6233dee3520bfb317d02a7b9"
+        },
+        "es": {
+          "updatedAt": "2026-10-05T12:36:15.000Z",
+          "fileName": "es/resources/changelogs/cloud/2026.mdx",
+          "postProcessHash": "48fbf2852096181f4558facff76da11a802d24bda498cbe36a82987aa116009b"
         },
         "ko": {
-          "updatedAt": "2026-10-02T22:13:01.423Z",
+          "updatedAt": "2026-10-05T12:36:15.001Z",
           "fileName": "ko/resources/changelogs/cloud/2026.mdx",
-          "postProcessHash": "39a69414c5671dad8b779720bb77381754fae2c668285b4e1d1d8f8056a401db"
+          "postProcessHash": "595014b0160eea1a5c705e02b43fed2b2ae41c2b9f0e454bdfb5bfa31a46194e"
+        },
+        "ja": {
+          "updatedAt": "2026-10-05T12:36:15.002Z",
+          "fileName": "ja/resources/changelogs/cloud/2026.mdx",
+          "postProcessHash": "0a1c2228a55a0c88fdec00fe140559c8b046f956f1f85f67d980bff392f3beb0"
+        },
+        "ar": {
+          "updatedAt": "2026-10-05T12:36:15.003Z",
+          "fileName": "ar/resources/changelogs/cloud/2026.mdx",
+          "postProcessHash": "39882ccfcc31abe3df6bed6599c1bae492649c88da6123f3b63da1c3e1f98f0f"
         }
       },
       "fileName": "resources/changelogs/cloud/2026.mdx"
@@ -71647,47 +71645,47 @@
     },
     {
       "fileId": "b2b1c68bfafb20ca3c165039bcc0f1089bcde8d1899933be7ff6000e416ed529",
-      "versionId": "075ebe99af24e5aced5447fd3ac23ae38f20ae4ee8af02ba84656640443ea71d",
+      "versionId": "e5ed8a538adeea6a2d909645d3b19c30165adffcc43aa9f17fdf8aee46521673",
       "translations": {
         "es": {
-          "updatedAt": "2026-09-24T10:24:06.842Z",
+          "updatedAt": "2026-10-05T12:36:14.982Z",
           "fileName": "es/concepts/features/configuration/server-config/named-collections.mdx",
-          "postProcessHash": "5bd676cd60ab9dc122c7f6f309389716ea17e78c5f84d6e240189b7a02abcbbd"
-        },
-        "ja": {
-          "updatedAt": "2026-09-24T10:24:06.842Z",
-          "fileName": "ja/concepts/features/configuration/server-config/named-collections.mdx",
-          "postProcessHash": "9294aa7c74a36ccaa12bb6c9f2f9ff2b73ef110144dcba79dab81c99acebc67b"
-        },
-        "ko": {
-          "updatedAt": "2026-09-24T10:24:06.843Z",
-          "fileName": "ko/concepts/features/configuration/server-config/named-collections.mdx",
-          "postProcessHash": "5ce1bcf9a7de6256837ce3664a2ca99b71af98e8d3a3e8d32728d63c438333eb"
-        },
-        "pt-BR": {
-          "updatedAt": "2026-09-24T10:24:06.843Z",
-          "fileName": "pt-BR/concepts/features/configuration/server-config/named-collections.mdx",
-          "postProcessHash": "21c66024739f25658344811644b4e6fcb4111e3e421bda874a2d99babe54a799"
-        },
-        "ru": {
-          "updatedAt": "2026-09-24T10:24:06.844Z",
-          "fileName": "ru/concepts/features/configuration/server-config/named-collections.mdx",
-          "postProcessHash": "24e3f6e1a9c7f449b02cd1dab6bddb48fc6cf0e9853e7df3f54fd67acbd25c3b"
+          "postProcessHash": "80c8616b194b7e0993d03cee20c73de87e311529bd7aaca9a34f5e32aecf879c"
         },
         "zh": {
-          "updatedAt": "2026-09-24T10:24:06.844Z",
+          "updatedAt": "2026-10-05T12:36:14.986Z",
           "fileName": "zh/concepts/features/configuration/server-config/named-collections.mdx",
-          "postProcessHash": "ba4cbb07852025634a865f06c1e341d4be8e89662856bbd93e29e7dc7f47d9f4"
+          "postProcessHash": "61a39418ddbb6e6219fd4b5853d8c885e73aa15859c1ffdb73c504cab8888e58"
         },
         "ar": {
-          "updatedAt": "2026-09-24T10:24:06.845Z",
+          "updatedAt": "2026-10-05T12:36:14.987Z",
           "fileName": "ar/concepts/features/configuration/server-config/named-collections.mdx",
-          "postProcessHash": "32fe0ae68433075767d34a3ac788aa37d49bfa422fa40832e1dc3baf22dc0f88"
+          "postProcessHash": "a421ee6fa8d1a7e1b0f172611588070a946adb0ceab775d5d5907be728184a3d"
+        },
+        "ja": {
+          "updatedAt": "2026-10-05T12:36:14.991Z",
+          "fileName": "ja/concepts/features/configuration/server-config/named-collections.mdx",
+          "postProcessHash": "aaea07ff153ea51354b4e358eccce2eb2445e79605f6f0515510f8f6e3d3b8a9"
+        },
+        "ko": {
+          "updatedAt": "2026-10-05T12:36:14.995Z",
+          "fileName": "ko/concepts/features/configuration/server-config/named-collections.mdx",
+          "postProcessHash": "450fe3e1af2772e88478c13747cce0d1bfa0d0ee28696f0535034a9e5af169d8"
+        },
+        "ru": {
+          "updatedAt": "2026-10-05T12:36:14.996Z",
+          "fileName": "ru/concepts/features/configuration/server-config/named-collections.mdx",
+          "postProcessHash": "6f6860bc35a64aca92aa12ab71e8c70c831360edad6f6e6186cdc8052e89d713"
+        },
+        "pt-BR": {
+          "updatedAt": "2026-10-05T12:36:14.997Z",
+          "fileName": "pt-BR/concepts/features/configuration/server-config/named-collections.mdx",
+          "postProcessHash": "9c5a2b643250d5072c3c60b4c441da0c76c5ff20b624bb7c1393a107e7684f66"
         },
         "fr": {
-          "updatedAt": "2026-09-24T10:24:06.845Z",
+          "updatedAt": "2026-10-05T12:36:14.997Z",
           "fileName": "fr/concepts/features/configuration/server-config/named-collections.mdx",
-          "postProcessHash": "1be34d316045b21db104ea630d6875297c6bd97b8ddac1e68491e07fdffddc52"
+          "postProcessHash": "fcc4541154364482ddd19227f7f1b9a19e09dbd0cf7f0ce63b88ba83cff20eda"
         }
       },
       "fileName": "concepts/features/configuration/server-config/named-collections.mdx"
@@ -72312,47 +72310,47 @@
     },
     {
       "fileId": "ef6a9c0aaa0d6169a1986c0cf1b1898d634cb7a290afaf7fc479500fc463962e",
-      "versionId": "e63e4b671faad3454022b858ff4fadef5d84222de31507a57d00e987d7c297e9",
+      "versionId": "c278d935dc6873f532f72fa9908391c2e2b45613c8c0a223877ea72c04e9214e",
       "translations": {
-        "es": {
-          "updatedAt": "2026-09-24T10:24:06.875Z",
-          "fileName": "es/concepts/features/configuration/settings/settings-users.mdx",
-          "postProcessHash": "8811ed81dab8c0f0dfbdb7b7e246615095c341f89ab239d6c0b7b591fa07f987"
-        },
-        "ja": {
-          "updatedAt": "2026-09-24T10:24:06.875Z",
-          "fileName": "ja/concepts/features/configuration/settings/settings-users.mdx",
-          "postProcessHash": "e8ad1f585e6450a104d6e5f924bfa6b591a9340aeabb2d27c9d2b7b7814709f5"
-        },
         "ko": {
-          "updatedAt": "2026-09-24T10:24:06.875Z",
+          "updatedAt": "2026-10-05T12:36:14.983Z",
           "fileName": "ko/concepts/features/configuration/settings/settings-users.mdx",
-          "postProcessHash": "96362fdaaa4c768f10c28eadbb4d0719751f82b504d003002cafd40bca49a81d"
+          "postProcessHash": "a751d9a6d99ea36e94a7b0da6fb3130dab3fab95bc38552579cee60fde229df9"
         },
-        "pt-BR": {
-          "updatedAt": "2026-09-24T10:24:06.876Z",
-          "fileName": "pt-BR/concepts/features/configuration/settings/settings-users.mdx",
-          "postProcessHash": "f245ef9f641b19da18e14cd1f73df4d8940314ffb4bbe760cded96d464e03bcd"
+        "es": {
+          "updatedAt": "2026-10-05T12:36:14.983Z",
+          "fileName": "es/concepts/features/configuration/settings/settings-users.mdx",
+          "postProcessHash": "a1b8a9f1f26efb82385d00d871d02586247838aad2c4b0d3a9da6101f24a0ef7"
         },
         "ru": {
-          "updatedAt": "2026-09-24T10:24:06.876Z",
+          "updatedAt": "2026-10-05T12:36:14.985Z",
           "fileName": "ru/concepts/features/configuration/settings/settings-users.mdx",
-          "postProcessHash": "82523fe0b1b93fc7b08667ebcfd1d2053f0d041a201f3d14b2f20ccef1946f62"
+          "postProcessHash": "573dd55a825c0906b7b7d5c96dc7ec022b83dd9e4de633748f9f27616ca61da0"
         },
         "zh": {
-          "updatedAt": "2026-09-24T10:24:06.877Z",
+          "updatedAt": "2026-10-05T12:36:14.987Z",
           "fileName": "zh/concepts/features/configuration/settings/settings-users.mdx",
-          "postProcessHash": "7f4d1e8e0cb2d8a0aaba25e42e5c574bcbcdce1ff860643e39b65398659acd65"
+          "postProcessHash": "c4d126351e08a490bcc7daae2fdc9a347682d0ff714ac7cba3b070063103001d"
         },
-        "ar": {
-          "updatedAt": "2026-09-24T10:24:06.877Z",
-          "fileName": "ar/concepts/features/configuration/settings/settings-users.mdx",
-          "postProcessHash": "d7fb4bb6c84a5ad4154dc85b7b9e4f3b2a6759bf2e0b95f6a17eb872e8ebcd8e"
+        "pt-BR": {
+          "updatedAt": "2026-10-05T12:36:14.990Z",
+          "fileName": "pt-BR/concepts/features/configuration/settings/settings-users.mdx",
+          "postProcessHash": "de240bf719325920ab55a8a5ed3ebc61b289ab0be472120cb956c4f3e493a565"
+        },
+        "ja": {
+          "updatedAt": "2026-10-05T12:36:14.991Z",
+          "fileName": "ja/concepts/features/configuration/settings/settings-users.mdx",
+          "postProcessHash": "93945f2dfb048c92f02a35c5fedb52ac420f1c3748db936e7405757583054298"
         },
         "fr": {
-          "updatedAt": "2026-09-24T10:24:06.878Z",
+          "updatedAt": "2026-10-05T12:36:14.992Z",
           "fileName": "fr/concepts/features/configuration/settings/settings-users.mdx",
-          "postProcessHash": "91ef102921d01ea534f341bbd65a162dd6bc89818e5b9f5c52ce9f99c15b0c1b"
+          "postProcessHash": "88b291ceebe5230edebd61e8c25890da0daac71216a13bfc83d612daa655efb2"
+        },
+        "ar": {
+          "updatedAt": "2026-10-05T12:36:14.993Z",
+          "fileName": "ar/concepts/features/configuration/settings/settings-users.mdx",
+          "postProcessHash": "9cb1772032f8e6f7017ae31b24c21370646344588e63cb17da64804d061d30cb"
         }
       },
       "fileName": "concepts/features/configuration/settings/settings-users.mdx"

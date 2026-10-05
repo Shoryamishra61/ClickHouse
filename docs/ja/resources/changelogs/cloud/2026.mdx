@@ -1,16 +1,48 @@
 ---
 slug: /whats-new/changelog/cloud
 sidebarTitle: '2026'
-title: 'Cloud changelog - 2026'
-description: '各 ClickHouse Cloud リリースの新機能を紹介する ClickHouse Cloud changelog'
+title: 'Cloud 変更履歴 - 2026'
+description: 'ClickHouse Cloud の各リリースにおける新機能や変更点をまとめた変更履歴'
 doc_type: 'changelog'
-keywords: ['changelog', 'release notes', 'updates', 'new features', 'cloud changes']
+keywords: ['変更履歴', 'リリースノート', '更新', '新機能', 'Cloud の変更点']
 rss: true
 ---
 
 import { Image } from "/snippets/ja/components/Image.jsx";
 
-この ClickHouse Cloud changelog に加えて、[Cloud 互換性](/ja/products/cloud/guides/cloud-compatibility)ページも参照してください。
+この ClickHouse Cloud の変更履歴に加えて、[Cloud 互換性](/ja/products/cloud/guides/cloud-compatibility) ページもあわせてご参照ください。
+
+<Update label="Oct 5, 2026">
+  今週のリリースでは、複数の ClickHouse Cloud 組織をお持ちのお客様向けに請求管理を簡素化したほか、Kafka および Kinesis 向け ClickPipes のシリアライゼーション対応を拡充し、.NET 開発者向けに実験的なネイティブ TCP オプションを導入しました。組織間の前払いクレジットをコンソールで管理したり、残高をプログラムから取得したりできるようになりました。また、ストリーミング ClickPipes が一般的な Avro および Protobuf のワークフローに対応したほか、.NET ドライバーでは、より高速でメモリ割り当ての少ないネイティブクライアントを利用できるようになりました。
+
+  ## 新機能 {#2026-10-05-new-features}
+
+  ### 組織間での前払いクレジットの移動 {#transfer-prepaid-credits-between-organizations}
+
+  複数の組織をお持ちのお客様は、サポートチケットを作成しなくても、コンソール上で組織間の前払いクレジットを移動できるようになりました。すべての組織の前払いクレジットを 1 つのビューで確認できるため、消費状況の把握や更新計画の立案に役立ちます。この操作を行うには、対象となる各組織で Org Admin、Billing Admin、または請求権限を持つカスタムロールが必要です。クレジットはティア間で分割できますが、Cloud 組織と BYOC 組織の間や、異なるクラウドマーケットプレイス間では分割できません。詳細は[セルフサービスによる前払いクレジット管理のドキュメント](/ja/products/cloud/reference/billing/self-service-prepaid-credit-management)を参照してください。
+
+  ## API {#2026-10-05-api}
+
+  ### 組織のクレジット残高を取得する新しい API エンドポイント {#new-api-endpoint-for-organization-credit-balances}
+
+  ClickHouse Cloud OpenAPI に新たに追加された `GET /v1/organizations/{organizationId}/creditBalances` エンドポイントは、前払いクレジットやトライアルクレジットを含む、組織の有効なクレジット残高を返します。独自のツールからクレジットの消費状況を監視する際にご活用ください。詳細は[セルフサービスによる前払いクレジット管理のドキュメント](/ja/products/cloud/reference/billing/self-service-prepaid-credit-management)を参照してください。
+
+  ## ClickPipes {#2026-10-05-clickpipes}
+
+  ### Kinesis ClickPipes で Avro および Protobuf をサポート {#avro-and-protobuf-support-for-kinesis-clickpipes}
+
+  Kinesis ClickPipes が、JSON に加えて **Avro** と **Protobuf** をサポートするようになりました。スキーマは **AWS Glue Schema Registry** から取得するか、スキーマファイルをアップロードして指定できます。これにより、Kafka ClickPipes と Kinesis ClickPipes で同じ一般的なシリアライゼーションフォーマットを利用できるようになりました。この機能は UI、OpenAPI、Terraform で利用できます。詳細は [Kinesis ClickPipes のドキュメント](/ja/integrations/clickpipes/kinesis/)を参照してください。
+
+  ### Kafka ClickPipes で Protobuf スキーマファイルのアップロードに対応 {#protobuf-schema-file-uploads-for-kafka-clickpipes}
+
+  Kafka ClickPipes で、`.proto` ファイルまたはファイルディスクリプタセット (`.desc`) としてアップロードした Protobuf スキーマを使用できるようになりました。スキーマレジストリを使用していない場合でも、デシリアライズ用のスキーマを単独で指定できます。詳細は [Kafka ClickPipes のドキュメント](/ja/integrations/clickpipes/kafka/create-kafka-clickpipe#7-select-your-topic)を参照してください。
+
+  ## インテグレーション {#2026-10-05-integrations}
+
+  ### .NET ドライバー v1.5.0 でネイティブ TCP クライアントを追加 {#net-driver-v150-adds-a-native-tcp-client}
+
+  ClickHouse .NET ドライバー v1.5.0 では、既存の HTTP クライアントに加えて、新たにネイティブ TCP クライアントが追加されました。接続プーリング、session、TLS、LZ4/ZSTD 圧縮、クエリパラメータ、OpenTelemetry トレーシングをサポートしています。ClickHouse Cloud でのベンチマークでは、読み取りと同時挿入がそれぞれ最大 2 倍高速化し、メモリ割り当ては桁違いに減少しました。TCP API は実験的な機能であり、今後変更される可能性があります。`ADO.NET`、ORM、および CSV や Parquet などの生フォーマットを使用する場合は、引き続き HTTP クライアントをご利用ください。詳細は [TCP クライアントのドキュメント](/ja/integrations/language-clients/csharp/tcp)および [NuGet パッケージ](https://www.nuget.org/packages/ClickHouse.Driver/1.5.0)を参照してください。
+</Update>
 
 <Update label="Sep 22, 2026">
   今週の更新では、ClickHouse Cloud のコンプライアンス対応範囲を新たな APAC リージョンへ拡大し、レプリカ対応ルーティングをパブリックベータとして追加、さらにメトリクス、コンピュート、dbt に関する新機能を導入しました。HIPAA および PCI 規制対応の cell が AWS ソウルおよびシドニーで利用可能になりました。対象のお客様は Prometheus 互換のメトリクスワークロードと On-Demand Compute を評価でき、ClickHouse は dbt Core v2 および dbt Platform から利用できます。

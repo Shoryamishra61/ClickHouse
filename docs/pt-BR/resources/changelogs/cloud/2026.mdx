@@ -1,16 +1,48 @@
 ---
 slug: /whats-new/changelog/cloud
 sidebarTitle: '2026'
-title: 'Cloud changelog - 2026'
-description: 'Changelog do ClickHouse Cloud com descrições das novidades de cada lançamento do ClickHouse Cloud'
+title: 'Changelog do Cloud - 2026'
+description: 'Changelog do ClickHouse Cloud com a descrição das novidades de cada lançamento do ClickHouse Cloud'
 doc_type: 'changelog'
-keywords: ['changelog', 'release notes', 'updates', 'new features', 'cloud changes']
+keywords: ['changelog', 'notas de lançamento', 'atualizações', 'novos recursos', 'mudanças no Cloud']
 rss: true
 ---
 
 import { Image } from "/snippets/pt-BR/components/Image.jsx";
 
 Além deste changelog do ClickHouse Cloud, consulte também a página [Compatibilidade do Cloud](/pt-BR/products/cloud/guides/cloud-compatibility).
+
+<Update label="Oct 5, 2026">
+  O lançamento desta semana simplifica o faturamento para clientes com várias organizações no ClickHouse Cloud, amplia o suporte a serialização dos ClickPipes para Kafka e Kinesis e introduz uma opção experimental de TCP nativo para desenvolvedores .NET. Agora você pode gerenciar créditos pré-pagos entre organizações no console ou consultar saldos programaticamente; os ClickPipes de streaming passam a oferecer suporte a fluxos de trabalho comuns com Avro e Protobuf; e o driver .NET oferece um cliente nativo mais rápido e com menos alocações de memória.
+
+  ## Novos recursos {#2026-10-05-new-features}
+
+  ### Transferência de créditos pré-pagos entre organizações {#transfer-prepaid-credits-between-organizations}
+
+  Clientes com várias organizações agora podem transferir créditos pré-pagos entre elas diretamente no console, sem precisar abrir um ticket de suporte. Uma visualização unificada exibe os créditos pré-pagos de todas as suas organizações, permitindo acompanhar o consumo e planejar renovações. Essa operação exige a função Org Admin, Billing Admin ou uma função personalizada com permissões de faturamento em cada organização envolvida. Os créditos podem ser divididos entre tiers, mas não entre organizações Cloud e BYOC nem entre marketplaces de nuvem diferentes. Consulte a [documentação de gerenciamento self-service de créditos pré-pagos](/pt-BR/products/cloud/reference/billing/self-service-prepaid-credit-management).
+
+  ## API {#2026-10-05-api}
+
+  ### Novo endpoint de API para saldos de crédito da organização {#new-api-endpoint-for-organization-credit-balances}
+
+  O novo endpoint `GET /v1/organizations/{organizationId}/creditBalances` da OpenAPI do ClickHouse Cloud retorna os saldos de crédito ativos de uma organização, incluindo créditos pré-pagos e de teste. Use-o para monitorar o consumo de créditos com suas próprias ferramentas. Consulte a [documentação de gerenciamento self-service de créditos pré-pagos](/pt-BR/products/cloud/reference/billing/self-service-prepaid-credit-management).
+
+  ## ClickPipes {#2026-10-05-clickpipes}
+
+  ### Suporte a Avro e Protobuf nos ClickPipes do Kinesis {#avro-and-protobuf-support-for-kinesis-clickpipes}
+
+  Os ClickPipes do Kinesis agora oferecem suporte a **Avro** e **Protobuf**, além de JSON. Os schemas podem ser obtidos do **AWS Glue Schema Registry** ou de um arquivo de schema enviado. Com isso, os ClickPipes do Kafka e do Kinesis passam a oferecer suporte aos mesmos formatos de serialização comuns, e o recurso está disponível na UI, na OpenAPI e no Terraform. Consulte a [documentação dos ClickPipes do Kinesis](/pt-BR/integrations/clickpipes/kinesis/).
+
+  ### Envio de arquivos de schema Protobuf para ClickPipes do Kafka {#protobuf-schema-file-uploads-for-kafka-clickpipes}
+
+  Os ClickPipes do Kafka agora aceitam schemas Protobuf enviados como arquivos `.proto` ou conjuntos de descritores de arquivo (`.desc`). Se você não usa um schema registry, agora pode fornecer um schema avulso para a desserialização. Consulte a [documentação dos ClickPipes do Kafka](/pt-BR/integrations/clickpipes/kafka/create-kafka-clickpipe#7-select-your-topic).
+
+  ## Integrações {#2026-10-05-integrations}
+
+  ### O driver .NET v1.5.0 adiciona um cliente TCP nativo {#net-driver-v150-adds-a-native-tcp-client}
+
+  O driver .NET do ClickHouse v1.5.0 adiciona um novo cliente TCP nativo, ao lado do cliente HTTP existente. Ele oferece suporte a connection pooling, sessões, TLS, compressão LZ4/ZSTD, parâmetros de consulta e tracing com OpenTelemetry. Em benchmarks no ClickHouse Cloud, as leituras foram até 2x mais rápidas, as inserções concorrentes também foram até 2x mais rápidas e a alocação de memória diminuiu em ordens de grandeza. A API TCP é experimental e pode sofrer alterações; continue usando o cliente HTTP para `ADO.NET`, ORMs e formatos brutos, como CSV ou Parquet. Consulte a [documentação do cliente TCP](/pt-BR/integrations/language-clients/csharp/tcp) e o [pacote NuGet](https://www.nuget.org/packages/ClickHouse.Driver/1.5.0).
+</Update>
 
 <Update label="Sep 22, 2026">
   As atualizações desta semana ampliam a cobertura de compliance do ClickHouse Cloud para novas regiões da APAC, adicionam roteamento com reconhecimento de réplicas em beta pública e trazem novos recursos para métricas, compute e dbt. As cells reguladas por HIPAA e PCI já estão disponíveis em AWS Seoul e Sydney; clientes elegíveis podem avaliar cargas de trabalho de métricas compatíveis com Prometheus e o On-Demand Compute; e o ClickHouse está disponível por meio do dbt Core v2 e do dbt Platform.
