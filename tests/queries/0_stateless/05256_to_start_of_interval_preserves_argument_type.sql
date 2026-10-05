@@ -104,3 +104,8 @@ SELECT toStartOfInterval(toDate32('1900-01-01'), INTERVAL 1 DAY) AS x, toTypeNam
 SELECT toStartOfInterval(toDate('1970-01-01'), INTERVAL 1 WEEK) AS x, toTypeName(x);
 SELECT toStartOfInterval(toDateTime('1970-01-01 10:00:00', 'Asia/Tokyo'), INTERVAL 1 DAY) AS x, toTypeName(x);
 SELECT toStartOfInterval(toDateTime('1970-01-01 10:00:00', 'Asia/Tokyo'), INTERVAL 1 HOUR) AS x, toTypeName(x);
+-- the legacy behavior of the origin overload rounds subsecond units in the scale of the unit
+SELECT toStartOfInterval(toDateTime64('2023-10-09 10:11:12.987654321', 9), toIntervalMillisecond(1), toDateTime64('2023-10-09 10:11:12.123456789', 9)) AS x, toTypeName(x);
+SELECT toStartOfInterval(toDateTime64('2023-10-09 10:11:12.987654321', 9), toIntervalMicrosecond(1), toDateTime64('2023-10-09 10:11:12.123456789', 9)) AS x, toTypeName(x);
+SELECT toStartOfInterval(toDateTime64('2023-10-09 10:11:12.987', 3), toIntervalMicrosecond(1), toDateTime64('2023-10-09 10:11:12.123', 3)) AS x, toTypeName(x);
+SELECT toStartOfInterval(toDateTime64('2023-01-01 00:00:00.000001700', 9), INTERVAL 1 MICROSECOND, toDateTime64('2023-01-01 00:00:00.000000500', 9)) AS x, toTypeName(x);

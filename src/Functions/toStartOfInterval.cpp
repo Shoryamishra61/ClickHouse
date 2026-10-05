@@ -430,9 +430,10 @@ private:
 
             /// A result of the argument scale (`to_start_of_interval_preserves_argument_type`) finer than a subsecond
             /// unit: the grid anchored at the origin is computed in that scale, because the origin can have a part
-            /// finer than the unit, which the rounding in the scale of the unit would lose.
+            /// finer than the unit, which the rounding in the scale of the unit would lose. The legacy behavior has
+            /// the scale of the unit in the result and keeps rounding in it, so that the setting restores the old results.
             constexpr Int64 unit_scale = subsecondUnitScale<unit>();
-            const bool round_in_argument_scale = is_small_interval && isDateTime64(result_type)
+            const bool round_in_argument_scale = preserve_argument_type && is_small_interval && isDateTime64(result_type)
                 && result_scale_multiplier == scale_multiplier && scale_multiplier > unit_scale;
             Int64 interval_in_argument_scale = 0;
             if (round_in_argument_scale && common::mulOverflow(num_units, scale_multiplier / unit_scale, interval_in_argument_scale))
