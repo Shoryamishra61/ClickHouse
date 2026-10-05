@@ -1792,9 +1792,9 @@ std::vector<Names> JoinStepLogical::predictMergeJoinOutputOrder(const QueryPlan:
     /// for ordinary tables. `partial_merge` is skipped over when `MergeJoin` declines the join, exactly as
     /// `tryAddJoinRuntimeFilter` does, so that a merge algorithm listed after it is still predicted: stopping
     /// at it would report an ordered input as unordered, and the runtime-filter pass would then erase the
-    /// merge algorithms of the join above. Any other algorithm is taken as selected: its output order is not
-    /// exploitable. This includes `grace_hash` even where it would leave the join to the next algorithm, because
-    /// the runtime-filter pass takes it as selected too and erases the merge algorithms of the nested join.
+    /// merge algorithms of the join above. `grace_hash` without a spill threshold is skipped over for the same
+    /// reason: `tryCreateJoin` leaves the join to the next algorithm, and so does `tryAddJoinRuntimeFilter`.
+    /// Any other algorithm is taken as selected: its output order is not exploitable.
     for (auto algorithm : join_settings.join_algorithms)
     {
         switch (algorithm)
@@ -1813,11 +1813,23 @@ std::vector<Names> JoinStepLogical::predictMergeJoinOutputOrder(const QueryPlan:
                 return mergeJoinOutputOrder(join_operator.kind, join_operator.strictness, left_keys, right_keys, *getOutputHeader());
             case JoinAlgorithm::DIRECT:
                 continue;
+            case JoinAlgorithm::GRACE_HASH:
+                if (isGraceHashJoinSkipped())
+                    continue;
+                return {};
             default:
                 return {};
         }
     }
     return {};
+}
+
+bool JoinStepLogical::isGraceHashJoinSkipped() const
+{
+    /// Keep this in sync with the `GRACE_HASH` branch of `tryCreateJoin`.
+    return !join_settings.legacy_join_size_limits_trigger_spilling
+        && join_settings.getEffectiveMaxBytesBeforeExternalJoin() == 0
+        && join_settings.join_algorithms.size() > 1;
 }
 
 bool JoinStepLogical::isPartialMergeJoinSupported() const

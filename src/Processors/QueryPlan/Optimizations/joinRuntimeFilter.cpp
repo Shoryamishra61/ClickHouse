@@ -217,15 +217,12 @@ static bool supportsRuntimeFilter(JoinAlgorithm join_algorithm)
 /// for this join. Without a spill threshold `grace_hash` is not runnable and is skipped in favour of the next
 /// listed algorithm, so it must not stop the scan of the preference list, nor be the reason to plant a filter
 /// (planting erases every other algorithm and would leave a standalone `grace_hash` that refuses to run).
-static bool supportsRuntimeFilterAndIsRunnable(JoinAlgorithm join_algorithm, const JoinSettings & join_settings)
+static bool supportsRuntimeFilterAndIsRunnable(JoinAlgorithm join_algorithm, const JoinStepLogical & join_step)
 {
     if (!supportsRuntimeFilter(join_algorithm))
         return false;
 
-    if (join_algorithm == JoinAlgorithm::GRACE_HASH
-        && !join_settings.legacy_join_size_limits_trigger_spilling
-        && join_settings.getEffectiveMaxBytesBeforeExternalJoin() == 0
-        && join_settings.join_algorithms.size() > 1)
+    if (join_algorithm == JoinAlgorithm::GRACE_HASH && join_step.isGraceHashJoinSkipped())
         return false;
 
     return true;
@@ -321,7 +318,7 @@ bool tryAddJoinRuntimeFilter(QueryPlan::Node & node, QueryPlan::Nodes & nodes, c
         ) &&
         (join_operator.locality == JoinLocality::Unspecified || join_operator.locality == JoinLocality::Local) &&
         std::any_of(join_algorithms.begin(), join_algorithms.end(),
-            [&](auto algorithm) { return supportsRuntimeFilterAndIsRunnable(algorithm, join_step->getJoinSettings()); });
+            [&](auto algorithm) { return supportsRuntimeFilterAndIsRunnable(algorithm, *join_step); });
 
     if (!can_use_runtime_filter)
         return false;
@@ -347,7 +344,7 @@ bool tryAddJoinRuntimeFilter(QueryPlan::Node & node, QueryPlan::Nodes & nodes, c
     /// two passes cannot disagree.
     for (auto algorithm : join_algorithms)
     {
-        if (supportsRuntimeFilterAndIsRunnable(algorithm, join_step->getJoinSettings()))
+        if (supportsRuntimeFilterAndIsRunnable(algorithm, *join_step))
             break;
 
         /// `partial_merge` is a merge algorithm too. If it is supported and precedes

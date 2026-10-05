@@ -230,6 +230,10 @@ public:
     std::vector<Names> predictMergeJoinOutputOrder(const QueryPlan::Node & node);
     bool isPartialMergeJoinSupported() const;
 
+    /// Whether `grace_hash` in `join_algorithm` is left to the next listed algorithm: without a spill
+    /// threshold it cannot run, and `tryCreateJoin` skips it when it is not listed alone.
+    bool isGraceHashJoinSkipped() const;
+
     /// `applyParallelReplicas` may replace a join input with a distributed read after
     /// `tryAddJoinRuntimeFilter` memoized the eligibility on the pre-rewrite plan. The stale `true`
     /// would keep selecting a merge join whose input is no longer readable in order, so drop the

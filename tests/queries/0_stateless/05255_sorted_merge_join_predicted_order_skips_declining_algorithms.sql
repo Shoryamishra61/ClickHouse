@@ -1,7 +1,7 @@
 -- With `enable_parallel_replicas = 1` the runtime-filter pass runs while every join is still logical, so the order
 -- a nested join emits is predicted from the `join_algorithm` list (`predictMergeJoinOutputOrder`). The prediction
 -- must skip `partial_merge` where it declines the nested join, like the selection does: `MergeJoin` cannot run an
--- `ANY RIGHT` join. If the prediction stopped at it, the nested `sorted_merge` join would be taken as unordered, the join above it
+-- `ANY RIGHT` join. The same holds for `grace_hash` without a spill threshold. If the prediction stopped at it, the nested `sorted_merge` join would be taken as unordered, the join above it
 -- would get a runtime filter, and planting the filter erases its merge algorithms: the chain of merge joins
 -- would silently degrade to a hash join on top. See PR #112973 review.
 
@@ -38,6 +38,11 @@ SELECT 'partial_merge_declines', countIf(explain LIKE '%MergeJoinTransform%') = 
 FROM (EXPLAIN PIPELINE SELECT sum(a.v) + sum(b.v) + sum(c.v) FROM pso_a AS a ANY RIGHT JOIN pso_b AS b ON a.id = b.id ANY RIGHT JOIN pso_c AS c ON b.id = c.id
       SETTINGS join_algorithm = 'partial_merge,sorted_merge,hash');
 
+-- Without a spill threshold `grace_hash` is skipped in a preference list, so this list behaves as `sorted_merge,hash` too.
+SELECT 'grace_hash_skipped', countIf(explain LIKE '%MergeJoinTransform%') = 2, countIf(explain LIKE '%RuntimeFilter%') = 0
+FROM (EXPLAIN PIPELINE SELECT sum(a.v) + sum(b.v) + sum(c.v) FROM pso_a AS a ANY RIGHT JOIN pso_b AS b ON a.id = b.id ANY RIGHT JOIN pso_c AS c ON b.id = c.id
+      SETTINGS join_algorithm = 'grace_hash,sorted_merge,hash');
+
 -- Where `partial_merge` does run the nested join (`INNER ALL`), its output order is not exploitable: the join
 -- above falls through to `hash` and gets its runtime filter.
 SELECT 'partial_merge_selected', countIf(explain LIKE '%Algorithm: PartialMergeJoin%') = 1, countIf(explain LIKE '%Algorithm: HashJoin%') = 1, countIf(explain LIKE '%BuildRuntimeFilter%') = 1
@@ -47,6 +52,10 @@ FROM (EXPLAIN actions = 1 SELECT sum(a.v) + sum(b.v) + sum(c.v) FROM pso_a AS a 
 -- The results match a plain `hash` join.
 SELECT 'partial_merge_declines_result',
     (SELECT (sum(a.v), sum(b.v), sum(c.v), count()) FROM pso_a AS a ANY RIGHT JOIN pso_b AS b ON a.id = b.id ANY RIGHT JOIN pso_c AS c ON b.id = c.id SETTINGS join_algorithm = 'partial_merge,sorted_merge,hash')
+  = (SELECT (sum(a.v), sum(b.v), sum(c.v), count()) FROM pso_a AS a ANY RIGHT JOIN pso_b AS b ON a.id = b.id ANY RIGHT JOIN pso_c AS c ON b.id = c.id SETTINGS join_algorithm = 'hash');
+
+SELECT 'grace_hash_skipped_result',
+    (SELECT (sum(a.v), sum(b.v), sum(c.v), count()) FROM pso_a AS a ANY RIGHT JOIN pso_b AS b ON a.id = b.id ANY RIGHT JOIN pso_c AS c ON b.id = c.id SETTINGS join_algorithm = 'grace_hash,sorted_merge,hash')
   = (SELECT (sum(a.v), sum(b.v), sum(c.v), count()) FROM pso_a AS a ANY RIGHT JOIN pso_b AS b ON a.id = b.id ANY RIGHT JOIN pso_c AS c ON b.id = c.id SETTINGS join_algorithm = 'hash');
 
 DROP TABLE pso_a;
