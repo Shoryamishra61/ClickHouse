@@ -24,13 +24,21 @@ RWLockImpl::RWLockImpl(): _readers(0), _writersWaiting(0), _writers(0)
 	if (_mutex == NULL)
 		throw SystemException("cannot create reader/writer lock");
 
+	/// A throwing constructor does not run the destructor, so the handles created so far are closed here.
 	_readEvent = CreateEventW(NULL, 1, 1, NULL);
 	if (_readEvent == NULL)
+	{
+		CloseHandle(_mutex);
 		throw SystemException("cannot create reader/writer lock");
+	}
 
 	_writeEvent = CreateEventW(NULL, 1, 1, NULL);
 	if (_writeEvent == NULL)
+	{
+		CloseHandle(_readEvent);
+		CloseHandle(_mutex);
 		throw SystemException("cannot create reader/writer lock");
+	}
 }
 
 

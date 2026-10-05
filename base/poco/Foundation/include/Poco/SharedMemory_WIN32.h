@@ -59,6 +59,9 @@ protected:
 	void map();
 		/// Maps the shared memory object.
 
+	void mapOrClose();
+		/// Maps the shared memory object, closing the handles if that fails.
+
 	void unmap();
 		/// Unmaps the shared memory object.
 

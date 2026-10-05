@@ -90,7 +90,7 @@ SharedMemoryImpl::SharedMemoryImpl(const std::string& name, std::size_t size, Sh
 		}
 #endif
 	}
-	map();
+	mapOrClose();
 }
 
 
@@ -135,7 +135,7 @@ SharedMemoryImpl::SharedMemoryImpl(const Poco::File& file, SharedMemory::AccessM
 		_fileHandle = INVALID_HANDLE_VALUE;
 		throw SystemException(format("Cannot map file into shared memory %s [Error %d: %s]", _name, (int)dwRetVal, Error::getMessage(dwRetVal)));
 	}
-	map();
+	mapOrClose();
 }
 
 
@@ -159,6 +159,21 @@ void SharedMemoryImpl::map()
 	}
 
 	_address = static_cast<char*>(addr);
+}
+
+
+void SharedMemoryImpl::mapOrClose()
+{
+	/// A throwing constructor does not run the destructor, so the handles have to be closed here.
+	try
+	{
+		map();
+	}
+	catch (...)
+	{
+		close();
+		throw;
+	}
 }
 
 
