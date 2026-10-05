@@ -3,6 +3,7 @@
 -2
 -1
 0
+\N
 -3
 -2
 -1
@@ -10,10 +11,12 @@
 \N
 0
 1
+\N
 -3	1
 -2	2
 -1	3
 0	4
+\N	5
 -- Later projection items and later matchers see the earlier REPLACE
 10	11
 10	11
@@ -24,7 +27,9 @@
 1	1
 \N	\N
 1
+\N
 -- The result of APPLY may be a GROUP BY key
+Nullable(UInt8)
 Nullable(UInt8)
 UInt8
 UInt8

@@ -15,8 +15,10 @@
 -- REPLACE inside untuple is visible in WHERE
 -1
 0
+0
 -1
 0
+\N
 -- A matcher nested two functions deep
 -2
 -1
