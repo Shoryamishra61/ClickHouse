@@ -2416,14 +2416,14 @@ MutationCommands ReplicatedMergeTreeQueue::MutationsSnapshot::getOnFlyMutationCo
 
             /// We take commands with bigger metadata version
             if (alter_version > part_metadata_version)
-                addSupportedCommands(entry->commands, mutation_version, result);
+                addSupportedCommands(entry->commands, mutation_version, partition_id, result);
             else
                 seen_all_metadata_mutations = true;
         }
         else if (!seen_all_data_mutations)
         {
             if (mutation_version > part_data_version)
-                addSupportedCommands(entry->commands, mutation_version, result);
+                addSupportedCommands(entry->commands, mutation_version, partition_id, result);
             else
                 seen_all_data_mutations = true;
         }

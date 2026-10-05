@@ -780,10 +780,18 @@ NameSet MergeTreeData::MutationsSnapshotBase::getColumnsUpdatedInPatches() const
     return res;
 }
 
-void MergeTreeData::MutationsSnapshotBase::addSupportedCommands(const MutationCommands & commands, UInt64 mutation_version, MutationCommands & result_commands) const
+void MergeTreeData::MutationsSnapshotBase::addSupportedCommands(
+    const MutationCommands & commands, UInt64 mutation_version, const String & partition_id, MutationCommands & result_commands) const
 {
     for (const auto & command : commands | std::views::reverse)
     {
+        /// A mutation entry can mix commands scoped to different partitions (and unscoped ones),
+        /// so the scope of the entry as a whole is not enough: a command scoped to other partitions
+        /// must not be applied to this part. Metadata commands like `CLEAR COLUMN IN PARTITION`
+        /// have no predicate that would filter the rows of other partitions out.
+        if (command.resolved_partition_ids && !command.resolved_partition_ids->contains(partition_id))
+            continue;
+
         bool is_supported = AlterConversions::isSupportedMetadataMutation(command.type)
             || (params.need_data_mutations && AlterConversions::isSupportedDataMutation(command.type))
             || (params.need_alter_mutations && AlterConversions::isSupportedAlterMutation(command.type));
@@ -11298,8 +11306,24 @@ void MergeTreeData::pinPartitionScopeOfLegacyCommands(
         auto alter = command.ast();
         if (!alter || command.resolved_partition_ids)
             continue;
-        if (!hasPartitionValueLiteral(getPartitionScopeLiterals(*alter)))
+
+        const auto literals = getPartitionScopeLiterals(*alter);
+        if (literals.empty() || std::ranges::any_of(literals, [](const auto & literal) { return literal->template as<const ASTPartition &>().all; }))
             continue;
+
+        if (!hasPartitionValueLiteral(literals))
+        {
+            /// The command is already in the `IN PARTITION ID` form (an entry written by this
+            /// server version). Pin its scope too, so that the per-command scope is known to
+            /// the code that does not decode the literals itself, e.g. the on-fly mutations.
+            std::vector<String> command_partition_ids;
+            command_partition_ids.reserve(literals.size());
+            for (const auto & literal : literals)
+                command_partition_ids.push_back(getPartitionIDFromQuery(literal, query_context));
+            command.resolved_partition_ids = PartitionIds{command_partition_ids.begin(), command_partition_ids.end()};
+            continue;
+        }
+
         legacy_commands.push_back(&command);
     }
 

@@ -4552,7 +4552,7 @@ MutationCommands StorageMergeTree::MutationsSnapshot::getOnFlyMutationCommandsFo
         if (!containsInPartitionIdsOrEmpty(entry.partition_ids, part->info.getPartitionId()))
             continue;
 
-        addSupportedCommands(*entry.commands, mutation_version, result);
+        addSupportedCommands(*entry.commands, mutation_version, part->info.getPartitionId(), result);
     }
 
     std::reverse(result.begin(), result.end());

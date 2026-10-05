@@ -658,7 +658,9 @@ public:
 
     protected:
         NameSet getColumnsUpdatedInPatches() const;
-        void addSupportedCommands(const MutationCommands & commands, UInt64 mutation_version, MutationCommands & result_commands) const;
+        /// Adds the commands applicable on the fly to the parts of partition `partition_id`.
+        void addSupportedCommands(
+            const MutationCommands & commands, UInt64 mutation_version, const String & partition_id, MutationCommands & result_commands) const;
     };
 
     using MutationsSnapshotPtr = std::shared_ptr<const IMutationsSnapshot>;
@@ -1309,6 +1311,7 @@ public:
     /// block numbers allocated at the creation of the entry, without decoding the literals
     /// through the current partition key; otherwise the literals are decoded through it (and
     /// the commands are left unpinned if that fails, e.g. after a partition key type change).
+    /// Commands already in the `IN PARTITION ID` form are pinned as well (no key is needed for that).
     void pinPartitionScopeOfLegacyCommands(
         MutationCommands & commands, const std::map<String, Int64> & block_numbers, ContextPtr query_context) const;
 
