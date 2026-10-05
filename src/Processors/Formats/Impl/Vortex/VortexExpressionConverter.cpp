@@ -553,7 +553,7 @@ VortexExpressionPtr VortexExpressionConverter::convertIn(const RPNBuilderFunctio
     if (built_set->getTotalRowCount() == 0 || built_set->getTotalRowCount() > MAX_PUSHED_DOWN_SET_SIZE)
         return nullptr;
 
-    auto prepared_set = future_set->buildOrderedSetInplace(node.getTreeContext().getQueryContext());
+    auto prepared_set = future_set->buildOrderedSetInplace(node.getContext());
     if (!prepared_set || !prepared_set->hasExplicitSetElements())
         return nullptr;
 

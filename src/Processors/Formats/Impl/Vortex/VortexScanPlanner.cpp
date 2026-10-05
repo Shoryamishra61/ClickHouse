@@ -57,8 +57,6 @@ VortexExpressionPtr buildFilter(
     if (!inverted.predicate)
         return nullptr;
 
-    RPNBuilderTreeContext tree_context(context);
-
     /// The top-level conjuncts, in their original order.
     std::vector<const ActionsDAG::Node *> conjuncts;
     std::vector<const ActionsDAG::Node *> stack{inverted.predicate};
@@ -66,7 +64,7 @@ VortexExpressionPtr buildFilter(
     {
         const auto * node = stack.back();
         stack.pop_back();
-        RPNBuilderTreeNode tree_node(node, tree_context);
+        RPNBuilderTreeNode tree_node(node, context);
         if (auto function_node = tree_node.toFunctionNodeOrNull(); function_node && function_node->getFunctionName() == "and")
         {
             for (size_t i = function_node->getArgumentsSize(); i > 0; --i)
@@ -80,7 +78,7 @@ VortexExpressionPtr buildFilter(
     VortexExpressionPtr filter;
     for (const auto * conjunct : conjuncts)
     {
-        auto expression = converter.tryConvert(RPNBuilderTreeNode(conjunct, tree_context), /* allow_widening */ true);
+        auto expression = converter.tryConvert(RPNBuilderTreeNode(conjunct, context), /* allow_widening */ true);
         if (!expression)
             continue;
         ++plan.filter_conjuncts_pushed;
