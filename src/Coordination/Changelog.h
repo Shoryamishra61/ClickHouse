@@ -9,6 +9,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <deque>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -342,6 +343,8 @@ struct LogEntryStorage
         std::vector<std::pair<ChangelogFileDescriptionPtr, size_t>> sources;
         ChangelogFileDescriptionPtr merged;
         std::atomic<bool> applied = false;
+        /// Called right after `applied` is set, so the sources can be removed without waiting for another trigger.
+        std::function<void()> on_applied;
     };
     using ChangelogRelinkPtr = std::shared_ptr<ChangelogRelink>;
 

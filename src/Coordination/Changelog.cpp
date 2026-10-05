@@ -312,7 +312,7 @@ public:
             keeper_context_,
             log_file_settings_)
         , s3_compaction_shutdown(false)
-        , s3_compaction_queue(std::numeric_limits<size_t>::max())
+        , s3_compaction_requests(std::make_shared<S3CompactionRequests>())
         , writer_mutex(writer_mutex_)
         , last_merged_index(0)
     {
@@ -498,8 +498,16 @@ private:
 
     std::unique_ptr<ThreadFromGlobalPool> s3_compaction_thread;
     std::atomic<bool> s3_compaction_shutdown;
-    ConcurrentBoundedQueue<bool> s3_compaction_queue;
-    std::atomic<bool> s3_compaction_requested{false};
+
+    /// Wake-up requests of the compaction thread. Shared with the `on_applied` callbacks of the scheduled
+    /// relinks, which `entry_storage` may still hold after this writer is destroyed.
+    struct S3CompactionRequests
+    {
+        ConcurrentBoundedQueue<bool> queue{std::numeric_limits<size_t>::max()};
+        std::atomic<bool> compaction_requested{false};
+        std::atomic<bool> cleanup_requested{false};
+    };
+    std::shared_ptr<S3CompactionRequests> s3_compaction_requests;
     std::mutex & writer_mutex;
     uint64_t last_merged_index;
 
@@ -515,7 +523,7 @@ private:
         if (s3_compaction_thread && s3_compaction_thread->joinable())
         {
             s3_compaction_shutdown = true;
-            if (!s3_compaction_queue.push(true))
+            if (!s3_compaction_requests->queue.push(true))
                 LOG_WARNING(log, "Failed to push shutdown signal to S3 compaction queue");
             s3_compaction_thread->join();
         }
@@ -526,10 +534,16 @@ private:
         LOG_INFO(log, "S3 compaction thread started");
 
         bool dummy = false;
-        while (!s3_compaction_shutdown && s3_compaction_queue.pop(dummy))
+        while (!s3_compaction_shutdown && s3_compaction_requests->queue.pop(dummy))
         {
-            s3_compaction_requested = false;
+            /// Reset the flags before acting on them, so a request that arrives meanwhile queues another wake-up.
+            const bool compaction_requested = s3_compaction_requests->compaction_requested.exchange(false);
+            s3_compaction_requests->cleanup_requested = false;
             removeRelinkedSources(/* force */ false);
+
+            /// A cleanup-only wake-up: the relink of a previous merge was applied, so its sources are removed above.
+            if (!compaction_requested)
+                continue;
 
             std::vector<ChangelogFileDescriptionPtr> to_merge;
             std::vector<ChangelogFileDescriptionPtr> to_remove;
@@ -624,6 +638,7 @@ private:
 
                 auto relink = std::make_shared<LogEntryStorage::ChangelogRelink>();
                 relink->merged = merged_changelog;
+                relink->on_applied = [requests = s3_compaction_requests] { requestRelinkedSourcesCleanup(*requests); };
                 for (const auto & changelog : to_merge)
                 {
                     relink->sources.emplace_back(changelog, new_file->count());
@@ -740,11 +755,22 @@ private:
     void triggerS3Compaction()
     {
         /// One pending request is enough: the compaction thread looks at the whole backlog when it wakes up.
-        if (s3_compaction_requested.exchange(true))
+        if (s3_compaction_requests->compaction_requested.exchange(true))
             return;
 
-        if (!s3_compaction_queue.push(true))
+        if (!s3_compaction_requests->queue.push(true))
             LOG_WARNING(log, "Failed to push to S3 compaction queue, queue might be full or shutdown");
+    }
+
+    /// Removes the sources of applied relinks right away instead of on the next compaction request: until they
+    /// are gone, a restart after a `writeAt` into the merged object would replay their stale entries over it.
+    static void requestRelinkedSourcesCleanup(S3CompactionRequests & requests)
+    {
+        if (requests.cleanup_requested.exchange(true))
+            return;
+
+        /// Fails only after shutdown, when `finalize` removes all the sources anyway.
+        (void)requests.queue.push(true);
     }
 
     DiskPtr getDisk() const
@@ -2396,6 +2422,8 @@ void LogEntryStorage::scheduleRelink(const ChangelogRelinkPtr & relink)
     if (latest_logs_cache.hasUnlimitedSpace())
     {
         relink->applied = true;
+        if (relink->on_applied)
+            relink->on_applied();
         return;
     }
 
@@ -2476,6 +2504,8 @@ void LogEntryStorage::refreshCache()
         {
             applyRelink(*relink);
             relink->applied = true;
+            if (relink->on_applied)
+                relink->on_applied();
         }
     }
 
@@ -4351,6 +4381,11 @@ Changelog::Changelog(
             const auto reject_local_changelogs = [&](const DiskPtr & local_disk)
             {
                 if (!local_disk || local_disk == getS3LogDisk() || !local_disk->existsDirectory(""))
+                    return;
+
+                /// Old log disks are scanned on startup, so their changelogs are not dropped from recovery.
+                const auto old_log_disks = keeper_context->getOldLogDisks();
+                if (std::find(old_log_disks.begin(), old_log_disks.end(), local_disk) != old_log_disks.end())
                     return;
 
                 for (auto it = local_disk->iterateDirectory(""); it->isValid(); it->next())
