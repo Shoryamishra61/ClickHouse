@@ -407,11 +407,14 @@ RemoteQueryExecutor::~RemoteQueryExecutor()
 /** If we receive a block with slightly different column types, or with excessive columns,
   *  we will adapt it to expected structure.
   */
-static Block adaptBlockStructure(const Block & block, const Block & header)
+static Block adaptBlockStructure(Block block, const Block & header)
 {
     /// Special case when reader doesn't care about result structure. Deprecated and used only in Benchmark, PerformanceTest.
     if (header.empty())
         return block;
+
+    /// Columns may be moved out of `block` below, so compute the number of rows up front.
+    const size_t num_rows = block.rows();
 
     Block res;
     res.info = block.info;
@@ -425,7 +428,7 @@ static Block adaptBlockStructure(const Block & block, const Block & header)
             /// We expect constant column in block.
             /// If block is not empty, then get value for constant from it,
             /// because it may be different for remote server for functions like version(), uptime(), ...
-            if (block.rows() > 0 && block.has(elem.name))
+            if (num_rows > 0 && block.has(elem.name))
             {
                 /// Const column is passed as materialized. Get first value from it.
                 ///
@@ -439,22 +442,22 @@ static Block adaptBlockStructure(const Block & block, const Block & header)
                 column = castColumn(col, elem.type);
 
                 if (!isColumnConst(*column))
-                    column = ColumnConst::create(column, block.rows());
+                    column = ColumnConst::create(column, num_rows);
                 else
                     /// It is not possible now. Just in case we support const columns serialization.
-                    column = column->cloneResized(block.rows());
+                    column = column->cloneResized(num_rows);
             }
             else
-                column = elem.column->cloneResized(block.rows());
+                column = elem.column->cloneResized(num_rows);
         }
         else
         {
-            const auto & col = block.getByName(elem.name);
+            auto & col = block.getByName(elem.name);
             if (typeid_cast<const ColumnBLOB *>(col.column.get()))
             {
-                /// `col.column` may be shared with the input block, so unshare via
-                /// `IColumn::mutate` before mutating in place.
-                auto mutable_blob = IColumn::mutate(col.column);
+                /// The block is owned here, so move the column out to let `IColumn::mutate`
+                /// reuse it without a copy when it is not shared with anyone else.
+                auto mutable_blob = IColumn::mutate(std::move(col.column));
                 assert_cast<ColumnBLOB &>(*mutable_blob).addCast(col.type, elem.type);
                 column = std::move(mutable_blob);
             }
@@ -915,7 +918,7 @@ RemoteQueryExecutor::ReadResult RemoteQueryExecutor::processPacket(Packet packet
             if (!packet.block.empty() && (packet.block.rows() > 0))
             {
                 got_data_from_replica = true;
-                return ReadResult(adaptBlockStructure(packet.block, *header));
+                return ReadResult(adaptBlockStructure(std::move(packet.block), *header));
             }
             break;  /// If the block is empty - we will receive other packets before EndOfStream.
 
@@ -971,15 +974,15 @@ RemoteQueryExecutor::ReadResult RemoteQueryExecutor::processPacket(Packet packet
             break;
 
         case Protocol::Server::Totals:
-            totals = packet.block;
+            totals = std::move(packet.block);
             if (!totals.empty())
-                totals = adaptBlockStructure(totals, *header);
+                totals = adaptBlockStructure(std::move(totals), *header);
             break;
 
         case Protocol::Server::Extremes:
-            extremes = packet.block;
+            extremes = std::move(packet.block);
             if (!extremes.empty())
-                extremes = adaptBlockStructure(packet.block, *header);
+                extremes = adaptBlockStructure(std::move(extremes), *header);
             break;
 
         case Protocol::Server::Log:
