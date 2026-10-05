@@ -13,6 +13,7 @@
 #include <Parsers/ASTDropQuery.h>
 #include <Parsers/ASTIdentifier.h>
 #include <Storages/IStorage.h>
+#include <Storages/StorageAlias.h>
 #include <Storages/StorageMaterializedView.h>
 #include <Storages/StorageTableFunction.h>
 #include <Storages/StorageTableProxy.h>
@@ -163,9 +164,13 @@ BlockIO InterpreterDropQuery::executeToTable(ASTDropQuery & query)
 /// see the caller's row policies rather than the table, and would consume messages from
 /// stream-like engines such as `Kafka`. A plain view stores no rows, so it is always empty, and
 /// so is a materialized view with a `TO` table: its rows belong to the target table, which its
-/// drop does not touch.
-bool InterpreterDropQuery::isTableEmpty(const StoragePtr & table) const
+/// drop does not touch. Likewise, dropping or detaching an `Alias` only removes the alias itself,
+/// so it holds no rows of its own; `TRUNCATE` of an alias truncates its target, so it is judged
+/// by the target's row count.
+bool InterpreterDropQuery::isTableEmpty(const StoragePtr & table, ASTDropQuery::Kind kind) const
 {
+    if (kind != ASTDropQuery::Kind::Truncate && dynamic_cast<const StorageAlias *>(table.get()))
+        return true;
     if (table->isView())
     {
         const auto * materialized_view = dynamic_cast<const StorageMaterializedView *>(table.get());
@@ -234,7 +239,7 @@ BlockIO InterpreterDropQuery::executeToTableImpl(const ContextPtr & context_, AS
             /// Check the access first: otherwise `IF EMPTY` would tell a user who may not drop
             /// the table whether it is empty.
             context_->checkAccess(query.kind == ASTDropQuery::Kind::Truncate ? AccessFlags(AccessType::TRUNCATE) : drop_storage, table_id);
-            if (!isTableEmpty(table))
+            if (!isTableEmpty(table, query.kind))
                 throw Exception(ErrorCodes::TABLE_NOT_EMPTY,
                     "Table {} is not empty or its storage does not know how many rows it has",
                     backQuoteIfNeed(table_id.table_name));
@@ -455,7 +460,7 @@ BlockIO InterpreterDropQuery::executeToTemporaryTable(const String & table_name,
     if (resolved_id)
     {
         StoragePtr table = DatabaseCatalog::instance().getTable(resolved_id, getContext());
-        if (if_empty && !isTableEmpty(table))
+        if (if_empty && !isTableEmpty(table, kind))
             throw Exception(ErrorCodes::TABLE_NOT_EMPTY,
                 "Temporary table {} is not empty or its storage does not know how many rows it has",
                 backQuoteIfNeed(table_name));
