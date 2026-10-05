@@ -7633,28 +7633,40 @@ DiskPtr Context::getDisk(const String & name) const
 
 std::pair<DiskPtr, CustomDiskRegistrationPtr> Context::getOrCreateCustomDisk(const String & name, DiskCreator creator, CustomDiskRegistrations nested) const
 {
-    std::lock_guard lock(shared->storage_policies_mutex);
-
-    auto disk_selector = getDiskSelector(lock);
-
-    auto disk = disk_selector->tryGet(name);
-    if (!disk)
+    while (true)
     {
-        disk = creator(getDisksMap(lock));
-        const_cast<DiskSelector *>(disk_selector.get())->addToDiskMap(name, disk);
+        /// A disk with this name may have just been released by the last table or database using it,
+        /// and still be shutting down. A new disk with the same definition would work with the same
+        /// metadata and data, so it is created only after the old one is gone.
+        shared->custom_disk_registry.waitForShutdown(name);
+
+        std::lock_guard lock(shared->storage_policies_mutex);
+
+        auto disk_selector = getDiskSelector(lock);
+
+        auto disk = disk_selector->tryGet(name);
+        if (!disk)
+        {
+            /// Released after the wait above.
+            if (shared->custom_disk_registry.isShutdownPending(name))
+                continue;
+
+            disk = creator(getDisksMap(lock));
+            const_cast<DiskSelector *>(disk_selector.get())->addToDiskMap(name, disk);
+        }
+
+        /// The name may belong to a disk from the configuration, which the caller reports as an error.
+        /// Such a disk is not ours to unregister, so do not hand out a registration for it.
+        if (!disk->isCustomDisk())
+            return {disk, nullptr};
+
+        /// The registration is created together with the disk and handed to the caller, so a disk is
+        /// never left unregistered - and thus collectable - between its creation and its first use.
+        /// An existing registration already owns the registrations of the nested disks: the name of a
+        /// disk is derived from its definition with the nested definitions replaced by the names of
+        /// the disks they describe, so the same name means the same nested disks.
+        return {disk, shared->custom_disk_registry.getOrCreate(name, std::move(nested))};
     }
-
-    /// The name may belong to a disk from the configuration, which the caller reports as an error.
-    /// Such a disk is not ours to unregister, so do not hand out a registration for it.
-    if (!disk->isCustomDisk())
-        return {disk, nullptr};
-
-    /// The registration is created together with the disk and handed to the caller, so a disk is
-    /// never left unregistered - and thus collectable - between its creation and its first use.
-    /// An existing registration already owns the registrations of the nested disks: the name of a
-    /// disk is derived from its definition with the nested definitions replaced by the names of
-    /// the disks they describe, so the same name means the same nested disks.
-    return {disk, shared->custom_disk_registry.getOrCreate(name, std::move(nested))};
 }
 
 CustomDiskRegistrationPtr Context::tryGetCustomDiskRegistration(const String & name) const
@@ -7671,7 +7683,7 @@ void Context::releaseCustomDisk(const String & name) const
         std::lock_guard lock(shared->storage_policies_mutex);
 
         /// The disk has been registered again while the last registration was being destroyed.
-        if (!shared->custom_disk_registry.remove(name))
+        if (!shared->custom_disk_registry.canRelease(name))
             return;
 
         auto disk_selector = getDiskSelector(lock);
@@ -7685,13 +7697,15 @@ void Context::releaseCustomDisk(const String & name) const
             const auto policy_name = StoragePolicySelector::TMP_STORAGE_POLICY_PREFIX + name;
             const_cast<StoragePolicySelector *>(shared->merge_tree_storage_policy_selector.get())->remove(policy_name);
         }
+
+        if (disk)
+            LOG_INFO(shared->log, "Unregistering custom disk {}, it is not used by any table or database anymore", backQuote(name));
+
+        /// From here on, a new disk with this name is created only after `scheduleShutdown` is done with this one.
+        shared->custom_disk_registry.release(name);
     }
 
-    if (!disk)
-        return;
-
-    LOG_INFO(shared->log, "Unregistering custom disk {}, it is not used by any table or database anymore", backQuote(name));
-    shared->custom_disk_registry.scheduleShutdown(std::move(disk));
+    shared->custom_disk_registry.scheduleShutdown(name, std::move(disk));
 }
 
 StoragePolicyPtr Context::getStoragePolicy(const String & name) const
