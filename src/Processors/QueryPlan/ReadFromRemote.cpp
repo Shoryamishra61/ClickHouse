@@ -7,6 +7,7 @@
 #include <Analyzer/Utils.h>
 #include <Planner/PlannerActionsVisitor.h>
 #include <DataTypes/DataTypesNumber.h>
+#include <DataTypes/TypeTree.h>
 #include <Processors/QueryPlan/QueryPlan.h>
 #include <Processors/QueryPlan/AggregatingStep.h>
 #include <Processors/QueryPlan/ExpressionStep.h>
@@ -244,11 +245,7 @@ static ASTSelectQuery & getSelectQuery(ASTPtr ast)
 /// through literal formatting (it shares `Field::Types::UUID` with the historical `UUID`).
 static bool typeMayContainUUID2(const IDataType & type)
 {
-    bool result = false;
-    auto check = [&](const IDataType & nested) { result |= WhichDataType(nested).isUUID2(); };
-    check(type);
-    type.forEachChild(check);
-    return result;
+    return anyInTypeTree(type, [](const IDataType & nested) { return WhichDataType(nested).isUUID2(); });
 }
 
 /// This is an attempt to convert filters (pushed down from the plan optimizations) from ActionsDAG back to AST.
