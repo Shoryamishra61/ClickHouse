@@ -10,11 +10,11 @@ from helpers.cluster import ClickHouseCluster
 # connection is not authenticated until the `Query` packet is processed, so a packet that the
 # server rejects before then must disclose nothing, and a rejected `Data` packet must not have
 # its payload deserialized. An unsigned `TablesStatusRequest` is the one packet that is not
-# rejected: it is answered with a placeholder response that does not depend on the state of the
-# tables, so a rolling upgrade keeps working without anything being disclosed. Five paths are
-# covered:
+# rejected: it is answered with a response that hides the table status, i.e. does not depend on
+# the state of the tables, so a rolling upgrade keeps working without anything being disclosed.
+# Five paths are covered:
 #
-#  * `TablesStatusRequest`, old protocol (no hash), default settings -> placeholder response;
+#  * `TablesStatusRequest`, old protocol (no hash), default settings -> table status hidden;
 #  * `TablesStatusRequest`, old protocol (no hash) + `interserver_tables_status_require_auth`
 #    -> rejected;
 #  * `TablesStatusRequest`, new protocol signed with the wrong cluster secret -> rejected;
@@ -179,9 +179,9 @@ def wait_for_log_growth(node, needles, baseline, timeout=60):
         time.sleep(0.5)
 
 
-def test_old_protocol_unauthenticated_request_gets_placeholder_response(started_cluster):
+def test_old_protocol_unauthenticated_request_gets_table_status_hidden(started_cluster):
     """By default an old-protocol peer (which sends no secret hash) is answered with a
-    placeholder response instead of an error, so a `Distributed` query initiated on a
+    response that hides the table status instead of an error, so a `Distributed` query initiated on a
     not-yet-upgraded node keeps working during a rolling upgrade. The response must not
     depend on the state of the tables: a table that does not exist is reported exactly
     like one that does, which is what makes it disclose nothing."""
@@ -214,8 +214,8 @@ def test_old_protocol_unauthenticated_request_gets_placeholder_response(started_
     )
 
     assert node_default.contains_in_log(
-        "Answering an unauthenticated interserver TablesStatusRequest with a placeholder response"
-    ), "the placeholder response was not logged, so a different path answered the request"
+        "Answering an unauthenticated interserver TablesStatusRequest without the table status"
+    ), "the status-hiding response was not logged, so a different path answered the request"
 
 
 def test_rolling_upgrade_initiator_on_old_version_can_query(started_cluster):
@@ -262,7 +262,7 @@ def test_rolling_upgrade_initiator_on_old_version_is_rejected_in_strict_mode(
     """The same 26.6 initiator, but the node serving the shard enables
     `interserver_tables_status_require_auth` - which is what the server did by default before
     this change. Its query must fail, which is what makes the test above load-bearing: it is
-    the placeholder response, not anything else in the setup, that keeps the rolling upgrade
+    hiding the table status, not anything else in the setup, that keeps the rolling upgrade
     working."""
     node_a.query("DROP TABLE IF EXISTS t_local SYNC")
     node_a.query("CREATE TABLE t_local (x UInt32) ENGINE = MergeTree ORDER BY x")
@@ -282,7 +282,7 @@ def test_rolling_upgrade_initiator_on_old_version_is_rejected_in_strict_mode(
 
 def test_old_protocol_unauthenticated_request_is_rejected(started_cluster):
     """With `interserver_tables_status_require_auth` enabled, an old-protocol peer that
-    sends no secret hash must be rejected instead of getting the placeholder response."""
+    sends no secret hash must be rejected instead of getting a response that hides the table status."""
     sock = open_interserver_connection(node_a)
     try:
         sock.sendall(tables_status_request([("default", "any_table")]))

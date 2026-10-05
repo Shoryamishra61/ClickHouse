@@ -1739,7 +1739,7 @@ The directory with top level domains.
 )", 0) \
     DECLARE(Bool, interserver_tables_status_require_auth, false, R"(
 Reject an interserver `TablesStatusRequest` that is not authenticated with the cluster
-`<secret>`, instead of answering it with a placeholder response.
+`<secret>`, instead of answering it with a response that hides the table status.
 
 A client new enough to sign the request (protocol revision
 `DBMS_MIN_REVISION_WITH_INTERSERVER_SECRET_TABLES_STATUS`) is always validated, and its
