@@ -16,7 +16,8 @@ PartitionPruner::PartitionPruner(
     : partition_key(MergeTreePartition::adjustPartitionKey(metadata, context))
     /// Match the partition key not only by the original names of its expressions but also by the
     /// names the same expressions get after the query's rewrite passes, otherwise a rewritten
-    /// filter expression does not match an expression partition key (issue #103128).
+    /// filter expression does not match an expression partition key (issue #103128). The alternative
+    /// form is not computed when there is no filter to analyze.
     , partition_condition(
           filter_dag,
           context,
@@ -25,7 +26,7 @@ PartitionPruner::PartitionPruner(
           true /* single_point */,
           skip_analysis,
           require_ready_sets,
-          skip_analysis ? nullptr : getAlternativeKeyExpression(partition_key, context))
+          (skip_analysis || !filter_dag.predicate) ? nullptr : getAlternativeKeyExpression(partition_key, context))
     , useless((strict && partition_condition.isRelaxed()) || partition_condition.alwaysUnknownOrTrue())
 {
 }

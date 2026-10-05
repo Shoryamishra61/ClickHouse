@@ -3014,7 +3014,8 @@ void ReadFromMergeTree::buildIndexes(
         /// Match the primary key not only by the original names of its expressions but also by the
         /// names the same expressions get after the query's rewrite passes, otherwise a rewritten
         /// filter expression does not match an expression key (issue #103128). The alternative form
-        /// is computed once, because the factory is invoked per part for constant folding.
+        /// is computed once, because the factory is invoked per part for constant folding, and not
+        /// at all when there is no filter to analyze.
         auto alternative_primary_key = std::make_shared<LazyAlternativeKeyExpression>();
         auto key_condition_factory = [query_context, metadata_snapshot, alternative_primary_key](const ActionsDAG *, const ActionsDAG::Node * predicate)
         {
@@ -3023,7 +3024,7 @@ void ReadFromMergeTree::buildIndexes(
             const auto & key = metadata_snapshot->getPrimaryKey();
             KeyCondition key_condition{
                 wrapped, query_context, key, /* single_point_ = */ false, skip_primary_key_analysis,
-                skip_primary_key_analysis ? nullptr : alternative_primary_key->get(key, query_context)};
+                (skip_primary_key_analysis || !predicate) ? nullptr : alternative_primary_key->get(key, query_context)};
             key_condition.relaxRangeAtomsOverNaNHidingTupleColumns(key.data_types);
             return key_condition;
         };
