@@ -361,6 +361,14 @@ REGISTER_FUNCTION(IPCrypt)
     /// ipcryptEncrypt
     {
         FunctionDocumentation::Description description = R"(
+<ExperimentalBadge/>
+<CloudNotSupportedBadge/>
+
+<Warning>
+This function is experimental and may change in unpredictable backwards-incompatible ways in future releases.
+Set `allow_experimental_ipcrypt_functions = 1` to enable it.
+</Warning>
+
 Encrypts an IP address using a 16-byte key with deterministic format-preserving encryption.
 IPv4/IPv6 input returns IPv6, String input returns String.
 )";
@@ -372,8 +380,8 @@ IPv4/IPv6 input returns IPv6, String input returns String.
             = {"Encrypted IP address. IPv4/IPv6 input returns IPv6, String input returns String.", {"IPv6", "String"}};
         FunctionDocumentation::Examples examples = {
             {"Encrypt an IPv4 address",
-             "SELECT ipcryptEncrypt(toIPv4('192.168.1.1'), unhex('00112233445566778899aabbccddeeff'))",
-             ""},
+             "SET allow_experimental_ipcrypt_functions = 1;\nSELECT ipcryptEncrypt(toIPv4('192.168.1.1'), unhex('00112233445566778899aabbccddeeff'))",
+             "c629:37a3:24f9:e1c3:705e:a51b:a160:f609"},
         };
         factory.registerFunction<FunctionIPCrypt<IPCryptMode::Encrypt>>(
             {description, "ipcryptEncrypt(ip, key)", arguments, {}, returned_value, examples, introduced_in, category});
@@ -382,7 +390,15 @@ IPv4/IPv6 input returns IPv6, String input returns String.
     /// ipcryptDecrypt
     {
         FunctionDocumentation::Description description = R"(
-Decrypts an IP address previously encrypted with ipcryptEncrypt using the same key.
+<ExperimentalBadge/>
+<CloudNotSupportedBadge/>
+
+<Warning>
+This function is experimental and may change in unpredictable backwards-incompatible ways in future releases.
+Set `allow_experimental_ipcrypt_functions = 1` to enable it.
+</Warning>
+
+Decrypts an IP address previously encrypted with `ipcryptEncrypt` using the same key.
 IPv4/IPv6 input returns IPv6, String input returns String.
 )";
         FunctionDocumentation::Arguments arguments = {
@@ -393,8 +409,8 @@ IPv4/IPv6 input returns IPv6, String input returns String.
             = {"Decrypted IP address. IPv4/IPv6 input returns IPv6, String input returns String.", {"IPv6", "String"}};
         FunctionDocumentation::Examples examples = {
             {"Round-trip encrypt then decrypt",
-             "SELECT ipcryptDecrypt(ipcryptEncrypt(toIPv4('192.168.1.1'), unhex('00112233445566778899aabbccddeeff')), unhex('00112233445566778899aabbccddeeff'))",
-             ""},
+             "SET allow_experimental_ipcrypt_functions = 1;\nSELECT ipcryptDecrypt(ipcryptEncrypt(toIPv4('192.168.1.1'), unhex('00112233445566778899aabbccddeeff')), unhex('00112233445566778899aabbccddeeff'))",
+             "::ffff:192.168.1.1"},
         };
         factory.registerFunction<FunctionIPCrypt<IPCryptMode::Decrypt>>(
             {description, "ipcryptDecrypt(encrypted_ip, key)", arguments, {}, returned_value, examples, introduced_in, category});
@@ -403,6 +419,14 @@ IPv4/IPv6 input returns IPv6, String input returns String.
     /// ipcryptPrefixEncrypt
     {
         FunctionDocumentation::Description description = R"(
+<ExperimentalBadge/>
+<CloudNotSupportedBadge/>
+
+<Warning>
+This function is experimental and may change in unpredictable backwards-incompatible ways in future releases.
+Set `allow_experimental_ipcrypt_functions = 1` to enable it.
+</Warning>
+
 Encrypts an IP address using prefix-preserving encryption with a 32-byte key.
 Addresses sharing a network prefix will have encrypted addresses that also share a prefix.
 The return type preserves the input class: IPv4 stays IPv4, IPv6 stays IPv6.
@@ -415,8 +439,8 @@ The return type preserves the input class: IPv4 stays IPv4, IPv6 stays IPv6.
             = {"Encrypted IP address. IPv4 input returns IPv4, IPv6 returns IPv6, String returns String.", {"IPv4", "IPv6", "String"}};
         FunctionDocumentation::Examples examples = {
             {"Prefix-preserving encryption of IPv4",
-             "SELECT ipcryptPrefixEncrypt(toIPv4('192.168.1.1'), unhex('00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100'))",
-             ""},
+             "SET allow_experimental_ipcrypt_functions = 1;\nSELECT ipcryptPrefixEncrypt(toIPv4('192.168.1.1'), unhex('00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100'))",
+             "43.223.59.191"},
         };
         factory.registerFunction<FunctionIPCrypt<IPCryptMode::PrefixEncrypt>>(
             {description, "ipcryptPrefixEncrypt(ip, key)", arguments, {}, returned_value, examples, introduced_in, category});
@@ -425,7 +449,15 @@ The return type preserves the input class: IPv4 stays IPv4, IPv6 stays IPv6.
     /// ipcryptPrefixDecrypt
     {
         FunctionDocumentation::Description description = R"(
-Decrypts an IP address previously encrypted with ipcryptPrefixEncrypt using the same key.
+<ExperimentalBadge/>
+<CloudNotSupportedBadge/>
+
+<Warning>
+This function is experimental and may change in unpredictable backwards-incompatible ways in future releases.
+Set `allow_experimental_ipcrypt_functions = 1` to enable it.
+</Warning>
+
+Decrypts an IP address previously encrypted with `ipcryptPrefixEncrypt` using the same key.
 The return type preserves the input class: IPv4 stays IPv4, IPv6 stays IPv6.
 )";
         FunctionDocumentation::Arguments arguments = {
@@ -436,8 +468,8 @@ The return type preserves the input class: IPv4 stays IPv4, IPv6 stays IPv6.
             = {"Decrypted IP address. IPv4 input returns IPv4, IPv6 returns IPv6, String returns String.", {"IPv4", "IPv6", "String"}};
         FunctionDocumentation::Examples examples = {
             {"Round-trip prefix-preserving encrypt then decrypt",
-             "SELECT ipcryptPrefixDecrypt(ipcryptPrefixEncrypt(toIPv4('192.168.1.1'), unhex('00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100')), unhex('00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100'))",
-             ""},
+             "SET allow_experimental_ipcrypt_functions = 1;\nSELECT ipcryptPrefixDecrypt(ipcryptPrefixEncrypt(toIPv4('192.168.1.1'), unhex('00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100')), unhex('00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100'))",
+             "192.168.1.1"},
         };
         factory.registerFunction<FunctionIPCrypt<IPCryptMode::PrefixDecrypt>>(
             {description, "ipcryptPrefixDecrypt(encrypted_ip, key)", arguments, {}, returned_value, examples, introduced_in, category});
