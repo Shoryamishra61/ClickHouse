@@ -538,7 +538,12 @@ namespace Net
 
     inline int SocketImpl::lastError()
     {
+#if defined(POCO_OS_FAMILY_WINDOWS)
+        /// Winsock reports errors through its own channel, not through `errno`.
+        return WSAGetLastError();
+#else
         return errno;
+#endif
     }
 
 
