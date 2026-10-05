@@ -1289,18 +1289,19 @@ std::optional<DecimalEncodingResult<T>> encodeDecimal(
 
     /// Probe exception values for the scale they would need: when sampling only saw a
     /// low-precision majority, this is what discovers the higher-precision scale. The probes
-    /// are spread over the whole exception list with a stride instead of taking the first
-    /// few, so that a handful of very wide outliers at the front of the vector cannot hide
-    /// the scale that the remaining exceptions share.
+    /// are spread evenly over the whole exception list instead of taking the first few, so
+    /// that a handful of very wide outliers at the front of the vector cannot hide the scale
+    /// that the remaining exceptions share. The positions are computed proportionally rather
+    /// than with an integer stride: a stride rounded down to `exception_count / probes` leaves
+    /// up to half of the list (e.g. slots 16..30 of 31 exceptions) unprobed at the tail.
     const auto probe_exceptions = [&]()
     {
         if (exception_count == 0)
             return;
         const UInt32 probes = std::min<UInt32>(exception_count, 16);
-        const UInt32 stride = std::max<UInt32>(1, exception_count / probes);
         for (UInt32 p = 0; p < probes; ++p)
         {
-            const UInt32 e = std::min<UInt32>(p * stride, exception_count - 1);
+            const UInt32 e = static_cast<UInt32>(static_cast<UInt64>(p) * exception_count / probes);
             std::optional<Int32> probe_alternative;
             if (auto exception_alpha = findAlpha<T>(values[exception_positions[e]], &probe_alternative))
                 consider_candidate(*exception_alpha);
