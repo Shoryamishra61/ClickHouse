@@ -41,10 +41,18 @@ struct TablesStatusRequestLimits
 {
     /// Maximum number of tables the request may ask about.
     size_t max_tables;
-    /// Maximum size of each `database`/`table` name. Needed on top of `max_tables`, because
-    /// `readStringBinary` allocates the declared size of a name before reading its bytes, so a
-    /// bound on the number of names alone does not bound the memory the request can ask for.
-    size_t max_name_size;
+    /// Budget for all `database`/`table` names in the request together, rather than a cap on each
+    /// name. Needed on top of `max_tables`, because `readStringBinary` reserves the declared size of
+    /// a name before reading its bytes, so bounding the number of names alone does not bound the
+    /// memory the request can ask for.
+    ///
+    /// A shared budget rather than a per-name cap on purpose: it bounds the same memory, but without
+    /// putting a ceiling on how long a single name may be. ClickHouse does not have such a ceiling
+    /// to borrow - `IDatabase::checkTableNameLength` is a no-op by default and only `DatabaseOnDisk`
+    /// overrides it (with a filesystem-derived limit), so a table in, say, a `Memory` database can
+    /// be named arbitrarily - and the name here comes from the `Distributed` engine arguments, which
+    /// are whatever the user wrote.
+    size_t max_total_name_size;
 };
 
 /// What an interserver peer is allowed to send. `ConnectionEstablisher` is the only producer of a
@@ -57,15 +65,19 @@ struct TablesStatusRequestLimits
 /// the body has to be read to recompute the digest - and on the unsigned path whenever the request
 /// is not rejected outright (`interserver_tables_status_require_auth`).
 ///
-/// The parsed request is at most `max_tables * 2 * max_name_size` = 512 KiB. On the signed path the
-/// transient peak is a small multiple of that, and not all of it is tracked: `getAuthDigest` also
-/// builds a sorted vector of encoded entries and a concatenation of them in plain `std::string`s,
-/// which allocate through `allocNoThrow`; only the final copy into the caller's
-/// `StringWithMemoryTracking` goes through the throwing memory tracker.
+/// The name budget is above anything a name could legitimately reach: a `CREATE TABLE` or
+/// `Distributed` definition carrying a longer one does not fit in the default `max_query_size`
+/// (256 KiB), so no table reachable through this request can be excluded by it.
+///
+/// A request is therefore at most ~1 MiB parsed. On the signed path the transient peak is a small
+/// multiple of that, and not all of it is tracked: `getAuthDigest` also builds a sorted vector of
+/// encoded entries and a concatenation of them in plain `std::string`s, which allocate through
+/// `allocNoThrow`; only the final copy into the caller's `StringWithMemoryTracking` goes through the
+/// throwing memory tracker.
 static constexpr TablesStatusRequestLimits INTERSERVER_TABLES_STATUS_REQUEST_LIMITS
 {
     .max_tables = 64,
-    .max_name_size = 4096,
+    .max_total_name_size = 1024 * 1024,
 };
 
 /// Who sent the request, which is what its bounds follow from. A source rather than the limits

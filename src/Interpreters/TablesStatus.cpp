@@ -100,11 +100,21 @@ void TablesStatusRequest::read(ReadBuffer & in, UInt64 client_protocol_revision,
     if (size > limits.max_tables)
         throw Exception(ErrorCodes::TOO_LARGE_ARRAY_SIZE, "Too large collection size (maximum: {}).", limits.max_tables);
 
+    /// Spent down as the names are read, so that each one is refused on its declared length if it
+    /// does not fit in what the rest of the request has left. One long name is therefore allowed,
+    /// while their total stays bounded - see `TablesStatusRequestLimits::max_total_name_size`.
+    size_t name_budget = limits.max_total_name_size;
+    auto read_name = [&in, &name_budget](String & name)
+    {
+        readStringBinary(name, in, name_budget);
+        name_budget -= name.size();
+    };
+
     for (size_t i = 0; i < size; ++i)
     {
         QualifiedTableName table_name;
-        readStringBinary(table_name.database, in, limits.max_name_size);
-        readStringBinary(table_name.table, in, limits.max_name_size);
+        read_name(table_name.database);
+        read_name(table_name.table);
         tables.emplace(std::move(table_name));
     }
 }
