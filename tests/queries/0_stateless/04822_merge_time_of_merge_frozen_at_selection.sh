@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tags: no-parallel, no-replicated-database, no-shared-merge-tree
+# Tags: no-parallel, no-fasttest, no-replicated-database, no-shared-merge-tree
 # no-parallel: the plain_merge_task_pause_before_prepare failpoint pauses every non-replicated merge
 # of the server process while it is enabled, so this test must not run next to tests that merge.
 # no-replicated-database, no-shared-merge-tree: the failpoint and the frozen selection timestamp under
