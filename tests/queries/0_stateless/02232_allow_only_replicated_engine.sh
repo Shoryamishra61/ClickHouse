@@ -35,6 +35,11 @@ ${CLICKHOUSE_CLIENT} --distributed_ddl_output_mode=none --user "user_${CLICKHOUS
 ${CLICKHOUSE_CLIENT} --distributed_ddl_output_mode=none --database_replicated_allow_only_replicated_engine=1 --query "CREATE TABLE ${CLICKHOUSE_DATABASE}_db.tab_dist_as AS ${CLICKHOUSE_DATABASE}_db.tab_rmt engine = Distributed(test_shard_localhost, '${CLICKHOUSE_DATABASE}_db', tab_rmt, x);"
 ${CLICKHOUSE_CLIENT} --distributed_ddl_output_mode=none --database_replicated_allow_only_replicated_engine=1 --query "CREATE TABLE ${CLICKHOUSE_DATABASE}_db.tab_remote (x UInt32) engine = Remote('127.0.0.1', '${CLICKHOUSE_DATABASE}_db', tab_rmt);"
 ${CLICKHOUSE_CLIENT} --distributed_ddl_output_mode=none --database_replicated_allow_only_replicated_engine=1 --query "CREATE TABLE ${CLICKHOUSE_DATABASE}_db.tab_remote_numbers (number UInt64) engine = Remote('127.0.0.1', numbers(10));"
+# `CREATE TABLE ... AS file(...)` with an inferred structure creates the table through a lazy table function
+# proxy, which must be rejected without executing the table function, like a `File` table over an explicit path.
+${CLICKHOUSE_CLIENT} --query "INSERT INTO TABLE FUNCTION file('${CLICKHOUSE_DATABASE}/tab_file_as.csv', 'CSV', 'x UInt32') SELECT 1"
+${CLICKHOUSE_CLIENT} --distributed_ddl_output_mode=none --database_replicated_allow_only_replicated_engine=1 --query "CREATE TABLE ${CLICKHOUSE_DATABASE}_db.tab_file_as AS file('${CLICKHOUSE_DATABASE}/tab_file_as.csv', 'CSV');" 2>&1 | grep -o "Only tables with a replicated engine or tables which do not store their own data on disk" | head -n 1
+${CLICKHOUSE_CLIENT} --distributed_ddl_output_mode=none --database_replicated_allow_only_replicated_engine=1 --query "CREATE TABLE ${CLICKHOUSE_DATABASE}_db.tab_file_as_static AS file('${CLICKHOUSE_DATABASE}/tab_file_as.csv', 'CSV', 'x UInt32');" 2>&1 | grep -o "Only tables with a replicated engine or tables which do not store their own data on disk" | head -n 1
 ${CLICKHOUSE_CLIENT} --query "DROP DATABASE ${CLICKHOUSE_DATABASE}_db"
 ${CLICKHOUSE_CLIENT} -q "DROP USER user_${CLICKHOUSE_DATABASE}"
 
