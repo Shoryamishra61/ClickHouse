@@ -94,7 +94,15 @@ void collectAndValidateNestedFields(const Poco::Dynamic::Var & type, std::set<In
         throw Exception(ErrorCodes::BAD_ARGUMENTS, "Unknown nested type '{}' in schema", kind);
 }
 
-std::vector<Poco::JSON::Object::Ptr> getSpecFields(const Poco::JSON::Object & spec, const String & spec_name, const std::set<Int64> & schema_ids)
+void checkString(const Poco::JSON::Object & object, const String & key, const String & what)
+{
+    if (!object.has(key) || !object.get(key).isString() || object.getValue<String>(key).empty())
+        throw Exception(ErrorCodes::BAD_ARGUMENTS, "{} must have a non-empty string '{}'", what, key);
+}
+
+/// `required_strings` are the mandatory string members of every field besides `source-id`.
+std::vector<Poco::JSON::Object::Ptr> getSpecFields(
+    const Poco::JSON::Object & spec, const String & spec_name, const std::set<Int64> & schema_ids, const std::vector<String> & required_strings)
 {
     const auto what = fmt::format("'{}'", spec_name);
     std::vector<Poco::JSON::Object::Ptr> fields;
@@ -108,6 +116,8 @@ std::vector<Poco::JSON::Object::Ptr> getSpecFields(const Poco::JSON::Object & sp
         const auto source_id = getInteger(*field_object, f_source_id, what + " field");
         if (!schema_ids.contains(source_id))
             throw Exception(ErrorCodes::BAD_ARGUMENTS, "{} references unknown source-id {}", what, source_id);
+        for (const auto & key : required_strings)
+            checkString(*field_object, key, what + " field");
         fields.push_back(field_object);
     }
     return fields;
@@ -119,7 +129,7 @@ std::vector<Poco::JSON::Object::Ptr> getSpecFields(const Poco::JSON::Object & sp
 Int64 getLastPartitionId(const Poco::JSON::Object & spec, const std::set<Int64> & schema_ids)
 {
     Int64 last_partition_id = PARTITION_FIELD_ID_START - 1;
-    for (auto & field : getSpecFields(spec, "partition-spec", schema_ids))
+    for (auto & field : getSpecFields(spec, "partition-spec", schema_ids, {f_name, f_transform}))
         field->set(f_field_id, ++last_partition_id);
     return last_partition_id;
 }
@@ -127,7 +137,8 @@ Int64 getLastPartitionId(const Poco::JSON::Object & spec, const std::set<Int64> 
 /// Returns the `order-id`. The spec reserves 0 for the unsorted order, so a sorted order gets 1 like in Java and pyiceberg.
 Int64 getSortOrderId(const Poco::JSON::Object & spec, const std::set<Int64> & schema_ids)
 {
-    return getSpecFields(spec, "write-order", schema_ids).empty() ? 0 : 1;
+    const auto fields = getSpecFields(spec, "write-order", schema_ids, {f_transform, f_direction, f_null_order});
+    return fields.empty() ? 0 : 1;
 }
 
 std::set<Int64> getFieldIds(const Poco::JSON::Object::Ptr & schema)

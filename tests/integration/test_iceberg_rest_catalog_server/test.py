@@ -755,6 +755,8 @@ def test_malformed_create_table(started_cluster):
         {"name": "t", "schema": duplicate_ids},
         {"name": "t", "schema": DEFAULT_SCHEMA, "stage-create": True},
         {"name": "t", "schema": DEFAULT_SCHEMA, "partition-spec": bad_spec},
+        {"name": "t", "schema": DEFAULT_SCHEMA, "partition-spec": {"fields": [{"source-id": 1}]}},
+        {"name": "t", "schema": DEFAULT_SCHEMA, "write-order": {"fields": [{"source-id": 1}]}},
         {"name": "t", "schema": DEFAULT_SCHEMA, "properties": {"format-version": "3"}},
     ]
     for body in bodies:
