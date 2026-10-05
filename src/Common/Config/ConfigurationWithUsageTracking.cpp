@@ -62,9 +62,11 @@ String getParentKey(const String & key)
 }
 
 /// Whether `key` (normalized) may be read by the code that enumerated its section and picked
-/// the elements by a pattern of their names: the names of a repeated element (`key`, `key[1]`, ...)
-/// or the names with a common prefix (`header`, `header_x`, ...). Such code looks up the bare name
-/// as well (see `getKeysFromConfig` of an `encrypted` disk), so the name is known from `used`.
+/// the elements by a pattern of their names. Such code looks up the pattern as well, so it is known from `used`:
+/// - the bare name of a repeated element (see `getKeysFromConfig` of an `encrypted` disk) matches
+///   the name itself and its repetitions (`key`, `key[1]`, ...), but not `key_typo`;
+/// - a prefix looked up with `getNamePrefixKey` (see `getHTTPHeaders`) matches every name starting with it
+///   (`header`, `header_x`, ...).
 bool matchesNameReadInSection(const String & key, const std::unordered_set<String> & used)
 {
     const String parent = getParentKey(key);
@@ -76,7 +78,14 @@ bool matchesNameReadInSection(const String & key, const std::unordered_set<Strin
             continue;
         if (getParentKey(used_key) != parent)
             continue;
-        if (name.starts_with(std::string_view(used_key).substr(used_name_pos)))
+        std::string_view used_name = std::string_view(used_key).substr(used_name_pos);
+        if (used_name.ends_with(ConfigurationWithUsageTracking::name_prefix_suffix))
+        {
+            used_name.remove_suffix(1);
+            if (name.starts_with(used_name))
+                return true;
+        }
+        else if (name.starts_with(used_name) && (name.size() == used_name.size() || name[used_name.size()] == '['))
             return true;
     }
     return false;

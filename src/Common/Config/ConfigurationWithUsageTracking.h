@@ -33,6 +33,13 @@ public:
 
     ~ConfigurationWithUsageTracking() override;
 
+    /// The key to look up (with `has`) by the code that enumerates a section and picks the elements whose names
+    /// start with a prefix (such as `header`, `header_x`, ...), so that the elements with such names count as read
+    /// even when they are absent. Without it, only the repetitions of a name looked up (`key`, `key[1]`, ...) count.
+    /// The suffix cannot appear in the name of an element, so nothing is found by this key.
+    static constexpr char name_prefix_suffix = '*';
+    static String getNamePrefixKey(const String & prefix) { return prefix + name_prefix_suffix; }
+
     /// Remember a key as used, for the keys that are read by someone else, not through this object.
     void markAsUsed(const String & key) const;
 
@@ -61,9 +68,10 @@ public:
     /// The leaf keys inside `prefix` that are unknown for sure, judging only by how another configuration
     /// was read before (`previous`, the usage of the configuration a disk was created from). It is done
     /// before the code that reads this configuration runs, so everything that code may read is not reported:
-    /// - a leaf inside an enumerated section whose name starts with the name of an element of that section
-    ///   that was read before: it may be read by a pattern of its name (such as `key[1]` or `header_x`),
-    ///   so the code picking the elements by a pattern has to look up the bare name (such as `key`) as well;
+    /// - a leaf inside an enumerated section whose name matches a pattern looked up in that section before:
+    ///   a repetition of a name (such as `key[1]` for `key`) or a name with a prefix looked up with
+    ///   `getNamePrefixKey` (such as `header_x` for `header`), so the code picking the elements by a pattern
+    ///   has to look up the pattern as well;
     /// - the inside of a section that was not present before but was looked at (such as `proxy`) or listed
     ///   in an enumerated section (such as a new location): nothing has read its keys yet.
     /// The keys used through this object (including the ones marked from `previous`) count as read.

@@ -196,17 +196,18 @@ def test_unknown_element_next_to_encryption_keys(start_cluster):
         "<current_key_id>1</current_key_id>"
     )
 
-    # The keys of an `encrypted` disk are picked by a pattern of their names, but an element
-    # that matches no pattern is reported before the reload is applied, together with a key rotation.
+    # The keys of an `encrypted` disk are picked by a pattern of their names (`key`, `key[1]`, ...),
+    # but an element that matches no pattern, even if its name starts with `key`, is reported
+    # before the reload is applied, together with a key rotation.
     write_disk_configuration(
         node,
         "<keep_free_space_bytes>1024</keep_free_space_bytes>",
-        encrypted_keys=rotated_keys + "<typo>1</typo>",
+        encrypted_keys=rotated_keys + "<key_typo>1</key_typo>",
     )
     error = node.query_and_get_error("SYSTEM RELOAD CONFIG")
     assert "UNKNOWN_ELEMENT_IN_CONFIG" in error
     assert "encrypted_disk" in error
-    assert "typo" in error
+    assert "key_typo" in error
 
     # A key rotation alone, with a key of a form that was not used before, is accepted.
     write_disk_configuration(
