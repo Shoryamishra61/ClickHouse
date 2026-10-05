@@ -153,6 +153,9 @@ public:
     /// The join order optimizer decided this join: the estimate and the upper bound are the ones it
     /// used. Both are empty for a join it never saw.
     bool isEstimatedByJoinOrder() const { return estimated_by_join_order; }
+    /// Some planner estimated this join: the join order optimizer, or the estimate in place of a join
+    /// it leaves as it is. A join marked optimized to forbid reordering has none until then.
+    bool hasRowsEstimation() const { return estimated_by_join_order || result_rows_estimation || result_rows_upper_bound; }
 
     /// Called by the join order optimizer for every join it builds.
     void setJoinOrderEstimation(

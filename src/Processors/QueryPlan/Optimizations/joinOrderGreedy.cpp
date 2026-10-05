@@ -81,14 +81,14 @@ DPJoinEntryPtr GreedyJoinOrderOptimizer::solve()
                 if (!connected && best_plan)
                     continue;
 
-                auto selectivity = computeSelectivity(query_graph, dp_table, expression_selectivity, edges, left->relations, right->relations);
-                auto current_cost = computeJoinCost(query_graph, left, right, selectivity);
+                auto keys = computeSelectivity(query_graph, dp_table, expression_selectivity, edges, left->relations, right->relations);
+                auto current_cost = computeJoinCost(query_graph, left, right, keys.selectivity);
                 if (!best_plan || current_cost < best_plan->cost)
                 {
                     if (join_kind == JoinKind::Inner && !connected)
                         join_kind = JoinKind::Cross;
-                    auto cardinality = estimateJoinCardinality(left, right, selectivity, join_kind.value());
-                    JoinOperator join_operator(join_kind.value(), JoinStrictness::All, JoinLocality::Unspecified);
+                    auto cardinality = estimateJoinCardinality(left, right, keys, join_kind.value(), query_graph.join_strictness);
+                    JoinOperator join_operator(join_kind.value(), query_graph.join_strictness, JoinLocality::Unspecified);
                     bool is_inner_step = isInner(join_kind.value()) || isCrossOrComma(join_kind.value());
                     for (const auto * e : edges)
                     {
@@ -102,7 +102,7 @@ DPJoinEntryPtr GreedyJoinOrderOptimizer::solve()
                             join_operator.residual_filter.push_back(*e);
                     }
                     applied_edges = std::move(edges);
-                    best_plan = std::make_shared<DPJoinEntry>(left, right, current_cost, selectivity, cardinality, std::move(join_operator));
+                    best_plan = std::make_shared<DPJoinEntry>(left, right, current_cost, keys.selectivity, cardinality, std::move(join_operator));
                     best_i = i;
                     best_j = j;
                 }

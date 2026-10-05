@@ -1,5 +1,7 @@
 #include <Storages/Statistics/ConditionSelectivityEstimator.h>
 
+#include <Processors/QueryPlan/Optimizations/RelationStatistics.h>
+
 #include <stack>
 #include <cmath>
 
@@ -149,12 +151,12 @@ static bool isCompatibleStatistics(const StorageMetadataPtr & metadata, const Co
     return column->type->equals(*stats->getDataType());
 }
 
-/// NDV is clamped by the caller to the estimated row count; the value range and NULL fraction
-/// describe the whole relation regardless of the filter.
-static ColumnStats makeColumnStats(UInt64 num_distinct_values, const ColumnStatisticsPtr & stats)
+/// The value range and NULL fraction describe the whole relation regardless of the filter.
+static ColumnStats makeColumnStats(UInt64 num_distinct_values, UInt64 domain_distinct_values, const ColumnStatisticsPtr & stats)
 {
     ColumnStats result;
     result.num_distinct_values = num_distinct_values;
+    result.domain_distinct_values = domain_distinct_values;
     if (!stats)
         return result;
 
@@ -261,8 +263,10 @@ RelationProfile ConditionSelectivityEstimator::estimateRelationProfileImpl(std::
         if (!isCompatibleStatistics(metadata, estimator.stats, column_name))
             continue;
 
-        UInt64 cardinality = std::min(result.rows, estimator.estimateCardinality());
-        result.column_stats.emplace(column_name, makeColumnStats(cardinality, estimator.stats));
+        /// A value survives the filter when any of its rows does.
+        const UInt64 domain = estimator.estimateCardinality();
+        const UInt64 cardinality = QueryPlanOptimizations::distinctValuesAfterFilter(domain, total_rows, result.rows);
+        result.column_stats.emplace(column_name, makeColumnStats(cardinality, domain, estimator.stats));
     }
     return result;
 }
@@ -273,7 +277,8 @@ RelationProfile ConditionSelectivityEstimator::estimateRelationProfile() const
     result.rows = total_rows;
     for (const auto & [column_name, estimator] : column_estimators)
     {
-        result.column_stats.emplace(column_name, makeColumnStats(estimator.estimateCardinality(), estimator.stats));
+        const UInt64 domain = estimator.estimateCardinality();
+        result.column_stats.emplace(column_name, makeColumnStats(domain, domain, estimator.stats));
     }
     return result;
 }
@@ -325,6 +330,13 @@ static std::optional<String> tryGetNullMapParentColumn(const String & column_nam
     return parent_name;
 }
 
+static const ActionsDAG::Node * skipDAGAliases(const ActionsDAG::Node * node)
+{
+    while (node->type == ActionsDAG::ActionType::ALIAS)
+        node = node->children.front();
+    return node;
+}
+
 bool ConditionSelectivityEstimator::extractAtomFromTree(const StorageMetadataPtr & metadata, const RPNBuilderTreeNode & node, RPNElement & out) const
 {
     const auto * node_dag = node.getDAGNode();
@@ -351,6 +363,20 @@ bool ConditionSelectivityEstimator::extractAtomFromTree(const StorageMetadataPtr
         size_t num_args = func.getArgumentsSize();
 
         String func_name = func.getFunctionName();
+
+        /// `x = x`, as the decorrelation of a subquery leaves it after renaming the outer column to
+        /// the inner one it equals: true on every row (NULLs aside), not an unknown predicate.
+        if (num_args == 2 && (func_name == "equals" || func_name == "isNotDistinctFrom"))
+        {
+            const auto * first = func.getArgumentAt(0).getDAGNode();
+            const auto * second = func.getArgumentAt(1).getDAGNode();
+            if (first && second && skipDAGAliases(first) == skipDAGAliases(second))
+            {
+                out.function = RPNElement::ALWAYS_TRUE;
+                return true;
+            }
+        }
+
         auto atom_it = atom_map.find(func_name);
         if (atom_it == atom_map.end())
         {

@@ -115,6 +115,11 @@ struct QueryGraph
     /// `combineKeySelectivities`.
     bool join_selectivity_exponential_backoff = false;
 
+    /// Strictness of every join of this graph (a graph mixes strictnesses only under a conflict
+    /// detector, which carries the strictness per operator). A semi or anti join estimated as an
+    /// outer join would keep its whole preserved side.
+    JoinStrictness join_strictness = JoinStrictness::All;
+
     /// Restriction for a null-supplying relation of an outer join.
     /// Maps (relation id) -> (set of relations referenced by the outer join's ON clause, join kind).
     /// The relation may be joined (as a singleton side) only against a set that contains all

@@ -94,7 +94,7 @@ std::vector<JoinActionRef *> getApplicableExpressions(
 /// Compute selectivity combining direct edges and transitive equivalence classes.
 /// Direct edges and transitive equivalences may cover different columns between
 /// the two relation sets, so both contribute to the overall selectivity.
-double computeSelectivity(
+JoinKeyEstimate computeSelectivity(
     const QueryGraph & query_graph,
     const PlanMemo & dp_table,
     SelectivityCache & expression_selectivity,
@@ -102,12 +102,12 @@ double computeSelectivity(
     const BitSet & left,
     const BitSet & right)
 {
-    std::vector<double> selectivities;
-    collectEdgeSelectivities(query_graph, dp_table, expression_selectivity, edges, selectivities);
+    JoinKeyFactors factors;
+    collectEdgeFactors(query_graph, dp_table, expression_selectivity, edges, left, factors);
 
-    /// One factor per equivalence class with members on both sides: the maximum NDV over those
-    /// members, as evaluating every (left member, right member) pair and taking the minimum
-    /// selectivity would give, since min(1/max(l, r)) = 1/max(all l's and r's).
+    /// One factor per equivalence class with members on both sides: the maximum NDV over the
+    /// members of each side, as evaluating every (left member, right member) pair and taking the
+    /// minimum selectivity would give, since min(1/max(l, r)) = 1/max(all l's and r's).
     using ConstClassPtr = EquivalenceClasses<JoinActionRef>::ConstClassPtr;
     std::unordered_set<ConstClassPtr> visited;
 
@@ -121,7 +121,9 @@ double computeSelectivity(
         if (!equiv_class || !visited.insert(equiv_class).second)
             continue;
 
-        size_t max_ndv = 0;
+        UInt64 left_distinct_values = 0;
+        UInt64 right_distinct_values = 0;
+        UInt64 domain_distinct_values = 0;
         bool has_left = false;
         bool has_right = false;
         for (const auto & equiv_member : *equiv_class)
@@ -132,19 +134,21 @@ double computeSelectivity(
             if (left.test(*relation))
             {
                 has_left = true;
-                max_ndv = std::max(max_ndv, getColumnStats(query_graph, dp_table, equiv_member.getSourceRelations(), equiv_member.getColumnName()));
+                left_distinct_values = std::max(left_distinct_values, getColumnStats(query_graph, dp_table, equiv_member.getSourceRelations(), equiv_member.getColumnName()));
+                domain_distinct_values = std::max(domain_distinct_values, getColumnDomain(query_graph, dp_table, equiv_member.getSourceRelations(), equiv_member.getColumnName()));
             }
             else if (right.test(*relation))
             {
                 has_right = true;
-                max_ndv = std::max(max_ndv, getColumnStats(query_graph, dp_table, equiv_member.getSourceRelations(), equiv_member.getColumnName()));
+                right_distinct_values = std::max(right_distinct_values, getColumnStats(query_graph, dp_table, equiv_member.getSourceRelations(), equiv_member.getColumnName()));
+                domain_distinct_values = std::max(domain_distinct_values, getColumnDomain(query_graph, dp_table, equiv_member.getSourceRelations(), equiv_member.getColumnName()));
             }
         }
-        if (has_left && has_right && max_ndv > 0)
-            selectivities.push_back(1.0 / static_cast<double>(max_ndv));
+        if (has_left && has_right && std::max(left_distinct_values, right_distinct_values) > 0)
+            factors.add(left_distinct_values, right_distinct_values, domain_distinct_values);
     }
 
-    return QueryPlanOptimizations::combineKeySelectivities(std::move(selectivities), query_graph.join_selectivity_exponential_backoff);
+    return JoinKeyEstimate::combine(std::move(factors), query_graph.join_selectivity_exponential_backoff);
 }
 
 }

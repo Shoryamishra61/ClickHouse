@@ -35,6 +35,31 @@ TEST(CascadesJoinStats, JoinKeyNdvMinRespectsPreservedSide)
     EXPECT_EQ(update_join_key_ndvs(JoinKind::Full, JoinStrictness::All, 0, 40), (std::pair<UInt64, UInt64>{0, 40}));
 }
 
+TEST(CascadesJoinStats, JoinKeyNdvOverlapWithinDomain)
+{
+    /// Two sides filtered out of one domain of 1000 values share values in proportion: 800 and 500
+    /// of 1000 overlap in 400, not in 500.
+    ColumnStats left_stats{.num_distinct_values = 800, .domain_distinct_values = 1000};
+    ColumnStats right_stats{.num_distinct_values = 500, .domain_distinct_values = 1000};
+    QueryPlanOptimizations::updateJoinKeyDistinctCounts(left_stats, right_stats, JoinKind::Inner, JoinStrictness::All);
+    EXPECT_EQ(left_stats.num_distinct_values, 400);
+    EXPECT_EQ(right_stats.num_distinct_values, 400);
+
+    /// Without domains the smaller side counts as contained in the larger one.
+    ColumnStats left_no_domain{.num_distinct_values = 800};
+    ColumnStats right_no_domain{.num_distinct_values = 500};
+    QueryPlanOptimizations::updateJoinKeyDistinctCounts(left_no_domain, right_no_domain, JoinKind::Inner, JoinStrictness::All);
+    EXPECT_EQ(left_no_domain.num_distinct_values, 500);
+
+    /// A side without a domain takes the other side's.
+    ColumnStats left_known{.num_distinct_values = 800, .domain_distinct_values = 1000};
+    ColumnStats right_unknown{.num_distinct_values = 500};
+    QueryPlanOptimizations::updateJoinKeyDistinctCounts(left_known, right_unknown, JoinKind::Left, JoinStrictness::All);
+    EXPECT_EQ(left_known.num_distinct_values, 800);
+    EXPECT_EQ(right_unknown.num_distinct_values, 400);
+    EXPECT_EQ(right_unknown.domain_distinct_values, 1000);
+}
+
 /// `clampJoinRowCount` adjusts an inner-join-style estimate to the semantics of the join kind and
 /// strictness. `base` is the multiplicative inner estimate; `left`/`right` are the input counts.
 TEST(CascadesJoinStats, ClampByKindAndStrictness)

@@ -19,6 +19,7 @@
 #include <Processors/QueryPlan/LogicalExchangeStep.h>
 #include <Processors/QueryPlan/Optimizations/QueryPlanOptimizationSettings.h>
 #include <Processors/QueryPlan/Optimizations/RelationStatisticsUtils.h>
+#include <Processors/QueryPlan/ReadFromCommonBufferStep.h>
 #include <Processors/QueryPlan/ReadFromMemoryStorageStep.h>
 #include <Processors/QueryPlan/ReadFromMergeTree.h>
 #include <Processors/QueryPlan/ReadFromObjectStorageStep.h>
@@ -80,6 +81,8 @@ RelationStats estimateGroupStats(const Names & keys, const RelationStats & input
             if (aggregation_stats.source == RowEstimateSource::Statistics || aggregation_stats.source == RowEstimateSource::NoSource)
                 aggregation_stats.source = RowEstimateSource::NoStatistics;
         }
+        /// The key keeps its domain and width; its NDV is the input's.
+        aggregation_stats.column_stats[key] = key_stats == input_stats.column_stats.end() ? ColumnStats{} : key_stats->second;
         aggregation_stats.column_stats[key].num_distinct_values = distinct_values;
         key_distinct_values.push_back(distinct_values);
     }
@@ -267,6 +270,12 @@ RelationStats estimateReadRowsCount(QueryPlan::Node & node, const ActionsDAG::No
     if (const auto * reading = typeid_cast<const CommonSubplanReferenceStep *>(step))
     {
         return estimateReadRowsCount(*reading->getSubplanReferenceRoot(), filter, estimation_settings);
+    }
+
+    /// A buffered subquery result has the rows of the subplan that fills the buffer.
+    if (const auto * reading = typeid_cast<const ReadFromCommonBufferStep *>(step))
+    {
+        return estimateReadRowsCount(*reading->getSubplanRoot(), filter, estimation_settings);
     }
 
     if (const auto * join_step = typeid_cast<const JoinStepLogical *>(step); join_step && join_step->isOptimized())

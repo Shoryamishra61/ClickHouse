@@ -21,8 +21,11 @@
 #include <Processors/QueryPlan/ExpressionStep.h>
 #include <Processors/QueryPlan/JoinStep.h>
 #include <Processors/QueryPlan/JoinStepLogical.h>
+#include <Processors/QueryPlan/CommonSubplanReferenceStep.h>
+#include <Processors/QueryPlan/ReadFromCommonBufferStep.h>
 #include <Processors/QueryPlan/Optimizations/Optimizations.h>
 #include <Processors/QueryPlan/Optimizations/RelationStatisticsEstimator.h>
+#include <Processors/QueryPlan/Optimizations/joinOrderCommon.h>
 #include <Processors/QueryPlan/Optimizations/RelationStatisticsUtils.h>
 #include <Processors/QueryPlan/Optimizations/Utils.h>
 #include <Processors/QueryPlan/Optimizations/joinOrder.h>
@@ -386,6 +389,123 @@ static void uniteGraphs(QueryGraphBuilder & lhs, QueryGraphBuilder rhs)
 
 void buildQueryGraph(QueryGraphBuilder & query_graph, QueryPlan::Node & node, QueryPlan::Nodes & nodes, int join_steps_limit);
 
+void optimizeJoinLogicalImpl(JoinStepLogical * join_step, QueryPlan::Node & node, QueryPlan::Nodes & nodes, const QueryPlanOptimizationSettings & optimization_settings);
+static void estimateJoinInPlace(JoinStepLogical & join_step, QueryPlan::Node & node, QueryPlan::Nodes & nodes, const QueryPlanOptimizationSettings & optimization_settings);
+
+/// Gives the join an estimate: by reordering it, or in place when the planner forbade reordering
+/// (a decorrelated subquery, a forced order).
+static void ensureJoinEstimated(JoinStepLogical & join_step, QueryPlan::Node & node, QueryPlan::Nodes & nodes, const QueryPlanOptimizationSettings & optimization_settings)
+{
+    if (!join_step.isOptimized())
+        optimizeJoinLogicalImpl(&join_step, node, nodes, optimization_settings);
+    else if (!join_step.hasRowsEstimation())
+        estimateJoinInPlace(join_step, node, nodes, optimization_settings);
+}
+
+/// Estimates the join a single-child chain below `node` ends in, so that the estimate of the
+/// subquery the chain forms is known. A chain that reads a shared subplan, directly or through a
+/// buffer, continues in that subplan.
+static void optimizeJoinsBelow(QueryPlan::Node * node, QueryPlan::Nodes & nodes, const QueryPlanOptimizationSettings & optimization_settings)
+{
+    auto * child_node = node;
+    while (true)
+    {
+        if (child_node->children.size() == 1)
+            child_node = child_node->children[0];
+        else if (const auto * reference = typeid_cast<const CommonSubplanReferenceStep *>(child_node->step.get()))
+            child_node = reference->getSubplanReferenceRoot();
+        else if (const auto * buffer_read = typeid_cast<const ReadFromCommonBufferStep *>(child_node->step.get()))
+            child_node = buffer_read->getSubplanRoot();
+        else
+            break;
+    }
+
+    if (auto * child_join_step = typeid_cast<JoinStepLogical *>(child_node->step.get()))
+        ensureJoinEstimated(*child_join_step, *child_node, nodes, optimization_settings);
+}
+
+/// A join the join order optimizer leaves in place (a residual condition, a locality, a `PASTE`
+/// join, or join ordering turned off) still takes an estimate from its inputs with the formulas of
+/// the join order optimizer; without it everything above the join is unknown. The residual
+/// condition is not priced.
+static void estimateJoinInPlace(JoinStepLogical & join_step, QueryPlan::Node & node, QueryPlan::Nodes & nodes, const QueryPlanOptimizationSettings & optimization_settings)
+{
+    for (auto * child : node.children)
+        optimizeJoinsBelow(child, nodes, optimization_settings);
+
+    const RelationEstimationSettings estimation_settings(optimization_settings);
+    const RelationStats left_stats = estimateReadRowsCount(*node.children[0], nullptr, estimation_settings);
+    const RelationStats right_stats = estimateReadRowsCount(*node.children[1], nullptr, estimation_settings);
+    auto left_entry = std::make_shared<DPJoinEntry>(0, left_stats);
+    auto right_entry = std::make_shared<DPJoinEntry>(1, right_stats);
+
+    /// A key without an NDV counts its relation's rows, as `getColumnStats` does.
+    auto key_distinct_values = [](const RelationStats & side, const String & column) -> UInt64
+    {
+        if (auto it = side.column_stats.find(column); it != side.column_stats.end() && it->second.num_distinct_values > 0)
+            return it->second.num_distinct_values;
+        return side.estimated_rows.value_or(0);
+    };
+    auto key_domain = [](const RelationStats & side, const String & column) -> UInt64
+    {
+        if (auto it = side.column_stats.find(column); it != side.column_stats.end())
+            return it->second.domain_distinct_values;
+        return 0;
+    };
+
+    const auto & join_operator = join_step.getJoinOperator();
+    JoinKeyFactors factors;
+    for (const auto & predicate : join_operator.expression)
+    {
+        auto [op, lhs, rhs] = predicate.asBinaryPredicate();
+        if (op != JoinConditionOperator::Equals && op != JoinConditionOperator::NullSafeEquals)
+            continue;
+        if (lhs.fromRight() && rhs.fromLeft())
+            std::swap(lhs, rhs);
+        if (!lhs.fromLeft() || !rhs.fromRight())
+            continue;
+        const UInt64 left_distinct_values = key_distinct_values(left_stats, lhs.getColumnName());
+        const UInt64 right_distinct_values = key_distinct_values(right_stats, rhs.getColumnName());
+        if (std::max(left_distinct_values, right_distinct_values) == 0)
+            continue;
+        factors.add(left_distinct_values, right_distinct_values,
+            std::max(key_domain(left_stats, lhs.getColumnName()), key_domain(right_stats, rhs.getColumnName())));
+    }
+    const auto keys = JoinKeyEstimate::combine(std::move(factors), optimization_settings.join_selectivity_exponential_backoff);
+    const auto rows = estimateJoinCardinality(left_entry, right_entry, keys, join_operator.kind, join_operator.strictness);
+    DPJoinEntry joined(left_entry, right_entry, /*cost*/ 0.0, keys.selectivity, rows, join_operator);
+
+    const bool imprecise_estimate = left_stats.imprecise_estimate || right_stats.imprecise_estimate;
+    join_step.setOptimized(
+        joined.estimated_rows,
+        joined.column_stats,
+        imprecise_estimate,
+        /*estimated_cost*/ std::nullopt,
+        keys.selectivity,
+        /*cluster_id*/ 0,
+        joined.max_rows);
+
+    /// Annotate the plan nodes like the join-order path does, so that `EXPLAIN estimates` and the
+    /// profile log see the estimate. An input that already carries an annotation keeps it.
+    auto annotate_input = [](QueryPlan::Node & input, const RelationStats & stats)
+    {
+        if (input.cost_estimation)
+            return;
+        input.cost_estimation = CostEstimationInfo{
+            .rows = stats.estimated_rows ? std::optional<Float64>(Float64(*stats.estimated_rows)) : std::nullopt,
+            .cost = std::nullopt,
+            .source = stats.source,
+            .imprecise = stats.imprecise_estimate};
+    };
+    annotate_input(*node.children[0], left_stats);
+    annotate_input(*node.children[1], right_stats);
+    node.cost_estimation = CostEstimationInfo{
+        .rows = joined.estimated_rows ? std::optional<Float64>(Float64(*joined.estimated_rows)) : std::nullopt,
+        .cost = std::nullopt,
+        .source = RowEstimateSource::NoSource,
+        .imprecise = imprecise_estimate};
+}
+
 static String dumpStatsForLogs(const RelationStats & stats)
 {
     return fmt::format("{}: {} rows, columns: [{}]",
@@ -522,19 +642,7 @@ static size_t addChildQueryGraph(QueryGraphBuilder & graph, QueryPlan::Node * no
 
     /// When the leaf is a subquery with Join-s wrapped in Expression/Aggregating steps, we cannot Joins to the graph, but we want to optimize
     /// those child Join to get proper statistics to use in the parent Join reordering.
-    {
-        auto * child_node = node;
-        while (child_node->children.size() == 1)
-        {
-            child_node = child_node->children[0];
-        }
-
-        auto * child_join_step = typeid_cast<JoinStepLogical *>(child_node->step.get());
-        if (child_join_step && !child_join_step->isOptimized())
-        {
-            optimizeJoinLogicalImpl(child_join_step, *child_node, nodes, graph.context->optimization_settings);
-        }
-    }
+    optimizeJoinsBelow(node, nodes, graph.context->optimization_settings);
 
     graph.inputs.push_back(node);
     RelationStats stats = estimateReadRowsCount(*node, nullptr, RelationEstimationSettings(graph.context->optimization_settings));
@@ -947,6 +1055,7 @@ static QueryPlan::Node chooseJoinOrder(QueryGraphBuilder query_graph_builder, Qu
     query_graph.outer_join_conditions = std::move(query_graph_builder.outer_join_conditions);
     query_graph.conflict_ops = std::move(query_graph_builder.conflict_ops);
     query_graph.join_selectivity_exponential_backoff = query_graph_builder.context->optimization_settings.join_selectivity_exponential_backoff;
+    query_graph.join_strictness = join_strictness;
     for (size_t i = 0; i < query_graph_builder.inputs.size(); ++i)
     {
         if (typeid_cast<const JoinStepLogicalLookup *>(query_graph_builder.inputs[i]->step.get()))
@@ -1483,14 +1592,14 @@ static bool joinGraphHasOverlappingColumnNames(
 void optimizeJoinLogical(QueryPlan::Node & node, QueryPlan::Nodes & nodes, const QueryPlanOptimizationSettings & optimization_settings)
 {
     auto * join_step = typeid_cast<JoinStepLogical *>(node.step.get());
-    if (!join_step || join_step->isOptimized())
+    if (!join_step)
         return;
 
     if (node.children.size() != 2)
         throw Exception(ErrorCodes::LOGICAL_ERROR, "JoinStepLogical should have exactly 2 children, but has {}", node.children.size());
 
     ProfileEventTimeIncrement<Microseconds> watch(ProfileEvents::JoinOptimizeMicroseconds);
-    optimizeJoinLogicalImpl(join_step, node, nodes, optimization_settings);
+    ensureJoinEstimated(*join_step, node, nodes, optimization_settings);
 }
 
 void optimizeJoinLogicalImpl(JoinStepLogical * join_step, QueryPlan::Node & node, QueryPlan::Nodes & nodes, const QueryPlanOptimizationSettings & optimization_settings)
@@ -1512,7 +1621,7 @@ void optimizeJoinLogicalImpl(JoinStepLogical * join_step, QueryPlan::Node & node
         || !join_operator.residual_filter.empty()
     )
     {
-        join_step->setOptimized();
+        estimateJoinInPlace(*join_step, node, nodes, optimization_settings);
         return;
     }
 

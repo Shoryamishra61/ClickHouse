@@ -73,6 +73,18 @@ GroupCountEstimate estimateGroupCount(
 /// the larger known NDV, nothing when neither is known.
 std::optional<double> equalitySelectivity(UInt64 left_distinct_values, UInt64 right_distinct_values);
 
+/// Distinct values of a column left by a filter that keeps `rows_after` of `rows_before` rows, when
+/// the column's `distinct_values` are spread evenly over the rows: a value survives when any of its
+/// rows does. Zero when the NDV is unknown; never above `rows_after`.
+UInt64 distinctValuesAfterFilter(UInt64 distinct_values, UInt64 rows_before, UInt64 rows_after);
+
+/// Fraction of one side's key values that the other side also has, from the two NDVs (zero =
+/// unknown) and the key's domain. Fewer values on the other side are taken to lie within this
+/// side's (a set derived from this side, a dimension's filtered keys); at least as many meet this
+/// side's values in proportion to their share of the domain, or all of them when the domain is
+/// unknown. Nothing when either NDV is unknown.
+std::optional<double> keyContainment(UInt64 side_distinct_values, UInt64 other_distinct_values, UInt64 domain_distinct_values = 0);
+
 /// Selectivity of a conjunction of equality predicates from the selectivity of each. Without
 /// `exponential_backoff` the most selective decides alone. With it the keys count as partially
 /// correlated: sorted from the most selective, they take the exponents 1, 1/2, 1/4 and 1/8, and

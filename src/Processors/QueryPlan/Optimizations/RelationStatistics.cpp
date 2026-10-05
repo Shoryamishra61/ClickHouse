@@ -73,6 +73,30 @@ std::optional<double> equalitySelectivity(UInt64 left_distinct_values, UInt64 ri
     return 1.0 / static_cast<double>(larger);
 }
 
+UInt64 distinctValuesAfterFilter(UInt64 distinct_values, UInt64 rows_before, UInt64 rows_after)
+{
+    if (distinct_values == 0)
+        return 0;
+    if (rows_before == 0 || rows_after >= rows_before)
+        return std::min(distinct_values, std::max<UInt64>(rows_after, distinct_values == 0 ? 0 : 1));
+    const double kept = static_cast<double>(rows_after) / static_cast<double>(rows_before);
+    const double rows_per_value = static_cast<double>(rows_before) / static_cast<double>(distinct_values);
+    const double surviving = static_cast<double>(distinct_values) * (1.0 - std::pow(1.0 - kept, rows_per_value));
+    const UInt64 bound = std::min(distinct_values, rows_after);
+    return std::min<UInt64>(bound, static_cast<UInt64>(std::llround(surviving)));
+}
+
+std::optional<double> keyContainment(UInt64 side_distinct_values, UInt64 other_distinct_values, UInt64 domain_distinct_values)
+{
+    if (side_distinct_values == 0 || other_distinct_values == 0)
+        return std::nullopt;
+    if (other_distinct_values <= side_distinct_values)
+        return static_cast<double>(other_distinct_values) / static_cast<double>(side_distinct_values);
+    if (domain_distinct_values >= other_distinct_values)
+        return static_cast<double>(other_distinct_values) / static_cast<double>(domain_distinct_values);
+    return 1.0;
+}
+
 double combineKeySelectivities(std::vector<double> selectivities, bool exponential_backoff)
 {
     if (selectivities.empty())
@@ -123,10 +147,27 @@ void updateJoinKeyDistinctCounts(
         minimum = right_distinct_values;
     else if (right_distinct_values == 0)
         minimum = left_distinct_values;
+
+    /// Two sides filtered out of one key domain share values in proportion to their shares of it;
+    /// without this the smaller side would count as contained in the larger one, and a semi or
+    /// anti join above would see every preserved key matched.
+    const UInt64 domain = std::max(left_stats.domain_distinct_values, right_stats.domain_distinct_values);
+    if (left_distinct_values && right_distinct_values && domain >= std::max(left_distinct_values, right_distinct_values))
+    {
+        const double overlap = static_cast<double>(left_distinct_values) * static_cast<double>(right_distinct_values) / static_cast<double>(domain);
+        minimum = std::min(minimum, std::max<UInt64>(1, static_cast<UInt64>(std::llround(overlap))));
+    }
+
     if (update_left)
         left_stats.num_distinct_values = minimum;
     if (update_right)
         right_stats.num_distinct_values = minimum;
+    /// The key values of both sides come from the same domain.
+    if (domain)
+    {
+        left_stats.domain_distinct_values = domain;
+        right_stats.domain_distinct_values = domain;
+    }
 }
 
 void remapColumnStats(std::unordered_map<String, ColumnStats> & mapped, const ActionsDAG & actions)

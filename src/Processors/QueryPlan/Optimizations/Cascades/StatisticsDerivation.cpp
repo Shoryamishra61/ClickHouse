@@ -293,6 +293,9 @@ ExpressionStatistics StatisticsDerivation::deriveJoinStatistics(
     };
     std::vector<std::pair<String, String>> key_pairs;
     std::vector<double> key_selectivities;
+    /// Fraction of each side's key values the other side also has, per key pair.
+    std::vector<double> left_in_right;
+    std::vector<double> right_in_left;
 
     /// Equality key pairs, for the output column equivalences.
     std::vector<std::pair<String, String>> equi_pairs;
@@ -335,9 +338,9 @@ ExpressionStatistics StatisticsDerivation::deriveJoinStatistics(
         const auto left_known_distinct_values = known_distinct_values(left_column_statistics, left_statistics.column_statistics.end(), left_statistics);
         const auto right_known_distinct_values = known_distinct_values(right_column_statistics, right_statistics.column_statistics.end(), right_statistics);
 
-        const auto predicate_selectivity = QueryPlanOptimizations::equalitySelectivity(
-            left_known_distinct_values.value_or(UInt64(left_statistics.estimated_row_count)),
-            right_known_distinct_values.value_or(UInt64(right_statistics.estimated_row_count)));
+        const UInt64 left_distinct_values = left_known_distinct_values.value_or(UInt64(left_statistics.estimated_row_count));
+        const UInt64 right_distinct_values = right_known_distinct_values.value_or(UInt64(right_statistics.estimated_row_count));
+        const auto predicate_selectivity = QueryPlanOptimizations::equalitySelectivity(left_distinct_values, right_distinct_values);
 
         /// The shared update then narrows only sides whose rows can be filtered by this join; a side
         /// without an NDV takes the other side's NDV when the join bounds it, else stays without one.
@@ -359,20 +362,33 @@ ExpressionStatistics StatisticsDerivation::deriveJoinStatistics(
         std::pair<String, String> key_pair{
             class_representative(left_statistics.equivalences, left_column),
             class_representative(right_statistics.equivalences, right_column)};
+        const UInt64 key_domain = std::max(
+            left_column_statistics != left_statistics.column_statistics.end() ? left_column_statistics->second.domain_distinct_values : 0,
+            right_column_statistics != right_statistics.column_statistics.end() ? right_column_statistics->second.domain_distinct_values : 0);
+        const double left_contained = QueryPlanOptimizations::keyContainment(left_distinct_values, right_distinct_values, key_domain).value_or(1.0);
+        const double right_contained = QueryPlanOptimizations::keyContainment(right_distinct_values, left_distinct_values, key_domain).value_or(1.0);
         auto found = std::find(key_pairs.begin(), key_pairs.end(), key_pair);
         if (found == key_pairs.end())
         {
             key_pairs.push_back(key_pair);
             key_selectivities.push_back(*predicate_selectivity);
+            left_in_right.push_back(left_contained);
+            right_in_left.push_back(right_contained);
         }
         else
         {
-            auto & existing = key_selectivities[found - key_pairs.begin()];
-            existing = std::min(existing, *predicate_selectivity);
+            const size_t index = found - key_pairs.begin();
+            key_selectivities[index] = std::min(key_selectivities[index], *predicate_selectivity);
+            left_in_right[index] = std::min(left_in_right[index], left_contained);
+            right_in_left[index] = std::min(right_in_left[index], right_contained);
         }
     }
 
     const Float64 join_selectivity = QueryPlanOptimizations::combineKeySelectivities(std::move(key_selectivities), join_selectivity_exponential_backoff);
+    /// What a semi join keeps and an anti join drops: the preserved side's rows whose keys the other
+    /// side has.
+    const Float64 preserved_match_fraction = QueryPlanOptimizations::combineKeySelectivities(
+        isRight(join_operator.kind) ? std::move(right_in_left) : std::move(left_in_right), join_selectivity_exponential_backoff);
 
     /// The multiplicative value is the search value when no estimate exists.
     const Float64 search_value = left_statistics.estimated_row_count * right_statistics.estimated_row_count * join_selectivity;
@@ -391,7 +407,7 @@ ExpressionStatistics StatisticsDerivation::deriveJoinStatistics(
         /// can (its estimator knows fewer operators, `Distinct` for one). The shared formula applies.
         statistics.estimated_row_count = Float64(estimateJoinCardinality(
             UInt64(left_statistics.estimated_row_count), UInt64(right_statistics.estimated_row_count),
-            join_selectivity, join_operator.kind, join_operator.strictness).value());
+            join_selectivity, join_operator.kind, join_operator.strictness, preserved_match_fraction).value());
     }
     else
     {
@@ -677,6 +693,14 @@ Float64 estimatePredicateSelectivity(const ActionsDAG::Node * node, const Expres
 }
 
 
+/// A `Float64` row count as an integer; the unbounded value stays the largest integer.
+static UInt64 toRowCount(Float64 rows)
+{
+    if (!(rows < Float64(std::numeric_limits<UInt64>::max())))
+        return std::numeric_limits<UInt64>::max();
+    return rows <= 0 ? 0 : UInt64(rows);
+}
+
 ExpressionStatistics StatisticsDerivation::deriveFilterStatistics(const FilterStep & filter_step, const ExpressionStatistics & input_statistics)
 {
     ExpressionStatistics result_statistics = input_statistics;
@@ -698,10 +722,10 @@ ExpressionStatistics StatisticsDerivation::deriveFilterStatistics(const FilterSt
         const Float64 selectivity = estimatePredicateSelectivity(filter_node, input_statistics);
         result_statistics.estimated_row_count *= selectivity;
         result_statistics.min_row_count = 0;
-        /// A column cannot have more distinct values than there are rows.
+        /// A value survives the filter when any of its rows does.
         for (auto & [column_name, column_stats] : result_statistics.column_statistics)
-            if (Float64(column_stats.num_distinct_values) > result_statistics.estimated_row_count)
-                column_stats.num_distinct_values = UInt64(result_statistics.estimated_row_count);
+            column_stats.num_distinct_values = QueryPlanOptimizations::distinctValuesAfterFilter(
+                column_stats.num_distinct_values, toRowCount(input_statistics.estimated_row_count), toRowCount(result_statistics.estimated_row_count));
         LOG_TEST(getLogger("StatisticsDerivation"), "Filter '{}' selectivity: {}", filter_step.getFilterColumnName(), selectivity);
     }
 
@@ -723,14 +747,6 @@ ExpressionStatistics StatisticsDerivation::deriveExpressionStatistics(const Expr
 /// Fraction of the input rows taken as distinct when no key has statistics: the search value of a
 /// group count the statistics do not determine.
 static constexpr Float64 DEFAULT_DISTINCT_VALUES_RATIO = 0.1;
-
-/// A `Float64` row count as an integer; the unbounded value stays the largest integer.
-static UInt64 toRowCount(Float64 rows)
-{
-    if (!(rows < Float64(std::numeric_limits<UInt64>::max())))
-        return std::numeric_limits<UInt64>::max();
-    return rows <= 0 ? 0 : UInt64(rows);
-}
 
 /// NDV of a group key in the input, capped by the input's bound; nothing without statistics (an
 /// entry with a zero NDV only carries the column's width).
@@ -783,12 +799,15 @@ ExpressionStatistics StatisticsDerivation::deriveAggregatingStatistics(const Agg
     aggregation_statistics.estimated_row_count = groups.estimated_rows;
     aggregation_statistics.max_row_count = groups.max_rows;
     aggregation_statistics.rows_unknown = groups.unknown;
-    /// Group-by keys pass through with their input value sizes.
+    /// Group-by keys pass through with their input value sizes and domains.
     for (auto & [column_name, column_stats] : aggregation_statistics.column_statistics)
     {
         auto input_column_statistics = input_statistics.column_statistics.find(column_name);
         if (input_column_statistics != input_statistics.column_statistics.end())
+        {
             column_stats.avg_bytes = input_column_statistics->second.avg_bytes;
+            column_stats.domain_distinct_values = input_column_statistics->second.domain_distinct_values;
+        }
     }
     /// Aggregation changes the schema (group-by keys + aggregate states), recompute from output
     /// header with the keys' known value sizes.
@@ -869,6 +888,9 @@ ExpressionStatistics StatisticsDerivation::deriveUnionStatistics(
             output_column->second.num_distinct_values = output_column->second.num_distinct_values == 0 || other_distinct_values == 0
                 ? 0
                 : output_column->second.num_distinct_values + other_distinct_values;
+            if (other_column != other.column_statistics.end())
+                output_column->second.domain_distinct_values
+                    = std::max(output_column->second.domain_distinct_values, other_column->second.domain_distinct_values);
         }
     }
     return result;

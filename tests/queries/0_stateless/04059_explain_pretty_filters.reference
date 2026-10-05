@@ -52,8 +52,8 @@ Join (JOIN FillRightFirst)
 │  t1 ⋈ t2
 │  Type: inner | Strictness: all | Algorithm: ConcurrentHashJoin
 │  Cost: estimated no stats
-│  Selectivity: estimated (NDV) no stats
-│  Output rows: estimated no stats
+│  Selectivity: estimated (NDV) 0.001
+│  Output rows: estimated 100.00
 │  Left: rows estimated no stats
 │  Right: rows estimated no stats
 │  Join conditions: a = x

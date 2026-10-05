@@ -119,11 +119,11 @@ EnumeratorCheckerWithCosts<TDPTable, TOptimizer>::accept(const UInt result_subse
     if (kind == JoinKind::Cross)
         kind = JoinKind::Inner;
 
-    auto selectivity = optimizer.computeSelectivityMask(edge, left_mask, right_mask);
-    auto plan_cost = computeJoinCost(lhs_subset, rhs_subset, selectivity);
+    auto keys = optimizer.computeSelectivityMask(edge, left_mask, right_mask);
+    auto plan_cost = computeJoinCost(lhs_subset, rhs_subset, keys.selectivity);
 
     LOG_TEST(logger, "selectivity: {} costs: {}, lhs est. rows: {}, rhs est. rows: {}",
-             selectivity,
+             keys.selectivity,
              plan_cost,
              dp_table[lhs_subset].estimated_rows.value_or(0),
              dp_table[rhs_subset].estimated_rows.value_or(0));
@@ -134,10 +134,10 @@ EnumeratorCheckerWithCosts<TDPTable, TOptimizer>::accept(const UInt result_subse
         entry.left = lhs_subset;
         entry.right = rhs_subset;
         entry.cost = plan_cost;
-        entry.sel = selectivity;
+        entry.sel = keys.selectivity;
         entry.kind = kind;
         entry.strictness = strictness;
-        entry.estimated_rows = optimizer.estimateCardinality(dp_table[lhs_subset].estimated_rows, dp_table[rhs_subset].estimated_rows, selectivity, kind, strictness);
+        entry.estimated_rows = optimizer.estimateCardinality(dp_table[lhs_subset].estimated_rows, dp_table[rhs_subset].estimated_rows, keys, kind, strictness);
         entry.max_rows = estimateJoinRowsUpperBound(dp_table[lhs_subset].max_rows, dp_table[rhs_subset].max_rows, kind, strictness);
         entry.edges.assign(edge.begin(), edge.end());
     }
