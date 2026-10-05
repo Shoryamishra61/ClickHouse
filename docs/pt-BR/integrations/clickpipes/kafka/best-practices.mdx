@@ -49,6 +49,13 @@ A principal contrapartida é o tamanho das partes. Blocos de inserção maiores 
 
 Um pipe funciona melhor quando o número de partições é próximo ao número de &quot;workers&quot; internos de inserção, pois cada worker processa aproximadamente uma partição e tem capacidade de memória adicional para criar blocos grandes. Tanto a quantidade de workers quanto a memória disponível aumentam com o tamanho e o número de réplicas, que você configura em **Configurações** -&gt; **Configurações avançadas** -&gt; **Escalonamento**.
 
+## Tratamento de tombstones {#tombstone-handling}
+
+Tombstones do Kafka são registros com uma chave e um valor nulo. Em **Configurações avançadas**, você pode configurar como um ClickPipe do Kafka lida com eles:
+
+* **Delete matching rows** exclui as linhas correspondentes da tabela de destino usando uma [exclusão leve](/pt-BR/concepts/features/operations/delete/lightweight-delete). Esta opção só está disponível quando a semântica de exatamente uma vez está habilitada. Exclusões leves são custosas e não são indicadas para grandes cargas de trabalho.
+* **Mark rows as deleted** grava cada tombstone como uma linha. Para grandes cargas de trabalho, esta é a opção recomendada: crie uma tabela de destino [`ReplacingMergeTree`](/pt-BR/reference/engines/table-engines/mergetree-family/replacingmergetree) e selecione a coluna virtual `_is_deleted`. O ClickPipes configura essa coluna virtual como a coluna `is_deleted` do motor.
+
 ## Autenticação {#authentication}
 
 Para fontes de dados do protocolo Apache Kafka, o ClickPipes oferece suporte à autenticação [SASL/PLAIN](https://docs.confluent.io/platform/current/kafka/authentication_sasl/authentication_sasl_plain.html) com criptografia TLS, bem como a `SASL/SCRAM-SHA-256` e `SASL/SCRAM-SHA-512`. Dependendo da fonte de streaming (Redpanda, MSK etc.), todos ou apenas alguns desses mecanismos de autenticação serão habilitados, conforme a compatibilidade. Se suas necessidades de autenticação forem diferentes, [envie seu feedback](https://clickhouse.com/company/contact?loc=clickpipes).

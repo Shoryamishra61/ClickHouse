@@ -49,6 +49,13 @@ ClickPipes for Kafka 默认提供至少一次交付保证，并通过 Kafka 消�
 
 当分区数量接近内部插入“工作线程”的数量时，管道的运行效果最佳，因为此时每个工作线程大致处理一个分区，并有足够的内存余量构建大块。工作线程数量和可用内存都会随副本大小和数量而扩缩容，可在 **设置** -&gt; **高级设置** -&gt; **扩缩容** 下配置。
 
+## 墓碑记录处理 {#tombstone-handling}
+
+Kafka 墓碑记录 (tombstone) 是指带有键但值为 null 的记录。您可以在 **高级设置** 中配置 Kafka ClickPipe 对这类记录的处理方式：
+
+* **Delete matching rows**：通过[轻量级删除](/zh/concepts/features/operations/delete/lightweight-delete)从目标表中删除匹配的行。此选项仅在启用精确一次语义时可用。轻量级删除开销较大，不适合大规模工作负载。
+* **Mark rows as deleted**：将每条墓碑记录作为一行写入。对于大规模工作负载，推荐使用此选项：创建一个 [`ReplacingMergeTree`](/zh/reference/engines/table-engines/mergetree-family/replacingmergetree) 目标表，并选择 `_is_deleted` 虚拟列。ClickPipes 会将该虚拟列配置为引擎的 `is_deleted` 列。
+
 ## 身份验证 {#authentication}
 
 对于 Apache Kafka 协议的数据源，ClickPipes 支持结合 TLS 加密的 [SASL/PLAIN](https://docs.confluent.io/platform/current/kafka/authentication_sasl/authentication_sasl_plain.html) 身份验证，以及 `SASL/SCRAM-SHA-256` 和 `SASL/SCRAM-SHA-512`。根据流式数据源 (Redpanda、MSK 等) 的兼容性，支持的身份验证机制可能是全部，也可能只是其中一部分。如果您的身份验证需求不同，请[向我们提供反馈](https://clickhouse.com/company/contact?loc=clickpipes)。

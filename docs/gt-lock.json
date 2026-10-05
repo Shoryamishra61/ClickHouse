@@ -4,47 +4,47 @@
   "entries": [
     {
       "fileId": "b7b4169fa5b2e02aa17d40553a73c5d9520086753c501eeb926c63b162bb6d9e",
-      "versionId": "c807d94da2ee4f8e793fcb38246cc1620a6229874ae3eb80f6075390c12aede6",
+      "versionId": "ae00ec2598472ccb8856e4f1f4020869cb1221d8279c1e05e1753221f38f987b",
       "translations": {
         "ar": {
-          "updatedAt": "2026-10-05T00:21:40.301Z",
+          "updatedAt": "2026-10-05T09:09:27.254Z",
           "fileName": "docs.json",
-          "postProcessHash": "28f6f7085bf495df6a56336a568467aa6594daff4fb683a746e5c5266e606f0a"
-        },
-        "zh": {
-          "updatedAt": "2026-10-05T00:21:40.117Z",
-          "fileName": "docs.json",
-          "postProcessHash": "28f6f7085bf495df6a56336a568467aa6594daff4fb683a746e5c5266e606f0a"
-        },
-        "es": {
-          "updatedAt": "2026-10-05T00:21:39.156Z",
-          "fileName": "docs.json",
-          "postProcessHash": "28f6f7085bf495df6a56336a568467aa6594daff4fb683a746e5c5266e606f0a"
-        },
-        "ja": {
-          "updatedAt": "2026-10-05T00:21:39.367Z",
-          "fileName": "docs.json",
-          "postProcessHash": "28f6f7085bf495df6a56336a568467aa6594daff4fb683a746e5c5266e606f0a"
-        },
-        "ru": {
-          "updatedAt": "2026-10-05T00:21:39.933Z",
-          "fileName": "docs.json",
-          "postProcessHash": "28f6f7085bf495df6a56336a568467aa6594daff4fb683a746e5c5266e606f0a"
+          "postProcessHash": "561202c834cd2d6c7e2c8899bbcdcd650afb5e5326545724abcbb47d4c6f08a0"
         },
         "fr": {
-          "updatedAt": "2026-10-05T00:21:40.492Z",
+          "updatedAt": "2026-10-05T09:09:27.471Z",
           "fileName": "docs.json",
-          "postProcessHash": "28f6f7085bf495df6a56336a568467aa6594daff4fb683a746e5c5266e606f0a"
+          "postProcessHash": "561202c834cd2d6c7e2c8899bbcdcd650afb5e5326545724abcbb47d4c6f08a0"
         },
-        "ko": {
-          "updatedAt": "2026-10-05T00:21:39.554Z",
+        "ja": {
+          "updatedAt": "2026-10-05T09:09:27.675Z",
           "fileName": "docs.json",
-          "postProcessHash": "28f6f7085bf495df6a56336a568467aa6594daff4fb683a746e5c5266e606f0a"
+          "postProcessHash": "561202c834cd2d6c7e2c8899bbcdcd650afb5e5326545724abcbb47d4c6f08a0"
+        },
+        "es": {
+          "updatedAt": "2026-10-05T09:09:27.880Z",
+          "fileName": "docs.json",
+          "postProcessHash": "561202c834cd2d6c7e2c8899bbcdcd650afb5e5326545724abcbb47d4c6f08a0"
+        },
+        "zh": {
+          "updatedAt": "2026-10-05T09:09:28.091Z",
+          "fileName": "docs.json",
+          "postProcessHash": "561202c834cd2d6c7e2c8899bbcdcd650afb5e5326545724abcbb47d4c6f08a0"
         },
         "pt-BR": {
-          "updatedAt": "2026-10-05T00:21:39.738Z",
+          "updatedAt": "2026-10-05T09:09:28.287Z",
           "fileName": "docs.json",
-          "postProcessHash": "28f6f7085bf495df6a56336a568467aa6594daff4fb683a746e5c5266e606f0a"
+          "postProcessHash": "561202c834cd2d6c7e2c8899bbcdcd650afb5e5326545724abcbb47d4c6f08a0"
+        },
+        "ko": {
+          "updatedAt": "2026-10-05T09:09:28.490Z",
+          "fileName": "docs.json",
+          "postProcessHash": "561202c834cd2d6c7e2c8899bbcdcd650afb5e5326545724abcbb47d4c6f08a0"
+        },
+        "ru": {
+          "updatedAt": "2026-10-05T09:09:28.701Z",
+          "fileName": "docs.json",
+          "postProcessHash": "561202c834cd2d6c7e2c8899bbcdcd650afb5e5326545724abcbb47d4c6f08a0"
         }
       },
       "fileName": "docs.json"
@@ -36567,47 +36567,47 @@
     },
     {
       "fileId": "d106d0ecf3323667bdd0c85dc71dc822ff7780ed67417ac0ca72162871287fb5",
-      "versionId": "83c5b38d6d619bb0f00806e9288d58709a44e5fcf7ef1adf1d210049f6f137d4",
+      "versionId": "188c6e25cb4cd30826fecdcd93b8f48d775c3db849df494ccf07be1826183010",
       "translations": {
-        "es": {
-          "updatedAt": "2026-10-02T03:44:43.776Z",
-          "fileName": "es/integrations/clickpipes/kafka/best-practices.mdx",
-          "postProcessHash": "78a5b586214c0882f9fd4fa465b9281e684deefbc237fe418a3971f336d8a008"
-        },
         "ja": {
-          "updatedAt": "2026-10-02T03:44:43.777Z",
+          "updatedAt": "2026-10-05T09:09:28.704Z",
           "fileName": "ja/integrations/clickpipes/kafka/best-practices.mdx",
-          "postProcessHash": "8d3e0c8f18da3fa801800e6c35eeda60080a9c937a145c7d8dab6af45ca6fc33"
-        },
-        "ko": {
-          "updatedAt": "2026-10-02T03:44:43.777Z",
-          "fileName": "ko/integrations/clickpipes/kafka/best-practices.mdx",
-          "postProcessHash": "47e675ea2aa57900d124d41461b41752ef93e5568d749209240f833bcb8507a1"
-        },
-        "pt-BR": {
-          "updatedAt": "2026-10-02T03:44:43.777Z",
-          "fileName": "pt-BR/integrations/clickpipes/kafka/best-practices.mdx",
-          "postProcessHash": "56c72f2d66f13d824f2a98a2828a8dea8a4c0ef71e2fa1f2d3fb44ccd229e9a7"
-        },
-        "ru": {
-          "updatedAt": "2026-10-02T03:44:43.778Z",
-          "fileName": "ru/integrations/clickpipes/kafka/best-practices.mdx",
-          "postProcessHash": "1f419ca95291761ae9ecff824866574306c4e0a493569b2f3f7540fc7c0e9fbc"
-        },
-        "zh": {
-          "updatedAt": "2026-10-02T03:44:43.778Z",
-          "fileName": "zh/integrations/clickpipes/kafka/best-practices.mdx",
-          "postProcessHash": "e6f265c75215606a4164137cc9e6d2e2163938c003dee5e569b6f2cb503fcb91"
-        },
-        "ar": {
-          "updatedAt": "2026-10-02T03:44:43.779Z",
-          "fileName": "ar/integrations/clickpipes/kafka/best-practices.mdx",
-          "postProcessHash": "62dc3a56c5f6c33c4ccc67e961379e35ef7104136be46436a46928004ec6afaa"
+          "postProcessHash": "39ea77927e2b01f638dfe0f6865f46eecbd07cf1bd3e136096cc8b19e810306c"
         },
         "fr": {
-          "updatedAt": "2026-10-02T03:44:43.779Z",
+          "updatedAt": "2026-10-05T09:09:28.705Z",
           "fileName": "fr/integrations/clickpipes/kafka/best-practices.mdx",
-          "postProcessHash": "eda1f47578b3b1881893332a5ecb5e2939dac0fd3a3a70c0c9ca13677f1b5139"
+          "postProcessHash": "f3a34ecdc57e64cac8383437f5eae0bd5cab87f906c38ca7274dbcd042c69376"
+        },
+        "zh": {
+          "updatedAt": "2026-10-05T09:09:28.706Z",
+          "fileName": "zh/integrations/clickpipes/kafka/best-practices.mdx",
+          "postProcessHash": "f323b6a5a312dfa4ff10a0aff7c0ba4de2eb4e8216934cae23dfb4901140a8a0"
+        },
+        "ru": {
+          "updatedAt": "2026-10-05T09:09:28.706Z",
+          "fileName": "ru/integrations/clickpipes/kafka/best-practices.mdx",
+          "postProcessHash": "52a3a37d1ae454a9c71d4851a396420c928248dde69f014f5614b5b5bfe9c418"
+        },
+        "ko": {
+          "updatedAt": "2026-10-05T09:09:28.707Z",
+          "fileName": "ko/integrations/clickpipes/kafka/best-practices.mdx",
+          "postProcessHash": "90e47cae4bc7d80c7ecaff6aae3475b982f433871217f650744d31e64b9eb3ed"
+        },
+        "pt-BR": {
+          "updatedAt": "2026-10-05T09:09:28.708Z",
+          "fileName": "pt-BR/integrations/clickpipes/kafka/best-practices.mdx",
+          "postProcessHash": "b4371e402be7cb82a501bbdc23b0d3da816b4c43f149b12b491c178995e02d02"
+        },
+        "ar": {
+          "updatedAt": "2026-10-05T09:09:28.710Z",
+          "fileName": "ar/integrations/clickpipes/kafka/best-practices.mdx",
+          "postProcessHash": "f53dfe219346db99bfc6d63dbad6a862dd3c4c7159a3b963c1c729c1b5189830"
+        },
+        "es": {
+          "updatedAt": "2026-10-05T09:09:28.710Z",
+          "fileName": "es/integrations/clickpipes/kafka/best-practices.mdx",
+          "postProcessHash": "2764dbfe03e9ed95907e945fd2e1961fc07c82f7f7206d8f71b11f32f81cc783"
         }
       },
       "fileName": "integrations/clickpipes/kafka/best-practices.mdx"
@@ -39867,51 +39867,50 @@
     },
     {
       "fileId": "1e9438e1f6003722eead768a752264b9125c1adf1f4db4b6e1f212203c90e026",
-      "versionId": "67131b54e23369df603b145d49be73b840ae4c12c078af8ec9755067c2701a08",
+      "versionId": "c25cfc08cbcf598975477138bf31476885c41cb0c0021c339e2943d0991f829c",
       "translations": {
-        "es": {
-          "updatedAt": "2026-08-14T10:41:06.589Z",
-          "fileName": "es/integrations/connectors/data-visualization/index.mdx",
-          "postProcessHash": "32c13c954437db2e1d4d3af156c8bcd678aa9cc6a534e740e6a1db14f5497899"
-        },
-        "ja": {
-          "updatedAt": "2026-08-14T10:41:06.589Z",
-          "fileName": "ja/integrations/connectors/data-visualization/index.mdx",
-          "postProcessHash": "3e85f02989f83977605467939417d71e3acbb1405a3a563c238fc86fed2136ba"
-        },
-        "ko": {
-          "updatedAt": "2026-08-14T10:41:06.589Z",
-          "fileName": "ko/integrations/connectors/data-visualization/index.mdx",
-          "postProcessHash": "0f60455be57aeae64a83e4d20a78af1b50366a10c7e41a31bbe7aa591e72da21"
-        },
-        "pt-BR": {
-          "updatedAt": "2026-08-14T10:41:06.589Z",
-          "fileName": "pt-BR/integrations/connectors/data-visualization/index.mdx",
-          "postProcessHash": "787e73c3bda94dd666a99ca38ed2c84329cb7250f0b7b9b00e6ccaa1404f71b8"
-        },
-        "ru": {
-          "updatedAt": "2026-08-14T10:41:06.589Z",
-          "fileName": "ru/integrations/connectors/data-visualization/index.mdx",
-          "postProcessHash": "e8464197ee434a8e26de797c7731872982b9a5f904e0c13af9281f04dc80f137"
+        "ar": {
+          "updatedAt": "2026-10-05T09:09:28.705Z",
+          "fileName": "ar/integrations/connectors/data-visualization/index.mdx",
+          "postProcessHash": "0b56582cfc5cca33df006f4e1e2f442ae3abc97a5d54974a4e239c90b8f3d052"
         },
         "zh": {
-          "updatedAt": "2026-08-14T10:41:06.589Z",
+          "updatedAt": "2026-10-05T09:09:28.706Z",
           "fileName": "zh/integrations/connectors/data-visualization/index.mdx",
-          "postProcessHash": "12eb11faf1ae63d46e19b897c4819f547a96a5dfc49fd36bfe5bc11a6d645307"
+          "postProcessHash": "f660945243b211c74ed1971fa1927269c1b9da1ff70f4a39adf600d225a95f98"
         },
-        "ar": {
-          "updatedAt": "2026-08-14T10:41:06.589Z",
-          "fileName": "ar/integrations/connectors/data-visualization/index.mdx",
-          "postProcessHash": "bf0483da1d86ea9b5478abd190eb5a3f54519633468664bcd4eabbfc2789acec"
+        "ja": {
+          "updatedAt": "2026-10-05T09:09:28.707Z",
+          "fileName": "ja/integrations/connectors/data-visualization/index.mdx",
+          "postProcessHash": "edfcf002ba14a936de78504e8f2e02004162142139ff7f89b10eacac6f21e7c3"
+        },
+        "ru": {
+          "updatedAt": "2026-10-05T09:09:28.708Z",
+          "fileName": "ru/integrations/connectors/data-visualization/index.mdx",
+          "postProcessHash": "8471700d895ebe602ee1d73937157f736b81fe4cde3cc8463879735ff6e8cfcf"
+        },
+        "es": {
+          "updatedAt": "2026-10-05T09:09:28.708Z",
+          "fileName": "es/integrations/connectors/data-visualization/index.mdx",
+          "postProcessHash": "f402957697928a51fe7d9ee63fd5159e87d84dcfd7edb307f60141cf2231cd14"
         },
         "fr": {
-          "updatedAt": "2026-08-14T10:41:06.589Z",
+          "updatedAt": "2026-10-05T09:09:28.709Z",
           "fileName": "fr/integrations/connectors/data-visualization/index.mdx",
-          "postProcessHash": "25546c645d70e3206ecfcfe8441ae4fd80195ba59ca6b2e8d0e9a7cb3804f59a"
+          "postProcessHash": "0574f1f26f13f6f30d86648e149fc842023d5be2c8cd0681d4f72c22d24a9373"
+        },
+        "pt-BR": {
+          "updatedAt": "2026-10-05T09:09:28.709Z",
+          "fileName": "pt-BR/integrations/connectors/data-visualization/index.mdx",
+          "postProcessHash": "a7fd526a8077aa920ee0cd64df131b6b357271c1f59925dda07773d0f0a7fbcf"
+        },
+        "ko": {
+          "updatedAt": "2026-10-05T09:09:28.710Z",
+          "fileName": "ko/integrations/connectors/data-visualization/index.mdx",
+          "postProcessHash": "821272f969acbd3a21e5e9b7980ccbfccf3942a4a61a6e228bbc2bb2d48b7d39"
         }
       },
-      "fileName": "integrations/connectors/data-visualization/index.mdx",
-      "staged": false
+      "fileName": "integrations/connectors/data-visualization/index.mdx"
     },
     {
       "fileId": "b9a6df36efb70c006323cb61244399715979357fc20edf0bcbf6f2558e65a4d7",
@@ -140556,6 +140555,53 @@
         }
       },
       "fileName": "reference/engines/database-engines/overlay.mdx"
+    },
+    {
+      "fileId": "5e6ddddcee1614d8365788c40dd5575e4824b85f4d0bcda0541e51380cc4f399",
+      "versionId": "dbff457d225d6322fa95408380131ad0161d5ef936c1a03896a9959d1db971a7",
+      "translations": {
+        "zh": {
+          "updatedAt": "2026-10-05T09:09:28.702Z",
+          "fileName": "zh/integrations/connectors/data-visualization/thoughtspot-and-clickhouse.mdx",
+          "postProcessHash": "13977c66e459e896c20f482c723c1aeb522ee93b239b8ab0a5f79bafe7579688"
+        },
+        "es": {
+          "updatedAt": "2026-10-05T09:09:28.702Z",
+          "fileName": "es/integrations/connectors/data-visualization/thoughtspot-and-clickhouse.mdx",
+          "postProcessHash": "1e6701aa81d085fe7053a1e235e2e0bcd146c95c640c3473c9d6d834f191fd91"
+        },
+        "ru": {
+          "updatedAt": "2026-10-05T09:09:28.702Z",
+          "fileName": "ru/integrations/connectors/data-visualization/thoughtspot-and-clickhouse.mdx",
+          "postProcessHash": "df5c8b4fa6d7f787219f97bafa4585c2014e3943f637287e3bd428a2060e3c28"
+        },
+        "pt-BR": {
+          "updatedAt": "2026-10-05T09:09:28.703Z",
+          "fileName": "pt-BR/integrations/connectors/data-visualization/thoughtspot-and-clickhouse.mdx",
+          "postProcessHash": "885ae0bd535ef0dbc066bc2291c7b37dab9c36c96ce3030010077eab8f46b777"
+        },
+        "ja": {
+          "updatedAt": "2026-10-05T09:09:28.703Z",
+          "fileName": "ja/integrations/connectors/data-visualization/thoughtspot-and-clickhouse.mdx",
+          "postProcessHash": "ec61700b0cd867b4959d617ac457d4ca693de7d9ed84868e5f57093565bbe625"
+        },
+        "ko": {
+          "updatedAt": "2026-10-05T09:09:28.703Z",
+          "fileName": "ko/integrations/connectors/data-visualization/thoughtspot-and-clickhouse.mdx",
+          "postProcessHash": "09ef50cbfb78c0a9bccb1e3d6b2408e875a675aecd8b3c9a524f5643228cdcec"
+        },
+        "fr": {
+          "updatedAt": "2026-10-05T09:09:28.704Z",
+          "fileName": "fr/integrations/connectors/data-visualization/thoughtspot-and-clickhouse.mdx",
+          "postProcessHash": "e729f45f6f750415ec799c12f332404e00d18fa6f1472443200294d7cec69da0"
+        },
+        "ar": {
+          "updatedAt": "2026-10-05T09:09:28.704Z",
+          "fileName": "ar/integrations/connectors/data-visualization/thoughtspot-and-clickhouse.mdx",
+          "postProcessHash": "33217ef441d4b81a82f3e459fc9393521353e7c39ab6c1ccb5dd7a66d4ea777d"
+        }
+      },
+      "fileName": "integrations/connectors/data-visualization/thoughtspot-and-clickhouse.mdx"
     }
   ]
 }

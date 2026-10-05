@@ -49,6 +49,13 @@ ClickPipes for Kafka는 기본적으로 Kafka consumer group offset을 통해 �
 
 파티션 수가 내부 삽입 &quot;worker&quot; 수와 비슷할 때 파이프가 가장 효율적으로 작동합니다. 이 경우 각 worker는 대략 하나의 파티션을 처리하며 큰 블록을 생성할 수 있는 충분한 메모리 여유를 확보할 수 있습니다. worker 수와 사용 가능한 메모리는 모두 **설정** -&gt; **고급 설정** -&gt; **스케일링**에서 구성하는 레플리카 크기 및 수에 따라 스케일링됩니다.
 
+## 툼스톤(Tombstone) 처리 {#tombstone-handling}
+
+Kafka 툼스톤은 키는 있고 값이 null인 레코드입니다. **고급 설정**에서 Kafka ClickPipe가 툼스톤을 처리하는 방식을 구성할 수 있습니다.
+
+* **Delete matching rows**는 [경량한 삭제](/ko/concepts/features/operations/delete/lightweight-delete)를 사용하여 대상 테이블에서 일치하는 행을 삭제합니다. 이 옵션은 정확히 한 번 처리 의미 체계가 활성화된 경우에만 사용할 수 있습니다. 경량한 삭제는 비용이 많이 들므로 대규모 워크로드에는 적합하지 않습니다.
+* **Mark rows as deleted**는 각 툼스톤을 하나의 행으로 기록합니다. 대규모 워크로드에는 이 옵션을 권장합니다. [`ReplacingMergeTree`](/ko/reference/engines/table-engines/mergetree-family/replacingmergetree) 대상 테이블을 생성하고 `_is_deleted` 가상 컬럼을 선택하십시오. 그러면 ClickPipes가 이 가상 컬럼을 엔진의 `is_deleted` 컬럼으로 구성합니다.
+
 ## 인증 {#authentication}
 
 Apache Kafka 프로토콜 데이터 소스의 경우 ClickPipes는 TLS 암호화와 함께 [SASL/PLAIN](https://docs.confluent.io/platform/current/kafka/authentication_sasl/authentication_sasl_plain.html) 인증을 지원하며, `SASL/SCRAM-SHA-256` 및 `SASL/SCRAM-SHA-512`도 지원합니다. 스트리밍 소스(Redpanda, MSK 등)에 따라 호환성에 기반해 이러한 인증 메커니즘 전체 또는 일부만 사용할 수 있습니다. 필요한 인증 방식이 이와 다르다면 [피드백을 보내주십시오](https://clickhouse.com/company/contact?loc=clickpipes).

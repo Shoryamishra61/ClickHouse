@@ -49,6 +49,13 @@ Le principal compromis concerne la taille des parts. Des blocs d’insertion plu
 
 Un pipeline fonctionne de manière optimale lorsque le nombre de partitions est proche du nombre de « workers » d’insertion internes, car chaque worker gère alors approximativement une partition et dispose de suffisamment de mémoire pour créer de grands blocs. Le nombre de workers et la mémoire disponible évoluent avec la taille et le nombre de répliques, que vous configurez dans **Paramètres** -&gt; **Paramètres avancés** -&gt; **Mise à l’échelle**.
 
+## Gestion des tombstones {#tombstone-handling}
+
+Les tombstones Kafka sont des enregistrements comportant une clé et une valeur nulle. Dans **Paramètres avancés**, vous pouvez configurer la manière dont un Kafka ClickPipe les traite :
+
+* **Delete matching rows** supprime les lignes correspondantes de la table de destination au moyen d&#39;un [lightweight delete](/fr/concepts/features/operations/delete/lightweight-delete). Cette option n&#39;est disponible que si la sémantique exactement une fois est activée. Les lightweight deletes sont coûteux et ne conviennent pas aux charges de travail volumineuses.
+* **Mark rows as deleted** écrit chaque tombstone sous la forme d&#39;une ligne. C&#39;est l&#39;option recommandée pour les charges de travail volumineuses : créez une table de destination [`ReplacingMergeTree`](/fr/reference/engines/table-engines/mergetree-family/replacingmergetree) et sélectionnez la colonne virtuelle `_is_deleted`. ClickPipes configure alors cette colonne virtuelle comme colonne `is_deleted` du moteur.
+
 ## Authentification {#authentication}
 
 Pour les sources de données utilisant le protocole Apache Kafka, ClickPipes prend en charge l’authentification [SASL/PLAIN](https://docs.confluent.io/platform/current/kafka/authentication_sasl/authentication_sasl_plain.html) avec chiffrement TLS, ainsi que `SASL/SCRAM-SHA-256` et `SASL/SCRAM-SHA-512`. Selon la source de streaming (Redpanda, MSK, etc.), tout ou partie de ces mécanismes d’authentification seront activés en fonction de la compatibilité. Si vos besoins en matière d’authentification sont différents, veuillez [nous faire part de vos retours](https://clickhouse.com/company/contact?loc=clickpipes).

@@ -49,6 +49,13 @@ exactly-once を実現するため、ClickPipes は 2 つの値を使用して�
 
 パーティション数が内部 insert「worker」の数に近い場合、各 worker はおおむね 1 つのパーティションを処理でき、大きな block を構築するための十分なメモリのヘッドルームを確保できるため、パイプは最も効率よく動作します。worker 数と利用可能なメモリはいずれもレプリカサイズとレプリカ数に応じてスケールします。これらは **Settings** -&gt; **Advanced Settings** -&gt; **Scaling** で設定できます。
 
+## トゥームストーンの処理 {#tombstone-handling}
+
+Kafka のトゥームストーンとは、キーを持ち、値が null であるレコードです。**Advanced Settings** では、Kafka ClickPipe がトゥームストーンをどのように処理するかを設定できます。
+
+* **Delete matching rows** は、[論理削除](/ja/concepts/features/operations/delete/lightweight-delete)を使用して、一致する行を宛先テーブルから削除します。このオプションは、exactly-once セマンティクスが有効な場合にのみ利用できます。論理削除はコストの高い処理であるため、大規模なワークロードには適していません。
+* **Mark rows as deleted** は、各トゥームストーンを 1 行として書き込みます。大規模なワークロードには、こちらのオプションを推奨します。[`ReplacingMergeTree`](/ja/reference/engines/table-engines/mergetree-family/replacingmergetree) の宛先テーブルを作成し、`_is_deleted` 仮想カラムを選択してください。ClickPipes は、この仮想カラムをエンジンの `is_deleted` カラムとして設定します。
+
 ## 認証 {#authentication}
 
 Apache Kafka プロトコルのデータソースでは、ClickPipes は TLS 暗号化を使用する [SASL/PLAIN](https://docs.confluent.io/platform/current/kafka/authentication_sasl/authentication_sasl_plain.html) 認証に加え、`SASL/SCRAM-SHA-256` および `SASL/SCRAM-SHA-512` もサポートしています。ストリーミングソース (Redpanda、MSK など) によっては、互換性に応じて、これらの認証メカニズムのすべて、または一部のみが利用可能です。必要な認証方式が異なる場合は、[ぜひフィードバックをお寄せください](https://clickhouse.com/company/contact?loc=clickpipes)。

@@ -49,6 +49,13 @@ integration:
 
 يعمل خط ClickPipes بأفضل كفاءة عندما يكون عدد الأقسام قريبًا من عدد &quot;workers&quot; الداخلية للإدراج، إذ يتعامل كل worker حينها مع قسم واحد تقريبًا، وتتوفر له سعة إضافية في الذاكرة لإنشاء كتل كبيرة. يتوسع كل من عدد الـ workers والذاكرة المتاحة مع حجم الـ نسخة متماثلة وعددها، ويمكنك تكوينهما ضمن **الإعدادات** -&gt; **الإعدادات المتقدمة** -&gt; **التحجيم**.
 
+## معالجة علامات الحذف {#tombstone-handling}
+
+علامات الحذف في Kafka هي سجلات تحتوي على مفتاح وقيمة فارغة (null). يمكنك من خلال **الإعدادات المتقدمة** تهيئة الطريقة التي يتعامل بها Kafka ClickPipe معها:
+
+* **حذف الصفوف المطابقة** (Delete matching rows): يحذف الصفوف المطابقة من الجدول الوجهة باستخدام [الحذف خفيف الوزن](/ar/concepts/features/operations/delete/lightweight-delete). لا يتوفر هذا الخيار إلا عند تفعيل دلالات التسليم مرة واحدة بالضبط (exactly-once). علمًا بأن عمليات الحذف خفيفة الوزن مكلفة ولا تناسب أعباء العمل الكبيرة.
+* **تمييز الصفوف كمحذوفة** (Mark rows as deleted): يكتب كل علامة حذف في صورة صف. وهذا هو الخيار الموصى به لأعباء العمل الكبيرة: أنشئ جدولًا وجهة من نوع [`ReplacingMergeTree`](/ar/reference/engines/table-engines/mergetree-family/replacingmergetree) واختر العمود الافتراضي `_is_deleted`. وستتولى ClickPipes تهيئة هذا العمود الافتراضي ليكون عمود `is_deleted` الخاص بالمحرك.
+
 ## المصادقة {#authentication}
 
 بالنسبة إلى مصادر البيانات التي تستخدم بروتوكول Apache Kafka، تدعم ClickPipes المصادقة عبر [SASL/PLAIN](https://docs.confluent.io/platform/current/kafka/authentication_sasl/authentication_sasl_plain.html) مع تشفير TLS، بالإضافة إلى `SASL/SCRAM-SHA-256` و`SASL/SCRAM-SHA-512`. وبحسب مصدر البث (مثل Redpanda وMSK وغيرها)، سيتم تفعيل جميع آليات المصادقة هذه أو مجموعة فرعية منها وفقًا للتوافق. إذا كانت متطلبات المصادقة لديكم مختلفة، فيُرجى [إرسال ملاحظاتكم إلينا](https://clickhouse.com/company/contact?loc=clickpipes).
