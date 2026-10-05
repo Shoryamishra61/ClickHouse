@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Tags: zookeeper, no-shared-merge-tree
+# no-shared-merge-tree: FETCH PARTITION is not supported by SharedMergeTree
 # `FETCH PARTITION` and `FETCH PART` copy base parts only, and a patch part - which holds an
 # acknowledged lightweight update that its base parts do not have yet - lives in a partition of its
 # own, so it was never fetched: the copy silently served pre-update values. Every other

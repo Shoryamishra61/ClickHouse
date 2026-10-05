@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Tags: zookeeper, no-shared-merge-tree
+# no-shared-merge-tree: FETCH PARTITION is not supported by SharedMergeTree
 # `clearUnusedPatchParts` removes a patch part as soon as the base parts of *its own* replica have been
 # mutated past it by `APPLY PATCHES`, without waiting for the other replicas. A replica that has not
 # executed the `GET_PART` of the patch then still holds the old base part, and no patch is left on any
