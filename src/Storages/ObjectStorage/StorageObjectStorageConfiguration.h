@@ -586,9 +586,10 @@ protected:
         std::unordered_map<String, Clock::time_point> paths;
         std::deque<std::pair<Clock::time_point, String>> order;
 
-        void commit(const String & path)
+        /// Every access drops the expired entries, so the keys of a large export do not stay resident
+        /// once the table only checks the keys, deletes the objects, or writes again after an idle period.
+        void expire(Clock::time_point now)
         {
-            const auto now = Clock::now();
             while (!order.empty() && now - order.front().first >= retention)
             {
                 auto it = paths.find(order.front().second);
@@ -596,19 +597,38 @@ protected:
                     paths.erase(it);
                 order.pop_front();
             }
+            if (paths.empty())
+            {
+                /// Every remaining entry in `order` belongs to a key that was forgotten or committed again.
+                order.clear();
+                order.shrink_to_fit();
+            }
+        }
+
+        void commit(const String & path)
+        {
+            const auto now = Clock::now();
+            expire(now);
             paths[path] = now;
             order.emplace_back(now, path);
         }
 
-        bool contains(const String & path) const
+        bool contains(const String & path)
         {
+            const auto now = Clock::now();
+            expire(now);
             auto it = paths.find(path);
-            return it != paths.end() && Clock::now() - it->second < retention;
+            return it != paths.end() && now - it->second < retention;
         }
 
-        void forget(const String & path) { paths.erase(path); }
+        void forget(const String & path)
+        {
+            paths.erase(path);
+            expire(Clock::now());
+        }
     };
-    CommittedPaths paths_committed_by_writes;
+    /// Mutable, because a lookup in a const accessor drops the expired keys as well.
+    mutable CommittedPaths paths_committed_by_writes;
     void checkFormat() const;
 
     void initializeFromParsedArguments(const StorageParsedArguments & parsed_arguments);
