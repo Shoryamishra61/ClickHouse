@@ -38,7 +38,10 @@ DirectoryIteratorImpl::DirectoryIteratorImpl(const std::string& path): _fh(INVAL
 	_fh = FindFirstFileW(uFindPath.c_str(), &_fd);
 	if (_fh == INVALID_HANDLE_VALUE)
 	{
-		if (GetLastError() != ERROR_NO_MORE_FILES)
+		/// `FindFirstFileW` reports a directory without entries matching `*` as `ERROR_FILE_NOT_FOUND`;
+		/// `ERROR_NO_MORE_FILES` is what `FindNextFileW` returns at the end of a search.
+		DWORD error = GetLastError();
+		if (error != ERROR_FILE_NOT_FOUND && error != ERROR_NO_MORE_FILES)
 			File::handleLastError(path);
 	}
 	else
