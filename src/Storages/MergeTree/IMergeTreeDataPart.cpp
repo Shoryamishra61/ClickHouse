@@ -45,6 +45,7 @@
 #include <Storages/MergeTree/UniqueKey/DeleteBitmapCache.h>
 #include <Storages/MergeTree/PrimaryIndexCache.h>
 #include <Storages/MergeTree/StatisticsCache.h>
+#include <Storages/MergeTree/StatisticsSerialization.h>
 #include <Storages/MergeTree/UniqueKey/SSTIndexWriter.h>
 #include <Storages/MergeTree/checkDataPart.h>
 #include <Storages/StorageReplicatedMergeTree.h>
@@ -1359,23 +1360,13 @@ PackedFilesReader * IMergeTreeDataPart::getStatisticsPackedReader() const
     return statistics_reader.get();
 }
 
-static const ColumnDescription * getColumnForStatisticsFile(const String & filename, const ColumnsDescription & all_columns, const NameSet & required_columns)
+static const ColumnDescription * getColumnForStatisticsFile(const String & filename, const ColumnsDescription & all_columns)
 {
     chassert(filename.starts_with(STATS_FILE_PREFIX));
     chassert(filename.ends_with(STATS_FILE_SUFFIX));
 
     size_t num_chars_to_truncate = STATS_FILE_PREFIX.size() + STATS_FILE_SUFFIX.size();
     String column_name = unescapeForFileName(filename.substr(STATS_FILE_PREFIX.size(), filename.size() - num_chars_to_truncate));
-
-    /// `<col>.null` subcolumn may appear in required_columns when
-    /// `optimize_functions_to_subcolumns=1`, keep stats for the parent column in that case.
-    if (!required_columns.empty()
-        && !required_columns.contains(column_name)
-        && !required_columns.contains(column_name + ".null"))
-    {
-        return nullptr;
-    }
-
     return all_columns.tryGet(column_name);
 }
 
@@ -1436,30 +1427,63 @@ ColumnsStatistics IMergeTreeDataPart::loadStatistics(const NameSet & required_co
     /// The list of statistics files is known without reading them: it is the index of the packed
     /// archive, which is read once per part, or the checksums of a part that stores every file separately.
     const PackedFilesReader * packed_reader = getStatisticsPackedReader();
-    Names filenames;
-    if (packed_reader)
+    const auto & all_columns = getColumnsDescription();
+
+    /// Pairs of a statistics file and the column it belongs to.
+    std::vector<std::pair<String, const ColumnDescription *>> files_to_load;
+    if (!required_columns.empty())
     {
-        filenames = packed_reader->getFileNames();
-        for (const auto & filename : filenames)
-            if (!filename.ends_with(STATS_FILE_SUFFIX) || !filename.starts_with(STATS_FILE_PREFIX))
-                throw Exception(ErrorCodes::CORRUPTED_DATA, "File {} is not a statistics file", filename);
+        /// A query usually needs the statistics of a few columns, so probe the files of these columns
+        /// directly instead of scanning the statistics files of every column of the part.
+        NameSet probed_columns;
+        auto probe = [&](const String & column_name)
+        {
+            if (!probed_columns.emplace(column_name).second)
+                return;
+            const auto * column_desc = all_columns.tryGet(column_name);
+            if (!column_desc)
+                return;
+            String filename = getStatisticsFilename(column_name);
+            if (packed_reader ? packed_reader->exists(filename) : checksums.has(filename))
+                files_to_load.emplace_back(std::move(filename), column_desc);
+        };
+
+        for (const auto & required_column : required_columns)
+        {
+            probe(required_column);
+            /// `<col>.null` subcolumn may appear in required_columns when
+            /// `optimize_functions_to_subcolumns=1`, keep stats for the parent column in that case.
+            if (required_column.ends_with(".null"))
+                probe(required_column.substr(0, required_column.size() - std::string_view(".null").size()));
+        }
     }
     else
     {
-        for (const auto & [filename, _] : checksums.files)
-            if (filename.ends_with(STATS_FILE_SUFFIX) && filename.starts_with(STATS_FILE_PREFIX))
-                filenames.push_back(filename);
+        Names filenames;
+        if (packed_reader)
+        {
+            filenames = packed_reader->getFileNames();
+            for (const auto & filename : filenames)
+                if (!filename.ends_with(STATS_FILE_SUFFIX) || !filename.starts_with(STATS_FILE_PREFIX))
+                    throw Exception(ErrorCodes::CORRUPTED_DATA, "File {} is not a statistics file", filename);
+        }
+        else
+        {
+            for (const auto & [filename, _] : checksums.files)
+                if (filename.ends_with(STATS_FILE_SUFFIX) && filename.starts_with(STATS_FILE_PREFIX))
+                    filenames.push_back(filename);
+        }
+
+        for (auto & filename : filenames)
+            if (const auto * column_desc = getColumnForStatisticsFile(filename, all_columns))
+                files_to_load.emplace_back(std::move(filename), column_desc);
     }
 
     const String part_path = cache ? getPathForCacheKey() : "";
 
     ColumnsStatistics result;
-    for (const auto & filename : filenames)
+    for (const auto & [filename, column_desc] : files_to_load)
     {
-        const auto * column_desc = getColumnForStatisticsFile(filename, getColumnsDescription(), required_columns);
-        if (!column_desc)
-            continue;
-
         auto load = [&] { return loadStatisticsFile(packed_reader, filename, *column_desc); };
         auto cell = cache ? cache->getOrSet(StatisticsCache::hash(part_path, column_desc->name), load) : load();
         if (cell->stats)
