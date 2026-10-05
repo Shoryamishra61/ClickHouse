@@ -25,6 +25,7 @@
 #include <Storages/MergeTree/IMergeTreeDataPart.h>
 #include <Storages/MergeTree/RangesInDataPart.h>
 #include <Formats/ParseError.h>
+#include <algorithm>
 
 
 namespace ProfileEvents
@@ -258,6 +259,7 @@ RelationProfile ConditionSelectivityEstimator::estimateRelationProfileImpl(std::
     else if (final_rows > static_cast<Float64>(total_rows))
         final_rows = static_cast<Float64>(total_rows);
     result.rows = static_cast<UInt64>(final_rows);
+    result.estimate_from_defaults = std::ranges::any_of(rpn, [](const RPNElement & element) { return element.used_default; });
     for (const auto & [column_name, estimator] : column_estimators)
     {
         if (!isCompatibleStatistics(metadata, estimator.stats, column_name))
@@ -979,7 +981,10 @@ bool ConditionSelectivityEstimator::RPNElement::tryToMergeClauses(RPNElement & l
             if (side->finalized)
                 absorbed_and_selectivity = absorbed_and_selectivity.applyAnd(side->selectivity);
             else if (side->function == FUNCTION_UNKNOWN)
+            {
                 absorbed_and_selectivity = absorbed_and_selectivity.applyAnd(Selectivity{default_unknown_cond_factor, 0});
+                used_default = true;
+            }
         }
 
         merge_column_ranges(column_ranges, lhs.column_ranges, rhs.column_ranges, false);
@@ -1012,6 +1017,7 @@ void ConditionSelectivityEstimator::RPNElement::finalize(const ColumnEstimators 
     if (function == FUNCTION_UNKNOWN)
     {
         selectivity = {default_unknown_cond_factor, 0};
+        used_default = true;
         return;
     }
 
@@ -1184,7 +1190,10 @@ void ConditionSelectivityEstimator::RPNElement::finalize(const ColumnEstimators 
     /// total row count (e.g. IN with many values and over-counting statistics),
     /// or become NaN from floating-point edge cases.
     if (!std::isfinite(selectivity.true_sel))
+    {
         selectivity.true_sel = default_unknown_cond_factor;
+        used_default = true;
+    }
     else
         selectivity.true_sel = std::max(0.0, std::min(1.0, selectivity.true_sel));
 

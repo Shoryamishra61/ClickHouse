@@ -27,6 +27,9 @@ struct RelationStats
 
     String table_name;
     bool imprecise_estimate = false;
+    /// A default selectivity stood in for a predicate the statistics could not estimate, so
+    /// `estimated_rows` is a guess. Set at the read; the steps above do not carry it.
+    bool estimate_from_defaults = false;
 
     /// Diagnostic annotation of where `estimated_rows` came from; see `RowEstimateSource`.
     /// `NoSource` means the producer of the estimate did not track it; set it wherever it is known.

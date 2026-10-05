@@ -1,13 +1,53 @@
 #include <Processors/QueryPlan/Optimizations/Cascades/RuleUtils.h>
+#include <Processors/QueryPlan/Optimizations/Cascades/Group.h>
+#include <Processors/QueryPlan/Optimizations/Cascades/OptimizerContext.h>
 #include <Processors/QueryPlan/BuildRuntimeFilterStep.h>
 #include <Processors/QueryPlan/ExpressionStep.h>
 #include <Processors/QueryPlan/FilterStep.h>
 #include <Processors/QueryPlan/ReadFromMergeTree.h>
 #include <Processors/QueryPlan/SortingStep.h>
+#include <Common/logger_useful.h>
 #include <fmt/format.h>
+#include <cmath>
+#include <limits>
 
 namespace DB
 {
+
+namespace
+{
+
+/// A row count of the statistics as an integer; the unbounded value stays the largest integer.
+UInt64 toRowCount(Float64 rows)
+{
+    if (rows >= Float64(std::numeric_limits<UInt64>::max()))
+        return std::numeric_limits<UInt64>::max();
+    return UInt64(std::ceil(std::max(rows, 0.0)));
+}
+
+}
+
+ReplicationDecision decideReplicationOf(const Group & group, const OptimizerContext & context, const String & rule_name)
+{
+    /// Without statistics the size is unknown and has no bound.
+    ReplicationSize size;
+    if (group.statistics)
+    {
+        const auto & statistics = *group.statistics;
+        if (!statistics.rows_unknown)
+            size.estimated_rows = toRowCount(statistics.estimated_row_count);
+        if (statistics.max_row_count < Float64(std::numeric_limits<UInt64>::max()))
+            size.max_rows = toRowCount(statistics.max_row_count);
+        size.bytes_per_row = statistics.estimated_bytes_per_row;
+        if (statistics.physical_read_bytes > 0)
+            size.scan_bytes = toRowCount(statistics.physical_read_bytes);
+    }
+
+    const ReplicationBudget budget{.max_rows = std::nullopt, .max_bytes = context.max_bytes_to_broadcast};
+    const auto decision = decideReplication(size, budget);
+    LOG_TEST(getLogger(rule_name), "{}", decision.describe(size, budget));
+    return decision;
+}
 
 bool isTopNSort(const IQueryPlanStep & step)
 {

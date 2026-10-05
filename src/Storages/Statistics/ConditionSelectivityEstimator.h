@@ -30,6 +30,8 @@ struct RelationProfile
 {
     UInt64 rows = 0;
     std::unordered_map<String, ColumnStats> column_stats = {};
+    /// A predicate the statistics could not estimate took the default selectivity, so `rows` is a guess.
+    bool estimate_from_defaults = false;
 };
 
 class IMergeTreeDataPart;
@@ -107,6 +109,8 @@ public:
         /// columns checked with IS NOT NULL predicate
         std::unordered_set<String> not_null_check_columns;
         bool finalized = false;
+        /// The default selectivity stood in for this element or for an atom it absorbed.
+        bool used_default = false;
         Selectivity selectivity;
         /// Selectivity of the atoms that were absorbed by a conjunctive merge without contributing
         /// any range - currently only `FUNCTION_UNKNOWN`. Merging carries ranges across, so such an

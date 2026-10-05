@@ -1,0 +1,59 @@
+-- The Cascades optimizer picked a broadcast join, a replicated read or a replicated subplan by
+-- cost alone. Now every replication has to fit `distributed_plan_max_bytes_to_broadcast`: the
+-- estimated rows times the row width when the rows are known, the proven row bound when they are
+-- not; a result with neither is never replicated. The hints stand in for statistics. Side
+-- widths stay small and the budget moves, so the cost model has no reason to copy the other side.
+SET enable_analyzer = 1;
+SET enable_parallel_replicas = 0;
+SET explain_query_plan_default = 'legacy';
+SET max_rows_to_group_by = 0;
+SET enable_join_runtime_filters = 0;
+SET collect_hash_table_stats_during_joins = 0;
+SET query_plan_join_swap_table = 0;
+SET query_plan_optimize_join_order_randomize = 0;
+SET query_plan_optimize_join_order_limit = 10;
+SET query_plan_optimize_join_order_algorithm = 'greedy';
+SET use_statistics = 0;
+SET param__internal_cascades_cluster_node_count = 3;
+
+DROP TABLE IF EXISTS t_cb_fact;
+DROP TABLE IF EXISTS t_cb_dim;
+DROP TABLE IF EXISTS t_cb_unk;
+CREATE TABLE t_cb_fact (k UInt64, v UInt64) ENGINE = MergeTree ORDER BY k SETTINGS auto_statistics_types = '';
+CREATE TABLE t_cb_dim (k UInt64, name String) ENGINE = MergeTree ORDER BY k SETTINGS auto_statistics_types = '';
+CREATE TABLE t_cb_unk (k UInt64, v UInt64) ENGINE = MergeTree ORDER BY k SETTINGS auto_statistics_types = '';
+INSERT INTO t_cb_fact SELECT number % 5, number FROM numbers(1000);
+INSERT INTO t_cb_dim SELECT number, concat('nm_', toString(number)) FROM numbers(5);
+INSERT INTO t_cb_unk SELECT number, number FROM numbers(100);
+
+SELECT '-- 5 rows of 18 bytes fit the budget: the dimension is broadcast';
+SET param__internal_join_table_stat_hints = '{"t_cb_fact": {"cardinality": 10000000, "avg_row_bytes": 16, "distinct_keys": {"k": 5}}, "t_cb_dim": {"cardinality": 5, "avg_row_bytes": 18, "distinct_keys": {"k": 5}}}';
+EXPLAIN SELECT count(), any(name) FROM t_cb_fact AS f JOIN t_cb_dim AS d ON f.k = d.k
+SETTINGS make_distributed_plan = 1, enable_cascades_optimizer = 1;
+
+SELECT '-- a budget of 50 bytes fits neither side: no replication, the join shuffles';
+EXPLAIN SELECT count(), any(name) FROM t_cb_fact AS f JOIN t_cb_dim AS d ON f.k = d.k
+SETTINGS make_distributed_plan = 1, enable_cascades_optimizer = 1, distributed_plan_max_bytes_to_broadcast = 50;
+
+SELECT '-- a budget of 0 is no budget, not an empty one: the dimension is broadcast';
+EXPLAIN SELECT count(), any(name) FROM t_cb_fact AS f JOIN t_cb_dim AS d ON f.k = d.k
+SETTINGS make_distributed_plan = 1, enable_cascades_optimizer = 1, distributed_plan_max_bytes_to_broadcast = 0;
+
+SELECT '-- a filter the primary key cannot prune leaves the rows unknown; the bound of 100 rows times 16 bytes fits a budget of 2000 bytes';
+SET param__internal_join_table_stat_hints = '{"t_cb_fact": {"cardinality": 10000000, "avg_row_bytes": 16, "distinct_keys": {"k": 5}}}';
+EXPLAIN estimates = 1 SELECT count() FROM t_cb_fact AS f JOIN t_cb_unk AS u ON f.k = u.k WHERE u.v < 5
+SETTINGS make_distributed_plan = 1, enable_cascades_optimizer = 1, distributed_plan_max_bytes_to_broadcast = 2000;
+
+SELECT '-- and does not fit a budget of 1000 bytes: no replication of the unknown side';
+EXPLAIN estimates = 1 SELECT count() FROM t_cb_fact AS f JOIN t_cb_unk AS u ON f.k = u.k WHERE u.v < 5
+SETTINGS make_distributed_plan = 1, enable_cascades_optimizer = 1, distributed_plan_max_bytes_to_broadcast = 1000;
+
+SELECT '-- results do not depend on the shape';
+SELECT count(), any(name) FROM t_cb_fact AS f JOIN t_cb_dim AS d ON f.k = d.k
+SETTINGS make_distributed_plan = 1, enable_cascades_optimizer = 1, distributed_plan_execute_locally = 1;
+SELECT count() FROM t_cb_fact AS f JOIN t_cb_unk AS u ON f.k = u.k WHERE u.v < 5
+SETTINGS make_distributed_plan = 1, enable_cascades_optimizer = 1, distributed_plan_execute_locally = 1, distributed_plan_max_bytes_to_broadcast = 1000;
+
+DROP TABLE t_cb_fact;
+DROP TABLE t_cb_dim;
+DROP TABLE t_cb_unk;

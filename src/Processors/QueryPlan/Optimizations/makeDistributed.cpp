@@ -30,6 +30,8 @@
 #include <Processors/QueryPlan/MergingAggregatedStep.h>
 #include <Processors/QueryPlan/Optimizations/Optimizations.h>
 #include <Processors/QueryPlan/Optimizations/RelationStatisticsEstimator.h>
+#include <Processors/QueryPlan/Optimizations/ReplicationEligibility.h>
+#include <Processors/QueryPlan/Optimizations/Cascades/Statistics.h>
 #include <Processors/QueryPlan/Optimizations/Utils.h>
 #include <Processors/QueryPlan/Optimizations/keyTypeBreaksHashSharding.h>
 #include <Processors/QueryPlan/ReadFromObjectStorageStep.h>
@@ -584,7 +586,6 @@ void tryMakeDistributedJoin(QueryPlan::Node & node, QueryPlan::Nodes & nodes, co
     QueryPlan::Node * source_b = node.children[1];
 
     auto stats_b = estimateReadRowsCount(*source_b, nullptr, RelationEstimationSettings(optimization_settings));
-    auto row_count_b = stats_b.estimated_rows;
     if (!source_b->cost_estimation)
         source_b->cost_estimation = toCostEstimationInfo(stats_b);
 
@@ -603,8 +604,18 @@ void tryMakeDistributedJoin(QueryPlan::Node & node, QueryPlan::Nodes & nodes, co
         = join_info.kind == JoinKind::Right
         || join_info.kind == JoinKind::Full;
 
-    /// Check if right table is small enough for broadcast
-    if (!broadcast_unsafe && row_count_b && row_count_b <= optimization_settings.distributed_plan_max_rows_to_broadcast)
+    /// The right side is copied to every node: it has to fit the row limit and the byte budget,
+    /// on its estimate when that is a measurement, on its proven row bound otherwise.
+    const ReplicationSize size_b{
+        .estimated_rows = stats_b.estimated_rows,
+        .estimate_from_defaults = stats_b.estimate_from_defaults,
+        .max_rows = stats_b.max_rows,
+        .bytes_per_row = stats_b.avg_row_bytes.value_or(estimateRowWidth(*source_b->step->getOutputHeader(), stats_b.column_stats))};
+    const ReplicationBudget budget{
+        .max_rows = optimization_settings.distributed_plan_max_rows_to_broadcast,
+        .max_bytes = optimization_settings.distributed_plan_max_bytes_to_broadcast};
+    const auto broadcast = decideReplication(size_b, budget);
+    if (!broadcast_unsafe && broadcast.allowed)
         strategy = Broadcast;
 
     QueryPlan::Node * exchange_scatter_a_node = nullptr;
@@ -614,9 +625,7 @@ void tryMakeDistributedJoin(QueryPlan::Node & node, QueryPlan::Nodes & nodes, co
 
     if (strategy == Broadcast)
     {
-        LOG_DEBUG(getLogger("tryMakeDistributedJoin"),
-            "Estimated number of rows in right source: {}. Using broadcast join",
-            row_count_b.transform(toString<UInt64>).value_or("unknown"));
+        LOG_DEBUG(getLogger("tryMakeDistributedJoin"), "Right source: {}. Using broadcast join", broadcast.describe(size_b, budget));
 
         exchange_scatter_a_node = &nodes.emplace_back();
         exchange_scatter_b_node = &nodes.emplace_back();
@@ -631,10 +640,8 @@ void tryMakeDistributedJoin(QueryPlan::Node & node, QueryPlan::Nodes & nodes, co
     }
     else
     {
-        LOG_DEBUG(getLogger("tryMakeDistributedJoin"),
-            "Estimated number of rows in right source: {}. Using {} buckets for shuffle join",
-            row_count_b.transform(toString<UInt64>).value_or("unknown"),
-            bucket_count);
+        LOG_DEBUG(getLogger("tryMakeDistributedJoin"), "Right source: {}. Using {} buckets for shuffle join",
+            broadcast.describe(size_b, budget), bucket_count);
 
         /// Keep type-incompatible joins single-node. Must precede preCalculateKeys(): bailing after
         /// it would leave the step with an input no child produces (LOGICAL_ERROR on deserialize).
@@ -1009,11 +1016,22 @@ void tryMakeDistributedRead(QueryPlan::Node & node, QueryPlan::Nodes & nodes, co
 
     if (read_from_merge_tree_step)
     {
-        /// Check if table is big enough for distributed read
+        /// A small table stays one read task, which the plan copies to every node when the other
+        /// side of a join is distributed; so it has to fit the row limit and the byte budget.
         /// TODO: implement better logic for choosing number of parallel readers
         auto analysis_result = read_from_merge_tree_step->getOrCreateAnalyzedResult();
-        if (analysis_result && analysis_result->selected_rows <= optimization_settings.distributed_plan_max_rows_to_broadcast)
-            return;
+        if (analysis_result)
+        {
+            const ReplicationSize size{
+                .estimated_rows = analysis_result->selected_rows,
+                .max_rows = analysis_result->selected_rows,
+                .bytes_per_row = estimateRowWidthFromHeader(*read_from_merge_tree_step->getOutputHeader())};
+            const ReplicationBudget budget{
+                .max_rows = optimization_settings.distributed_plan_max_rows_to_broadcast,
+                .max_bytes = optimization_settings.distributed_plan_max_bytes_to_broadcast};
+            if (decideReplication(size, budget).allowed)
+                return;
+        }
 
         /// The coordinator computes each bucket's authoritative marks: contiguous mark slices for a plain
         /// read, primary-key-range layers for FINAL (one merge per layer, so rows sharing a sort key are

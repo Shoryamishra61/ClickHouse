@@ -1,0 +1,65 @@
+-- 5 rows of 18 bytes fit the budget: the dimension is broadcast
+Expression ((Project names + Projection))
+  MergingAggregated
+    GatherExchange
+      Aggregating
+        Expression (Before GROUP BY)
+          JoinLogical (Broadcast HashJoin )
+            Expression (Change column names to column identifiers)
+              ReadFromMergeTree (ParallelRead default.t_cb_fact)
+            Expression (Change column names to column identifiers)
+              BroadcastExchange
+                ReadFromMergeTree (default.t_cb_dim)
+-- a budget of 50 bytes fits neither side: no replication, the join shuffles
+Expression ((Project names + Projection))
+  MergingAggregated
+    GatherExchange
+      Aggregating
+        Expression (Before GROUP BY)
+          JoinLogical (Shuffle HashJoin )
+            Expression (Change column names to column identifiers)
+              ShuffleExchange
+                ReadFromMergeTree (ParallelRead default.t_cb_fact)
+            Expression (Change column names to column identifiers)
+              ShuffleExchange
+                ReadFromMergeTree (ParallelRead default.t_cb_dim)
+-- a budget of 0 is no budget, not an empty one: the dimension is broadcast
+Expression ((Project names + Projection))
+  MergingAggregated
+    GatherExchange
+      Aggregating
+        Expression (Before GROUP BY)
+          JoinLogical (Broadcast HashJoin )
+            Expression (Change column names to column identifiers)
+              ReadFromMergeTree (ParallelRead default.t_cb_fact)
+            Expression (Change column names to column identifiers)
+              BroadcastExchange
+                ReadFromMergeTree (default.t_cb_dim)
+-- a filter the primary key cannot prune leaves the rows unknown; the bound of 100 rows times 16 bytes fits a budget of 2000 bytes
+Expression ((Project names + Projection)) (rows: <unknown>, cost: <unknown>)
+  MergingAggregated (rows: <unknown>, cost: 64197095.0)
+    GatherExchange (rows: <unknown>, cost: 64197053.0)
+      Aggregating (rows: <unknown>, cost: 64101013.0)
+        Expression ((Before GROUP BY + )) (rows: <unknown>, cost: 60767676.7)
+          JoinLogical (Broadcast HashJoin ) (rows: <unknown>, cost: 60434343.3)
+            Expression (Change column names to column identifiers) (rows: ~10000000.0, cost: 53666666.7)
+              ReadFromMergeTree (ParallelRead default.t_cb_fact) (rows: ~10000000.0, cost: 53333333.3)
+            Expression ((WHERE + Change column names to column identifiers)) (rows: <unknown>, cost: 99210.0)
+              BroadcastExchange (rows: <unknown>, cost: 99200.0)
+                ReadFromMergeTree (default.t_cb_unk) (rows: <unknown>, cost: 1600.0)
+-- and does not fit a budget of 1000 bytes: no replication of the unknown side
+Expression ((Project names + Projection)) (rows: <unknown>, cost: <unknown>)
+  MergingAggregated (rows: <unknown>, cost: 117623088.3)
+    GatherExchange (rows: <unknown>, cost: 117623046.3)
+      Aggregating (rows: <unknown>, cost: 117527006.3)
+        Expression ((Before GROUP BY + )) (rows: <unknown>, cost: 114193670.0)
+          JoinLogical (Shuffle HashJoin ) (rows: <unknown>, cost: 113860336.7)
+            Expression (Change column names to column identifiers) (rows: ~10000000.0, cost: 107096000.0)
+              ShuffleExchange (rows: ~10000000.0, cost: 106762666.7)
+                ReadFromMergeTree (ParallelRead default.t_cb_fact) (rows: ~10000000.0, cost: 53333333.3)
+            Expression ((WHERE + Change column names to column identifiers)) (rows: <unknown>, cost: 97070.0)
+              ShuffleExchange (rows: <unknown>, cost: 97066.7)
+                ReadFromMergeTree (ParallelRead default.t_cb_unk) (rows: <unknown>, cost: 533.3)
+-- results do not depend on the shape
+1000	nm_0
+1000
