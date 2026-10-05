@@ -22,6 +22,7 @@
 #include <DataTypes/DataTypeObject.h>
 #include <DataTypes/NestedUtils.h>
 #include <DataTypes/Serializations/ISerialization.h>
+#include <DataTypes/TypeTree.h>
 #include <Interpreters/ExpressionActions.h>
 #include <Interpreters/parseIdentifiersOrStringLiteralsWithSettings.h>
 #include <Processors/Transforms/ColumnGathererTransform.h>
@@ -589,8 +590,8 @@ size_t countDynamicCapacityStreams(const IDataType & type, const MergeTreeSettin
         return 0;
     };
 
-    size_t streams = node_capacity(type);
-    type.forEachChild([&](const IDataType & child) { streams += node_capacity(child); });
+    size_t streams = 0;
+    forEachInTypeTree(type, [&](const IDataType & node) { streams += node_capacity(node); });
     return streams;
 }
 
