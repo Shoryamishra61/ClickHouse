@@ -5772,6 +5772,15 @@ void MergeTreeData::checkAlterEligibility(const AlterCommands & commands, Contex
                         backQuoteIfNeed(command.column_name), backQuoteIfNeed(*key_column));
             }
 
+            /// A type change leaves a MATERIALIZED key column computed from the column stale.
+            if (command.type == AlterCommand::MODIFY_COLUMN && command.data_type && !uk_set.contains(command.column_name))
+            {
+                if (auto key_column = findUniqueKeyColumnComputedFrom(old_metadata, command.column_name, local_context))
+                    throw Exception(ErrorCodes::ALTER_OF_COLUMN_IS_FORBIDDEN,
+                        "ALTER MODIFY COLUMN {} is forbidden: UNIQUE KEY column {} is computed from it.",
+                        backQuoteIfNeed(command.column_name), backQuoteIfNeed(*key_column));
+            }
+
             const bool affects_column =
                 command.type == AlterCommand::DROP_COLUMN
                 || command.type == AlterCommand::RENAME_COLUMN

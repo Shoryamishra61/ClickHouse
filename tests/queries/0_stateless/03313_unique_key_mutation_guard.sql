@@ -3,7 +3,7 @@
 --   1. ALTER DELETE, ALTER UPDATE of a key column or of `_row_exists`, a forced lightweight UPDATE: rejected
 --   2. MATERIALIZE COLUMN: rejected for a key column; CLEAR COLUMN runs, a Nested group included; CLEAR IF EXISTS of a missing one is a no-op
 --   2a. part rewrites: APPLY DELETED MASK / PATCHES, MATERIALIZE PROJECTION are rejected
---   2b. CLEAR / MATERIALIZE COLUMN, ALTER UPDATE: rejected when a MATERIALIZED key column is computed from the column, renamed in the same ALTER or a Nested group included; CLEAR runs under a DEFAULT key column
+--   2b. CLEAR / MATERIALIZE COLUMN, a type change, ALTER UPDATE: rejected when a MATERIALIZED key column is computed from the column, renamed in the same ALTER or a Nested group included; a MODIFY without a type runs, and CLEAR under a DEFAULT key column
 --   3. row-preserving ALTERs run: DROP / RENAME / MODIFY / MATERIALIZE COLUMN, DROP / MATERIALIZE INDEX and STATISTICS, REWRITE PARTS, UPDATE
 --   4. plain table: the same operations still work without UNIQUE KEY
 -- no-async-insert: after an async INSERT, a CLEAR of a Nested group can leave the arrays in place, as on
@@ -82,9 +82,9 @@ SELECT id, n.x, n.y FROM uk_mut_nested ORDER BY id;
 
 DROP TABLE uk_mut_nested;
 
--- 2b. a column a key column is computed from: red if the guard admits a CLEAR, MATERIALIZE or UPDATE
--- that recomputes a MATERIALIZED key column, or rejects a CLEAR under a DEFAULT key column, which the
--- clear does not recompute.
+-- 2b. a column a key column is computed from: red if the guard admits a CLEAR, MATERIALIZE, UPDATE or type
+-- change of it under a MATERIALIZED key column, or rejects a MODIFY without a type, or a CLEAR under a DEFAULT
+-- key column, which the clear does not recompute.
 DROP TABLE IF EXISTS uk_mut_computed;
 CREATE TABLE uk_mut_computed (id UInt32, a UInt64 DEFAULT id * 10, k UInt64 MATERIALIZED a * 2)
 ENGINE = MergeTree ORDER BY id UNIQUE KEY (k);
@@ -101,6 +101,10 @@ ALTER TABLE uk_mut_computed MATERIALIZE COLUMN a; -- { serverError SUPPORT_IS_DI
 
 SELECT 'update_source_of_materialized_key' AS step;
 ALTER TABLE uk_mut_computed UPDATE a = a + 10 WHERE 1; -- { serverError SUPPORT_IS_DISABLED }
+
+SELECT 'modify_type_source_of_materialized_key' AS step;
+ALTER TABLE uk_mut_computed MODIFY COLUMN a UInt32; -- { serverError ALTER_OF_COLUMN_IS_FORBIDDEN }
+ALTER TABLE uk_mut_computed MODIFY COLUMN a DEFAULT id * 20;
 DROP TABLE uk_mut_computed;
 
 DROP TABLE IF EXISTS uk_mut_computed_nested;

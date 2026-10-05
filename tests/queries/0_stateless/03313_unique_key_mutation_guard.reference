@@ -17,6 +17,7 @@ clear_source_of_materialized_key
 clear_renamed_source_of_materialized_key
 materialize_source_of_materialized_key
 update_source_of_materialized_key
+modify_type_source_of_materialized_key
 clear_nested_source_of_materialized_key
 clear_source_of_default_key
 default_key_kept	[(0,2),(0,4)]
