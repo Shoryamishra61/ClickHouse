@@ -1,6 +1,6 @@
--- Tags: zookeeper, no-replicated-database, need-query-parameters, no-parallel
+-- Tags: zookeeper, no-replicated-database, need-query-parameters, no-parallel, no-fasttest
 -- no-replicated-database: the test creates Replicated databases of its own
--- no-parallel: a fail point is enabled, and fail points are global server state
+-- no-parallel, no-fasttest: a fail point is enabled, and fail points are global server state
 
 -- `logs_to_keep` is the one cluster-wide setting of a `Replicated` database: its effective value
 -- lives in a shared ClickHouse Keeper node, so an `ALTER` on one replica changes the behaviour of
