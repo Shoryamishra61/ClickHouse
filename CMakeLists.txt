@@ -395,7 +395,7 @@ endif()
 # under the 2 GiB reach of `R_X86_64_PC32`, which the extra prologues push over; the fuzzers are never
 # shipped, and Address Sanitizer reports stack buffer overflows earlier and in more detail than an abort.
 if (NOT ENABLE_FUZZING)
-    set (COMPILER_FLAGS "${COMPILER_FLAGS} -fstack-protector-strong")
+    set (COMPILER_FLAGS "${COMPILER_FLAGS} -fno-stack-protector")
 endif()
 
 # Probe every page of a large stack allocation (big frames, `alloca`, VLAs) so that it cannot jump over
