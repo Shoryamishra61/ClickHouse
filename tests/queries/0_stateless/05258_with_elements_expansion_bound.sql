@@ -10,6 +10,9 @@ EXPLAIN AST optimize = 1 WITH (SELECT 1) AS v0, (SELECT v0) AS v1, (SELECT v1) A
 
 CREATE VIEW v_expansion AS WITH c0 AS (SELECT 1 AS x), c1 AS (SELECT a.x FROM c0 AS a, c0 AS b), c2 AS (SELECT a.x FROM c1 AS a, c1 AS b), c3 AS (SELECT a.x FROM c2 AS a, c2 AS b), c4 AS (SELECT a.x FROM c3 AS a, c3 AS b), c5 AS (SELECT a.x FROM c4 AS a, c4 AS b), c6 AS (SELECT a.x FROM c5 AS a, c5 AS b), c7 AS (SELECT a.x FROM c6 AS a, c6 AS b), c8 AS (SELECT a.x FROM c7 AS a, c7 AS b), c9 AS (SELECT a.x FROM c8 AS a, c8 AS b), c10 AS (SELECT a.x FROM c9 AS a, c9 AS b), c11 AS (SELECT a.x FROM c10 AS a, c10 AS b), c12 AS (SELECT a.x FROM c11 AS a, c11 AS b), c13 AS (SELECT a.x FROM c12 AS a, c12 AS b) SELECT x FROM c13; -- { serverError TOO_BIG_AST }
 
+-- A full `ATTACH VIEW ... AS SELECT` is user input as well.
+ATTACH VIEW v_expansion (x UInt8) AS WITH c0 AS (SELECT 1 AS x), c1 AS (SELECT a.x FROM c0 AS a, c0 AS b), c2 AS (SELECT a.x FROM c1 AS a, c1 AS b), c3 AS (SELECT a.x FROM c2 AS a, c2 AS b), c4 AS (SELECT a.x FROM c3 AS a, c3 AS b), c5 AS (SELECT a.x FROM c4 AS a, c4 AS b), c6 AS (SELECT a.x FROM c5 AS a, c5 AS b), c7 AS (SELECT a.x FROM c6 AS a, c6 AS b), c8 AS (SELECT a.x FROM c7 AS a, c7 AS b), c9 AS (SELECT a.x FROM c8 AS a, c8 AS b), c10 AS (SELECT a.x FROM c9 AS a, c9 AS b), c11 AS (SELECT a.x FROM c10 AS a, c10 AS b), c12 AS (SELECT a.x FROM c11 AS a, c11 AS b), c13 AS (SELECT a.x FROM c12 AS a, c12 AS b) SELECT x FROM c13; -- { serverError TOO_BIG_AST }
+
 -- A short chain still works.
 CREATE VIEW v_expansion AS WITH c0 AS (SELECT 1 AS x), c1 AS (SELECT a.x FROM c0 AS a, c0 AS b), c2 AS (SELECT a.x FROM c1 AS a, c1 AS b) SELECT x FROM c2;
 SELECT count() FROM v_expansion;
