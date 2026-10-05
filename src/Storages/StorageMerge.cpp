@@ -3214,9 +3214,9 @@ SELECT * FROM WatchLog;
 
 - `_table` — The name of the table the `Merge` table read the row from, i.e. one of the tables matched by `tables_regexp`. Type: [String](/reference/data-types/string).
 
-    If you filter on `_table`, (for example `WHERE _table='xyz'`) only tables which satisfy the filter condition are read. A table that itself reads from other tables (`Distributed`, `Merge`, `Buffer`, `Alias`) returns rows carrying the name of the table that actually produced them, so such tables are always read and the filter is applied to their rows.
+    If you filter on `_table`, (for example `WHERE _table='xyz'`) only tables which satisfy the filter condition are read.
 
-    When the matched table reads its data through another table (for example, a `Distributed` table reading from remote tables), `_table` still contains the matched table's name, not the name of the underlying table.
+    When the matched table reads its data through another table (`Distributed`, `Merge`, `Buffer`, `Alias`), `_table` still contains the matched table's name, not the name of the underlying table, so such tables are pruned by the filter on `_table` the same way as any other matched table.
 
 - `_database` — Contains the name of the database the matched table belongs to. Type: [String](/reference/data-types/string).
 
