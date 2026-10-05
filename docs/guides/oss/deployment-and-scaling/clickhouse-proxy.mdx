@@ -54,13 +54,15 @@ encrypt the connection first (`SSLRequest` or `GSSENCRequest`) is handled in one
   forwarded verbatim, so the backend negotiates encryption end to end.
 
 A `CancelRequest` arrives on a new connection, and the proxy does not track which backend serves the
-session it cancels. Its key is a random secret, so the proxy delivers the request to every available
-backend the listener can route to, and only the backend that issued the key acts on it.
+session it cancels. Its key is a random secret, so the proxy delivers the request to every backend
+the listener can route to (including the backends currently marked down, which may still serve
+sessions started before), and only the backend that issued the key acts on it.
 
 MySQL and PostgreSQL negotiate TLS in-band, and the proxy does not mediate that on the backend leg:
 a backend marked `<secure>1</secure>` cannot be used for these protocols. Such configurations are
 rejected at startup when they are visible statically (a listener's default pool, a rule restricted
-to these protocols), and such connections are refused otherwise.
+to these protocols, a rule without `<protocol>` that can match these sessions), and such connections
+are refused otherwise.
 
 ## MySQL {#mysql}
 
@@ -280,10 +282,13 @@ Repeated connections can be pinned to the same backend, chosen by a consistent
 The proxy periodically probes every backend with a TCP connection, records latency, and marks a
 backend down after a number of consecutive failures (bringing it back up when it recovers). The
 probed port is the backend's `<health_check_port>` if set; otherwise the first configured port among
-`tcp_port`, `http_port`, `mysql_port`, `postgresql_port`, `ssh_port` and `raw_port`; otherwise the
-default native port. A backend without any explicit port that is used by a `tls` or `stream` listener
-is reached on the listener's port, so that port is probed (if the backend is reachable on several
-different ports through different listeners, `health_check_port` is required). Set
+`tcp_port`, `http_port`, `mysql_port`, `postgresql_port`, `ssh_port` and `raw_port`. A backend
+without any explicit port is probed on the port the listeners that route to it use: the protocol's
+default port (for example `8443` for a secure backend of an `http` listener, `9004` for a `mysql`
+listener), the first one in the order above if there are several, or the listener's port for a `tls`
+or `stream` listener (if such a backend is reachable on several different ports through different
+listeners, `health_check_port` is required). A backend that no listener routes to statically is
+probed on the default native port. Set
 `health_check_port` for a backend that is used through several protocols to the port whose
 availability matters most: the health state is tracked per backend, not per protocol.
 If a backend has monitoring credentials (`<monitor_user>` / `<monitor_password>`), the proxy also polls

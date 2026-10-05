@@ -63,9 +63,10 @@ void broadcastCancelRequest(const String & packet, const FrontendContext & ctx)
     size_t delivered = 0;
     for (const auto & backend : ctx.router.reachableBackends(ctx.listener))
     {
-        /// A secure backend cannot be reached over this protocol (see `connectToBackend`),
-        /// and a backend that is down has no sessions to cancel.
-        if (backend->config().secure || !backend->isAlive())
+        /// A secure backend cannot be reached over this protocol (see `connectToBackend`). A backend that
+        /// is marked down still receives the request: `alive` only gates new routing, and the sessions that
+        /// were relayed to it before it was marked down may still be running there.
+        if (backend->config().secure)
             continue;
         try
         {

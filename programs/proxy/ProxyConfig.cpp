@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <map>
 #include <set>
 #include <unordered_set>
 
@@ -378,12 +379,25 @@ ProxyConfiguration ProxyConfiguration::load(const Poco::Util::AbstractConfigurat
     {
         for (const auto protocol : {ListenerProtocol::MySQL, ListenerProtocol::PostgreSQL})
         {
-            if (rule.protocol.empty() || !std::ranges::any_of(res.listeners, [&](const auto & l) { return l.protocol == protocol; }))
+            if (!std::ranges::any_of(res.listeners, [&](const auto & l) { return l.protocol == protocol; }))
                 continue;
-            std::vector<String> names;
-            boost::split(names, rule.protocol, boost::is_any_of(","));
-            if (!std::ranges::any_of(names, [&](String & name) { boost::trim(name); return parseListenerProtocol(name) == protocol; }))
-                continue;
+            if (rule.protocol.empty())
+            {
+                /// A rule without `protocol` applies to every listener, unless it matches on an attribute that
+                /// MySQL and PostgreSQL sessions do not have: the query type (HTTP only), an SSH key, or the
+                /// host (not known for these protocols; a host regexp that accepts an empty value is still
+                /// refused by `connectToBackend`).
+                if (!rule.query_type.empty() || !rule.authorized_key.empty() || !rule.authorized_key_file.empty()
+                    || !rule.host.empty() || !rule.host_regexp.empty())
+                    continue;
+            }
+            else
+            {
+                std::vector<String> names;
+                boost::split(names, rule.protocol, boost::is_any_of(","));
+                if (!std::ranges::any_of(names, [&](String & name) { boost::trim(name); return parseListenerProtocol(name) == protocol; }))
+                    continue;
+            }
             if (!rule.pool.empty())
                 check_no_secure_backends(protocol, res.pools.at(rule.pool));
             else if (rule.backend_template && rule.backend_template->secure)
@@ -393,8 +407,9 @@ ProxyConfiguration ProxyConfiguration::load(const Poco::Util::AbstractConfigurat
         }
     }
 
-    /// A `tls` or `stream` backend without an explicit port is reached on the port of the listener, which
-    /// `healthCheckPort` does not know. Resolve the probed port of such static backends from the listeners
+    /// A backend without an explicit port is reached on a port that depends on the listener: the protocol
+    /// default (e.g. `8443` for a secure HTTP backend) or, for `tls` and `stream`, the port of the listener.
+    /// `healthCheckPort` knows neither. Resolve the probed port of such static backends from the listeners
     /// that can route to their pools; dynamic backends are resolved by the router, as they serve one listener.
     std::map<String, std::set<size_t>> pool_listeners;
     for (size_t i = 0; i < res.listeners.size(); ++i)
@@ -424,21 +439,34 @@ ProxyConfiguration ProxyConfiguration::load(const Poco::Util::AbstractConfigurat
                 || backend.postgresql_port || backend.ssh_port || backend.raw_port)
                 continue;
 
+            std::map<ListenerProtocol, std::set<UInt16>> ports_by_protocol;
             std::set<UInt16> ports;
-            bool reached_on_listener_port = false;
             for (size_t i : pool_listeners[pool_name])
             {
                 const auto & listener = res.listeners[i];
-                ports.insert(backendPortFor(listener.protocol, backend, listener.port));
-                reached_on_listener_port |= listener.protocol == ListenerProtocol::TLS || listener.protocol == ListenerProtocol::Stream;
+                const UInt16 port = backendPortFor(listener.protocol, backend, listener.port);
+                ports_by_protocol[listener.protocol].insert(port);
+                ports.insert(port);
             }
-            if (!reached_on_listener_port)
+            if (ports.empty())
                 continue;
-            if (ports.size() != 1)
+            const bool reached_on_listener_port
+                = ports_by_protocol.contains(ListenerProtocol::TLS) || ports_by_protocol.contains(ListenerProtocol::Stream);
+            if (reached_on_listener_port && ports.size() != 1)
                 throw Exception(ErrorCodes::INVALID_CONFIG_PARAMETER,
                     "Backend '{}' of pool '{}' is reached on several ports through different listeners; "
                     "specify the port to probe for health checks in 'health_check_port'", backend.name, pool_name);
-            backend.health_check_port = *ports.begin();
+            /// A backend reached through several protocols on their default ports is probed on the port of the
+            /// first of them, in the same order as the explicitly configured ports (native first).
+            for (const auto protocol : {ListenerProtocol::Native, ListenerProtocol::HTTP, ListenerProtocol::MySQL,
+                                        ListenerProtocol::PostgreSQL, ListenerProtocol::SSH, ListenerProtocol::TLS, ListenerProtocol::Stream})
+            {
+                if (auto it = ports_by_protocol.find(protocol); it != ports_by_protocol.end())
+                {
+                    backend.health_check_port = *it->second.begin();
+                    break;
+                }
+            }
         }
     }
 
