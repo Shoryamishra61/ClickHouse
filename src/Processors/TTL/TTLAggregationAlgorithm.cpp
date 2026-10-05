@@ -8,6 +8,7 @@
 #include <AggregateFunctions/AggregateFunctionFactory.h>
 
 #include <DataTypes/DataTypeLowCardinality.h>
+#include <DataTypes/TypeTree.h>
 
 #include <Core/Settings.h>
 
@@ -87,12 +88,7 @@ TTLDescription addImplicitlyAggregatedColumns(TTLDescription description, const 
 
 bool containsVariant(const IDataType & type)
 {
-    if (isVariant(type))
-        return true;
-
-    bool found = false;
-    type.forEachChild([&](const IDataType & child) { found = found || isVariant(child); });
-    return found;
+    return anyInTypeTree(type, [](const IDataType & node) { return isVariant(node); });
 }
 
 /// The explicit `GROUP BY ... SET` aggregates are cached in the table metadata with the settings that were
