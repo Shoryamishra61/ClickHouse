@@ -43,7 +43,10 @@ void NamedMutexImpl::lockImpl()
 	case WAIT_OBJECT_0:
 		return;
 	case WAIT_ABANDONED:
-		throw SystemException("cannot lock named mutex (abadoned)", _name);
+		/// The wait has transferred the ownership to this thread; release it before reporting,
+		/// otherwise the mutex stays owned by this thread until it exits.
+		ReleaseMutex(_mutex);
+		throw SystemException("cannot lock named mutex (abandoned)", _name);
 	default:
 		throw SystemException("cannot lock named mutex", _name);
 	}
@@ -59,7 +62,9 @@ bool NamedMutexImpl::tryLockImpl()
 	case WAIT_TIMEOUT:
 		return false;
 	case WAIT_ABANDONED:
-		throw SystemException("cannot lock named mutex (abadoned)", _name);
+		/// See `lockImpl`.
+		ReleaseMutex(_mutex);
+		throw SystemException("cannot lock named mutex (abandoned)", _name);
 	default:
 		throw SystemException("cannot lock named mutex", _name);
 	}
