@@ -188,5 +188,25 @@ create_table t_manifest "${ROOT}_manifest"
 patch_manifest_record_count "$(find "${ROOT}_manifest/metadata" -name '*.avro' ! -name 'snap-*' | head -1)" 1 3
 report t_manifest
 
-${CLICKHOUSE_CLIENT} --query "DROP TABLE t_consistent; DROP TABLE t_manifest;"
-rm -rf "${ROOT}_consistent" "${ROOT}_manifest"
+# Some writers omit the delete totals from the snapshot summary, and then it does not provide a
+# usable row count: the manifest files are summed, and their sum is cross-checked against the
+# summary's `total-records`. They disagree, so the rows of the data files are counted instead.
+echo '-- the manifest files over-report and the summary has no delete totals: the rows are counted from the data files'
+create_table t_no_delete_totals "${ROOT}_no_delete_totals"
+patch_manifest_record_count "$(find "${ROOT}_no_delete_totals/metadata" -name '*.avro' ! -name 'snap-*' | head -1)" 1 3
+python3 - "${ROOT}_no_delete_totals/metadata" <<'PY'
+import glob
+import json
+import sys
+
+for path in glob.glob(sys.argv[1] + '/*.metadata.json'):
+    metadata = json.load(open(path))
+    for snapshot in metadata.get('snapshots', []):
+        for key in ('total-position-deletes', 'total-equality-deletes'):
+            snapshot.get('summary', {}).pop(key, None)
+    json.dump(metadata, open(path, 'w'))
+PY
+report t_no_delete_totals
+
+${CLICKHOUSE_CLIENT} --query "DROP TABLE t_consistent; DROP TABLE t_manifest; DROP TABLE t_no_delete_totals;"
+rm -rf "${ROOT}_consistent" "${ROOT}_manifest" "${ROOT}_no_delete_totals"
