@@ -116,3 +116,31 @@ INSERT INTO t_dotted_prefix VALUES (('{"b":{"some":{"path":1}}}', '{"some":{"pat
 SELECT c.a.b.some.path FROM t_dotted_prefix;
 SELECT toTypeName(c.a.b.some.path) FROM t_dotted_prefix;
 DROP TABLE t_dotted_prefix;
+
+SELECT '--- the shared offsets of Nested are read for the array sizes only ---';
+
+-- The arrays of one Nested share a single offsets column, and a request for their sizes is sent to it
+-- by the name `size0`. The declared element of the same name must be read from its own data instead.
+
+DROP TABLE IF EXISTS t_nested_wide;
+CREATE TABLE t_nested_wide (id UInt32, n Nested(`j` Tuple(`size0` UInt32), `x` String))
+ENGINE = MergeTree ORDER BY id SETTINGS min_bytes_for_wide_part = 0;
+INSERT INTO t_nested_wide VALUES (1, [(10), (20)], ['a', 'b']);
+SELECT 'wide', toTypeName(n.j.size0), n.j.size0, n.x.size0 FROM t_nested_wide;
+DROP TABLE t_nested_wide;
+
+-- A part written before `n.j` was added has no data for it, so the sizes of the group give the
+-- default the element takes the shape of.
+DROP TABLE IF EXISTS t_nested_compact;
+CREATE TABLE t_nested_compact (id UInt32, n Nested(`x` String))
+ENGINE = MergeTree ORDER BY id SETTINGS min_bytes_for_wide_part = '10G';
+INSERT INTO t_nested_compact VALUES (1, ['a', 'b']);
+ALTER TABLE t_nested_compact ADD COLUMN `n.j` Array(Tuple(`size0` UInt32));
+SELECT 'compact, missed column', toTypeName(n.j.size0), n.j.size0, n.x.size0 FROM t_nested_compact;
+DROP TABLE t_nested_compact;
+
+DROP TABLE IF EXISTS t_nested_log;
+CREATE TABLE t_nested_log (n Nested(`j` Tuple(`size0` UInt32), `x` String)) ENGINE = Log;
+INSERT INTO t_nested_log VALUES ([(10), (20)], ['a', 'b']);
+SELECT 'log', toTypeName(n.j.size0), n.j.size0, n.x.size0 FROM t_nested_log;
+DROP TABLE t_nested_log;

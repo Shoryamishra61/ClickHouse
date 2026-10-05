@@ -43,3 +43,7 @@ Dynamic	1
 --- the most specific declared prefix resolves the rest ---
 2
 Dynamic
+--- the shared offsets of Nested are read for the array sizes only ---
+wide	Array(UInt32)	[10,20]	2
+compact, missed column	Array(UInt32)	[0,0]	2
+log	Array(UInt32)	[10,20]	2
