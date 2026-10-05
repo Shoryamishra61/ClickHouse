@@ -102,13 +102,12 @@ TEST(AIQueryValidation, AllowsReadOnlyStatements)
     EXPECT_TRUE(isAllowed("SHOW CREATE TABLE system.tables"));
     EXPECT_TRUE(isAllowed("SHOW CREATE TABLE default.events"));
     EXPECT_TRUE(isAllowed("EXISTS TABLE default.events"));
-    EXPECT_TRUE(isAllowed("SHOW PROCESSLIST"));
     EXPECT_TRUE(isAllowed("DESCRIBE TABLE system.tables"));
     EXPECT_TRUE(isAllowed("EXPLAIN SELECT 1"));
     EXPECT_TRUE(isAllowed("EXPLAIN PIPELINE SELECT number FROM numbers(10)"));
     EXPECT_TRUE(isAllowed("EXISTS TABLE system.tables"));
     EXPECT_FALSE(isAllowed("CHECK TABLE t"));
-    EXPECT_TRUE(isAllowed("SHOW GRANTS"));
+    EXPECT_TRUE(isAllowed("SHOW PRIVILEGES"));
 }
 
 TEST(AIQueryValidation, RejectsDictionaryStatements)
@@ -159,9 +158,33 @@ TEST(AIQueryValidation, DisablingSchemaAccessBlocksOtherMetadataStatements)
     EXPECT_FALSE(isAllowedWithoutSchemaAccess("SHOW SETTING max_threads"));
     EXPECT_FALSE(isAllowedWithoutSchemaAccess("SHOW ENGINES"));
 
-    EXPECT_TRUE(isAllowed("SHOW PROCESSLIST"));
-    EXPECT_TRUE(isAllowed("SHOW GRANTS"));
-    EXPECT_TRUE(isAllowed("SHOW CREATE USER default"));
+}
+
+TEST(AIQueryValidation, RejectsRunningQueriesAndAccessMetadata)
+{
+    /// The texts of the running queries (of other sessions too) and the access metadata are not
+    /// the data or the schema of the user, so they need confirmation even with schema access on.
+    EXPECT_FALSE(isAllowed("SHOW PROCESSLIST"));
+    EXPECT_FALSE(isAllowed("SHOW GRANTS"));
+    EXPECT_FALSE(isAllowed("SHOW CREATE USER default"));
+    EXPECT_FALSE(isAllowed("SHOW ACCESS"));
+    EXPECT_FALSE(isAllowed("SHOW USERS"));
+
+    /// Still read-only, so a session that is `readonly` does not ask to confirm them for nothing.
+    EXPECT_TRUE(isReadOnlyStatement("SHOW PROCESSLIST"));
+    EXPECT_TRUE(isReadOnlyStatement("SHOW GRANTS"));
+
+    /// The same for the `system` tables behind them, the logs, and the tables of error messages.
+    EXPECT_FALSE(isAllowedServerOwnedTableForAIAgent("system", "processes"));
+    EXPECT_FALSE(isAllowedServerOwnedTableForAIAgent("system", "query_log"));
+    EXPECT_FALSE(isAllowedServerOwnedTableForAIAgent("system", "user_query_log"));
+    EXPECT_FALSE(isAllowedServerOwnedTableForAIAgent("system", "text_log"));
+    EXPECT_FALSE(isAllowedServerOwnedTableForAIAgent("system", "dictionaries"));
+    EXPECT_FALSE(isAllowedServerOwnedTableForAIAgent("system", "errors"));
+    EXPECT_FALSE(isAllowedServerOwnedTableForAIAgent("system", "users"));
+    EXPECT_FALSE(isAllowedServerOwnedTableForAIAgent("system", "grants"));
+    EXPECT_TRUE(isAllowedServerOwnedTableForAIAgent("system", "columns"));
+    EXPECT_TRUE(isAllowedServerOwnedTableForAIAgent("system", "parts"));
 }
 
 TEST(AIQueryValidation, RejectsExternalServerOwnedTables)
@@ -183,9 +206,6 @@ TEST(AIQueryValidation, RejectsExternalServerOwnedTables)
     EXPECT_FALSE(isAllowedServerOwnedTableForAIAgent("system", "iceberg_history"));
     EXPECT_FALSE(isAllowedServerOwnedTableForAIAgent("system", "iceberg_files"));
 
-    /// The log tables named alike stay local reads.
-    EXPECT_TRUE(isAllowedServerOwnedTableForAIAgent("system", "zookeeper_log"));
-    EXPECT_TRUE(isAllowedServerOwnedTableForAIAgent("system", "zookeeper_connection_log"));
     EXPECT_TRUE(isAllowedServerOwnedTableForAIAgent("system", "tables"));
 
     /// The list applies to `system` only: a user table that happens to be named `replicas` is

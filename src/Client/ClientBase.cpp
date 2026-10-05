@@ -4883,7 +4883,29 @@ String ClientBase::runQueryForAI(const String & query, bool readonly, bool allow
         /// like the interactive loop does after a client-side exception: only an error of a query
         /// whose exchange with the server has actually started can desynchronize the protocol, and
         /// resynchronizing a connection that is in sync would only risk losing the session state.
-        ai_query_context->recordError(query, getCurrentExceptionMessage(false), /*from_ai=*/ true);
+        ///
+        /// The query and the message go back to the model as the result of the tool, so they are
+        /// masked like the ones `recordErrorForAIContext` records: a statement with secret parts
+        /// (credentials of an external engine, a presigned URL) is shown formatted for logging,
+        /// and the error, which may quote them, is reduced to its code.
+        const String message = getCurrentExceptionMessage(false);
+        const int code = getCurrentExceptionCode();
+        ASTPtr statement_with_secrets;
+        std::vector<String> masked_statements;
+        parseAIQueryStatements(query, [&](const IAST & ast)
+        {
+            if (!statement_with_secrets && ast.hasSecretParts())
+                statement_with_secrets = ast.clone();
+            masked_statements.push_back(ast.formatForLogging());
+        });
+        if (statement_with_secrets)
+            ai_query_context->recordError(
+                boost::algorithm::join(masked_statements, ";\n"),
+                errorMessageForAIContext(message, code, statement_with_secrets),
+                /*from_ai=*/ true);
+        else
+            ai_query_context->recordError(
+                queryTextForAIContext(query, nullptr), errorMessageForAIContext(message, code, nullptr), /*from_ai=*/ true);
         if (connection && connection_needs_resynchronization)
             resynchronizeConnectionAfterError();
     }
@@ -5240,8 +5262,9 @@ void ClientBase::checkNamedTablesForAIReadOnlyTool(const std::vector<AIQueryTabl
             if (!reference.table.empty() && !isAllowedServerOwnedTableForAIAgent(database, reference.table))
                 throw Exception(
                     ErrorCodes::BAD_ARGUMENTS,
-                    "The table `{}.{}` reads state outside of this server (Keeper or object storage), so it is "
-                    "not allowed for the read-only tool. Use the run_query tool for this query",
+                    "The table `{}.{}` reads state outside of this server (Keeper or object storage), or holds "
+                    "the texts of queries or errors, or access metadata, so it is not allowed for the read-only tool. "
+                    "Use the run_query tool for this query",
                     database,
                     reference.table);
             continue;

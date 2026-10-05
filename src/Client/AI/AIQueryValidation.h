@@ -79,7 +79,9 @@ std::vector<AIQueryTableReference> collectNamedTablesForAIAgent(const IAST & ast
 bool isServerOwnedDatabaseForAIAgent(const String & database);
 
 /// Whether a table of a server-owned database can be read by the unconfirmed read-only tool.
-/// Most of them read metadata local to the server, but a few reach Keeper or object storage.
+/// Most of them read metadata local to the server, but a few reach Keeper or object storage, and
+/// some hold the texts of queries and errors (the logs, `processes`, `dictionaries`, ...) or the
+/// access metadata, which may carry secrets.
 bool isAllowedServerOwnedTableForAIAgent(const String & database, const String & table);
 
 /// Whether a table with this engine holds data of this server only, so that the unconfirmed

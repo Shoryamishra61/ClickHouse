@@ -420,6 +420,12 @@ bool isReadOnlyStatementForAIAgent(const IAST & ast)
     /// `EXISTS DICTIONARY` and `SHOW CREATE DICTIONARY` are left out: their target is a dictionary
     /// by construction, never an ordinary table of this server, so there is nothing for the engine
     /// check to admit them by. They go through `run_query`, which the user confirms.
+    ///
+    /// `SHOW PROCESSLIST` and the statements about the access entities (`SHOW ACCESS`,
+    /// `SHOW GRANTS`, `SHOW USERS`, `SHOW CREATE USER`, ...) are left out as well: they are not the
+    /// data or the schema of the user, but the texts of the queries running on the server (of other
+    /// sessions too, with the secrets they hold) and the authentication and access metadata. The
+    /// same goes for the `system` tables behind them, see `isAllowedServerOwnedTableForAIAgent`.
     return isAnyOf<
         ASTSelectWithUnionQuery,
         ASTExplainQuery,
@@ -431,17 +437,12 @@ bool isReadOnlyStatementForAIAgent(const IAST & ast)
         ASTShowEnginesQuery,
         ASTShowFunctionsQuery,
         ASTShowSettingQuery,
-        ASTShowProcesslistQuery,
         ASTExistsDatabaseQuery,
         ASTExistsTableQuery,
         ASTExistsViewQuery,
         ASTShowCreateTableQuery,
         ASTShowCreateViewQuery,
         ASTShowCreateDatabaseQuery,
-        ASTShowAccessQuery,
-        ASTShowAccessEntitiesQuery,
-        ASTShowCreateAccessEntityQuery,
-        ASTShowGrantsQuery,
         ASTShowPrivilegesQuery>(ast);
 }
 
@@ -534,6 +535,9 @@ bool isServerOwnedDatabaseForAIAgent(const String & database)
 
 bool isAllowedServerOwnedTableForAIAgent(const String & database, const String & table)
 {
+    if (database != "system")
+        return true;
+
     /// The `system` tables whose read reaches beyond the local server. Most of them talk to
     /// Keeper: `zookeeper` reads znodes, `zookeeper_info` opens sockets to every configured
     /// Keeper host for the `mntr`/`isro` commands, `distributed_ddl_queue` and the queue-metadata
@@ -541,7 +545,17 @@ bool isAllowedServerOwnedTableForAIAgent(const String & database, const String &
     /// the replication state there, and even the connection/watch views can establish the
     /// server's Keeper session lazily. The Iceberg tables read the table metadata from the
     /// object storage.
-    static const std::unordered_set<std::string_view> external_system_tables
+    ///
+    /// Then the tables that hold the texts of queries and of errors, or access metadata, rather
+    /// than the data or the schema of the user: the texts of the queries running on the server
+    /// (`processes`, `asynchronous_inserts`, `query_cache`), error messages, which quote the
+    /// fragment of a query or the address of a source that failed (`errors`,
+    /// `distribution_queue`, `dictionaries` with its `source` and `last_exception`, `backups`
+    /// with its destination), and the authentication and access metadata. The log tables (below)
+    /// are the same: `query_log` has the raw `exception`, `text_log` the messages of the server.
+    /// The query history of the user is available through the `read_query_log` tool, which
+    /// returns only what is safe of it.
+    static const std::unordered_set<std::string_view> disallowed_system_tables
     {
         "zookeeper",
         "zookeeper_connection",
@@ -554,8 +568,35 @@ bool isAllowedServerOwnedTableForAIAgent(const String & database, const String &
         "database_replicas",
         "iceberg_history",
         "iceberg_files",
+
+        "processes",
+        "user_processes",
+        "asynchronous_inserts",
+        "query_cache",
+        "errors",
+        "distribution_queue",
+        "dictionaries",
+        "backups",
+        "users",
+        "roles",
+        "grants",
+        "role_grants",
+        "enabled_roles",
+        "current_roles",
+        "quotas",
+        "quota_limits",
+        "quota_usage",
+        "quotas_usage",
+        "settings_profiles",
+        "settings_profile_elements",
+        "row_policies",
+        "user_directories",
     };
-    return database != "system" || !external_system_tables.contains(table);
+    if (disallowed_system_tables.contains(table))
+        return false;
+
+    /// `query_log`, `user_query_log`, `query_thread_log`, `text_log`, `session_log`, ...
+    return !table.ends_with("_log");
 }
 
 bool isAllowedTableEngineForAIAgent(const String & engine)
