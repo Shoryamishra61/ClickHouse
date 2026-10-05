@@ -1682,6 +1682,13 @@ StorageFileSource::StorageFileSource(
     , need_only_count(need_only_count_)
     , lazy_row_index_registry(std::move(lazy_row_index_registry_))
 {
+    if (format_filter_info && format_filter_info->condition_hash)
+    {
+        auto metadata_snapshot = storage->getInMemoryMetadataPtr(context_, false);
+        query_condition_cache_table_id = QueryConditionCache::getTableIdForFileEntries(
+            storage->getStorageID().uuid, storage->format_name, storage->compression_method, metadata_snapshot->getColumns());
+    }
+
     if (!storage->use_table_fd)
     {
         read_lock = storage->lockRwlock(RWLockImpl::Read, getContext());
@@ -2039,7 +2046,7 @@ Chunk StorageFileSource::generate()
             {
                 const String cache_file_key = QueryConditionCache::makeFilePartName(current_path, *current_file_cache_version);
                 auto matching_marks = query_condition_cache->read(
-                    QueryConditionCache::getTableIdForFileEntries(storage->getStorageID().uuid),
+                    query_condition_cache_table_id,
                     cache_file_key,
                     *format_filter_info->condition_hash);
                 if (matching_marks.has_value())
@@ -2303,7 +2310,7 @@ Chunk StorageFileSource::generate()
                         {
                             const String cache_file_key = QueryConditionCache::makeFilePartName(current_path, *current_file_cache_version);
                             query_condition_cache->write(
-                                QueryConditionCache::getTableIdForFileEntries(storage->getStorageID().uuid),
+                                query_condition_cache_table_id,
                                 cache_file_key,
                                 *format_filter_info->condition_hash,
                                 format_filter_info->filter_actions_dag->dumpNames(),

@@ -356,6 +356,9 @@ StorageObjectStorageSource::StorageObjectStorageSource(
     , create_reader_scheduler(threadPoolCallbackRunnerUnsafe<ReaderHolder>(*create_reader_pool, ThreadName::READER_POOL))
     , lazy_row_index_registry(std::move(lazy_row_index_registry_))
 {
+    if (format_filter_info && format_filter_info->condition_hash)
+        query_condition_cache_table_id = QueryConditionCache::getTableIdForFileEntries(
+            storage_id.uuid, configuration->format, configuration->compression_method, storage_snapshot->metadata->getColumns());
 }
 
 StorageObjectStorageSource::~StorageObjectStorageSource()
@@ -396,8 +399,9 @@ std::string StorageObjectStorageSource::getUniqueStoragePathIdentifier(
 /// are immutable, so the path is a stable identity on its own and no ETag is required (this also
 /// avoids disabling the cache for data lakes whose object metadata does not carry an ETag).
 /// The path is relative to the storage, which the table UUID identifies. Without a table UUID the
-/// entries of all such tables share one namespace (see `QueryConditionCache::getTableIdForFileEntries`),
-/// so the path is qualified by the storage it is in (endpoint, bucket, container, ...) instead. The
+/// entries of all such tables with the same format, compression and structure share one namespace
+/// (see `QueryConditionCache::getTableIdForFileEntries`), so the path is qualified by the storage it
+/// is in (endpoint, bucket, container, ...) instead. The
 /// connection info can carry secrets (a signed URL, userinfo in an HDFS URI), and the `part_name` is
 /// visible in `system.query_condition_cache` and in the logs, so only a hash of the qualified path
 /// goes into the key. The hash has a fixed length at the end, so the key stays unambiguous.
@@ -1069,7 +1073,7 @@ Chunk StorageObjectStorageSource::generate()
                         {
                             auto query_condition_cache = Context::getGlobalContextInstance()->getQueryConditionCache();
                             query_condition_cache->write(
-                                QueryConditionCache::getTableIdForFileEntries(storage_id.uuid),
+                                query_condition_cache_table_id,
                                 *query_condition_cache_key,
                                 *format_filter_info->condition_hash,
                                 format_filter_info->filter_actions_dag->dumpNames(),
@@ -1134,6 +1138,7 @@ StorageObjectStorageSource::ReaderHolder StorageObjectStorageSource::createReade
     return createReader(
         0,
         storage_id,
+        query_condition_cache_table_id,
         file_iterator,
         configuration,
         object_storage,
@@ -1151,6 +1156,7 @@ StorageObjectStorageSource::ReaderHolder StorageObjectStorageSource::createReade
 StorageObjectStorageSource::ReaderHolder StorageObjectStorageSource::createReader(
     size_t processor,
     const StorageID & storage_id,
+    const UUID & query_condition_cache_table_id,
     const std::shared_ptr<IObjectIterator> & file_iterator,
     const StorageObjectStorageConfigurationPtr & configuration,
     const ObjectStoragePtr & object_storage,
@@ -1208,7 +1214,7 @@ StorageObjectStorageSource::ReaderHolder StorageObjectStorageSource::createReade
             std::optional<QueryConditionCache::MatchingMarks> matching_marks;
             if (query_condition_cache_key)
                 matching_marks = query_condition_cache->read(
-                    QueryConditionCache::getTableIdForFileEntries(storage_id.uuid),
+                    query_condition_cache_table_id,
                     *query_condition_cache_key,
                     *format_filter_info->condition_hash);
             if (matching_marks.has_value())

@@ -6,7 +6,7 @@
 #include <Core/FormatFactorySettings.h>
 #include <Core/Settings.h>
 #include <Core/UUID.h>
-#include <IO/ReadHelpers.h>
+#include <Storages/ColumnsDescription.h>
 #include <IO/WriteHelpers.h>
 
 namespace ProfileEvents
@@ -240,12 +240,25 @@ QueryConditionCache::Key QueryConditionCache::makeKey(const UUID & table_id, con
     return hash.get128();
 }
 
-UUID QueryConditionCache::getTableIdForFileEntries(const UUID & table_uuid)
+UUID QueryConditionCache::getTableIdForFileEntries(
+    const UUID & table_uuid, std::string_view format, std::string_view compression_method, const ColumnsDescription & columns)
 {
     if (table_uuid != UUIDHelpers::Nil)
         return table_uuid;
-    static const UUID table_id_for_files_without_table_uuid = parseFromString<UUID>("00000000-0000-0000-0000-000000000001");
-    return table_id_for_files_without_table_uuid;
+    /// Each string is preceded by its length, so the boundaries between them are unambiguous.
+    const String structure = columns.toString(/*include_comments=*/false);
+    SipHash hash;
+    hash.update(format.size());
+    hash.update(format);
+    hash.update(compression_method.size());
+    hash.update(compression_method);
+    hash.update(structure.size());
+    hash.update(structure);
+    UInt128 table_id = hash.get128();
+    /// A `Nil` id would disable the cache.
+    if (table_id == 0)
+        table_id = 1;
+    return UUID(table_id);
 }
 
 String QueryConditionCache::makeFilePartName(const String & path, std::string_view version_token)

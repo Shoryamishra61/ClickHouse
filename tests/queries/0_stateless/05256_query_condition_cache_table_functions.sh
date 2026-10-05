@@ -51,6 +51,10 @@ ${CLICKHOUSE_CLIENT} --query "
 touch -d '2020-01-01 00:00:00' "${USER_FILES_PATH}/${DATA_DIR}/data.parquet"
 run file_1 "SELECT count() FROM file('${DATA_DIR}/data.parquet') WHERE b = 3"
 run file_2 "SELECT count() FROM file('${DATA_DIR}/data.parquet') WHERE b = 3"
+# The same file read through another format is another reader, and the entries of the Parquet reader
+# above must not make it skip the file: it has to parse the file, and fail, as the file is not CSV.
+${CLICKHOUSE_CLIENT} --query "SELECT count() FROM file('${DATA_DIR}/data.parquet', 'CSV', 'b UInt64') WHERE b = 3 SETTINGS ${SETTINGS}" \
+    >/dev/null 2>&1 || echo "CSV over Parquet: exception"
 # A rewrite that now contains the value: the stale "no match" entries must not be reused.
 ${CLICKHOUSE_CLIENT} --query "
     INSERT INTO FUNCTION file('${DATA_DIR}/data.parquet') SELECT number AS b FROM numbers(1000000)

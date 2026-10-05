@@ -10,6 +10,7 @@ namespace DB
 {
 
 struct Settings;
+class ColumnsDescription;
 
 /// Settings that change how a function inside a condition evaluates without leaving any trace in the
 /// condition's `ActionsDAG` (the `formatDateTime`/`parseDateTime` family, `locate`, `least`/`greatest` and a few more
@@ -105,8 +106,13 @@ public:
     /// location of a remote object, including the storage it is in, with its ETag (or of an immutable
     /// data lake file) - needs no table to be unambiguous. So a table without a UUID (the one behind a
     /// table function like `file` or `s3`, or a table in a database without UUIDs) keeps such entries
-    /// under a fixed id, while a `Nil` `table_id` disables the cache (see `write` and `read`).
-    static UUID getTableIdForFileEntries(const UUID & table_uuid);
+    /// without a table, while a `Nil` `table_id` disables the cache (see `write` and `read`).
+    /// The `part_name` identifies only the bytes of the file, not how they are read: the same file can be
+    /// read through another format, compression or structure (e.g. a column missing in the file with
+    /// another default), and a verdict of one such reader is wrong for another. A table fixes all of them,
+    /// so a table without a UUID gets an id derived from them instead.
+    static UUID getTableIdForFileEntries(
+        const UUID & table_uuid, std::string_view format, std::string_view compression_method, const ColumnsDescription & columns);
 
     QueryConditionCache(const String & cache_policy, size_t max_size_in_bytes, double size_ratio);
 

@@ -368,6 +368,8 @@ private:
     std::unique_ptr<PullingPipelineExecutor> reader;
     FormatParserSharedResourcesPtr parser_shared_resources;
     FormatFilterInfoPtr format_filter_info;
+    /// The `table_id` of the query condition cache entries (see `QueryConditionCache::getTableIdForFileEntries`).
+    UUID query_condition_cache_table_id = UUIDHelpers::Nil;
 
     std::shared_ptr<IArchiveReader> archive_reader;
     std::unique_ptr<IArchiveReader::FileEnumerator> file_enumerator;

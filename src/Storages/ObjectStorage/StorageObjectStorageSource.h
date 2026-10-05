@@ -96,6 +96,8 @@ protected:
     const bool need_only_count;
     FormatParserSharedResourcesPtr parser_shared_resources;
     FormatFilterInfoPtr format_filter_info;
+    /// The `table_id` of the query condition cache entries (see `QueryConditionCache::getTableIdForFileEntries`).
+    UUID query_condition_cache_table_id = UUIDHelpers::Nil;
 
     ReadFromFormatInfo read_from_format_info;
     const std::shared_ptr<ThreadPool> create_reader_pool;
@@ -152,6 +154,7 @@ protected:
     static ReaderHolder createReader(
         size_t processor,
         const StorageID & storage_id,
+        const UUID & query_condition_cache_table_id,
         const std::shared_ptr<IObjectIterator> & file_iterator,
         const StorageObjectStorageConfigurationPtr & configuration,
         const ObjectStoragePtr & object_storage,
