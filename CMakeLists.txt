@@ -419,7 +419,11 @@ if (OS_LINUX AND ARCH_AARCH64 AND NOT SANITIZE)
     #     nothing about an input that is assembled rather than compiled: a `.s` file assembles to a
     #     byte-identical object with and without it, so `longjmp.s` and `syscall.s` under
     #     `base/glibc-compatibility/musl/aarch64` stay unsigned, as does every prebuilt library we
-    #     link. Preprocessed `.S` sources can opt in on their own, though, because `COMPILER_FLAGS`
+    #     link. Under `USE_MUSL` the one return address that musl's `aarch64` assembly keeps in
+    #     memory, `x30` in a `jmp_buf`, is signed by hand in `contrib/musl` (`setjmp.s`,
+    #     `longjmp.s`, `sigsetjmp.s`) with `paciasp` and `autiasp` unconditionally; the rest of that
+    #     set never spills `x30` (`dlsym.s` passes it on as a value, `clone.s` saves a function
+    #     pointer, not a return address). Preprocessed `.S` sources can opt in on their own, though, because `COMPILER_FLAGS`
     #     also feeds `CMAKE_ASM_FLAGS` below and the flag defines `__ARM_FEATURE_PAC_DEFAULT`: 13 of
     #     the 19 AArch64 OpenSSL sources the build assembles include `crypto/arm_arch.h`, where that
     #     macro expands `AARCH64_SIGN_LINK_REGISTER` and `AARCH64_VALIDATE_LINK_REGISTER` to
