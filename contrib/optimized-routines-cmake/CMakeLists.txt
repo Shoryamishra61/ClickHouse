@@ -23,9 +23,20 @@
 #
 # The *-mte variants are used for strlen/memchr/strchr: they never read
 # beyond the granule containing the terminator, are valid on any core, and
-# measured fastest on Neoverse-V2. The SVE variants are deliberately not
-# used: on 128-bit-SVE cores (Graviton4) they are up to 3x slower than the
-# NEON/MTE ones.
+# measured fastest on Neoverse-V2. The SVE str*/memchr variants are
+# deliberately not used: on 128-bit-SVE cores (Graviton4) they are up to 3x
+# slower than the NEON/MTE ones.
+#
+# memcpy is the exception. memcpy-advsimd.S defines memcpy and memmove from
+# one body, and the AdvSIMD memcpy is 12-17% slower than glibc's ifunc-selected
+# __memcpy_sve on Graviton 3/4 (isValidUTF8, upperUTF8, Parquet/ORC reads in
+# the perf suite). AOR's own memcpy-sve.S is on par with glibc but cannot be
+# linked unconditionally since SVE is not in the aarch64 baseline. So on glibc
+# builds the memcpy entry point is given a private name and only memmove is
+# exported: memcpy stays an undefined symbol and binds to glibc's ifunc
+# (SVE where available), while memmove replaces llvm-libc's weak generic C
+# one. With musl there is no ifunc and the previous memcpy was 2020-vintage
+# AOR asm, so both entry points are exported there.
 #
 # On x86_64 llvm-libc's implementations (built with AVX2/FMA) are
 # competitive, so this library is not built there. It is not built under
@@ -54,8 +65,14 @@ set_target_properties(aor PROPERTIES FOLDER "contrib/optimized-routines-cmake")
 
 # AOR asm entry points carry internal names (__memcpy_aarch64_simd, ...);
 # rename them to the public symbols during preprocessing of the .S files.
+if (USE_MUSL)
+    set(AOR_MEMCPY_SYMBOL memcpy)
+else()
+    # Keep glibc's ifunc-selected memcpy (see the header comment).
+    set(AOR_MEMCPY_SYMBOL __aor_memcpy_aarch64_simd)
+endif()
 set_source_files_properties("${AOR_SOURCE_DIR}/string/aarch64/memcpy-advsimd.S"
-    PROPERTIES COMPILE_DEFINITIONS "__memcpy_aarch64_simd=memcpy;__memmove_aarch64_simd=memmove")
+    PROPERTIES COMPILE_DEFINITIONS "__memcpy_aarch64_simd=${AOR_MEMCPY_SYMBOL};__memmove_aarch64_simd=memmove")
 set_source_files_properties("${AOR_SOURCE_DIR}/string/aarch64/memcmp.S"
     PROPERTIES COMPILE_DEFINITIONS "__memcmp_aarch64=memcmp")
 set_source_files_properties("${AOR_SOURCE_DIR}/string/aarch64/memchr-mte.S"
