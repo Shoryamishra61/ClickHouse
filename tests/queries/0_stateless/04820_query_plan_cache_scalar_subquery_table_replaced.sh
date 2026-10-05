@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tags: no-parallel, no-random-settings, no-random-merge-tree-settings, no-old-analyzer, no-parallel-replicas, no-ordinary-database, no-replicated-database
+# Tags: no-fasttest, no-parallel, no-random-settings, no-random-merge-tree-settings, no-old-analyzer, no-parallel-replicas, no-ordinary-database, no-replicated-database
 # Regression test for the storage-identity race on the plan cache miss path for tables read only
 # inside a scalar subquery. The scalar is executed during analysis and folded into the plan as a
 # constant, so the table it reads has no `ReadFromTable` leaf in the plan - it must still be

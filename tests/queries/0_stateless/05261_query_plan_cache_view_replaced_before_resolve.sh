@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tags: no-parallel, no-random-settings, no-old-analyzer, no-parallel-replicas, no-ordinary-database, no-replicated-database
+# Tags: no-fasttest, no-parallel, no-random-settings, no-old-analyzer, no-parallel-replicas, no-ordinary-database, no-replicated-database
 # Regression test for a view-definition race on the plan cache miss path, the analogue of `04905`
 # for the hit path. An expanded view has no `ReadFromTable` leaf: its definition is inlined into the
 # plan, while the leaves of its underlying tables still resolve successfully. If the view is replaced

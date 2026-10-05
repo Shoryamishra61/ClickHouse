@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tags: no-parallel, no-random-settings, no-old-analyzer, no-parallel-replicas, no-ordinary-database, no-replicated-database
+# Tags: no-fasttest, no-parallel, no-random-settings, no-old-analyzer, no-parallel-replicas, no-ordinary-database, no-replicated-database
 # Regression test for the semantics race on the plan cache miss path with an in-place `ALTER`.
 # The analyzed plan bakes in the storage's semantics (here: an `ALIAS` column expression), while
 # the dependency fingerprints are collected only after the whole plan is built. An

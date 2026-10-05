@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tags: no-parallel, no-random-settings, no-random-merge-tree-settings, no-old-analyzer, no-parallel-replicas, no-ordinary-database, no-replicated-database
+# Tags: no-fasttest, no-parallel, no-random-settings, no-random-merge-tree-settings, no-old-analyzer, no-parallel-replicas, no-ordinary-database, no-replicated-database
 # Regression test for the storage-identity race on the query plan cache miss path: a cacheable logical
 # plan bakes in the semantics of the storages that were analyzed (here, a row policy that becomes an
 # explicit `FilterStep`), while the dependencies of the cache entry and the reads of the plan are

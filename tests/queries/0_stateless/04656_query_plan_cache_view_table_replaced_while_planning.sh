@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tags: no-parallel, no-random-settings, no-random-merge-tree-settings, no-old-analyzer, no-parallel-replicas, no-ordinary-database, no-replicated-database
+# Tags: no-fasttest, no-parallel, no-random-settings, no-random-merge-tree-settings, no-old-analyzer, no-parallel-replicas, no-ordinary-database, no-replicated-database
 # Same storage-identity race as 04655, but through a view: the view body is expanded into the
 # cacheable logical plan at plan time, so the underlying table is analyzed (and must be recorded)
 # in a context *copied* from the planning context (`InterpreterSelectQueryAnalyzer::buildContext`,

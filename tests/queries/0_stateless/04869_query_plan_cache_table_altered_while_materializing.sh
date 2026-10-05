@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tags: no-parallel, no-random-settings, no-old-analyzer, no-parallel-replicas, no-ordinary-database, no-replicated-database
+# Tags: no-fasttest, no-parallel, no-random-settings, no-old-analyzer, no-parallel-replicas, no-ordinary-database, no-replicated-database
 # Regression test for the semantics race on the plan cache hit path with an in-place `ALTER`.
 # `validateQueryPlanCacheEntry` proves that every dependency still has the schema and row policies
 # the plan was built with, but the plan's reads are bound to storage snapshots only later, in

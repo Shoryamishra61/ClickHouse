@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tags: no-parallel, no-random-settings, no-random-merge-tree-settings, no-old-analyzer, no-parallel-replicas, no-ordinary-database, no-replicated-database
+# Tags: no-fasttest, no-parallel, no-random-settings, no-random-merge-tree-settings, no-old-analyzer, no-parallel-replicas, no-ordinary-database, no-replicated-database
 # Regression test for a cache-accounting leak on the query plan cache miss path: the cache entry must
 # be stored only after `resolveStorages` has proven that the plan still binds to the storages it was
 # analyzed from. If the entry were stored first and a concurrent `DROP`/`CREATE` replaced a table
