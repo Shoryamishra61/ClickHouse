@@ -309,6 +309,11 @@ protected:
     /// functions) are hidden, and the rules of `SensitiveDataMasker` are applied.
     static String queryTextForAIContext(std::string_view query, const ASTPtr & parsed_query);
 
+    /// The text of an error to record into the AI context buffer, masked for the same reason as the
+    /// query: the masking rules are applied, and when the query has secret parts, which the message
+    /// may quote, only the code and the name of the error are kept.
+    static String errorMessageForAIContext(const String & message, int code, const ASTPtr & parsed_query);
+
     /// Record an error of the current or just-failed query into the AI context buffer.
     void recordErrorForAIContext(std::string_view query_or_input, const ASTPtr & parsed_query);
 

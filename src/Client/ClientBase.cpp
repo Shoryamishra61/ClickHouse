@@ -5298,6 +5298,20 @@ String ClientBase::queryTextForAIContext(std::string_view query, const ASTPtr & 
     return wipeSensitiveDataAndCutToLength(String(query), /*max_length=*/ 0, /*wipe_sensitive=*/ true);
 }
 
+String ClientBase::errorMessageForAIContext(const String & message, int code, const ASTPtr & parsed_query)
+{
+    /// An error message can quote the query it is about - a syntax error shows the text around its
+    /// position, an error of a table engine its arguments - and those are exactly the secret parts
+    /// `queryTextForAIContext` hides. They cannot be told apart in the message, so it is not recorded
+    /// at all when the query has any: the model gets the code of the error and its name.
+    if (parsed_query && parsed_query->hasSecretParts())
+        return fmt::format(
+            "Code: {}. ({}) The text of the error is not shown, because the query has secret parts it may quote.",
+            code,
+            ErrorCodes::getName(code));
+    return wipeSensitiveDataAndCutToLength(message, /*max_length=*/ 0, /*wipe_sensitive=*/ true);
+}
+
 void ClientBase::recordErrorForAIContext(std::string_view query_or_input, const ASTPtr & parsed_query)
 {
     if (!is_interactive || !ai_query_context)
@@ -5305,9 +5319,9 @@ void ClientBase::recordErrorForAIContext(std::string_view query_or_input, const 
 
     String message;
     if (server_exception)
-        message = getExceptionMessage(*server_exception, false);
+        message = errorMessageForAIContext(getExceptionMessage(*server_exception, false), server_exception->code(), parsed_query);
     else if (client_exception)
-        message = getExceptionMessage(*client_exception, false);
+        message = errorMessageForAIContext(getExceptionMessage(*client_exception, false), client_exception->code(), parsed_query);
     else
         return;
 
@@ -5324,7 +5338,11 @@ void ClientBase::recordParseErrorForAIContext(std::string_view query, const Stri
 
     /// The parse errors are formatted for the terminal (they highlight the position of the error),
     /// but the recorded text goes into the prompt of a model, where the escape sequences are noise.
-    ai_query_context->recordError(queryTextForAIContext(query, nullptr), stripTerminalEscapeSequences(message), /*from_ai=*/ ai_running_query);
+    /// The query was not parsed, so only the masking rules apply to it, and the same to the message.
+    ai_query_context->recordError(
+        queryTextForAIContext(query, nullptr),
+        wipeSensitiveDataAndCutToLength(stripTerminalEscapeSequences(message), /*max_length=*/ 0, /*wipe_sensitive=*/ true),
+        /*from_ai=*/ ai_running_query);
 }
 #endif
 
@@ -6524,7 +6542,8 @@ void ClientBase::runInteractive()
 
 #if USE_CLIENT_AI
             if (ai_query_context)
-                ai_query_context->recordError(queryTextForAIContext(input, nullptr), getExceptionMessage(e, false), /*from_ai=*/ false);
+                ai_query_context->recordError(
+                    queryTextForAIContext(input, nullptr), errorMessageForAIContext(getExceptionMessage(e, false), e.code(), nullptr), /*from_ai=*/ false);
 #endif
         }
 

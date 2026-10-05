@@ -114,13 +114,16 @@ ai::ToolSet buildAIAgentToolSet(const AIAgentHooks & hooks_, bool enable_schema_
     {
         tools["read_query_log"] = makeTool(
             "Read the recent queries of the current user from the `system.user_query_log` table: "
-            "query text, duration, resource usage and error messages. Useful to see what the user was doing "
+            "query text, duration, resource usage and the names of the errors. Useful to see what the user was doing "
             "beyond the recent activity included in the conversation, e.g. in previous sessions. "
             "The queries the assistant ran on its own - schema probes, documentation lookups, this read - are "
             "always excluded. The queries the assistant ran on the user's connection and displayed to them are "
             "excluded only when the session of the time let the assistant tag them, which a read-only session "
             "does not, so a returned query from an earlier session may be one the assistant ran and showed the "
             "user rather than one they typed. "
+            "The text of an error is not returned: it can quote the part of the query that failed, secrets "
+            "included, while the logged query has them masked. The error messages of this session are in the "
+            "recent activity context. "
             "Runs internally, nothing is displayed to the user. "
             "The table may be absent on older servers; then rely on the recent activity context.",
             ai::JsonValue{
@@ -152,11 +155,15 @@ ai::ToolSet buildAIAgentToolSet(const AIAgentHooks & hooks_, bool enable_schema_
                         /// connection keep the query id the client would have used anyway, since they are
                         /// echoed and displayed as if the user typed them. Between them they exclude
                         /// every query of the agent the user never saw, whichever session it ran in.
-                        String query = "SELECT event_time, query_duration_ms, read_rows, result_rows, formatReadableSize(memory_usage) AS memory, exception, query "
+                        /// The `query` column is logged masked (`query_for_logging`), but `exception` is the
+                        /// raw message, which a parse or a connection error fills with the fragment of the
+                        /// query that failed - secrets included. Only the name of the error is returned.
+                        String query = "SELECT event_time, query_duration_ms, read_rows, result_rows, formatReadableSize(memory_usage) AS memory, "
+                            "if(exception_code = 0, '', errorCodeToName(exception_code)) AS error, query "
                             "FROM system.user_query_log WHERE type != 'QueryStart' AND log_comment != {ai_marker:String} "
                             "AND NOT startsWith(query_id, {ai_query_id_prefix:String})";
                         if (only_errors)
-                            query += " AND exception != ''";
+                            query += " AND exception_code != 0";
                         query += " ORDER BY event_time DESC LIMIT {limit:UInt64}";
 
                         return successResult(hooks->execute_internal(
