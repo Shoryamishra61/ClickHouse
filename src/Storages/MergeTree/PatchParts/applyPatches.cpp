@@ -43,7 +43,12 @@ const PaddedPODArray<UInt64> & getColumnUInt64Data(const Block & block, const St
 
 PaddedPODArray<UInt64> & getColumnUInt64Data(Block & block, const String & column_name)
 {
-    return assert_cast<ColumnUInt64 &>(block.getByName(column_name).column->assumeMutableRef()).getData();
+    /// The column may be shared with another owner (e.g. a cached patch block), so unshare it before handing out mutable data.
+    auto & column = block.getByName(column_name).column;
+    auto mutable_column = IColumn::mutate(std::move(column));
+    auto & data = assert_cast<ColumnUInt64 &>(*mutable_column).getData();
+    column = std::move(mutable_column);
+    return data;
 }
 
 bool canApplyPatchInplace(const IColumn & column)
@@ -95,7 +100,7 @@ static VectorWithMemoryTracking<IColumn::Patch::Source> createPatchSources(const
         IColumn::Patch::Source source =
         {
             .column = *source_col,
-            .versions = getColumnUInt64Data(patch_block, PartDataVersionColumn::name),
+            .versions = getColumnUInt64Data(std::as_const(patch_block), PartDataVersionColumn::name),
         };
 
         sources.push_back(std::move(source));
