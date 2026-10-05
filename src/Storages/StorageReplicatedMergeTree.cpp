@@ -289,6 +289,7 @@ namespace ErrorCodes
     extern const int LOGICAL_ERROR;
     extern const int TOO_MANY_UNEXPECTED_DATA_PARTS;
     extern const int ABORTED;
+    extern const int ALTER_OF_COLUMN_IS_FORBIDDEN;
     extern const int REPLICA_IS_NOT_IN_QUORUM;
     extern const int TABLE_IS_READ_ONLY;
     extern const int TABLE_IS_PERMANENTLY_READ_ONLY;
@@ -7178,6 +7179,26 @@ void StorageReplicatedMergeTree::alter(
 
     const auto zookeeper = getZooKeeperAndAssertNotReadonly();
 
+    /// Does the `ALTER` change the type of a column used in the partition key as is? `checkAlterEligibility`
+    /// refuses it while a mutation entry with an undecodable `IN PARTITION <value>` literal exists, but that
+    /// check is only a snapshot: a replica of an older server version may create such an entry concurrently.
+    /// So the check is repeated below and the version of `/mutations` it saw is fenced in the commit.
+    bool changes_partition_key_column_type = false;
+    if (metadata_snapshot->hasPartitionKey())
+    {
+        const auto partition_key_columns = metadata_snapshot->getPartitionKey().expression->getRequiredColumns();
+        for (const auto & command : commands)
+        {
+            if (command.type != AlterCommand::MODIFY_COLUMN || !command.data_type
+                || std::ranges::find(partition_key_columns, command.column_name) == partition_key_columns.end())
+                continue;
+
+            auto old_column = metadata_snapshot->getColumns().tryGetPhysical(command.column_name);
+            if (old_column && !old_column->type->equals(*command.data_type))
+                changes_partition_key_column_type = true;
+        }
+    }
+
     std::optional<ReplicatedMergeTreeLogEntryData> alter_entry;
     std::optional<String> mutation_znode;
 
@@ -7189,6 +7210,23 @@ void StorageReplicatedMergeTree::alter(
         bool pulled_queue = false;
         std::optional<int32_t> maybe_mutations_version_after_logs_pull;
         std::map<std::string, MutationCommands> unfinished_mutations;
+
+        /// The version of `/mutations` before the legacy partition scope check, see `changes_partition_key_column_type`.
+        std::optional<int32_t> mutations_version_before_legacy_scope_check;
+        if (changes_partition_key_column_type)
+        {
+            Coordination::Stat mutations_stat;
+            zookeeper->get(fs::path(zookeeper_path) / "mutations", &mutations_stat);
+            mutations_version_before_legacy_scope_check = mutations_stat.version;
+
+            if (auto legacy_mutations = getMutationsWithLegacyPartitionScope(); !legacy_mutations.empty())
+                throw Exception(ErrorCodes::ALTER_OF_COLUMN_IS_FORBIDDEN,
+                                "ALTER of a partition key column is forbidden while the mutation(s) {} created by "
+                                "an older server version still scope their commands with an `IN PARTITION <value>` "
+                                "literal that would become undecodable after the change; "
+                                "wait for them to finish or kill them (KILL MUTATION) and retry",
+                                fmt::join(legacy_mutations, ", "));
+        }
         for (const auto & command : commands)
         {
             if (command.isDropOrRename())
@@ -7343,7 +7381,11 @@ void StorageReplicatedMergeTree::alter(
             rewritePartitionScopeToIds(mutation_entry.commands, query_context);
 
             int32_t mutations_version = 0;
-            if (maybe_mutations_version_after_logs_pull.has_value())
+            if (mutations_version_before_legacy_scope_check.has_value())
+            {
+                mutations_version = *mutations_version_before_legacy_scope_check;
+            }
+            else if (maybe_mutations_version_after_logs_pull.has_value())
             {
                 mutations_version = *maybe_mutations_version_after_logs_pull;
             }
@@ -7365,6 +7407,12 @@ void StorageReplicatedMergeTree::alter(
             mutation_path_idx = ops.size();
             ops.emplace_back(
                 zkutil::makeCreateRequest(fs::path(mutations_path) / "", mutation_entry.toString(), zkutil::CreateMode::PersistentSequential));
+        }
+        else if (mutations_version_before_legacy_scope_check.has_value())
+        {
+            /// No mutation entry is created, so nothing else fences `/mutations`: a concurrently created legacy
+            /// entry must fail the commit (and the check above is repeated on the retry).
+            ops.emplace_back(zkutil::makeCheckRequest(fs::path(zookeeper_path) / "mutations", *mutations_version_before_legacy_scope_check));
         }
 
         if (auto txn = query_context->getZooKeeperMetadataTransaction())
