@@ -14,6 +14,7 @@
 #include <DataTypes/DataTypesBinaryEncoding.h>
 #include <Core/TypeId.h>
 #include <DataTypes/IDataType.h>
+#include <DataTypes/TypeTree.h>
 #include <Formats/FormatSettings.h>
 #include <IO/ReadBufferFromMemory.h>
 #include <IO/WriteBufferFromString.h>
@@ -64,20 +65,13 @@ ColumnPtr canonicalizeNegativeZeroInVector(const IColumn & column)
 /// Whether a floating point value can be found somewhere inside a value of this type.
 bool mayContainNegativeZero(const IDataType & type)
 {
-    auto is_floating_point_type = [](const IDataType & nested)
+    /// `anyInTypeTree` checks `type` itself and every type nested in it.
+    return anyInTypeTree(type, [](const IDataType & nested)
     {
         WhichDataType which(nested);
         /// `Dynamic` and `JSON` do not report their nested types, so they can contain anything.
         return which.isFloat() || which.isDynamic() || which.isObject();
-    };
-
-    if (is_floating_point_type(type))
-        return true;
-
-    /// `forEachChild` is recursive.
-    bool res = false;
-    type.forEachChild([&](const IDataType & child) { res = res || is_floating_point_type(child); });
-    return res;
+    });
 }
 
 /// A value in the shared variant of a `Dynamic` column and in the shared data of a `JSON` column
