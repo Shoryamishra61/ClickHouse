@@ -2316,6 +2316,25 @@ NameSet getColumnsRequiredForMergingFinal(
     return required_columns;
 }
 
+NameSet getColumnsRequiredForMergingFinal(
+    const StoragePtr & storage, const StorageMetadataPtr & metadata_snapshot, const ContextPtr & context)
+{
+    const auto merge_tree = castStorage<const MergeTreeData>(storage, DeferredTable::Load);
+    if (!merge_tree)
+        return {};
+
+    /// A lazily loaded table is seen through `StorageTableProxy`. When the query takes its snapshot before
+    /// the table is loaded, the snapshot carries only the columns seeded from `CREATE TABLE`, without the keys
+    /// that the merge needs, so take the metadata of the table itself.
+    if (merge_tree.get() != storage.get())
+    {
+        const auto merge_tree_metadata = merge_tree->getInMemoryMetadataPtr(context, false);
+        return getColumnsRequiredForMergingFinal(merge_tree_metadata, merge_tree->merging_params);
+    }
+
+    return getColumnsRequiredForMergingFinal(metadata_snapshot, merge_tree->merging_params);
+}
+
 /// Returns the list of column names required for the transforms in addMergingFinal.
 static NameSet getColumnsRequiredForMergingFinal(
     const SortDescription & sort_description, const StorageMetadataPtr & metadata_snapshot, const MergeTreeData::MergingParams & merging_params)

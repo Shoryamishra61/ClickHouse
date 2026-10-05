@@ -33,6 +33,11 @@ using PartitionIdToMaxBlockPtr = std::shared_ptr<const PartitionIdToMaxBlock>;
 NameSet getColumnsRequiredForMergingFinal(
     const StorageMetadataPtr & metadata_snapshot, const MergeTreeData::MergingParams & merging_params);
 
+/// Same for a storage that may be a proxy over a MergeTree table, e.g. a lazily loaded one.
+/// Returns an empty set when the storage is not a MergeTree table.
+NameSet getColumnsRequiredForMergingFinal(
+    const StoragePtr & storage, const StorageMetadataPtr & metadata_snapshot, const ContextPtr & context);
+
 class LazilyReadFromMergeTree;
 struct QueryIdHolder;
 
