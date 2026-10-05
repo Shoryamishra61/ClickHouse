@@ -307,7 +307,8 @@ static size_t getSizeOfColumns(
 /// Returns 0 when nothing is known about the columns (they are absent from the part), so that
 /// such a read is not charged for the whole part. Compact parts never write to the columns
 /// cache, so their size is only a safety net.
-static size_t getUncompressedSizeOfColumns(const IMergeTreeDataPart & part, const Names & columns_to_read, const Settings & settings)
+static size_t getUncompressedSizeOfColumns(
+    const IMergeTreeDataPart & part, const Names & columns_to_read, const ColumnsDescription & table_columns, const Settings & settings)
 {
     if (part.getType() == MergeTreeDataPartType::Compact)
         return part.getBytesUncompressedOnDisk();
@@ -315,7 +316,7 @@ static size_t getUncompressedSizeOfColumns(const IMergeTreeDataPart & part, cons
     size_t data_uncompressed_size = 0;
     for (const auto & col_name : columns_to_read)
     {
-        auto column = part.tryGetColumn(col_name);
+        auto column = part.tryGetColumnForTable(col_name, table_columns);
         if (!column)
             continue;
 
@@ -333,13 +334,14 @@ static size_t getUncompressedSizeOfColumns(const IMergeTreeDataPart & part, cons
 /// but a query that reads a few marks of a large part should not be charged for the entire part:
 /// that would trip the estimate budget on a tiny read and defeat the cache exactly where it
 /// helps. The caller multiplies this rate by the marks the query selected in the part.
-static double estimateUncompressedColumnsSizePerMark(const IMergeTreeDataPart & part, const Names & columns, const Settings & settings)
+static double estimateUncompressedColumnsSizePerMark(
+    const IMergeTreeDataPart & part, const Names & columns, const ColumnsDescription & table_columns, const Settings & settings)
 {
     const size_t total_marks = part.getMarksCount();
     if (total_marks == 0)
         return 0;
 
-    return static_cast<double>(getUncompressedSizeOfColumns(part, columns, settings)) / static_cast<double>(total_marks);
+    return static_cast<double>(getUncompressedSizeOfColumns(part, columns, table_columns, settings)) / static_cast<double>(total_marks);
 }
 
 /// Mirror the cache-write eligibility predicate in `MergeTreeReaderWide::readRows`: only wide parts
@@ -595,6 +597,7 @@ void MergeTreeReadPoolBase::stageColumnsCacheWriteEstimate(
     /// write, and a query is neither allowed to write unaccounted bytes nor charged for
     /// bytes it can never cache.
     double bytes_per_mark = 0;
+    const auto & table_columns = storage_snapshot->metadata->getColumns();
 
     if (partCanWriteToColumnsCache(*part_with_ranges.data_part))
     {
@@ -611,7 +614,7 @@ void MergeTreeReadPoolBase::stageColumnsCacheWriteEstimate(
         if (all_read_columns.empty())
             return;
 
-        bytes_per_mark += estimateUncompressedColumnsSizePerMark(*part_with_ranges.data_part, all_read_columns, settings);
+        bytes_per_mark += estimateUncompressedColumnsSizePerMark(*part_with_ranges.data_part, all_read_columns, table_columns, settings);
     }
 
     /// `getAllColumnNames` covers only the main and prewhere columns, which are read
@@ -651,7 +654,7 @@ void MergeTreeReadPoolBase::stageColumnsCacheWriteEstimate(
 
         if (base_part_marks != 0)
             bytes_per_mark
-                += static_cast<double>(getUncompressedSizeOfColumns(patch_part, patch_column_names, settings))
+                += static_cast<double>(getUncompressedSizeOfColumns(patch_part, patch_column_names, table_columns, settings))
                 / static_cast<double>(base_part_marks);
     }
 
