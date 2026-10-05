@@ -30,9 +30,12 @@ public:
 
     void prefetchBeginOfRange(Priority priority) override;
 
+    void updateReadRequestMap(MarkRangesPtr request_map) override;
+
 private:
     MergeTreeReaderStream & getStream(const NameAndTypePair & column) override;
     void init();
+    void updateStreamsReadRequestMap();
 
     struct Stream
     {

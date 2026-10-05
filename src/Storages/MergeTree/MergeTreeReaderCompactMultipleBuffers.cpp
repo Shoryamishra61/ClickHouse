@@ -136,6 +136,22 @@ void MergeTreeReaderCompactMultipleBuffers::prefetchBeginOfRange(Priority priori
     }
 }
 
+void MergeTreeReaderCompactMultipleBuffers::updateReadRequestMap(MarkRangesPtr request_map)
+{
+    MergeTreeReaderCompact::updateReadRequestMap(std::move(request_map));
+    if (initialized)
+        updateStreamsReadRequestMap();
+}
+
+void MergeTreeReaderCompactMultipleBuffers::updateStreamsReadRequestMap()
+{
+    /// Every stream converts the marks to the byte ranges of its own column.
+    if (shared_stream)
+        shared_stream->stream->updateReadRequestMap(read_request_map);
+    for (auto & [_, stream] : streams_by_position)
+        stream.stream->updateReadRequestMap(read_request_map);
+}
+
 MergeTreeReaderStream & MergeTreeReaderCompactMultipleBuffers::getStream(const NameAndTypePair & column)
 {
     init();
@@ -211,7 +227,7 @@ try
 
                 it = streams_by_position.emplace(
                     column_position,
-                    Stream{.stream = create_stream.operator()<MergeTreeReaderStreamOneOfMultipleColumns>(last_position), .first_position = first_position}).first;
+                    Stream{.stream = create_stream.operator()<MergeTreeReaderStreamOneOfMultipleColumns>(first_position, last_position), .first_position = first_position}).first;
             }
 
             streams[i] = it->second.stream.get();
@@ -223,6 +239,7 @@ try
             streams_by_name[columns_to_read[i].getNameInStorage()] = streams[i];
 
     initialized = true;
+    updateStreamsReadRequestMap();
 }
 catch (...)
 {
