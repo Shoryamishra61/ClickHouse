@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Tags: no-replicated-database
+# Tag no-replicated-database: uses `ON CLUSTER`, which is not allowed for a table in a `Replicated` database
 # A full-definition `ATTACH TABLE` is create-like user input, so under `uuid_type_version = 2` it must
 # materialize a bare `UUID` (including persisted type-string carriers such as `DEFAULT CAST(..., 'UUID')`)
 # exactly like CREATE does, both locally and through the modern `ATTACH ... ON CLUSTER` path.

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Tags: no-replicated-database
+# Tag no-replicated-database: uses `ON CLUSTER`, which is not allowed for a table in a `Replicated` database
 
 CURDIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=../shell_config.sh

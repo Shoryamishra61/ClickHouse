@@ -1,3 +1,6 @@
+-- Tags: no-replicated-database
+-- Tag no-replicated-database: uses `ON CLUSTER`, which is not allowed for a table in a `Replicated` database
+
 -- Tests for the UUID2 data type (correctly-sorting variant of UUID) and the uuid_type_version setting.
 
 SELECT '-- type names and alias';
