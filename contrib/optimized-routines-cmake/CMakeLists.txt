@@ -21,22 +21,22 @@
 # exactly that (s2 functions via atan2, log10(0.1) != -1). Correct rounding
 # is what makes results architecture-independent; keep it.
 #
-# The *-mte variants are used for strlen/memchr/strchr: they never read
-# beyond the granule containing the terminator, are valid on any core, and
-# measured fastest on Neoverse-V2. The SVE str*/memchr variants are
-# deliberately not used: on 128-bit-SVE cores (Graviton4) they are up to 3x
-# slower than the NEON/MTE ones.
+# The *-mte variants are used for memchr/strchr: they never read beyond the
+# granule containing the terminator, are valid on any core, and measured
+# fastest on Neoverse-V2. strlen uses the plain strlen.S: strlen-mte.S is
+# 20-40% slower above 512 bytes and ~20% slower on mixed sizes, while
+# strlen.S matches glibc's __strlen_asimd, and ClickHouse does not enable
+# MTE. The SVE str*/memchr variants are deliberately not used: on 128-bit-SVE
+# cores (Graviton4) they are up to 3x slower than the NEON/MTE ones.
 #
-# memcpy is the exception. memcpy-advsimd.S defines memcpy and memmove from
-# one body, and the AdvSIMD memcpy is 12-17% slower than glibc's ifunc-selected
-# __memcpy_sve on Graviton 3/4 (isValidUTF8, upperUTF8, Parquet/ORC reads in
-# the perf suite). AOR's own memcpy-sve.S is on par with glibc but cannot be
-# linked unconditionally since SVE is not in the aarch64 baseline. So on glibc
-# builds the memcpy entry point is given a private name and only memmove is
-# exported: memcpy stays an undefined symbol and binds to glibc's ifunc
-# (SVE where available), while memmove replaces llvm-libc's weak generic C
-# one. With musl there is no ifunc and the previous memcpy was 2020-vintage
-# AOR asm, so both entry points are exported there.
+# memcpy/memmove are the exception and are selected at runtime, see
+# memcpy_dispatch.c. The AdvSIMD memcpy alone was 12-17% slower than glibc's
+# ifunc-selected __memcpy_sve on Graviton 3/4 (isValidUTF8, upperUTF8,
+# Parquet/ORC reads in the perf suite); memcpy-sve.S, which uses SVE only for
+# the small-copy tail, is on par with it. SVE is not in the aarch64 baseline,
+# so both variants are built and a trampoline picks one on first call. It is
+# a function pointer rather than an ifunc because a static musl binary cannot
+# process IRELATIVE relocations.
 #
 # On x86_64 llvm-libc's implementations (built with AVX2/FMA) are
 # competitive, so this library is not built there. It is not built under
@@ -51,10 +51,12 @@ endif()
 set(AOR_SOURCE_DIR "${ClickHouse_SOURCE_DIR}/contrib/optimized-routines")
 
 set(SRCS
+    "${CMAKE_CURRENT_SOURCE_DIR}/memcpy_dispatch.c"
     "${AOR_SOURCE_DIR}/string/aarch64/memcpy-advsimd.S"
+    "${AOR_SOURCE_DIR}/string/aarch64/memcpy-sve.S"
     "${AOR_SOURCE_DIR}/string/aarch64/memcmp.S"
     "${AOR_SOURCE_DIR}/string/aarch64/memchr-mte.S"
-    "${AOR_SOURCE_DIR}/string/aarch64/strlen-mte.S"
+    "${AOR_SOURCE_DIR}/string/aarch64/strlen.S"
     "${AOR_SOURCE_DIR}/string/aarch64/strcmp.S"
     "${AOR_SOURCE_DIR}/string/aarch64/strchr-mte.S"
     "${AOR_SOURCE_DIR}/string/aarch64/strnlen.S"
@@ -63,22 +65,16 @@ set(SRCS
 add_library(aor ${SRCS})
 set_target_properties(aor PROPERTIES FOLDER "contrib/optimized-routines-cmake")
 
-# AOR asm entry points carry internal names (__memcpy_aarch64_simd, ...);
-# rename them to the public symbols during preprocessing of the .S files.
-if (USE_MUSL)
-    set(AOR_MEMCPY_SYMBOL memcpy)
-else()
-    # Keep glibc's ifunc-selected memcpy (see the header comment).
-    set(AOR_MEMCPY_SYMBOL __aor_memcpy_aarch64_simd)
-endif()
-set_source_files_properties("${AOR_SOURCE_DIR}/string/aarch64/memcpy-advsimd.S"
-    PROPERTIES COMPILE_DEFINITIONS "__memcpy_aarch64_simd=${AOR_MEMCPY_SYMBOL};__memmove_aarch64_simd=memmove")
+# AOR asm entry points carry internal names (__memcmp_aarch64, ...); rename
+# them to the public symbols during preprocessing of the .S files. The two
+# memcpy variants keep their internal names: the public memcpy/memmove are
+# the trampolines in memcpy_dispatch.c.
 set_source_files_properties("${AOR_SOURCE_DIR}/string/aarch64/memcmp.S"
     PROPERTIES COMPILE_DEFINITIONS "__memcmp_aarch64=memcmp")
 set_source_files_properties("${AOR_SOURCE_DIR}/string/aarch64/memchr-mte.S"
     PROPERTIES COMPILE_DEFINITIONS "__memchr_aarch64_mte=memchr")
-set_source_files_properties("${AOR_SOURCE_DIR}/string/aarch64/strlen-mte.S"
-    PROPERTIES COMPILE_DEFINITIONS "__strlen_aarch64_mte=strlen")
+set_source_files_properties("${AOR_SOURCE_DIR}/string/aarch64/strlen.S"
+    PROPERTIES COMPILE_DEFINITIONS "__strlen_aarch64=strlen")
 set_source_files_properties("${AOR_SOURCE_DIR}/string/aarch64/strcmp.S"
     PROPERTIES COMPILE_DEFINITIONS "__strcmp_aarch64=strcmp")
 set_source_files_properties("${AOR_SOURCE_DIR}/string/aarch64/strchr-mte.S"
