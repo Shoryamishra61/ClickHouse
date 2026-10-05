@@ -69,4 +69,8 @@ ${CLICKHOUSE_CLIENT} --query "
         $adaptive_result = $static_result,
         sum(ProfileEvents['AdaptiveShortCircuitEagerExecutions']) > 0
     FROM system.query_log
-    WHERE event_date >= yesterday() AND has(databases, currentDatabase()) AND initial_query_id = '$QUERY_ID' AND is_initial_query = 0 AND type = 'QueryFinish'"
+    WHERE event_date >= yesterday() AND is_initial_query = 0 AND type = 'QueryFinish'
+        -- The secondary queries run in the default database, so match them by the initial query.
+        AND initial_query_id IN (
+            SELECT query_id FROM system.query_log
+            WHERE event_date >= yesterday() AND current_database = currentDatabase() AND query_id = '$QUERY_ID')"
