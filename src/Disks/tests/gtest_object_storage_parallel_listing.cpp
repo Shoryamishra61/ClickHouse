@@ -783,7 +783,7 @@ TEST(ObjectStorageParallelListing, BufferedObjectByteBudgetBoundsSkewedPageSizes
     s3.object_etag = std::string(512, 'e');
     for (size_t i = 0; i < 16; ++i)
         s3.object_tags["tag" + std::to_string(i)] = std::string(96, 't');
-    s3.has_metadata = [](const std::string & key) { return key.find("/heavy") != std::string::npos; };
+    s3.has_metadata = [](const std::string & key) { return key.contains("/heavy"); };
     constexpr size_t num_dirs = 200;
     for (size_t d = 0; d < num_dirs; ++d)
     {
