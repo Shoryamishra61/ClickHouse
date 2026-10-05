@@ -53,8 +53,11 @@ public:
         size_t max_size_in_bytes,
         size_t max_count = NO_MAX_COUNT,
         double size_ratio = DEFAULT_SIZE_RATIO)
-        : CacheBase(DEFAULT_CACHE_POLICY, size_in_bytes_metric, count_metric, max_size_in_bytes, max_count, size_ratio)
     {
+        /// Construct the default policy directly instead of delegating to the ctor below, so that caches which never
+        /// select a policy by name do not instantiate the code of the other policies.
+        using SLRUPolicy = SLRUCachePolicy<TKey, TMapped, HashFunction, WeightFunction>;
+        cache_policy = std::make_unique<SLRUPolicy>(size_in_bytes_metric, count_metric, max_size_in_bytes, max_count, size_ratio, makeOnRemoveEntryFunction());
     }
 
     /// Use this ctor if the user should be able to configure the cache policy and cache sizes via settings. Supports only general-purpose policies LRU, SLRU and SIEVE.
@@ -66,10 +69,7 @@ public:
         size_t max_count,
         double size_ratio)
     {
-        auto on_remove_entry_function = [this](size_t weight_loss, const MappedPtr & mapped_ptr)
-        {
-            onEntryRemoval(weight_loss, mapped_ptr);
-        };
+        auto on_remove_entry_function = makeOnRemoveEntryFunction();
 
         if (cache_policy_name.empty())
         {
@@ -346,6 +346,14 @@ protected:
 
 private:
     std::unique_ptr<CachePolicy> cache_policy TSA_GUARDED_BY(mutex);
+
+    typename CachePolicy::OnRemoveEntryFunction makeOnRemoveEntryFunction()
+    {
+        return [this](size_t weight_loss, const MappedPtr & mapped_ptr)
+        {
+            onEntryRemoval(weight_loss, mapped_ptr);
+        };
+    }
 
     std::atomic<size_t> hits{0};
     std::atomic<size_t> misses{0};
