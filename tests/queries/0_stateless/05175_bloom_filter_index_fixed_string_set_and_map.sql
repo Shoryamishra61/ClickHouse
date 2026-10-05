@@ -135,6 +135,22 @@ SELECT count() FROM t_bf_map_uint8_keys WHERE m['absent'] IN (SELECT '5');
 SELECT count() > 0 FROM (EXPLAIN indexes = 1 SELECT count() FROM t_bf_map_uint8_keys WHERE m['absent'] IN (SELECT '5')) WHERE explain LIKE '%Granules: 0/%';
 
 DROP TABLE t_bf_map_uint8_keys;
+
+SELECT 'unknown enum label against a mapValues index';
+-- With `validate_enum_literals_in_operators = 0` the comparison is constant false, and the index
+-- must not throw while converting the label to the `Enum8` value type.
+DROP TABLE IF EXISTS t_bf_map_enum;
+CREATE TABLE t_bf_map_enum (m Map(String, Enum8('a' = 1, 'b' = 2)), INDEX bf mapValues(m) TYPE bloom_filter GRANULARITY 1)
+ENGINE = MergeTree ORDER BY tuple() SETTINGS index_granularity = 1;
+INSERT INTO t_bf_map_enum VALUES (map('k', 'a')), (map('k', 'b')), (map());
+OPTIMIZE TABLE t_bf_map_enum FINAL;
+
+SELECT count() FROM t_bf_map_enum WHERE m['k'] = 'no_such_label' SETTINGS validate_enum_literals_in_operators = 0;
+SELECT count() FROM t_bf_map_enum WHERE m['k'] = 'no_such_label' SETTINGS validate_enum_literals_in_operators = 0, use_skip_indexes = 0;
+SELECT count() FROM t_bf_map_enum WHERE m['k'] = 'b';
+SELECT count() FROM t_bf_map_enum WHERE m['k'] = 'no_such_label' SETTINGS validate_enum_literals_in_operators = 1; -- { serverError UNKNOWN_ELEMENT_OF_ENUM }
+
+DROP TABLE t_bf_map_enum;
 DROP TABLE t_bf_map_uint8_set_source;
 DROP TABLE t_bf_set;
 DROP TABLE t_bf_map;

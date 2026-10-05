@@ -56,3 +56,7 @@ absent map key against a set of another type
 3
 0
 1
+unknown enum label against a mapValues index
+0
+0
+1

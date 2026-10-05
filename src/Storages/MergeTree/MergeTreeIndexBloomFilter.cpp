@@ -1323,6 +1323,14 @@ bool MergeTreeIndexConditionBloomFilter::traverseTreeEquals(
             if (missingMapKeyMayCompareEqual(map_value_type, value_type, value_field, getContext()))
                 return false;
 
+            /// With validation off, `equals` against a name the enum lacks is constant false for every row,
+            /// so the coercion of the constant to the `mapValues` index type below must not throw.
+            if (!validate_enum_literals_in_operators && isUnknownEnumElement(*BloomFilter::getPrimitiveType(map_value_type), value_field))
+            {
+                out.function = RPNElement::ALWAYS_FALSE;
+                return true;
+            }
+
             size_t position = 0;
             Field const_value;
 
