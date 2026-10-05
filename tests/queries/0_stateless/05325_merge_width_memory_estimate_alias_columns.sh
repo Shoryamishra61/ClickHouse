@@ -11,7 +11,8 @@ CUR_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # The table has two physical columns, one of them the key, and many alias columns. With
 # `vertical_merge_algorithm_min_columns_to_activate = 2` it merges horizontally, so the merge is priced by
 # both physical columns. The estimate is sized from the server's actual memory limit so that this affords
-# exactly two parts; pricing the merge as a vertical one would afford four.
+# exactly two parts; pricing the merge as a vertical one would afford four. The block number and offset
+# columns are disabled, because `MergeTask` gathers them too, and would make the merge vertical.
 
 MEMORY_LIMIT=$($CLICKHOUSE_CLIENT --query "SELECT value FROM system.server_settings WHERE name = 'max_server_memory_usage'")
 # The same successive integer divisions as the server does: `limit / 16 / columns / estimate`.
@@ -35,7 +36,9 @@ SETTINGS merge_memory_estimate_per_source_part_column = $ESTIMATE,
     vertical_merge_algorithm_min_columns_to_activate = 2,
     enable_vertical_merge_algorithm = 1,
     vertical_merge_algorithm_min_rows_to_activate = 1,
-    vertical_merge_algorithm_min_bytes_to_activate = 0;
+    vertical_merge_algorithm_min_bytes_to_activate = 0,
+    enable_block_number_column = 0,
+    enable_block_offset_column = 0;
 
 SYSTEM STOP MERGES t_merge_width_alias;
 INSERT INTO t_merge_width_alias SELECT number, number FROM numbers(0, 1);
