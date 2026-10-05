@@ -2,6 +2,7 @@
 
 #include <Common/Exception.h>
 #include <Storages/ObjectStorage/DataLakes/Iceberg/Constant.h>
+#include <Storages/ObjectStorage/DataLakes/Iceberg/SchemaProcessor.h>
 
 #include <Poco/JSON/Array.h>
 
@@ -55,8 +56,15 @@ void checkRequiredFlag(const Poco::JSON::Object & holder, const String & key, co
 
 void collectAndValidateNestedFields(const Poco::Dynamic::Var & type, std::set<Int64> & ids)
 {
-    if (type.type() != typeid(Poco::JSON::Object::Ptr))
+    if (type.isString())
+    {
+        /// Reuse the reader's parser so that every persisted primitive type can be read back.
+        IcebergSchemaProcessor::getSimpleType(type.extract<String>());
         return;
+    }
+
+    if (type.type() != typeid(Poco::JSON::Object::Ptr))
+        throw Exception(ErrorCodes::BAD_ARGUMENTS, "A schema type must be a string or an object, got '{}'", type.toString());
 
     const auto & object = type.extract<Poco::JSON::Object::Ptr>();
     const auto kind = object->optValue<String>(f_type, "");

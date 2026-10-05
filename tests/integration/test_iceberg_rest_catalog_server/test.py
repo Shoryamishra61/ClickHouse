@@ -790,11 +790,17 @@ def test_malformed_create_table(started_cluster):
 
     duplicate_ids = {"type": "struct", "fields": [{"id": 1, "name": "a", "type": "int"}, {"id": 1, "name": "b", "type": "int"}]}
     bad_spec = {"fields": [{"source-id": 9, "field-id": 1000, "name": "p", "transform": "identity"}]}
+    unknown_type = {"type": "struct", "fields": [{"id": 1, "name": "x", "required": True, "type": "bogus"}]}
+    numeric_type = {"type": "struct", "fields": [{"id": 1, "name": "x", "required": True, "type": 123}]}
+    bad_element_type = {"type": "struct", "fields": [{"id": 1, "name": "x", "required": True, "type": {"type": "list", "element-id": 2, "element-required": True, "element": "bogus"}}]}
     bodies = [
         {"schema": DEFAULT_SCHEMA},  # no name
         {"name": "", "schema": DEFAULT_SCHEMA},
         {"name": "t"},  # no schema
         {"name": "t", "schema": duplicate_ids},
+        {"name": "t", "schema": unknown_type},
+        {"name": "t", "schema": numeric_type},
+        {"name": "t", "schema": bad_element_type},
         {"name": "t", "schema": DEFAULT_SCHEMA, "stage-create": True},
         {"name": "t", "schema": DEFAULT_SCHEMA, "partition-spec": bad_spec},
         {"name": "t", "schema": DEFAULT_SCHEMA, "partition-spec": {"fields": [{"source-id": 1}]}},
