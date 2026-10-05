@@ -67,10 +67,11 @@ SELECT count() FROM uk_mut_guard;  -- 2
 DROP TABLE uk_mut_guard;
 
 -- CLEAR of a Nested group names no physical column, only its `n.x` / `n.y` arrays.
+-- Pinned Compact: a Wide part keeps the arrays, as on a plain MergeTree.
 DROP TABLE IF EXISTS uk_mut_nested;
 CREATE TABLE uk_mut_nested (id UInt32, n Nested(x UInt32, y String))
 ENGINE = MergeTree ORDER BY id UNIQUE KEY (id)
-SETTINGS share_nested_offsets = 1;
+SETTINGS share_nested_offsets = 1, min_bytes_for_wide_part = '10G';
 
 INSERT INTO uk_mut_nested VALUES (1, [1, 2], ['a', 'b']), (2, [3], ['c']);
 
