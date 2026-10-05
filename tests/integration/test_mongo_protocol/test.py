@@ -165,8 +165,10 @@ def test_find_query(started_cluster):
         {"name": "Charlie Brown", "age": 24, "city": "Los Angeles"},
     ]
 
+    # An inclusion projection keeps `_id` unless it excludes it, as MongoDB does.
     find_docs = [doc for doc in collection.find(projection={"abacaba": "name"})]
-    find_docs = sorted(find_docs, key=lambda x: x["abacaba"])
+    assert all("_id" in doc for doc in find_docs)
+    find_docs = sorted(without_ids(find_docs), key=lambda x: x["abacaba"])
     assert find_docs == [
         {"abacaba": "Bob Johnson"},
         {"abacaba": "Charlie Brown"},
@@ -1225,11 +1227,11 @@ def test_readback_preserves_document_shape(started_cluster):
     assert without_ids(found) == documents
 
     # A projection of a nested field keeps its document shape.
-    assert [doc for doc in collection.find({"id": 1}, {"profile.name": 1})] == [{"profile": {"name": "alpha"}}]
+    assert without_ids(collection.find({"id": 1}, {"profile.name": 1})) == [{"profile": {"name": "alpha"}}]
 
     # A value a projection or a pipeline computes is returned with the type its JSON carries: the
     # documents a `find` reads as they are stored are the ones that keep their dates.
-    assert [doc for doc in collection.aggregate([{"$match": {"id": 2}}, {"$project": {"when": 1}}])] == [
+    assert without_ids(collection.aggregate([{"$match": {"id": 2}}, {"$project": {"when": 1}}])) == [
         {"when": "2022-07-02 13:30:00.000000000"}
     ]
 
@@ -2718,6 +2720,27 @@ def test_a_projection_of_a_field_takes_the_fields_below_it(started_cluster):
     ]
 
     node.query("DROP TABLE db.subtree", password="123")
+
+
+def test_a_column_and_its_dotted_subcolumn_keep_their_names(started_cluster):
+    """The columns `a` and `a.b` of one result conflict as a document: `a` cannot be a value and a
+    subdocument at once. Both keep their literal names, whatever the order of the columns, rather
+    than a document with two `a` members."""
+    node = cluster.instances["node"]
+    node.query("CREATE DATABASE IF NOT EXISTS db", password="123")
+    node.query("DROP TABLE IF EXISTS db.dotted_conflict", password="123")
+    node.query(
+        "CREATE TABLE db.dotted_conflict (id Int64, `a.b` String, a String) ENGINE = MergeTree ORDER BY id",
+        password="123",
+    )
+    node.query("INSERT INTO db.dotted_conflict VALUES (1, 'x', 'y')", password="123")
+
+    collection = make_client()["db"]["dotted_conflict"]
+    found = list(collection.find({}))
+    assert found == [{"id": 1, "a.b": "x", "a": "y"}]
+    assert list(found[0].keys()) == ["id", "a.b", "a"]
+
+    node.query("DROP TABLE db.dotted_conflict", password="123")
 
 
 def test_a_set_stage_replaces_the_whole_subdocument(started_cluster):
