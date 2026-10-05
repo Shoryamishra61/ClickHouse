@@ -304,26 +304,23 @@ private:
             [[maybe_unused]] bool was_ipv4 = parseStringToIP16(src, str_len, buf);
             applyTransform(ctx, buf);
 
+            if constexpr (is_prefix_preserving)
+            {
+                if (was_ipv4 && !isIPv4Mapped(buf))
+                    throw Exception(
+                        ErrorCodes::LOGICAL_ERROR,
+                        "Prefix-preserving transform on IPv4-mapped address produced non-IPv4-mapped result in function {}",
+                        getName());
+            }
+
             char tmp[IPV6_MAX_TEXT_LENGTH + 1];
             char * p = tmp;
 
-            if constexpr (is_prefix_preserving)
+            /// Like `ipcrypt_ip16_to_str` of the reference implementation: an IPv4-mapped result is written as IPv4 text.
+            if (isIPv4Mapped(buf))
             {
-                if (was_ipv4)
-                {
-                    if (!isIPv4Mapped(buf))
-                        throw Exception(
-                            ErrorCodes::LOGICAL_ERROR,
-                            "Prefix-preserving transform on IPv4-mapped address produced non-IPv4-mapped result in function {}",
-                            getName());
-
-                    UInt32 ipv4_host = ip16ToIPv4(buf);
-                    formatIPv4(reinterpret_cast<const unsigned char *>(&ipv4_host), p);
-                }
-                else
-                {
-                    formatIPv6(buf, p);
-                }
+                UInt32 ipv4_host = ip16ToIPv4(buf);
+                formatIPv4(reinterpret_cast<const unsigned char *>(&ipv4_host), p);
             }
             else
             {
@@ -370,7 +367,7 @@ Set `allow_experimental_ipcrypt_functions = 1` to enable it.
 </Warning>
 
 Encrypts an IP address using a 16-byte key with deterministic format-preserving encryption.
-IPv4/IPv6 input returns IPv6, String input returns String.
+IPv4/IPv6 input returns IPv6, String input returns String (an IPv4-mapped result is written as IPv4 text, as in the reference implementation).
 )";
         FunctionDocumentation::Arguments arguments = {
             {"ip", "IP address to encrypt.", {"IPv4", "IPv6", "String"}},
@@ -399,7 +396,7 @@ Set `allow_experimental_ipcrypt_functions = 1` to enable it.
 </Warning>
 
 Decrypts an IP address previously encrypted with `ipcryptEncrypt` using the same key.
-IPv4/IPv6 input returns IPv6, String input returns String.
+IPv4/IPv6 input returns IPv6, String input returns String (an IPv4-mapped result is written as IPv4 text, as in the reference implementation).
 )";
         FunctionDocumentation::Arguments arguments = {
             {"encrypted_ip", "Encrypted IP address to decrypt.", {"IPv4", "IPv6", "String"}},

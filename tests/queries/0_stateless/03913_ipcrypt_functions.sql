@@ -97,3 +97,8 @@ SELECT 'det_nullable_string';
 SELECT toTypeName(ipcryptEncrypt(toNullable('1.2.3.4'), unhex('00112233445566778899aabbccddeeff')));
 SELECT ipcryptDecrypt(ipcryptEncrypt(toNullable('10.0.0.1'), unhex('00112233445566778899aabbccddeeff')), unhex('00112233445566778899aabbccddeeff'));
 SELECT ipcryptEncrypt(CAST(NULL AS Nullable(String)), unhex('00112233445566778899aabbccddeeff'));
+
+-- String output writes IPv4-mapped results as IPv4 text, like `ipcrypt_ip16_to_str` of the reference implementation
+SELECT 'det_string_ipv4_text';
+SELECT ipcryptDecrypt('::ffff:192.168.1.1', unhex('00112233445566778899aabbccddeeff')) = ipcryptDecrypt('192.168.1.1', unhex('00112233445566778899aabbccddeeff'));
+SELECT ipcryptDecrypt(ipcryptEncrypt('::ffff:10.0.0.1', unhex('00112233445566778899aabbccddeeff')), unhex('00112233445566778899aabbccddeeff'));

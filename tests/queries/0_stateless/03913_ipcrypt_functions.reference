@@ -19,7 +19,7 @@ prefix_known_answer_ipv4
 prefix_known_answer_ipv6
 f6a7:1814:6a30:df5b:2926:1574:6c58:8896
 string_ipv4
-::ffff:192.168.1.1
+192.168.1.1
 string_ipv6
 2001:db8::1
 prefix_string_ipv4
@@ -54,5 +54,8 @@ det_string_known_answer
 c629:37a3:24f9:e1c3:705e:a51b:a160:f609
 det_nullable_string
 Nullable(String)
-::ffff:10.0.0.1
+10.0.0.1
 \N
+det_string_ipv4_text
+1
+10.0.0.1
