@@ -4663,11 +4663,6 @@ String ClientBase::runQueryForAI(const String & query, bool readonly, bool allow
         /// engines - this is a round trip, so it is skipped when the query names no tables.
         checkNamedTablesForAIReadOnlyTool(collectNamedTablesForAIAgent(*ast), allow_schema_access);
 
-        /// The format-schema settings are interpreted after this validation: with
-        /// `format_schema_source = 'query'` the schema is another query, executed through a FORMAT
-        /// clause. They are normally neutralized below; when they cannot be, a session that left
-        /// them set is refused instead - the client only sees its own settings, so this covers the
-        /// values it knows about.
         /// Queries going through the confirmation prompt were already shown there.
         echoQueryForAI(query);
     }
@@ -4725,13 +4720,15 @@ String ClientBase::runQueryForAI(const String & query, bool readonly, bool allow
     {
         /// Format-schema settings are interpreted after AST validation. Clear every carrier of
         /// schema content and force the safe source so inherited session state cannot execute
-        /// a query or write a cached schema file through a `FORMAT` clause.
+        /// a query, write a cached schema file, or fetch the schema of `AvroConfluent` from a
+        /// schema registry through a `FORMAT` clause or the `format` table function.
         client_context->setSetting("format_schema_source", String("file"));
         client_context->setSetting("format_schema", String{});
         client_context->setSetting("format_schema_message_name", String{});
         client_context->setSetting("output_format_schema", String{});
         client_context->setSetting("format_template_resultset", String{});
         client_context->setSetting("format_template_row", String{});
+        client_context->setSetting("format_avro_schema_registry_url", String{});
 
         /// `SHOW CREATE TABLE` of an external-engine table renders its connection configuration,
         /// including credentials, when the user enabled `format_display_secrets_in_show_and_select`

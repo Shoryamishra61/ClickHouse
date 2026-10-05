@@ -580,6 +580,10 @@ TEST(AIQueryValidation, RejectsFormatSchemaSettings)
     EXPECT_FALSE(isAllowed("SELECT 1 SETTINGS format_schema_message_name = 'Message'"));
     EXPECT_FALSE(isAllowed("SELECT 1 SETTINGS output_format_schema = 'x.proto'"));
     EXPECT_FALSE(isAllowed("SELECT 1 SETTINGS format_schema = DEFAULT"));
+    /// `AvroConfluent` fetches or registers its schema at the registry URL.
+    EXPECT_FALSE(isAllowed(
+        "SELECT 1 FORMAT AvroConfluent SETTINGS format_avro_schema_registry_url = 'https://registry', "
+        "output_format_avro_confluent_subject = 's'"));
     EXPECT_FALSE(isAllowed("SELECT 1 FORMAT Template SETTINGS format_template_resultset = 'resultset.tpl'"));
     EXPECT_FALSE(isAllowed("SELECT 1 FORMAT Template SETTINGS format_template_row = 'row.tpl'"));
 }

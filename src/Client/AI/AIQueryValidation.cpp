@@ -84,6 +84,8 @@ bool isProtectedSetting(const String & name)
 /// `format_schema` after this validation, and the schema-source modes write cached schema
 /// files. `SELECT 1 FORMAT Protobuf SETTINGS format_schema_source = 'query', format_schema =
 /// 'SELECT ...'` would otherwise smuggle an unvalidated query through the read-only tool.
+/// `format_avro_schema_registry_url` is the schema source of `AvroConfluent`: reading or writing
+/// that format contacts the registry at the URL, which an unconfirmed query must not do.
 bool isFormatSchemaSetting(const String & name)
 {
     return name == "format_schema"
@@ -91,7 +93,8 @@ bool isFormatSchemaSetting(const String & name)
         || name == "format_schema_message_name"
         || name == "output_format_schema"
         || name == "format_template_resultset"
-        || name == "format_template_row";
+        || name == "format_template_row"
+        || name == "format_avro_schema_registry_url";
 }
 
 void checkNoProtectedSettingChanges(const IAST & ast)
@@ -111,8 +114,8 @@ void checkNoProtectedSettingChanges(const IAST & ast)
             throw Exception(
                 ErrorCodes::BAD_ARGUMENTS,
                 "The query changes the setting `{}`: the format schema can execute another query "
-                "(`format_schema_source = 'query'`) or write schema files, which is outside of what "
-                "the read-only tool validates. Use the run_query tool for this query",
+                "(`format_schema_source = 'query'`), write schema files or be fetched from a schema registry, "
+                "which is outside of what the read-only tool validates. Use the run_query tool for this query",
                 name);
         };
         for (const auto & change : set_query->changes)
