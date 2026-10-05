@@ -1354,11 +1354,21 @@ void StorageMergeTree::mutate(const MutationCommands & commands, ContextPtr quer
 
     delayMutationOrThrowIfNeeded(nullptr, query_context);
 
-    /// Validate explicit IN PARTITION ids (if any) before starting mutation.
+    /// Resolve explicit IN PARTITION ids (if any) before starting mutation, once: the resolved commands
+    /// are passed on to `startMutation`, so `prepareMutationEntry` pins exactly these partitions and does
+    /// not evaluate the partition expressions a second time.
     /// Unlike the replicated case there is no need to analyze the predicate here:
     /// parts of unaffected partitions are skipped by `canSkipMutationCommandForPart`.
-    for (const auto & command : commands)
+    MutationCommands resolved_commands = commands;
+    resolvePartitionIdsOfScopedCommands(resolved_commands, query_context);
+
+    /// A command whose partition is not a scope (`IN PARTITION ALL`) is left unresolved above;
+    /// validate it here, so that it is rejected before the mutation starts.
+    for (const auto & command : resolved_commands)
     {
+        if (command.partition_ids)
+            continue;
+
         auto alter = command.ast();
         if (!alter)
             continue;
@@ -1386,7 +1396,7 @@ void StorageMergeTree::mutate(const MutationCommands & commands, ContextPtr quer
                 "You can change this timeout with `lock_acquire_timeout` setting",
                 query_context->getSettingsRef()[Setting::lock_acquire_timeout].totalMilliseconds());
         }
-        version = startMutation(commands, query_context);
+        version = startMutation(resolved_commands, query_context);
     }
 
     if (query_context->getSettingsRef()[Setting::mutations_sync] > 0 || query_context->getCurrentTransaction())
