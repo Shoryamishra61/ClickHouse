@@ -1,13 +1,23 @@
 #include <gtest/gtest.h>
 
+#include <Disks/DiskObjectStorage/DiskObjectStorage.h>
 #include <Disks/DiskObjectStorage/MetadataStorages/Cache/MetadataStorageFromCacheObjectStorage.h>
 #include <Disks/DiskObjectStorage/MetadataStorages/Memory/MetadataStorageFromMemory.h>
 #include <Disks/DiskObjectStorage/MetadataStorages/Memory/MetadataStorageInMemory.h>
+#include <Disks/DiskObjectStorage/ObjectStorages/Local/LocalObjectStorage.h>
+#include <Disks/DiskObjectStorage/Replication/ClusterConfiguration.h>
+#include <Disks/DiskObjectStorage/Replication/ObjectStorageRouter.h>
 
 #include <Common/ObjectStorageKey.h>
 #include <Common/ObjectStorageKeyGenerator.h>
+#include <IO/ReadHelpers.h>
+#include <IO/WriteHelpers.h>
+
+#include <Poco/TemporaryFile.h>
+#include <Poco/Util/XMLConfiguration.h>
 
 #include <algorithm>
+#include <filesystem>
 
 
 class MetadataInMemoryTest : public testing::Test
@@ -704,4 +714,114 @@ TEST_F(MetadataInMemoryTest, TestEmptyAppendCreatesFileWithoutPhantomBlob)
     ASSERT_EQ(metadata->getStorageObjects("file").size(), 1);
     EXPECT_EQ(metadata->getStorageObjects("file")[0].remote_path, "real");
     EXPECT_EQ(metadata->getFileSize("file"), 42);
+}
+
+/// A `DiskObjectStorage` over `MetadataStorageInMemory`, to exercise inline-only files through the
+/// generic `IDisk` read and copy paths rather than through the metadata storage alone.
+class DiskObjectStorageOverInMemoryMetadataTest : public testing::Test
+{
+protected:
+    void SetUp() override
+    {
+        temp_dir = std::make_unique<Poco::TemporaryFile>();
+        temp_dir->createDirectories();
+
+        object_storage = std::make_shared<DB::LocalObjectStorage>(
+            DB::LocalObjectStorageSettings("test", temp_dir->path() + "/blobs", /*read_only_=*/false));
+        metadata = std::make_shared<DB::MetadataStorageInMemory>(
+            /*compatible_key_prefix_=*/"", object_storage->createKeyGenerator());
+
+        std::unordered_map<DB::Location, DB::LocationInfo> cluster_registry = {{"main", {true, true, ""}}};
+        std::unordered_map<DB::Location, DB::ObjectStoragePtr> object_storage_registry = {{"main", object_storage}};
+
+        DB::ClusterConfigurationPtr cluster = std::make_shared<DB::ClusterConfiguration>("in_memory", std::move(cluster_registry));
+        DB::ObjectStorageRouterPtr object_storages = std::make_shared<DB::ObjectStorageRouter>(std::move(object_storage_registry));
+
+        Poco::AutoPtr<Poco::Util::XMLConfiguration> config(new Poco::Util::XMLConfiguration());
+        disk = std::make_shared<DB::DiskObjectStorage>(
+            "in_memory", std::move(cluster), metadata, std::move(object_storages), nullptr, *config, "");
+    }
+
+    size_t countBlobs() const
+    {
+        size_t count = 0;
+        const std::string prefix = object_storage->getCommonKeyPrefix();
+        if (!std::filesystem::exists(prefix))
+            return 0;
+        for (const auto & entry : std::filesystem::recursive_directory_iterator(prefix))
+            if (entry.is_regular_file())
+                ++count;
+        return count;
+    }
+
+    std::string readThroughDisk(const std::string & path) const
+    {
+        auto buf = disk->readFile(path, DB::ReadSettings{});
+        std::string content;
+        DB::readStringUntilEOF(content, *buf);
+        return content;
+    }
+
+    std::unique_ptr<Poco::TemporaryFile> temp_dir;
+    std::shared_ptr<DB::LocalObjectStorage> object_storage;
+    std::shared_ptr<DB::MetadataStorageInMemory> metadata;
+    std::shared_ptr<DB::DiskObjectStorage> disk;
+};
+
+/// A plain file written with `writeStringToFile` (e.g. `frozen_metadata.txt`) has no backing objects.
+/// Without `supportsInlineData` the disk would read it and copy it as an empty file.
+TEST_F(DiskObjectStorageOverInMemoryMetadataTest, PlainFileReadsAndCopiesThroughDisk)
+{
+    ASSERT_TRUE(metadata->supportsInlineData());
+
+    {
+        auto transaction = metadata->createTransaction();
+        transaction->writeStringToFile("plain.txt", "hello");
+        transaction->commit(DB::NoCommitOptions{});
+    }
+    ASSERT_TRUE(metadata->getStorageObjects("plain.txt").empty());
+
+    EXPECT_EQ(disk->getFileSize("plain.txt"), 5u);
+    EXPECT_EQ(readThroughDisk("plain.txt"), "hello");
+
+    const size_t blobs_before = countBlobs();
+    disk->copyFile("plain.txt", *disk, "copy.txt", DB::ReadSettings{});
+    EXPECT_EQ(readThroughDisk("copy.txt"), "hello");
+    EXPECT_EQ(metadata->readInlineDataToString("copy.txt"), "hello");
+    EXPECT_TRUE(metadata->getStorageObjects("copy.txt").empty());
+    EXPECT_EQ(countBlobs(), blobs_before);
+}
+
+/// A small `Rewrite` through the disk is stored inline, both for a new file and over an existing
+/// blob-backed one, whose blob is then released.
+TEST_F(DiskObjectStorageOverInMemoryMetadataTest, SmallRewriteIsInlined)
+{
+    DB::WriteSettings settings;
+    settings.inline_file_max_bytes = 16;
+
+    {
+        auto buf = disk->writeFile("big.bin", 4096, DB::WriteMode::Rewrite, settings);
+        DB::writeString("0123456789abcdef-and-then-some", *buf);
+        buf->finalize();
+    }
+    ASSERT_EQ(metadata->getStorageObjects("big.bin").size(), 1u);
+    EXPECT_EQ(readThroughDisk("big.bin"), "0123456789abcdef-and-then-some");
+
+    {
+        auto buf = disk->writeFile("small.txt", 4096, DB::WriteMode::Rewrite, settings);
+        DB::writeString("tiny", *buf);
+        buf->finalize();
+    }
+    EXPECT_EQ(metadata->readInlineDataToString("small.txt"), "tiny");
+    EXPECT_TRUE(metadata->getStorageObjects("small.txt").empty());
+    EXPECT_EQ(readThroughDisk("small.txt"), "tiny");
+
+    {
+        auto buf = disk->writeFile("big.bin", 4096, DB::WriteMode::Rewrite, settings);
+        DB::writeString("short", *buf);
+        buf->finalize();
+    }
+    EXPECT_TRUE(metadata->getStorageObjects("big.bin").empty());
+    EXPECT_EQ(readThroughDisk("big.bin"), "short");
+    EXPECT_EQ(disk->getFileSize("big.bin"), 5u);
 }

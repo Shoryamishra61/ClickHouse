@@ -39,6 +39,12 @@ public:
     bool keepsMetadataAcrossRestarts() const override { return false; }
 
     bool supportsEmptyFilesWithoutBlobs() const override { return true; }
+
+    /// Plain files (`writeStringToFile`) and small `Rewrite`s (`writeInlineDataToFile`) keep their
+    /// content in `BlobGroup::inline_data` with no backing objects. `DiskObjectStorage::prepareRead`
+    /// and `DiskObjectStorageTransaction::copyFileImpl` only look at the inline payload when this is
+    /// true; otherwise such a file would read and copy as empty.
+    bool supportsInlineData() const override { return true; }
     bool areBlobPathsRandom() const override { return true; }
 
     bool existsFile(const std::string & path) const override;

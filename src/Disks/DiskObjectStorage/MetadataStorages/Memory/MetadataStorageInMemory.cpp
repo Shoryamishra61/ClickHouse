@@ -438,23 +438,12 @@ void MetadataStorageInMemoryTransaction::writeStringToFile(const std::string & p
 
 void MetadataStorageInMemoryTransaction::writeInlineDataToFile(const std::string & path, const std::string & data)
 {
-    operations.emplace_back([this, path, data]()
-    {
-        auto * entry = metadata_storage.findFile(path);
-        if (!entry)
-            throw Exception(ErrorCodes::FILE_DOESNT_EXIST, "File does not exist: {}", path);
-        recordBlobGroupBefore(entry->blob_group);
-        /// `DiskObjectStorageTransaction::writeFile` routes a small `Rewrite` of an existing file
-        /// here: switching the entry to the inline representation must drop the old backing
-        /// objects (mirroring the rewrite path of `createMetadataFile`), otherwise the stale
-        /// blobs keep their borrowed cache segments pinned and the entry carries two conflicting
-        /// content representations.
-        for (const auto & obj : entry->blob_group->objects)
-            objects_to_remove.push_back(obj);
-        entry->blob_group->objects.clear();
-        entry->blob_group->inline_data = data;
-        entry->blob_group->last_modified = Poco::Timestamp();
-    });
+    /// `DiskObjectStorageTransaction::writeFile` routes a small `Rewrite` here, both for a new file and
+    /// for an existing one. Plain files are already stored as inline data with no backing objects, so
+    /// this is the same operation as `writeStringToFile`: it creates the file when missing, and on an
+    /// existing blob-backed file it drops the old objects (otherwise they keep their borrowed cache
+    /// segments pinned and the entry carries two conflicting content representations).
+    writeStringToFile(path, data);
 }
 
 void MetadataStorageInMemoryTransaction::setLastModified(const std::string & path, const Poco::Timestamp & timestamp)
