@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <iterator>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -14,6 +15,7 @@
 #if USE_AWS_S3
 
 #include <Core/ServerUUID.h>
+#include <IO/BufferWithOwnMemory.h>
 #include <IO/ReadBufferFromS3.h>
 #include <IO/StdStreamFromReadBuffer.h>
 #include <Storages/ObjectStorage/StorageObjectStorageSource.h>
@@ -144,6 +146,35 @@ private:
 
     std::string data;
     CountedSessionPtr session;
+    size_t position_in_data = 0;
+};
+
+/// Stands in for the body of a response that reads through a small buffer of its own, so that
+/// consuming it through `std::istream` takes many `underflow` calls.
+class ChunkedResponseBody : public DB::BufferWithOwnMemory<DB::ReadBuffer>
+{
+public:
+    ChunkedResponseBody(std::string data_, size_t chunk_size)
+        : DB::BufferWithOwnMemory<DB::ReadBuffer>(chunk_size), data(std::move(data_))
+    {
+    }
+
+private:
+    bool nextImpl() override
+    {
+        if (position_in_data >= data.size())
+            return false;
+
+        const size_t size = std::min(internal_buffer.size(), data.size() - position_in_data);
+        memcpy(internal_buffer.begin(), data.data() + position_in_data, size);
+        position_in_data += size;
+
+        working_buffer = internal_buffer;
+        working_buffer.resize(size);
+        return true;
+    }
+
+    std::string data;
     size_t position_in_data = 0;
 };
 
@@ -441,6 +472,43 @@ TEST_F(ReadBufferFromS3Test, MissingResponseETagIsNotRejected)
 
     readAndAssert(subject, "1234");
     ASSERT_TRUE(subject.eof());
+}
+
+TEST_F(ReadBufferFromS3Test, ResponseStreamServesIstreamReaders)
+{
+    /// Contract: the body of a response handed to the AWS SDK as `std::iostream` can be consumed
+    /// through the `std::istream` interface itself - a character at a time through the get area
+    /// of `underflow`, in blocks through `xsgetn`, or both interleaved - the way the parsers of the
+    /// SDK read it, and not only by unwrapping it back into a `ReadBuffer`.
+    std::string data(1000, '\0');
+    for (size_t i = 0; i < data.size(); ++i)
+        data[i] = static_cast<char>('a' + i % 26);
+
+    {
+        DB::StdStreamFromReadBuffer stream(std::make_unique<ChunkedResponseBody>(data, 7), data.size());
+        std::string consumed{std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
+        ASSERT_EQ(consumed, data);
+    }
+
+    {
+        DB::StdStreamFromReadBuffer stream(std::make_unique<ChunkedResponseBody>(data, 7), data.size());
+        std::string consumed;
+        while (consumed.size() < data.size())
+        {
+            /// A single character puts a whole chunk into the get area, the block read that follows
+            /// has to take the rest of the get area first and then continue from the buffer.
+            const int c = stream.get();
+            ASSERT_NE(c, std::char_traits<char>::eof());
+            consumed.push_back(static_cast<char>(c));
+
+            std::string block(std::min<size_t>(10, data.size() - consumed.size()), '\0');
+            stream.read(block.data(), static_cast<std::streamsize>(block.size()));
+            ASSERT_EQ(static_cast<size_t>(stream.gcount()), block.size());
+            consumed += block;
+        }
+        ASSERT_EQ(consumed, data);
+        ASSERT_EQ(stream.get(), std::char_traits<char>::eof());
+    }
 }
 
 TEST_F(ReadBufferFromS3Test, GatherFillsWholeBufferAfterShortRead)
