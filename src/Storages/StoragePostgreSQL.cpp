@@ -35,6 +35,7 @@
 #include <Interpreters/Context.h>
 
 #include <Parsers/ASTFunction.h>
+#include <Parsers/ASTCreateQuery.h>
 #include <Parsers/ASTIdentifier.h>
 
 #include <Processors/QueryPlan/QueryPlan.h>
@@ -825,10 +826,11 @@ StoragePostgreSQL::Configuration StoragePostgreSQL::processNamedCollectionResult
 
 StoragePostgreSQL::Configuration StoragePostgreSQL::getConfiguration(
     ASTs engine_args, ContextPtr context, PostgreSQLSettings * storage_settings,
-    const RemoteDescriptionCaller & caller, const StorageID * table_id)
+    const RemoteDescriptionCaller & caller, const StorageID * table_id, const ASTSetQuery * settings)
 {
     StoragePostgreSQL::Configuration configuration;
-    if (auto named_collection = tryGetNamedCollectionWithOverrides(engine_args, context, true, nullptr, table_id))
+    if (auto named_collection = tryGetNamedCollectionWithOverrides(
+            engine_args, context, /*throw_unknown_collection=*/ true, /*complex_args=*/ nullptr, table_id, settings))
     {
         configuration = StoragePostgreSQL::processNamedCollectionResult(
             *named_collection, storage_settings, context, caller, /*require_table=*/ true);
@@ -911,7 +913,7 @@ void registerStoragePostgreSQL(StorageFactory & factory)
 
         auto configuration = StoragePostgreSQL::getConfiguration(
             args.engine_args, args.getLocalContext(), &postgresql_settings,
-            globCaller("Table engine 'PostgreSQL'"), &args.table_id);
+            globCaller("Table engine 'PostgreSQL'"), &args.table_id, args.storage_def->settings);
 
         if (args.storage_def)
             postgresql_settings.loadFromQuery(*args.storage_def);

@@ -24,6 +24,7 @@ using PoolWithFailoverPtr = std::shared_ptr<PoolWithFailover>;
 namespace DB
 {
 class NamedCollection;
+class ASTSetQuery;
 struct StorageID;
 struct PostgreSQLSettings;
 
@@ -85,7 +86,7 @@ public:
     /// in the error messages of the address parser.
     static Configuration getConfiguration(
         ASTs engine_args, ContextPtr context, PostgreSQLSettings * storage_settings,
-        const RemoteDescriptionCaller & caller, const StorageID * table_id = nullptr);
+        const RemoteDescriptionCaller & caller, const StorageID * table_id = nullptr, const ASTSetQuery * settings = nullptr);
 
     static Configuration processNamedCollectionResult(
         const NamedCollection & named_collection, PostgreSQLSettings * storage_settings, ContextPtr context_,

@@ -548,10 +548,11 @@ StorageMySQL::Configuration StorageMySQL::processNamedCollectionResult(
 
 StorageMySQL::Configuration StorageMySQL::getConfiguration(
     ASTs engine_args, ContextPtr context_, MySQLSettings & storage_settings,
-    const RemoteDescriptionCaller & caller, const StorageID * table_id)
+    const RemoteDescriptionCaller & caller, const StorageID * table_id, const ASTSetQuery * settings)
 {
     StorageMySQL::Configuration configuration;
-    if (auto named_collection = tryGetNamedCollectionWithOverrides(engine_args, context_, true, nullptr, table_id))
+    if (auto named_collection = tryGetNamedCollectionWithOverrides(
+            engine_args, context_, /*throw_unknown_collection=*/ true, /*complex_args=*/ nullptr, table_id, settings))
     {
         configuration = StorageMySQL::processNamedCollectionResult(*named_collection, storage_settings, context_, caller);
     }
@@ -630,7 +631,8 @@ void registerStorageMySQL(StorageFactory & factory)
     {
         MySQLSettings mysql_settings; /// TODO: move some arguments from the arguments to the SETTINGS.
         auto configuration = StorageMySQL::getConfiguration(
-            args.engine_args, args.getLocalContext(), mysql_settings, globCaller("Table engine 'MySQL'"), &args.table_id);
+            args.engine_args, args.getLocalContext(), mysql_settings, globCaller("Table engine 'MySQL'"),
+            &args.table_id, args.storage_def->settings);
 
         /// Bridge the query-context value of `mysql_datatypes_support_level` into the engine settings
         /// (and freeze it into the table definition) so that it is honored during schema inference,
