@@ -33,6 +33,43 @@ struct LambdaCapture
 
 using LambdaCapturePtr = std::shared_ptr<LambdaCapture>;
 
+/// The body of a lambda as it was built, before JIT compilation. `ExpressionActions` compiles its DAG in
+/// place: a compiled subtree becomes a single node whose `getName` is a dump of the compiled expression,
+/// not a name `FunctionFactory` knows, and the functions inside it are no longer visible. Everything that
+/// reads the body rather than executes it - `ActionsDAG::serialize`, index analysis, plan optimizations -
+/// needs the original. It is kept only if something was compiled, otherwise the DAG of the
+/// `ExpressionActions` is the original.
+using UncompiledActionsDAGPtr = std::shared_ptr<const ActionsDAG>;
+
+struct LambdaExpressionActions
+{
+    ExpressionActionsPtr expression_actions;
+    UncompiledActionsDAGPtr uncompiled_actions_dag;
+};
+
+inline LambdaExpressionActions buildLambdaExpressionActions(ActionsDAG actions_dag, const ExpressionActionsSettings & actions_settings)
+{
+    UncompiledActionsDAGPtr uncompiled_actions_dag;
+    if (actions_settings.can_compile_expressions && actions_settings.compile_expressions == CompileExpressions::yes)
+        uncompiled_actions_dag = std::make_shared<const ActionsDAG>(actions_dag.clone());
+
+    auto expression_actions = std::make_shared<ExpressionActions>(std::move(actions_dag), actions_settings);
+
+    if (uncompiled_actions_dag)
+    {
+        const auto & nodes = expression_actions->getActionsDAG().getNodes();
+        if (std::none_of(nodes.begin(), nodes.end(), [](const auto & node) { return node.is_function_compiled; }))
+            uncompiled_actions_dag.reset();
+    }
+
+    return {std::move(expression_actions), std::move(uncompiled_actions_dag)};
+}
+
+inline const ActionsDAG & getLambdaActionsDAG(const ExpressionActionsPtr & expression_actions, const UncompiledActionsDAGPtr & uncompiled_actions_dag)
+{
+    return uncompiled_actions_dag ? *uncompiled_actions_dag : expression_actions->getActionsDAG();
+}
+
 class ExecutableFunctionExpression final : public IExecutableFunction
 {
 public:
@@ -226,8 +263,9 @@ public:
     using Signature = ExecutableFunctionExpression::Signature;
     using SignaturePtr = ExecutableFunctionExpression::SignaturePtr;
 
-    FunctionExpression(LambdaCapturePtr capture_, ExpressionActionsPtr expression_actions_)
+    FunctionExpression(LambdaCapturePtr capture_, ExpressionActionsPtr expression_actions_, UncompiledActionsDAGPtr uncompiled_actions_dag_)
         : expression_actions(std::move(expression_actions_))
+        , uncompiled_actions_dag(std::move(uncompiled_actions_dag_))
         , capture(std::move(capture_))
     {
         Names names;
@@ -262,7 +300,7 @@ public:
     const DataTypePtr & getResultType() const override { return capture->return_type; }
 
     const LambdaCapture & getCapture() const { return *capture; }
-    const ActionsDAG & getAcionsDAG() const { return expression_actions->getActionsDAG(); }
+    const ActionsDAG & getAcionsDAG() const { return getLambdaActionsDAG(expression_actions, uncompiled_actions_dag); }
 
     ExecutableFunctionPtr prepare(const ColumnsWithTypeAndName &) const override
     {
@@ -271,6 +309,7 @@ public:
 
 private:
     ExpressionActionsPtr expression_actions;
+    UncompiledActionsDAGPtr uncompiled_actions_dag;
     LambdaCapturePtr capture;
 
     /// This is redundant and is built from capture.
@@ -285,8 +324,10 @@ private:
 class ExecutableFunctionCapture final : public IExecutableFunction
 {
 public:
-    ExecutableFunctionCapture(ExpressionActionsPtr expression_actions_, LambdaCapturePtr capture_)
-        : expression_actions(std::move(expression_actions_)), capture(std::move(capture_))
+    ExecutableFunctionCapture(ExpressionActionsPtr expression_actions_, UncompiledActionsDAGPtr uncompiled_actions_dag_, LambdaCapturePtr capture_)
+        : expression_actions(std::move(expression_actions_))
+        , uncompiled_actions_dag(std::move(uncompiled_actions_dag_))
+        , capture(std::move(capture_))
     {
     }
 
@@ -320,7 +361,7 @@ public:
             types.push_back(lambda_argument.type);
         }
 
-        auto function = std::make_unique<FunctionExpression>(capture, expression_actions);
+        auto function = std::make_unique<FunctionExpression>(capture, expression_actions, uncompiled_actions_dag);
 
         /// If all the captured arguments are constant, let's also return ColumnConst (with ColumnFunction inside it).
         /// Consequently, it allows to treat higher order functions with constant arrays and constant captured columns
@@ -351,11 +392,12 @@ public:
         }
     }
 
-    const ExpressionActionsPtr & getActions() const { return expression_actions; }
+    const ActionsDAG & getAcionsDAG() const { return getLambdaActionsDAG(expression_actions, uncompiled_actions_dag); }
     const LambdaCapturePtr & getCapture() const { return capture; }
 
 private:
     ExpressionActionsPtr expression_actions;
+    UncompiledActionsDAGPtr uncompiled_actions_dag;
     LambdaCapturePtr capture;
 };
 
@@ -364,10 +406,12 @@ class FunctionCapture final : public IFunctionBase
 public:
     FunctionCapture(
         ExpressionActionsPtr expression_actions_,
+        UncompiledActionsDAGPtr uncompiled_actions_dag_,
         LambdaCapturePtr capture_,
         DataTypePtr return_type_,
         String name_)
         : expression_actions(std::move(expression_actions_))
+        , uncompiled_actions_dag(std::move(uncompiled_actions_dag_))
         , capture(std::move(capture_))
         , return_type(std::move(return_type_))
         , name(std::move(name_))
@@ -393,14 +437,15 @@ public:
 
     ExecutableFunctionPtr prepare(const ColumnsWithTypeAndName &) const override
     {
-        return std::make_unique<ExecutableFunctionCapture>(expression_actions, capture);
+        return std::make_unique<ExecutableFunctionCapture>(expression_actions, uncompiled_actions_dag, capture);
     }
 
     const LambdaCapture & getCapture() const { return *capture; }
-    const ActionsDAG & getAcionsDAG() const { return expression_actions->getActionsDAG(); }
+    const ActionsDAG & getAcionsDAG() const { return getLambdaActionsDAG(expression_actions, uncompiled_actions_dag); }
 
 private:
     ExpressionActionsPtr expression_actions;
+    UncompiledActionsDAGPtr uncompiled_actions_dag;
     LambdaCapturePtr capture;
     DataTypePtr return_type;
     String name;
@@ -459,7 +504,9 @@ public:
             .allow_constant_folding = allow_constant_folding,
         });
 
-        expression_actions = std::make_shared<ExpressionActions>(std::move(actions_dag), actions_settings);
+        auto lambda_expression_actions = buildLambdaExpressionActions(std::move(actions_dag), actions_settings);
+        expression_actions = std::move(lambda_expression_actions.expression_actions);
+        uncompiled_actions_dag = std::move(lambda_expression_actions.uncompiled_actions_dag);
     }
 
     String getName() const override { return name; }
@@ -472,11 +519,12 @@ public:
 
     FunctionBasePtr buildImpl(const ColumnsWithTypeAndName &, const DataTypePtr &) const override
     {
-        return std::make_unique<FunctionCapture>(expression_actions, capture, return_type, name);
+        return std::make_unique<FunctionCapture>(expression_actions, uncompiled_actions_dag, capture, return_type, name);
     }
 
 private:
     ExpressionActionsPtr expression_actions;
+    UncompiledActionsDAGPtr uncompiled_actions_dag;
     LambdaCapturePtr capture;
     DataTypePtr return_type;
     String name;
