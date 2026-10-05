@@ -314,10 +314,10 @@ bool rangeRemovesExpiredValues(const ChooseContext & ctx, PartsRangeView range)
 
 /// Whether a merge of `range` will run through `MergeAlgorithm::Vertical`, following the rules of
 /// `MergeTask::ExecuteAndFinalizeHorizontalPart::chooseMergeAlgorithm` that depend on the range: the result
-/// has to be a wide part in full storage, and the range has to carry enough rows and bytes. The part sizes
-/// known here are the compressed sizes on disk, while the merge decides by the uncompressed ones; the
-/// former are smaller, so this predicts a horizontal merge whenever the sizes are close to a threshold.
-/// A false "horizontal" only keeps the pessimistic cap for that range.
+/// has to be a wide part in full storage, and the range has to carry enough rows and bytes. The bytes are
+/// the uncompressed sizes of the columns, the same as `MergeTask` and `FutureMergedMutatedPart` decide by,
+/// not the sizes on disk: those include marks and indexes and can exceed the uncompressed size of tiny or
+/// poorly compressed parts, which would predict a vertical merge that then runs horizontally.
 bool predictVerticalMerge(const ChooseContext & ctx, PartsRangeView range)
 {
     const auto & settings = ctx.merge_tree_settings;
@@ -331,7 +331,7 @@ bool predictVerticalMerge(const ChooseContext & ctx, PartsRangeView range)
     for (const auto & part : range)
     {
         sum_rows += part.rows;
-        sum_bytes += part.size;
+        sum_bytes += part.size_uncompressed;
         max_level = std::max(max_level, part.info.level);
     }
     const UInt32 result_level = max_level + 1;

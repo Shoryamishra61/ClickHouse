@@ -90,6 +90,7 @@ PartProperties buildPartProperties(
         .all_ttl_calculated_if_any = part->checkAllTTLCalculated(metadata_snapshot),
         .is_in_volume_where_merges_avoid = !part->shallParticipateInMerges(storage_policy),
         .size = part->getExistingBytesOnDisk(),
+        .size_uncompressed = part->getTotalColumnsSize().data_uncompressed,
         .age = current_time - part->modification_time,
         .rows = part->rows_count,
         .has_lightweight_delete = part->hasLightweightDelete(),

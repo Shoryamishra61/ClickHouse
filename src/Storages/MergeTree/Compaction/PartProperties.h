@@ -32,6 +32,10 @@ struct PartProperties
     /// Size of data part in bytes.
     const size_t size = 0;
 
+    /// Uncompressed size of the columns of the part in bytes, as used by `MergeTask` and
+    /// `MergeTreeData::choosePartFormat` to choose the merge algorithm and the format of the result.
+    const size_t size_uncompressed = 0;
+
     /// How old this data part in seconds.
     const time_t age = 0;
 
