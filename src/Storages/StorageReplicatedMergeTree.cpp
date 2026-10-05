@@ -8494,7 +8494,7 @@ static Int64 getMinDataVersion(const Strings & part_names, MergeTreeDataFormatVe
     return min_data_version;
 }
 
-/** The patch parts of every replica of the source table, not only of the one a fetch copies from.
+/** The parts of every replica of the source table, not only of the one a fetch copies from.
   * A lightweight update commits its patch part on one replica, and the others learn about it through
   * a `GET_PART` log entry: until a replica executes that entry, its `parts` lists the patched base part
   * but not the patch. Neither the random replica `FETCH PART` picks nor the log-pointer heuristic of
@@ -8502,25 +8502,97 @@ static Int64 getMinDataVersion(const Strings & part_names, MergeTreeDataFormatVe
   * holds every patch committed anywhere. The patch is still compared against the base parts of the
   * chosen replica, so a patch that replica has already applied is no reason to refuse.
   */
-static Strings getPatchPartsOfAllReplicas(const zkutil::ZooKeeperPtr & zookeeper, const String & zookeeper_path)
+struct SourceReplicaParts
 {
-    Strings patch_parts;
+    String replica;
+    Strings parts;
+};
+
+static std::vector<SourceReplicaParts> getPartsOfAllReplicas(const zkutil::ZooKeeperPtr & zookeeper, const String & zookeeper_path)
+{
+    std::vector<SourceReplicaParts> result;
     for (const auto & replica : zookeeper->getChildren(fs::path(zookeeper_path) / "replicas"))
     {
         /// `tryGetChildren` throws on every Keeper error except `ZNONODE`, so a replica is skipped only
-        /// when it was dropped concurrently - never because its patch parts could not be read.
+        /// when it was dropped concurrently - never because its parts could not be read.
         Strings replica_parts;
         if (zookeeper->tryGetChildren(fs::path(zookeeper_path) / "replicas" / replica / "parts", replica_parts) == Coordination::Error::ZNONODE)
             continue;
 
-        for (auto & part_name : replica_parts)
-            if (part_name.starts_with(MergeTreePartInfo::PATCH_PART_PREFIX))
-                patch_parts.push_back(std::move(part_name));
+        result.push_back({replica, std::move(replica_parts)});
     }
+    return result;
+}
+
+static Strings getPatchParts(const std::vector<SourceReplicaParts> & replicas_parts)
+{
+    Strings patch_parts;
+    for (const auto & replica_parts : replicas_parts)
+        for (const auto & part_name : replica_parts.parts)
+            if (part_name.starts_with(MergeTreePartInfo::PATCH_PART_PREFIX))
+                patch_parts.push_back(part_name);
 
     std::sort(patch_parts.begin(), patch_parts.end());
     patch_parts.erase(std::unique(patch_parts.begin(), patch_parts.end()), patch_parts.end());
     return patch_parts;
+}
+
+/** The patch check above is blind once a replica has materialized the update - `APPLY PATCHES`
+  * mutates its base parts past the patch - and `clearUnusedPatchParts` has removed the patch: that
+  * happens per replica, without waiting for the others. A replica that has not executed the
+  * `GET_PART` of the patch then still holds the old base part, and no patch is left anywhere to
+  * reveal that the part is stale.
+  *
+  * The materialized update is still visible as a higher data version of the same rows on another
+  * replica. A mutation with version `V` changes the rows of blocks below `V`, so a part of another
+  * replica that intersects a chosen part proves that the chosen part lacks some mutation when its
+  * data version is above both the chosen part's data version and the lowest block they share. A part
+  * that merely covers a different block range - inserted later, or merged differently - never
+  * satisfies that, because the data version of a part that was not mutated is its lowest block.
+  */
+static void assertNoReplicaHasNewerVersionOfParts(
+    const std::vector<SourceReplicaParts> & replicas_parts,
+    const Strings & chosen_parts,
+    MergeTreeDataFormatVersion format_version,
+    const String & partition_id,
+    const String & source_path,
+    std::string_view command)
+{
+    std::vector<MergeTreePartInfo> chosen_infos;
+    for (const auto & part_name : chosen_parts)
+    {
+        auto part_info = MergeTreePartInfo::tryParsePartName(part_name, format_version);
+        if (part_info && part_info->getPartitionId() == partition_id)
+            chosen_infos.push_back(std::move(*part_info));
+    }
+
+    for (const auto & replica_parts : replicas_parts)
+    {
+        for (const auto & part_name : replica_parts.parts)
+        {
+            auto part_info = MergeTreePartInfo::tryParsePartName(part_name, format_version);
+            if (!part_info || part_info->getPartitionId() != partition_id)
+                continue;
+
+            for (const auto & chosen_info : chosen_infos)
+            {
+                if (chosen_info.isDisjoint(*part_info))
+                    continue;
+
+                Int64 lowest_shared_block = std::max(chosen_info.min_block, part_info->min_block);
+                if (part_info->getDataVersion() > std::max(chosen_info.getDataVersion(), lowest_shared_block))
+                    throw Exception(ErrorCodes::SUPPORT_IS_DISABLED,
+                        "Cannot execute command \"{}\" because replica {} of the source {} has part {}, "
+                        "a newer version of the rows of part {} that would be fetched: "
+                        "the replica chosen to fetch from has not caught up with all updates and mutations of partition {}.\n"
+                        "To execute it you need to:\n"
+                        "1. Wait until all replicas of the source table are synchronized, "
+                        "e.g. with query \"SYSTEM SYNC REPLICA <source table>\" on each of them.\n"
+                        "2. Retry command \"{}\"",
+                        command, replica_parts.replica, source_path, part_name, chosen_info.getPartNameForLogs(), partition_id, command);
+            }
+        }
+    }
 }
 
 static void assertSourceHasNoPatchesForPartition(
@@ -8592,13 +8664,17 @@ void StorageReplicatedMergeTree::fetchPartition(
             throw Exception(ErrorCodes::NO_REPLICA_HAS_PART, "Part {} does not exist on any replica", part_name);
 
         auto part_info = MergeTreePartInfo::fromPartName(part_name, format_version);
+        auto source_replicas_parts = getPartsOfAllReplicas(zookeeper, from);
+        String command = "FETCH PART " + part_name + " FROM " + from_;
         assertSourceHasNoPatchesForPartition(
-            getPatchPartsOfAllReplicas(zookeeper, from),
+            getPatchParts(source_replicas_parts),
             format_version,
             part_info.getPartitionId(),
             part_info.getDataVersion(),
             from,
-            "FETCH PART " + part_name + " FROM " + from_);
+            command);
+        assertNoReplicaHasNewerVersionOfParts(
+            source_replicas_parts, {part_name}, format_version, part_info.getPartitionId(), from, command);
         /** Let's check that there is no such part in the `detached` directory (where we will write the downloaded parts).
           * Unreliable (there is a race condition) - such a part may appear a little later.
           */
@@ -8711,13 +8787,17 @@ void StorageReplicatedMergeTree::fetchPartition(
         ActiveDataPartSet active_parts_set(format_version, parts);
         Strings parts_to_fetch;
 
+        auto source_replicas_parts = getPartsOfAllReplicas(zookeeper, from);
+        String command = "FETCH PARTITION " + partition_id + " FROM " + from_;
         assertSourceHasNoPatchesForPartition(
-            getPatchPartsOfAllReplicas(zookeeper, from),
+            getPatchParts(source_replicas_parts),
             format_version,
             partition_id,
             getMinDataVersion(active_parts_set.getParts(), format_version, partition_id),
             from,
-            "FETCH PARTITION " + partition_id + " FROM " + from_);
+            command);
+        assertNoReplicaHasNewerVersionOfParts(
+            source_replicas_parts, active_parts_set.getParts(), format_version, partition_id, from, command);
 
         if (missing_parts.empty())
         {
