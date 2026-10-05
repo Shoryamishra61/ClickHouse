@@ -826,6 +826,20 @@ je_mallctl_by_numeric_path(const size_t * numeric_path, size_t numeric_path_leng
     return mallctlByNumericPath(thread_state, numeric_path, numeric_path_length, old_value, old_length_ptr, new_value, new_length);
 }
 
+/// The standard jemalloc names of the two functions above, kept for compatibility with code written for jemalloc.
+/// jemalloc: je_mallctlnametomib
+JEMALLOC_EXPORT int JEMALLOC_NOTHROW je_mallctlnametomib(const char * name, size_t * numeric_path_ptr, size_t * numeric_path_length_ptr)
+{
+    return je_mallctl_name_to_numeric_path(name, numeric_path_ptr, numeric_path_length_ptr);
+}
+
+/// jemalloc: je_mallctlbymib
+JEMALLOC_EXPORT int JEMALLOC_NOTHROW
+je_mallctlbymib(const size_t * numeric_path, size_t numeric_path_length, void * old_value, size_t * old_length_ptr, void * new_value, size_t new_length)
+{
+    return je_mallctl_by_numeric_path(numeric_path, numeric_path_length, old_value, old_length_ptr, new_value, new_length);
+}
+
 /// NB: does not initialize the allocator (like jemalloc).
 /// jemalloc: je_malloc_stats_print
 JEMALLOC_EXPORT void JEMALLOC_NOTHROW
