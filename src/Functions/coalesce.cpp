@@ -61,16 +61,17 @@ public:
     bool isSuitableForShortCircuitArgumentsExecution(const DataTypesWithConstInfo & /*arguments*/) const override { return false; }
     size_t getNumberOfArguments() const override { return 0; }
 
-    bool isShortCircuit(ShortCircuitSettings & settings, size_t number_of_arguments) const override
+    bool isShortCircuit(ShortCircuitSettings & settings, size_t /*number_of_arguments*/) const override
     {
         /// The first argument is always needed. Every other argument is needed only for the rows
         /// where all the preceding arguments are NULL, so it is evaluated lazily.
         settings.arguments_with_disabled_lazy_execution.insert(0);
-        /// A node that is a common descendant of two lazily executed arguments is still not needed
-        /// for the rows where the first argument is not NULL. It happens only with at least three arguments:
-        /// with two arguments the only common descendants are shared with the first argument,
-        /// which is always evaluated.
-        settings.enable_lazy_execution_for_common_descendants_of_arguments = number_of_arguments > 2;
+        /// A node that is a common descendant of several arguments is evaluated once for all the rows,
+        /// so that it is not evaluated repeatedly under the different masks of every argument.
+        /// The number of arguments does not tell which of them are live: leading constant NULL arguments
+        /// are removed only in `executeImpl`, so e.g. in `coalesce(NULL, a, b)` the argument `a` is
+        /// fully evaluated and a node shared by `a` and `b` would be evaluated twice if it were lazy.
+        settings.enable_lazy_execution_for_common_descendants_of_arguments = false;
         settings.force_enable_lazy_execution = false;
         return true;
     }
