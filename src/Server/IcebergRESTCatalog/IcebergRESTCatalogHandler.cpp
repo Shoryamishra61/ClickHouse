@@ -686,7 +686,9 @@ void IcebergRESTCatalogHandler::handleCreateTable(
 
     String name;
     IcebergTablePointer pointer{.uuid = uuid, .metadata_location = {}};
+    String location;
     String object_key;
+    String metadata_dir_key;
     Poco::JSON::Object::Ptr metadata;
     try
     {
@@ -701,7 +703,6 @@ void IcebergRESTCatalogHandler::handleCreateTable(
         if (json->optValue<bool>("stage-create", false))
             throw Exception(ErrorCodes::BAD_ARGUMENTS, "stage-create is not supported");
 
-        String location;
         if (json->has("location") && !json->isNull("location"))
         {
             if (!json->get("location").isString())
@@ -740,6 +741,7 @@ void IcebergRESTCatalogHandler::handleCreateTable(
         /// Same naming as the ClickHouse Iceberg writer: `<location>/metadata/v<version>-<uuid>.metadata.json`, starting at 1.
         pointer.metadata_location = fmt::format("{}/metadata/v1-{}.metadata.json", location, uuid);
         object_key = warehouse.objectKey(pointer.metadata_location);
+        metadata_dir_key = warehouse.objectKey(location + "/metadata/");
     }
     /// `Exception` derives from `Poco::Exception`, so it goes first.
     catch (const Exception & e)
@@ -760,6 +762,18 @@ void IcebergRESTCatalogHandler::handleCreateTable(
             Poco::Net::HTTPResponse::HTTP_BAD_REQUEST,
             "BadRequestException",
             fmt::format("Malformed create table request: {}", e.displayText()));
+        return;
+    }
+
+    /// A used location means a foreign table or a table this catalog never registered. The uuid in the file name does not catch it.
+    /// One list request with a limit of one key, so the cost does not depend on the table size.
+    if (warehouse.object_storage->existsOrHasAnyChild(metadata_dir_key))
+    {
+        sendError(
+            response,
+            Poco::Net::HTTPResponse::HTTP_CONFLICT,
+            "TableAlreadyExistsException",
+            fmt::format("Location {} already contains Iceberg metadata", location));
         return;
     }
 

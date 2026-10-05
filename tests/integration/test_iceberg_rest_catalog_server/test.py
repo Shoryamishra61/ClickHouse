@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import base64
+import io
 import time
 import uuid
 
@@ -687,6 +688,21 @@ def test_table_location(started_cluster):
     response = create_table(ns, "elsewhere", location="s3://other-bucket/path", expected_code=400)
     assert_error_shape(response, "BadRequestException")
     assert not table_exists(ns, "elsewhere")
+
+    # A location that already holds a table is refused, even under another name.
+    response = create_table(ns, "squatter", location=location, expected_code=409)
+    assert_error_shape(response, "TableAlreadyExistsException")
+    assert not table_exists(ns, "squatter")
+    assert list_metadata_files(location) == [metadata_key(result["metadata-location"])]
+
+    # The same for metadata written by a foreign tool that this catalog never registered.
+    foreign = f"s3://{BUCKET}/foreign/{ns}"
+    foreign_key = metadata_key(foreign) + "/metadata/00000-abc.metadata.json"
+    cluster.minio_client.put_object(BUCKET, foreign_key, io.BytesIO(b"{}"), 2)
+    response = create_table(ns, "foreign", location=foreign, expected_code=409)
+    assert_error_shape(response, "TableAlreadyExistsException")
+    assert not table_exists(ns, "foreign")
+    assert list_metadata_files(foreign) == [foreign_key]
 
 
 def test_list_and_exists_and_drop(started_cluster):
