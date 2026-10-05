@@ -36,59 +36,31 @@ struct TableStatus
     void read(ReadBuffer & in, UInt64 server_protocol_revision);
 };
 
-/// Bounds on how much of a `TablesStatusRequest` its sender can make the server deserialize.
-struct TablesStatusRequestLimits
-{
-    /// Maximum number of tables the request may ask about.
-    size_t max_tables;
-    /// Budget for all `database`/`table` names in the request together, rather than a cap on each
-    /// name. Needed on top of `max_tables`, because `readStringBinary` reserves the declared size of
-    /// a name before reading its bytes, so bounding the number of names alone does not bound the
-    /// memory the request can ask for.
-    ///
-    /// A shared budget rather than a per-name cap on purpose: it bounds the same memory, but without
-    /// putting a ceiling on how long a single name may be. ClickHouse does not have such a ceiling
-    /// to borrow - `IDatabase::checkTableNameLength` is a no-op by default and only `DatabaseOnDisk`
-    /// overrides it (with a filesystem-derived limit), so a table in, say, a `Memory` database can
-    /// be named arbitrarily - and the name here comes from the `Distributed` engine arguments, which
-    /// are whatever the user wrote.
-    size_t max_total_name_size;
-};
+/// How many tables an interserver peer may ask about. Its request body is deserialized before the
+/// peer has proven knowledge of the cluster secret - on the signed path by construction, because the
+/// authentication hash covers the body, and on the unsigned path whenever the request is not
+/// rejected outright (`interserver_tables_status_require_auth`) - so the count cannot be left at the
+/// generic array bound. `ConnectionEstablisher` is the only producer of a `TablesStatusRequest` and
+/// it asks about exactly one table, the remote table behind the `Distributed` table being read, so
+/// this leaves ample headroom, including for the "request status for joined tables also" TODO there.
+///
+/// The names themselves need no extra bound: they are read with `readStringBinaryGrowing`, so a size
+/// a peer declares never becomes an allocation unless the peer actually sends the bytes, and what it
+/// does send is bounded as every other pre-authentication string in the protocol is. Bounding the
+/// name length instead would mean inventing a ceiling that ClickHouse does not otherwise have -
+/// `IDatabase::checkTableNameLength` is a no-op unless the database is a `DatabaseOnDisk` - and the
+/// name here comes from the `Distributed` engine arguments, so such a ceiling would be able to
+/// reject a legitimate request.
+static constexpr size_t MAX_TABLES_IN_INTERSERVER_STATUS_REQUEST = 64;
 
-/// What an interserver peer is allowed to send. `ConnectionEstablisher` is the only producer of a
-/// `TablesStatusRequest`, and it asks about exactly one table - the remote table behind the
-/// `Distributed` table being read - so this leaves ample headroom (including for the "request
-/// status for joined tables also" TODO there) while still bounding a hostile request.
-///
-/// A bound is needed because the body is deserialized before the peer has proven knowledge of the
-/// cluster secret. That happens on the signed path by construction - the hash covers the body, so
-/// the body has to be read to recompute the digest - and on the unsigned path whenever the request
-/// is not rejected outright (`interserver_tables_status_require_auth`).
-///
-/// The name budget is above anything a name could legitimately reach: a `CREATE TABLE` or
-/// `Distributed` definition carrying a longer one does not fit in the default `max_query_size`
-/// (256 KiB), so no table reachable through this request can be excluded by it.
-///
-/// A request is therefore at most ~1 MiB parsed. On the signed path the transient peak is a small
-/// multiple of that, and not all of it is tracked: `getAuthDigest` also builds a sorted vector of
-/// encoded entries and a concatenation of them in plain `std::string`s, which allocate through
-/// `allocNoThrow`; only the final copy into the caller's `StringWithMemoryTracking` goes through the
-/// throwing memory tracker.
-static constexpr TablesStatusRequestLimits INTERSERVER_TABLES_STATUS_REQUEST_LIMITS
-{
-    .max_tables = 64,
-    .max_total_name_size = 1024 * 1024,
-};
-
-/// Who sent the request, which is what its bounds follow from. A source rather than the limits
-/// themselves, so that a call site cannot hand an interserver connection the generous profile by
-/// mistake - the mapping lives in one place, `TablesStatusRequest::read`.
+/// Who sent the request, which is what the bound above follows from. A source rather than the limit
+/// itself, so that a call site cannot hand an interserver connection the generic bound by mistake -
+/// the mapping lives in one place, `TablesStatusRequest::read`.
 enum class TablesStatusRequestSource : uint8_t
 {
-    /// An authenticated client: the generic string and array limits, as before these bounds existed.
+    /// An authenticated client: the generic array bound, as before this bound existed.
     Client,
-    /// An interserver peer, whose request is deserialized before it has proven knowledge of the
-    /// cluster secret. Bounded by `INTERSERVER_TABLES_STATUS_REQUEST_LIMITS`.
+    /// An interserver peer, bounded by `MAX_TABLES_IN_INTERSERVER_STATUS_REQUEST`.
     InterserverPeer,
 };
 

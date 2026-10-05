@@ -32,10 +32,9 @@ node_b = cluster.add_instance("node_b", main_configs=["configs/secret_b.xml"])
 OLD_REVISION = 54449
 USER_INTERSERVER_MARKER = " INTERSERVER SECRET "
 
-# `INTERSERVER_TABLES_STATUS_REQUEST_LIMITS` in `src/Interpreters/TablesStatus.h`. A legitimate
-# interserver request asks about exactly one table, so these only bound a hostile one.
+# `MAX_TABLES_IN_INTERSERVER_STATUS_REQUEST` in `src/Interpreters/TablesStatus.h`. A legitimate
+# interserver request asks about exactly one table, so this only bounds a hostile one.
 MAX_TABLES = 64
-MAX_TOTAL_NAME_SIZE = 1024 * 1024
 
 # A type name no other test can produce, so the log assertions below cannot be crossed.
 BOGUS_TYPE = "NoSuchTypeGroeneAI"
@@ -356,7 +355,7 @@ def recv_any(sock):
 def test_interserver_request_table_count_is_bounded(started_cluster):
     """An interserver peer's request body is deserialized before the peer is authenticated, so
     the number of tables it may ask about is capped at
-    `INTERSERVER_TABLES_STATUS_REQUEST_LIMITS.max_tables`. At the cap the request is still
+    `MAX_TABLES_IN_INTERSERVER_STATUS_REQUEST`. At the cap the request is still
     answered; one table above it the connection is closed without a response (any exception on
     an unauthenticated interserver connection closes it silently)."""
     sock = open_interserver_connection(node_c)
@@ -382,50 +381,14 @@ def test_interserver_request_table_count_is_bounded(started_cluster):
         sock.close()
 
 
-def test_interserver_request_name_budget_is_bounded(started_cluster):
-    """The table count alone does not bound the request: `readStringBinary` reserves the
-    declared size of a name before reading its bytes, so without a budget a peer could make
-    the server reserve an arbitrary size. The names share a budget, and a name that does not
-    fit in it is refused on its declared length, before any of it is reserved.
-
-    The declared length is one byte over the budget rather than something huge on purpose. A
-    huge one would also be refused by the memory tracker on an unfixed server, so the test
-    would pass without the budget existing; one byte over is accepted by every other bound, so
-    only the budget can reject it."""
-    sock = open_interserver_connection(node_c)
-    try:
-        # Only the length is sent, never the bytes.
-        sock.sendall(
-            varuint(5)
-            + varuint(1)
-            + varstring("default")
-            + varuint(MAX_TOTAL_NAME_SIZE + 1)
-        )
-        try:
-            data = sock.recv(4096)
-        except ConnectionResetError:
-            data = b""
-        except TimeoutError:
-            pytest.fail(
-                "server neither answered nor closed the connection, so it accepted the "
-                "declared name length and is waiting for bytes that never arrive"
-            )
-        assert not data, (
-            "server answered an interserver TablesStatusRequest whose names exceed the budget"
-        )
-    finally:
-        sock.close()
-
-
 def test_interserver_request_with_one_very_long_name_is_answered(started_cluster):
-    """The budget is shared across the request rather than applied to each name, so that it
-    bounds the memory without capping how long a single name may be - ClickHouse has no such
-    cap to borrow, `IDatabase::checkTableNameLength` being a no-op unless the database is a
-    `DatabaseOnDisk`. A request naming one table as long as the whole budget must therefore
-    still be answered, which is what keeps this bound from being a compatibility break for a
-    `Distributed` table pointing at a long remote name. The table does not exist, so the
-    response is empty - the point is that there is a response at all."""
-    long_name = "t" * (MAX_TOTAL_NAME_SIZE - len("default"))
+    """Only the table *count* is bounded. There is deliberately no ceiling on how long a name
+    may be, because ClickHouse has none to borrow - `IDatabase::checkTableNameLength` is a no-op
+    unless the database is a `DatabaseOnDisk` - and the name comes from the `Distributed` engine
+    arguments, so a ceiling could reject a legitimate request. A request naming one very long
+    table must therefore still be answered. The table does not exist, so the response is empty -
+    the point is that there is a response at all."""
+    long_name = "t" * (1024 * 1024)
     sock = open_interserver_connection(node_c)
     try:
         sock.sendall(tables_status_request([("default", long_name)]))
@@ -437,7 +400,7 @@ def test_interserver_request_with_one_very_long_name_is_answered(started_cluster
 
 def test_ordinary_client_request_is_not_bounded_by_the_interserver_limit(started_cluster):
     """The bound applies to the interserver path only: an ordinary authenticated client can
-    still ask about more tables than `INTERSERVER_TABLES_STATUS_REQUEST_LIMITS.max_tables`, as
+    still ask about more tables than `MAX_TABLES_IN_INTERSERVER_STATUS_REQUEST`, as
     it could before. None of the tables exist, so the response is empty - the point is that it
     is a response and not a `TOO_LARGE_ARRAY_SIZE` error."""
     sock = open_ordinary_connection(node_c)
