@@ -82,10 +82,22 @@ ENGINE = MergeTree ORDER BY p;
 INSERT INTO t_default_in_set_engine (p) VALUES (1), (5);
 SELECT p, flag FROM t_default_in_set_engine ORDER BY p;
 
+-- A skip index cannot contain `IN <table>`, also when it comes from an ALIAS column. No implicit
+-- min-max index is created for such a column, and an explicit one is rejected at CREATE time.
+SELECT 'Skip index over the ALIAS column';
+CREATE TABLE t_default_in_set_implicit_index (p UInt8, flag UInt8 ALIAS p IN t_default_in_set_keys)
+ENGINE = MergeTree ORDER BY p SETTINGS add_minmax_index_for_numeric_columns = 1;
+INSERT INTO t_default_in_set_implicit_index VALUES (1), (2), (3);
+SELECT p, flag FROM t_default_in_set_implicit_index ORDER BY p;
+SELECT count() FROM system.data_skipping_indices WHERE database = currentDatabase() AND table = 't_default_in_set_implicit_index' AND name LIKE '%flag%';
+CREATE TABLE t_default_in_set_explicit_index (p UInt8, flag UInt8 ALIAS p IN t_default_in_set_keys, INDEX i flag TYPE minmax)
+ENGINE = MergeTree ORDER BY p; -- { serverError BAD_ARGUMENTS }
+
 -- An explicit subquery in a column default stays rejected at CREATE time.
 CREATE TABLE t_default_in_set_subquery (p UInt8, flag UInt8 ALIAS p IN (SELECT p FROM t_default_in_set_keys))
 ENGINE = MergeTree ORDER BY p; -- { serverError THERE_IS_NO_DEFAULT_VALUE }
 
+DROP TABLE t_default_in_set_implicit_index;
 DROP TABLE t_default_in_set_engine;
 DROP TABLE t_default_in_set_engine_keys;
 DROP TABLE t_default_in_set_added;
