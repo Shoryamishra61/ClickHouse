@@ -1566,22 +1566,24 @@ void optimizeJoinLogicalImpl(JoinStepLogical * join_step, QueryPlan::Node & node
     int query_graph_size_limit = safe_cast<int>(optimization_settings.query_plan_optimize_join_order_limit);
 
     /// With a conflict detector (CD) the group of tables is built for DPsub: semi/anti and outer joins
-    /// come in with both of their sides (see `isFlattenableJoinSide`). Only DPsub can plan such a
-    /// group, and it turns down more tables than `DPSUB_MAX_RELATIONS`. So count the tables the group
-    /// would end up with, and build it the ordinary way when there are too many: greedy can then take
-    /// it over, whole, instead of it being cut down to a size DPsub accepts.
-    bool reorder_semi_anti = conflictDetectorReordersSemiAnti(optimization_settings);
-    if (reorder_semi_anti)
+    /// come in with both of their sides (see `isFlattenableJoinSide`), so every kind of join it models
+    /// is reordered together. Only DPsub can plan such a group, and it turns down more tables than
+    /// `DPSUB_MAX_RELATIONS`. So count the tables the group would end up with, and when there are too
+    /// many, cut it down to that size: the tables left out form groups of their own, each planned the
+    /// same way.
+    const bool reorder_semi_anti = conflictDetectorReordersSemiAnti(optimization_settings);
+    if (reorder_semi_anti && query_graph_size_limit > static_cast<int>(DPSUB_MAX_RELATIONS))
     {
         std::vector<SharedHeader> flattened_relations;
         collectJoinGraphRelationHeadersForJoin(
             node, query_graph_size_limit, join_step->getJoinSettings(),
             optimization_settings.merge_expression_into_join, flattened_relations, /*allow_semi_anti_children=*/ true);
-        reorder_semi_anti = flattened_relations.size() <= DPSUB_MAX_RELATIONS;
+        if (flattened_relations.size() > DPSUB_MAX_RELATIONS)
+            query_graph_size_limit = static_cast<int>(DPSUB_MAX_RELATIONS);
     }
 
     /// For CD, semi/anti and `FULL` joins are fully reorderable rather than swap-only, so they keep the
-    /// full graph size limit. The `ANY` strictness stays capped, as CD does not model it.
+    /// graph size limit. The `ANY` strictness stays capped, as CD does not model it.
     const bool cd_reorders_top = reorder_semi_anti
         && (strictness == JoinStrictness::Semi || strictness == JoinStrictness::Anti || isFull(kind));
     if ((isSwapOnlyJoinStrictness(strictness) || isSwapOnlyJoinKind(kind)) && query_graph_size_limit > 2 && !cd_reorders_top)

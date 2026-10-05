@@ -259,11 +259,13 @@ RelationStats estimateReadRowsCount(QueryPlan::Node & node, const ActionsDAG::No
         /// re-report its tables as missing statistics; `imprecise_estimate` still records reliability.
         /// The name is already a chain of the sub-joins with their own estimates, so mark it composite
         /// to keep the parent from appending a second estimate to it.
+        /// A filter above the join (`filter`, from the `FilterStep` branch) is not accounted for, so like
+        /// a storage read with a filter it cannot use, the row count is then unknown.
         return RelationStats{
-            .estimated_rows = join_step->getResultRowsEstimation(),
+            .estimated_rows = filter ? std::nullopt : join_step->getResultRowsEstimation(),
             .column_stats = join_step->getResultColumnStats(),
             .table_name = join_step->getReadableRelationName(),
-            .imprecise_estimate = join_step->hasImpreciseEstimate(),
+            .imprecise_estimate = filter != nullptr || join_step->hasImpreciseEstimate(),
             .composite = true};
     }
 

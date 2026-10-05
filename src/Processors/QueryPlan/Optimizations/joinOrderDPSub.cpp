@@ -221,8 +221,8 @@ void DPSubJoinOrderOptimizer::initDPsubScratch()
     dpsub_data.class_visited.assign(dpsub_data.equiv_classes.size(), 0);
     dpsub_data.equiv_generation = 0;
 
-    /// Connectivity, over the links `initDPTable` seeds: every two-relation predicate, plus, with a
-    /// conflict detector, one per operator whose predicate does not span its two sides.
+    /// Connectivity: every predicate over two or more relations, plus, with a conflict detector, one
+    /// link per operator whose predicate does not span its two sides.
     /// Cross products are left out - they join on nothing, so a graph they alone hold together is
     /// disconnected. A query whose other predicates tie the same relations together still counts as
     /// connected, which is what lets DPsub plan a cross product feeding an inner join.
@@ -249,12 +249,15 @@ void DPSubJoinOrderOptimizer::initDPsubScratch()
             component[rb] = ra;
     };
 
+    /// A condition over three or more tables (`a.x + b.x = c.x`) ties all of them together, just as a
+    /// two-table one ties its pair.
     for (const UInt32 sources : dpsub_data.edge_source_mask)
     {
-        if (std::popcount(sources) != 2)
+        if (std::popcount(sources) < 2)
             continue;
         const UInt32 lowest = sources & (~sources + 1);
-        unite(lowest, sources & ~lowest);
+        for (UInt32 rest = sources & ~lowest; rest; rest &= rest - 1)
+            unite(lowest, rest & (~rest + 1));
     }
 
     /// `initDPTable` seeds an operator link only for a degenerate operator - one whose predicate does

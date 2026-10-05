@@ -1,0 +1,10 @@
+-- 14 tables with a semi and an anti join, join order limit 20
+group of 3
+planned by DPSUB
+group of 12
+planned by DPSUB
+same result
+-- a condition over three tables
+group of 3
+planned by DPSUB
+same result
