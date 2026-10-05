@@ -347,8 +347,13 @@ public:
     /// column (the feature is enabled and the column has a cardinality statistic) it answers `true`
     /// even before the first one exists, so that the answer does not change under a concurrent write
     /// while a query is being analyzed. A column that can never be encoded answers `false`.
+    /// @storage_snapshot is the snapshot the query reads from (may be null): when it holds the parts the
+    /// read will use, the answer is taken from them, so it cannot miss a part committed concurrently.
     /// Unlike getSerializationHints() this is cheap, so query analysis can use it.
-    virtual bool hasAutomaticLowCardinalitySerialization(const String & /*column_name*/) const { return false; }
+    virtual bool hasAutomaticLowCardinalitySerialization(const String & /*column_name*/, const StorageSnapshotPtr & /*storage_snapshot*/) const
+    {
+        return false;
+    }
 
     /// Add engine args that were inferred during storage creation to create query to avoid the same
     /// inference on server restart. For example - data format inference in File/URL/S3/etc engines.

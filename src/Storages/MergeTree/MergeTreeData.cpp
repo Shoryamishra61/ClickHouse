@@ -14551,7 +14551,7 @@ SerializationInfoByName MergeTreeData::getSerializationHints() const
     return serialization_hints.clone();
 }
 
-bool MergeTreeData::hasAutomaticLowCardinalitySerialization(const String & column_name) const
+bool MergeTreeData::hasAutomaticLowCardinalitySerialization(const String & column_name, const StorageSnapshotPtr & storage_snapshot) const
 {
     /// Not just "is the column encoded in an active part right now": a part that encodes it can be
     /// committed while a query is being analyzed and still belong to the parts that query reads, so
@@ -14571,6 +14571,27 @@ bool MergeTreeData::hasAutomaticLowCardinalitySerialization(const String & colum
             return true;
     }
 
+    /// The snapshot of this table taken for the query holds the parts its read will use. Checking them
+    /// does not depend on when the table-level hints below catch up with a part that was attached or
+    /// fetched concurrently: if such a part is read by this query, it is found here.
+    if (storage_snapshot && &storage_snapshot->storage == this)
+    {
+        const auto * snapshot_data = dynamic_cast<const SnapshotData *>(storage_snapshot->data.get());
+        if (snapshot_data && snapshot_data->parts)
+        {
+            for (const auto & part : *snapshot_data->parts)
+            {
+                const auto & infos = part.data_part->getSerializationInfos();
+                auto it = infos.find(column_name);
+                if (it != infos.end() && it->second
+                    && ISerialization::hasKind(it->second->getKindStack(), ISerialization::Kind::LOW_CARDINALITY))
+                    return true;
+            }
+        }
+    }
+
+    /// The table-level hints cover the current active parts under their current column names, and the
+    /// only source of the answer for a wrapper table that reads this one with its own snapshot later.
     /// Cheap negative answer for the common case before taking the parts lock.
     if (!has_automatic_low_cardinality.load(std::memory_order_relaxed))
         return false;

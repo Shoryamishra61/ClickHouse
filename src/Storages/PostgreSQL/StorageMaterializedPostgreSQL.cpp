@@ -352,10 +352,10 @@ std::optional<SerializationInfoByName> StorageMaterializedPostgreSQL::tryGetSeri
     return std::nullopt;
 }
 
-bool StorageMaterializedPostgreSQL::hasAutomaticLowCardinalitySerialization(const String & column_name) const
+bool StorageMaterializedPostgreSQL::hasAutomaticLowCardinalitySerialization(const String & column_name, const StorageSnapshotPtr & storage_snapshot) const
 {
     if (auto nested = tryGetNested())
-        return nested->hasAutomaticLowCardinalitySerialization(column_name);
+        return nested->hasAutomaticLowCardinalitySerialization(column_name, storage_snapshot);
     return false;
 }
 

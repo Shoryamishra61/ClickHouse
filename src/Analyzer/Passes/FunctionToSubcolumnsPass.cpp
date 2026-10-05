@@ -323,7 +323,7 @@ bool canOptimizeToExpectedSubcolumn(
     if (isStringOrFixedString(resolved->getTypeInStorage()))
     {
         auto storage = getStorageForColumnSource(ctx.column_source);
-        if (storage && storage->hasAutomaticLowCardinalitySerialization(resolved->getNameInStorage()))
+        if (storage && storage->hasAutomaticLowCardinalitySerialization(resolved->getNameInStorage(), storage_snapshot))
             return false;
     }
 

@@ -452,7 +452,7 @@ std::optional<SerializationInfoByName> StorageMerge::tryGetSerializationHints() 
     return result;
 }
 
-bool StorageMerge::hasAutomaticLowCardinalitySerialization(const String & /*column_name*/) const
+bool StorageMerge::hasAutomaticLowCardinalitySerialization(const String & /*column_name*/, const StorageSnapshotPtr & /*storage_snapshot*/) const
 {
     /// Fail closed. The answer is used during query analysis, but `ReadFromMerge` enumerates the
     /// matching tables again when it builds the read plan. A table created, attached or renamed into

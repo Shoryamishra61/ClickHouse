@@ -48,7 +48,10 @@ public:
     bool supportsOptimizationToSubcolumns() const override { return getNested()->supportsOptimizationToSubcolumns(); }
     bool supportsOptimizationToTupleElementSubcolumns() const override { return getNested()->supportsOptimizationToTupleElementSubcolumns(); }
     std::optional<SerializationInfoByName> tryGetSerializationHints() const override { return getNested()->tryGetSerializationHints(); }
-    bool hasAutomaticLowCardinalitySerialization(const String & column_name) const override { return getNested()->hasAutomaticLowCardinalitySerialization(column_name); }
+    bool hasAutomaticLowCardinalitySerialization(const String & column_name, const StorageSnapshotPtr & storage_snapshot) const override
+    {
+        return getNested()->hasAutomaticLowCardinalitySerialization(column_name, storage_snapshot);
+    }
     bool supportsColumnsWithDynamicStructure() const override { return getNested()->supportsColumnsWithDynamicStructure(); }
     /// `ReadFromMerge::getSelectedTables` prunes children by name based on this flag; a lazy
     /// `StorageTableProxy` around a delegating storage (`Distributed`, `Merge`, `Buffer`, `Alias`)

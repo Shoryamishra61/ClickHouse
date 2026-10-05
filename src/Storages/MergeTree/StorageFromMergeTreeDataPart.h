@@ -65,9 +65,9 @@ public:
         return storage.tryGetSerializationHints();
     }
 
-    bool hasAutomaticLowCardinalitySerialization(const String & column_name) const override
+    bool hasAutomaticLowCardinalitySerialization(const String & column_name, const StorageSnapshotPtr & storage_snapshot) const override
     {
-        return storage.hasAutomaticLowCardinalitySerialization(column_name);
+        return storage.hasAutomaticLowCardinalitySerialization(column_name, storage_snapshot);
     }
 
     String getPartitionId() const

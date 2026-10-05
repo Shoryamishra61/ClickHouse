@@ -1133,10 +1133,10 @@ std::optional<SerializationInfoByName> StorageBuffer::tryGetSerializationHints()
     return std::nullopt;
 }
 
-bool StorageBuffer::hasAutomaticLowCardinalitySerialization(const String & column_name) const
+bool StorageBuffer::hasAutomaticLowCardinalitySerialization(const String & column_name, const StorageSnapshotPtr & storage_snapshot) const
 {
     if (auto destination = getDestinationTable())
-        return destination->hasAutomaticLowCardinalitySerialization(column_name);
+        return destination->hasAutomaticLowCardinalitySerialization(column_name, storage_snapshot);
     return false;
 }
 
