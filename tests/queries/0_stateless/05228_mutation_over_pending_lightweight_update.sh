@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Tags: no-parallel, no-replicated-database, no-shared-merge-tree
+# Tags: no-parallel, no-fasttest, no-replicated-database, no-shared-merge-tree
 # no-parallel: uses a server-wide failpoint that pauses every lightweight update.
+# no-fasttest: tests that enable a fail point run alone, and they are kept out of the fast test.
 # no-replicated-database, no-shared-merge-tree: the test is about the mutation selection of the plain `MergeTree`.
 
 CUR_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
