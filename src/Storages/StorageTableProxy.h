@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <mutex>
 
 #include <Storages/StorageProxy.h>
 #include <Common/Exception.h>
@@ -78,17 +79,17 @@ public:
 
     bool isLazyStandIn() const override { return true; }
 
-    /// The same, but never waits: `nested_mutex` is held for the whole first-access materialization,
-    /// which is unbounded (it reads the data parts and starts the table up). A caller that holds a
-    /// wider lock - the database mutex in `DatabaseWithOwnTablesBase::getTablesIterator` - must not
-    /// block on it, or a single table being loaded stalls every query on the database. A table that
-    /// is being materialized right now is reported as not materialized yet, exactly as an untouched
-    /// one is.
+    /// The same, but never waits for a materialization: `nested_mutex` is held for the whole first-access
+    /// materialization, which is unbounded (it reads the data parts and starts the table up). A caller
+    /// that holds a wider lock - the database mutex in `DatabaseWithOwnTablesBase::getTablesIterator` -
+    /// must not block on it, or a single table being loaded stalls every query on the database. So this
+    /// reads `nested` under `nested_ptr_mutex`, which is only held to copy the pointer. A table that is
+    /// being materialized right now is reported as not materialized yet, exactly as an untouched one is,
+    /// but a table that is already materialized is always reported as such, whatever other thread holds
+    /// `nested_mutex` at the moment: `DatabaseAtomic::detachTable` relies on it to track the right object.
     StoragePtr tryGetNestedWithoutWaiting() const
     {
-        std::unique_lock lock{nested_mutex, std::try_to_lock};
-        if (!lock.owns_lock())
-            return nullptr;
+        std::lock_guard lock{nested_ptr_mutex};
         return nested;
     }
 
@@ -124,7 +125,10 @@ public:
         nested_storage->shareDropLockWith(*this);
         nested_storage->startup();
         nested_storage->renameInMemory(getStorageID());
-        nested = nested_storage;
+        {
+            std::lock_guard ptr_lock{nested_ptr_mutex};
+            nested = nested_storage;
+        }
         get_nested = {};
         return nested;
     }
@@ -264,6 +268,9 @@ public:
 private:
     mutable std::recursive_mutex nested_mutex; /// Guards both `get_nested` and `nested`.
     mutable std::function<StoragePtr()> get_nested; /// Factory that creates the real storage. Cleared after first use.
+    /// Guards `nested` only, and is held only to read or assign the pointer, never during the materialization.
+    /// `nested` is assigned under both mutexes, so holding either one is enough to read it.
+    mutable std::mutex nested_ptr_mutex;
     mutable StoragePtr nested; /// The materialized real storage, set on first access.
     bool shutdown_called = false; /// Forbids the first materialization, see `getNested`. Guarded by `nested_mutex`.
     LoggerPtr log;
