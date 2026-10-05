@@ -938,7 +938,7 @@ static void splitAndModifyMutationCommands(
             {
                 try
                 {
-                    part->storage.checkLossyRecompressionIsPossible(column.name, metadata_snapshot, part.get());
+                    part->storage.checkLossyRecompressionIsPossible(column.name, metadata_snapshot, part.get(), alter_conversions);
                 }
                 catch (Exception & e)
                 {
@@ -4770,7 +4770,7 @@ bool MutateTask::prepare()
     /// metadata is fixed, or can be killed.
     for (const auto & command : ctx->commands_for_part)
         if (command.type == MutationCommand::Type::RECOMPRESS_COLUMN)
-            ctx->data->checkLossyRecompressionIsPossible(command.column_name, ctx->metadata_snapshot, ctx->source_part.get());
+            ctx->data->checkLossyRecompressionIsPossible(command.column_name, ctx->metadata_snapshot, ctx->source_part.get(), alter_conversions);
 
     bool suitable_for_ttl_optimization = ctx->metadata_snapshot->hasOnlyRowsTTL() && (*ctx->data->getSettings())[MergeTreeSetting::ttl_only_drop_parts];
     NameSet columns_to_recompress;
@@ -4789,6 +4789,9 @@ bool MutateTask::prepare()
     {
         ctx->for_interpreter.clear();
         MutationCommands unused_file_renames;
+        /// Coalescing only merges row-mask updates, so the recompression decisions of the call above stay valid.
+        NameSet unused_columns_to_recompress;
+        bool unused_recompress_rewrites_whole_part = false;
         MutationHelpers::splitAndModifyMutationCommands(
             ctx->source_part,
             ctx->metadata_snapshot,
@@ -4796,6 +4799,8 @@ bool MutateTask::prepare()
             *commands_for_execution,
             ctx->for_interpreter,
             unused_file_renames,
+            unused_columns_to_recompress,
+            unused_recompress_rewrites_whole_part,
             ctx->log);
     }
 
