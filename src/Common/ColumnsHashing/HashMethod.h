@@ -92,12 +92,14 @@ struct HashMethodOneNumber : public columns_hashing_impl::HashMethodBase<
     ColumnPtr canonicalized_column;
 
     /// If the keys of a fixed length then key_sizes contains their lengths, empty otherwise.
-    HashMethodOneNumber(const ColumnRawPtrs & key_columns, const Sizes & /*key_sizes*/, const HashMethodContextPtr &) : Base(key_columns[0])
+    /// The constructors are forcibly inlined: otherwise the address of the state escapes into an out-of-line call,
+    /// and the fields of the last-key cache cannot be kept in registers in the loop over the rows.
+    ALWAYS_INLINE HashMethodOneNumber(const ColumnRawPtrs & key_columns, const Sizes & /*key_sizes*/, const HashMethodContextPtr &) : Base(key_columns[0])
     {
         init(key_columns[0]);
     }
 
-    explicit HashMethodOneNumber(const IColumn * column) : Base(column)
+    ALWAYS_INLINE explicit HashMethodOneNumber(const IColumn * column) : Base(column)
     {
         init(column);
     }
@@ -122,7 +124,7 @@ struct HashMethodOneNumber : public columns_hashing_impl::HashMethodBase<
     const FieldType * getKeyData() const { return reinterpret_cast<const FieldType *>(vec); }
 
 private:
-    void init(const IColumn * column)
+    ALWAYS_INLINE void init(const IColumn * column)
     {
         if constexpr (nullable)
             column = checkAndGetColumn<ColumnNullable>(*column).getNestedColumnPtr().get();
@@ -168,7 +170,8 @@ struct HashMethodOneNumberInRange : public columns_hashing_impl::HashMethodBase<
     {
     }
 
-    explicit HashMethodOneNumberInRange(const IColumn * column) : Base(column)
+    /// See the comment on the constructors of `HashMethodOneNumber`.
+    ALWAYS_INLINE explicit HashMethodOneNumberInRange(const IColumn * column) : Base(column)
     {
         if constexpr (nullable)
             column = checkAndGetColumn<ColumnNullable>(*column).getNestedColumnPtr().get();
