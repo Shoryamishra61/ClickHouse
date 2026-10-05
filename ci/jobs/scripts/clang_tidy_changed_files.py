@@ -56,6 +56,14 @@ HEADER_SUFFIXES = (".h", ".hpp")
 # many direct includers are analyzed instead.
 MAX_INCLUDERS_PER_HEADER = 3
 
+# How far the search for those includers follows headers including the changed
+# header, and how many such headers it follows on one level. A header is often
+# included only by other headers (`wide_integer_impl.h` by `wide_integer.h`), so
+# its translation units are found a level or two away; the bounds keep a header
+# included from hundreds of headers from turning into hundreds of searches.
+MAX_INCLUDE_DEPTH = 3
+MAX_INCLUDE_FRONTIER = 32
+
 # Files that decide what the clang-tidy checks report, or how this one selects
 # and judges its work, without being analyzed themselves. A change to them alone
 # touches no translation unit, yet it can make the full check fail on `master`,
@@ -71,6 +79,11 @@ TIDY_CONFIG_PATHS = (
     "ci/jobs/scripts/clang_tidy_changed_files.py",
     "ci/jobs/scripts/workflow_hooks/filter_job.py",
     "ci/jobs/build_clickhouse.py",
+    # The definition of the job itself and of the workflow scheduling it.
+    "ci/defs/defs.py",
+    "ci/defs/job_configs.py",
+    "ci/workflows/merge_queue.py",
+    ".github/workflows/merge_queue.yml",
 )
 # Inputs of code generators whose output is C++ that clang-tidy parses, mapped
 # to the suffixes of the headers generated from them: `Foo.proto` becomes
@@ -84,6 +97,10 @@ GENERATOR_INPUTS = {
     ".proto": (".pb.h", ".grpc.pb.h"),
     ".h.in": (".h",),
 }
+# Where such inputs can live: the analyzed roots, and `contrib`, whose generated
+# headers the analyzed code includes as well - `contrib/prometheus-protobufs`
+# becomes the `prompb/remote.pb.h` that `src/Storages/TimeSeries` includes.
+GENERATOR_INPUT_ROOTS = ANALYZED_ROOTS + ("contrib",)
 
 CANARY_TRANSLATION_UNITS = (
     "base/base/JSON.cpp",
@@ -184,7 +201,7 @@ def is_tidy_config_path(path):
 def is_generator_input(path):
     """True for an input of a code generator that produces C++ clang-tidy parses."""
     root = path.split("/", 1)[0]
-    return root in ANALYZED_ROOTS and path.endswith(tuple(GENERATOR_INPUTS))
+    return root in GENERATOR_INPUT_ROOTS and path.endswith(tuple(GENERATOR_INPUTS))
 
 
 def normalize_changed_path(path):
@@ -303,53 +320,109 @@ def load_compile_commands(build_dir):
     return {os.path.normpath(entry["file"]): entry for entry in entries}
 
 
-def include_needles(header):
-    """Include spellings to search for, longest first.
+_INCLUDE_SPELLING_RE = re.compile(r'^\s*#\s*include\s*[<"](?P<spelling>[^">]+)[">]')
 
-    A header is included by its path below its include root - `src/Common/Foo.h`
-    as `<Common/Foo.h>`, `base/base/Foo.h` as `<base/Foo.h>` - and the root is
-    not known here, so every suffix of the path is a candidate.
+
+def direct_includers(header, repo_dir):
+    """Analyzed files - sources and headers - whose `#include` directive names `header`.
+
+    Only real directives count, not a file name mentioned in a comment. The
+    include root of `header` is not known here, so a directive matches when it
+    resolves to `header` relative to the including file, or when its spelling is
+    a path suffix of `header` (`src/Common/Foo.h` as `<Common/Foo.h>`,
+    `base/base/Foo.h` as `<base/Foo.h>`). A bare file name that does not resolve
+    relative to the includer is accepted only when no directive matches more
+    precisely, since it can as well name a same-named header elsewhere.
     """
-    parts = header.split("/")
-    return ["/".join(parts[i:]) for i in range(1, len(parts))]
+    basename = os.path.basename(header)
+    pattern = (
+        r'^[[:space:]]*#[[:space:]]*include[[:space:]]*[<"]([^">]*/)?'
+        + escape_for_llvm_regex(basename)
+        + '[">]'
+    )
+    pathspecs = [
+        f"{root}/*{suffix}"
+        for root in ANALYZED_ROOTS
+        for suffix in SOURCE_SUFFIXES + HEADER_SUFFIXES
+    ]
+    completed = subprocess.run(
+        ["git", "grep", "--no-color", "-E", "-e", pattern, "--"] + pathspecs,
+        cwd=repo_dir,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    # `git grep` exits with 1 when nothing matches.
+    if completed.returncode not in (0, 1):
+        raise RuntimeError(
+            f"git grep for includers of {header} failed: {completed.stderr}"
+        )
+    precise = set()
+    by_name = set()
+    for line in completed.stdout.splitlines():
+        includer, _, text = line.partition(":")
+        match = _INCLUDE_SPELLING_RE.match(text)
+        if not match or includer == header:
+            continue
+        spelling = match.group("spelling")
+        relative = os.path.normpath(f"{os.path.dirname(includer)}/{spelling}")
+        if relative == header or (
+            "/" in spelling and header.endswith(f"/{spelling}")
+        ):
+            precise.add(includer)
+        else:
+            by_name.add(includer)
+    return sorted(precise or by_name)
 
 
 def find_includers(header, repo_dir, limit, is_built):
-    """Translation units that include `header` directly, at most `limit` of them.
+    """Translation units that cover `header` through its includers, at most `limit`.
 
-    Only direct includers, and only a few of them: this is the coverage a
-    header-only change gets, not the transitive closure the full check has.
-    Candidates are filtered by `is_built` before the limit is applied, so that
-    includers the build does not compile cannot crowd out ones it does.
+    Breadth-first over the include graph, up to `MAX_INCLUDE_DEPTH` levels: a
+    translation unit including `header` is taken directly, and a header
+    including it is covered the way a changed header is - through its sibling
+    translation unit, or else through its own includers on the next level. Only
+    a few translation units, nearest first: this is the coverage a header-only
+    change gets, not the transitive closure the full check has. Candidates are
+    filtered by `is_built` before the limit is applied, so that includers the
+    build does not compile cannot crowd out ones it does.
     """
-    pathspecs = [
-        f"{root}/*{suffix}" for root in ANALYZED_ROOTS for suffix in SOURCE_SUFFIXES
-    ]
-    for needle in include_needles(header):
-        completed = subprocess.run(
-            [
-                "git",
-                "grep",
-                "--files-with-matches",
-                "--fixed-strings",
-                "-e",
-                needle,
-                "--",
-            ]
-            + pathspecs,
-            cwd=repo_dir,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        includers = sorted(
-            line.strip()
-            for line in completed.stdout.splitlines()
-            if line.strip() and is_built(line.strip())
-        )
-        if includers:
-            return includers[:limit]
-    return []
+    found = []
+    seen = {header}
+    frontier = [header]
+    for _ in range(MAX_INCLUDE_DEPTH):
+        sources = []
+        siblings = []
+        next_frontier = []
+        for current in frontier:
+            for includer in direct_includers(current, repo_dir):
+                if includer in seen:
+                    continue
+                seen.add(includer)
+                if includer.endswith(SOURCE_SUFFIXES):
+                    if is_built(includer):
+                        sources.append(includer)
+                    continue
+                stem = includer.rsplit(".", 1)[0]
+                sibling = next(
+                    (
+                        f"{stem}{suffix}"
+                        for suffix in SOURCE_SUFFIXES
+                        if is_built(f"{stem}{suffix}")
+                    ),
+                    None,
+                )
+                if sibling is not None:
+                    siblings.append(sibling)
+                elif len(next_frontier) < MAX_INCLUDE_FRONTIER:
+                    next_frontier.append(includer)
+        for candidate in sorted(sources) + sorted(set(siblings)):
+            if candidate not in found:
+                found.append(candidate)
+        if len(found) >= limit or not next_frontier:
+            break
+        frontier = sorted(next_frontier)
+    return found[:limit]
 
 
 def lookup_translation_unit(path, repo_dir, compile_commands):

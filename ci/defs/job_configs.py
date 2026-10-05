@@ -161,7 +161,8 @@ darwin_fast_test_digest_config = Job.CacheDigestConfig(
 # The limited clang-tidy check is configured exactly like the full tidy build, so
 # it shares the build digest, and adds the files that decide what it reports or
 # whether it runs: its own selection logic, the config-time skip in
-# `filter_job.py`, and the clang-tidy configuration itself. These are the
+# `filter_job.py`, the definitions of the job and of the merge-queue workflow,
+# and the clang-tidy configuration itself. These are the
 # `TIDY_CONFIG_PATHS` of `clang_tidy_changed_files.py` that the build digest does
 # not already cover, so a change to any of them is validated on the merge-group
 # state instead of reusing an older result.
@@ -170,7 +171,13 @@ tidy_changed_files_digest_config = Job.CacheDigestConfig(
     + [
         "./ci/jobs/scripts/clang_tidy_changed_files.py",
         "./ci/jobs/scripts/workflow_hooks/filter_job.py",
+        "./ci/defs/defs.py",
+        "./ci/defs/job_configs.py",
+        "./ci/workflows/merge_queue.py",
+        "./.github/workflows/merge_queue.yml",
         "./.clang-tidy",
+        # An analyzed root the build digest does not cover.
+        "./utils",
     ],
     with_git_submodules=True,
 )
