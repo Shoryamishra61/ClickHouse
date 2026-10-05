@@ -15,6 +15,7 @@
 #include <Storages/MergeTree/MergeTreeData.h>
 #include <Storages/StorageMaterializedView.h>
 #include <Storages/StorageMemory.h>
+#include <Storages/StorageProxy.h>
 #include <Storages/StorageView.h>
 #include <Common/typeid_cast.h>
 #include <Parsers/ASTCreateFunctionWithDriverQuery.h>
@@ -562,7 +563,8 @@ static bool collectTableNamesMatchableByAdditionalTableFilters(const StorageID &
 
     /// Storages known to read no other table. Anything else (`Merge`, `Distributed`, `Buffer`, ...) may
     /// read tables that are not named here, locally or on another server, so the set is unknown.
-    return dynamic_cast<const MergeTreeData *>(storage.get()) || typeid_cast<const StorageMemory *>(storage.get());
+    /// The query names this table, so loading a lazily attached one is the expected cost.
+    return castStorage<const MergeTreeData>(storage, DeferredTable::Load) || typeid_cast<const StorageMemory *>(storage.get());
 }
 
 static bool collectNamesMatchableByAdditionalTableFiltersImpl(ASTPtr ast, const ContextPtr & context, NameSet & names, size_t depth)
