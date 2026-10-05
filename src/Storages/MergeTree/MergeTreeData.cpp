@@ -6010,10 +6010,30 @@ void MergeTreeData::checkAlterEligibility(const AlterCommands & commands, Contex
     /// table would fail to load after a server restart, when the config-inherited value is re-validated
     /// against the default profile (see `registerStorageMergeTree`, where the CREATE-time counterpart of
     /// this check lives). Resets therefore additionally require the opt-in in the default profile.
+    ///
+    /// Like the other checks of fresh user input below, this one is made only by the initial execution.
+    /// A `Replicated` database re-executes the ALTER per replica here: a secondary refusing what the
+    /// initiator committed (e.g. because the replaying session lacks the `enable_<family>_codec` opt-in
+    /// the initiator had) would retry its queue entry forever. Shared Catalog secondaries replay without
+    /// a metadata transaction and are told apart by the client info instead (the same marker
+    /// `AlterCommands` and `StorageKeeperMap` use).
+    const auto alter_txn = local_context->getZooKeeperMetadataTransaction();
+    const bool is_ddl_replay = alter_txn && !alter_txn->isInitialQuery();
+#if CLICKHOUSE_CLOUD
+    const bool is_shared_catalog_replay = local_context->getClientInfo().is_shared_catalog_internal
+        && !SharedDatabaseCatalog::isInitialQuery(local_context);
+#else
+    const bool is_shared_catalog_replay = false;
+#endif
+    const bool is_alter_replay = is_ddl_replay || is_shared_catalog_replay;
+
     std::unique_ptr<MergeTreeSettings> default_settings;
     std::optional<Settings> default_profile_settings;
     for (const auto & command : commands)
     {
+        if (is_alter_replay)
+            break;
+
         if (command.type != AlterCommand::MODIFY_SETTING && command.type != AlterCommand::RESET_SETTING)
             continue;
 
@@ -6079,21 +6099,9 @@ void MergeTreeData::checkAlterEligibility(const AlterCommands & commands, Contex
     /// Statistics of a column that is not physically stored can never be built: the column is absent
     /// from every written block. Only the state after all commands can decide, because one command can
     /// turn a column non-physical and another give it statistics.
-    /// A `Replicated` database re-executes the ALTER per replica here, so only the initial execution
-    /// judges it: a secondary refusing what the initiator committed would retry its queue entry forever.
-    /// Shared Catalog secondaries replay without a metadata transaction and are told apart by the
-    /// client info instead (the same marker `AlterCommands` and `StorageKeeperMap` use).
+    /// Only the initial execution judges it (see `is_alter_replay`).
     {
-        const auto txn = local_context->getZooKeeperMetadataTransaction();
-        const bool is_ddl_replay = txn && !txn->isInitialQuery();
-#if CLICKHOUSE_CLOUD
-        const bool is_shared_catalog_replay = local_context->getClientInfo().is_shared_catalog_internal
-            && !SharedDatabaseCatalog::isInitialQuery(local_context);
-#else
-        const bool is_shared_catalog_replay = false;
-#endif
-
-        if (!is_ddl_replay && !is_shared_catalog_replay)
+        if (!is_alter_replay)
         {
             /// Only effective commands count. `command.ignore` covers a command that is a no-op against
             /// the pre-ALTER snapshot (`ADD COLUMN IF NOT EXISTS` for a column that already exists), but
