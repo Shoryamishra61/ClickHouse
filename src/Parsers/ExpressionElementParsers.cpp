@@ -49,8 +49,6 @@
 #include <Parsers/ExpressionElementParsers.h>
 #include <Parsers/ParserCreateQuery.h>
 #include <Parsers/ParserExplainQuery.h>
-#include <Parsers/StatementFactory.h>
-#include <Parsers/registerStatements.h>
 
 #include <Interpreters/StorageID.h>
 
@@ -2131,6 +2129,7 @@ const char * ParserAlias::restricted_keywords[] =
     "SAMPLE",
     "SEMI",
     "SETTINGS",
+    "SIMILAR",
     "STREAM",
     "UNION",
     "USING",
@@ -3138,14 +3137,11 @@ bool ParserAssignment::parseImpl(Pos & pos, ASTPtr & node, Expected & expected)
     return true;
 }
 
-}
-
-namespace DB
+std::map<String, Documentation> ParserColumnsTransformers::getDocumentation() const
 {
+    std::map<String, Documentation> documentation;
 
-void registerStatementColumnsTransformers(StatementFactory & factory)
-{
-    factory.registerStatement("APPLY modifier",
+    documentation["APPLY modifier"] =
     {
         .description = R"DOCS_MD(
 > Allows you to invoke some function for each row returned by an outer table expression of a query.
@@ -3175,9 +3171,9 @@ SELECT <expr> APPLY(<func>) FROM [db.]table_name
 )",
         .parent = "SELECT",
         .related = {"SELECT", "EXCEPT modifier", "REPLACE modifier"},
-    });
+    };
 
-    factory.registerStatement("EXCEPT modifier",
+    documentation["EXCEPT modifier"] =
     {
         .description = R"DOCS_MD(
 > Specifies the names of one or more columns to exclude from the result. All matching column names are omitted from the output.
@@ -3208,9 +3204,9 @@ SELECT <expr> EXCEPT (col_name1 [, col_name2, col_name3, ...]) FROM [db.]table_n
 )",
         .parent = "SELECT",
         .related = {"SELECT", "APPLY modifier", "REPLACE modifier", "EXCEPT"},
-    });
+    };
 
-    factory.registerStatement("REPLACE modifier",
+    documentation["REPLACE modifier"] =
     {
         .description = R"DOCS_MD(
 > Allows you to specify one or more [expression aliases](/reference/syntax#expression-aliases).
@@ -3244,7 +3240,9 @@ SELECT <expr> REPLACE(<expr> AS col_name) FROM [db.]table_name
 )",
         .parent = "SELECT",
         .related = {"SELECT", "APPLY modifier", "EXCEPT modifier"},
-    });
+    };
+
+    return documentation;
 }
 
 }
