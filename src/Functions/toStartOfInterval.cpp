@@ -130,12 +130,14 @@ class FunctionToStartOfInterval final : public IFunction
 {
 private:
     ToStartOfIntervalOverload overload;
+    bool preserve_argument_type;
 
 public:
     static constexpr auto name = "toStartOfInterval";
 
-    explicit FunctionToStartOfInterval(ToStartOfIntervalOverload overload_)
+    FunctionToStartOfInterval(ToStartOfIntervalOverload overload_, bool preserve_argument_type_)
         : overload(overload_)
+        , preserve_argument_type(preserve_argument_type_)
     {
     }
 
@@ -496,23 +498,37 @@ private:
         {
             /// Flooring a `Date` to whole days yields seconds, and the top of the `Date` domain is past `UInt32`
             /// seconds, so a narrowing `DateTime` result has to clamp here too. `Date32` is excluded: clamping its
-            /// pre-epoch values into an unsigned codomain would collapse distinct buckets. A result of the argument
-            /// type clamps too: rounding the first days of 1970 down to a week reaches before the epoch.
-            constexpr bool saturate = std::is_same_v<TimeDataType, DataTypeDateTime64>
-                || (std::is_same_v<TimeDataType, DataTypeDate> && unit == IntervalKind::Kind::Day)
-                || std::is_same_v<TimeDataType, ResultDataType>;
+            /// pre-epoch values into an unsigned codomain would collapse distinct buckets.
+            constexpr bool legacy_saturate = std::is_same_v<TimeDataType, DataTypeDateTime64>
+                || (std::is_same_v<TimeDataType, DataTypeDate> && unit == IntervalKind::Kind::Day);
 
-            if constexpr ((unit == IntervalKind::Kind::Second || unit == IntervalKind::Kind::Minute || unit == IntervalKind::Kind::Hour)
-                && (std::is_same_v<TimeColumnType, ColumnDateTime> || std::is_same_v<TimeColumnType, ColumnDateTime64>))
+            auto execute_default = [&]<bool saturate>()
             {
-                if (tryExecuteArithmeticRounding<unit, TimeColumnType, saturate>(
-                        time_data, result_data, num_units, time_zone, scale_multiplier, result_scale_multiplier))
-                    return result_col;
-            }
+                if constexpr ((unit == IntervalKind::Kind::Second || unit == IntervalKind::Kind::Minute || unit == IntervalKind::Kind::Hour)
+                    && (std::is_same_v<TimeColumnType, ColumnDateTime> || std::is_same_v<TimeColumnType, ColumnDateTime64>))
+                {
+                    if (tryExecuteArithmeticRounding<unit, TimeColumnType, saturate>(
+                            time_data, result_data, num_units, time_zone, scale_multiplier, result_scale_multiplier))
+                        return;
+                }
 
-            for (size_t i = 0; i != size; ++i)
-                result_data[i] = saturatingResultCast<saturate, typename ResultDataType::FieldType>(convertToResultRepresentation<unit, ResultDataType>(
-                    ToStartOfInterval<unit>::execute(time_data[i], num_units, time_zone, scale_multiplier), time_zone, result_scale_multiplier));
+                for (size_t i = 0; i != size; ++i)
+                    result_data[i] = saturatingResultCast<saturate, typename ResultDataType::FieldType>(convertToResultRepresentation<unit, ResultDataType>(
+                        ToStartOfInterval<unit>::execute(time_data[i], num_units, time_zone, scale_multiplier), time_zone, result_scale_multiplier));
+            };
+
+            /// A result of the argument type (`to_start_of_interval_preserves_argument_type`) clamps too: rounding the
+            /// first days of 1970 down to a week reaches before the epoch. The legacy behavior keeps wrapping such values,
+            /// so that the setting restores the old results exactly.
+            if constexpr (std::is_same_v<TimeDataType, ResultDataType> && !legacy_saturate)
+            {
+                if (preserve_argument_type)
+                    execute_default.template operator()<true>();
+                else
+                    execute_default.template operator()<false>();
+            }
+            else
+                execute_default.template operator()<legacy_saturate>();
         }
 
         return result_col;
@@ -746,7 +762,7 @@ public:
         if (args.size() >= 3 && isDateOrDate32OrDateTimeOrDateTime64(args[2].type))
             overload = ToStartOfIntervalOverload::Origin;
 
-        auto function = std::make_shared<FunctionToStartOfInterval>(overload);
+        auto function = std::make_shared<FunctionToStartOfInterval>(overload, preserve_argument_type);
 
         DataTypes data_types(arguments.size());
         for (size_t i = 0; i < arguments.size(); ++i)

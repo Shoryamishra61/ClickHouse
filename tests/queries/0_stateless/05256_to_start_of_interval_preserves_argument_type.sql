@@ -100,3 +100,7 @@ SELECT toStartOfInterval(toDateTime64('2023-05-17 12:34:56.123', 3), INTERVAL 1 
 SELECT toStartOfInterval(toDate32('1900-01-01'), INTERVAL 1 DAY) AS x, toTypeName(x);
 SELECT toStartOfInterval(toDate('2023-05-17'), INTERVAL 1 WEEK, 'Asia/Tokyo'); -- { serverError ILLEGAL_TYPE_OF_ARGUMENT }
 SELECT toStartOfInterval(toDate32('1900-01-01'), INTERVAL 1 DAY) AS x, toTypeName(x) SETTINGS enable_extended_results_for_datetime_functions = 1;
+-- the legacy behavior keeps the results at the start of the epoch
+SELECT toStartOfInterval(toDate('1970-01-01'), INTERVAL 1 WEEK) AS x, toTypeName(x);
+SELECT toStartOfInterval(toDateTime('1970-01-01 10:00:00', 'Asia/Tokyo'), INTERVAL 1 DAY) AS x, toTypeName(x);
+SELECT toStartOfInterval(toDateTime('1970-01-01 10:00:00', 'Asia/Tokyo'), INTERVAL 1 HOUR) AS x, toTypeName(x);
