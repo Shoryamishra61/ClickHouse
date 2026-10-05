@@ -419,14 +419,18 @@ public:
     /// address the storage itself when the table is about to be written to.
     virtual StoragePtr loadLazyTable() const { return nullptr; }
 
-    /// Make this storage use the very same table-level locks as `other` instead of its own, so that
-    /// the two objects form a single lock domain for lockForShare, lockForAlter and lockExclusively.
+    /// Make this storage use the very same table-level locks and lifecycle flags (`is_dropped`,
+    /// `is_detached`, `is_being_restarted`) as `other` instead of its own, so that the two objects
+    /// form a single lock domain for lockForShare, lockForAlter and lockExclusively, and a `DROP`,
+    /// `DETACH` or `SYSTEM RESTART REPLICA` that marks either object is seen through both.
     ///
     /// This exists for lazily loaded tables. A `StorageTableProxy` is published in the database
     /// before the real storage exists, and is replaced by the real storage once it has been loaded.
     /// Queries that resolved the table before the replacement keep a reference to the proxy and lock
     /// it, while queries that resolve it afterwards lock the real storage. Unless both objects lock
     /// the same primitives, a DROP or an ALTER would not wait for a SELECT that is still running.
+    /// And unless both share the lifecycle flags, a query that switched to the real storage while the
+    /// database still held the proxy could lock a table that has just been detached through the proxy.
     ///
     /// Must be called on a freshly created storage that has not been published anywhere yet, and
     /// both storages must stand for the same table.
@@ -748,19 +752,31 @@ public:
     /// uncommitted result so it is retried later. No-op for tables without such activity.
     virtual void cancelBackgroundActivity() {}
 
-    std::atomic<bool> is_dropped{false};
-    std::atomic<bool> is_detached{false};
+    /// A flag of the table lifecycle that can be shared with another storage, see takeTableLocksFrom.
+    /// Reads and writes like a `std::atomic<bool>`.
+    class SharedLifecycleFlag
+    {
+    public:
+        SharedLifecycleFlag() = default;
+        SharedLifecycleFlag(const SharedLifecycleFlag &) = delete;
+        SharedLifecycleFlag & operator=(const SharedLifecycleFlag &) = delete;
 
-    /// Whether the table this storage stands for has been dropped or detached. Checked by the
-    /// table-level lock functions. Overridden by `StorageTableProxy`, which shares its locks with the
-    /// storage it has loaded (see takeTableLocksFrom) and must share this state with it as well.
-    virtual bool isDroppedOrDetached() const { return is_dropped || is_detached; }
-    std::atomic<bool> is_being_restarted{false};
+        SharedLifecycleFlag & operator=(bool value)
+        {
+            flag->store(value);
+            return *this;
+        }
+        operator bool() const { return flag->load(); } // NOLINT(google-explicit-constructor)
+        bool load() const { return flag->load(); }
 
-    /// Whether the table this storage stands for is being restarted (`SYSTEM RESTART REPLICA`).
-    /// Checked by lockForShare and tryLockForShare. Overridden by `StorageTableProxy` for the same
-    /// reason as isDroppedOrDetached.
-    virtual bool isBeingRestarted() const { return is_being_restarted; }
+    private:
+        friend class IStorage;
+        std::shared_ptr<std::atomic<bool>> flag = std::make_shared<std::atomic<bool>>(false);
+    };
+
+    SharedLifecycleFlag is_dropped;
+    SharedLifecycleFlag is_detached;
+    SharedLifecycleFlag is_being_restarted;
 
     /** A list of tasks to check a validity of data.
       * Each IStorage implementation may interpret this task in its own way.

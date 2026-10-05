@@ -117,10 +117,10 @@ TableLockHolder IStorage::lockForShare(const String & query_id, const Poco::Time
 {
     TableLockHolder result = tryLockTimed(drop_lock, RWLockImpl::Read, query_id, acquire_timeout);
     auto table_id = getStorageID();
-    if (!table_id.hasUUID() && isDroppedOrDetached())
+    if (!table_id.hasUUID() && (is_dropped || is_detached))
         throw Exception(ErrorCodes::TABLE_IS_DROPPED, "Table {}.{} is dropped or detached", table_id.database_name, table_id.table_name);
 
-    if (isBeingRestarted())
+    if (is_being_restarted)
         throw Exception(
             ErrorCodes::TABLE_IS_BEING_RESTARTED, "Table {}.{} is being restarted", table_id.database_name, table_id.table_name);
     return result;
@@ -131,7 +131,7 @@ TableLockHolder IStorage::tryLockForShare(const String & query_id, const Poco::T
     TableLockHolder result = tryLockTimed(drop_lock, RWLockImpl::Read, query_id, acquire_timeout);
 
     auto table_id = getStorageID();
-    if (isBeingRestarted() || (!table_id.hasUUID() && isDroppedOrDetached()))
+    if (is_being_restarted || (!table_id.hasUUID() && (is_dropped || is_detached)))
         // Table was dropped or is being restarted while acquiring the lock
         result = nullptr;
     return result;
@@ -148,7 +148,7 @@ TableLockHolder IStorage::tryLockForShare(
         return nullptr;
 
     auto table_id = getStorageID();
-    if (isBeingRestarted() || (!table_id.hasUUID() && isDroppedOrDetached()))
+    if (is_being_restarted || (!table_id.hasUUID() && (is_dropped || is_detached)))
         // Table was dropped or is being restarted while acquiring the lock
         result = nullptr;
     return result;
@@ -161,7 +161,7 @@ std::optional<IStorage::AlterLockHolder> IStorage::tryLockForAlter(const Poco::T
     if (!lock.try_lock_for(saturatedMilliseconds(acquire_timeout.totalMilliseconds())))
         return {};
 
-    if (isDroppedOrDetached())
+    if (is_dropped || is_detached)
         throw Exception(ErrorCodes::TABLE_IS_DROPPED, "Table {} is dropped or detached", getStorageID());
 
     return lock;
@@ -183,6 +183,9 @@ void IStorage::takeTableLocksFrom(const IStorage & other)
 {
     alter_lock = other.alter_lock;
     drop_lock = other.drop_lock;
+    is_dropped.flag = other.is_dropped.flag;
+    is_detached.flag = other.is_detached.flag;
+    is_being_restarted.flag = other.is_being_restarted.flag;
 }
 
 TableExclusiveLockHolder IStorage::lockExclusively(const String & query_id, const Poco::Timespan & acquire_timeout)
@@ -190,7 +193,7 @@ TableExclusiveLockHolder IStorage::lockExclusively(const String & query_id, cons
     TableExclusiveLockHolder result;
     result.drop_lock = tryLockTimed(drop_lock, RWLockImpl::Write, query_id, acquire_timeout);
 
-    if (isDroppedOrDetached())
+    if (is_dropped || is_detached)
         throw Exception(ErrorCodes::TABLE_IS_DROPPED, "Table {} is dropped or detached", getStorageID());
 
     return result;

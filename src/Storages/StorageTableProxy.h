@@ -83,7 +83,9 @@ public:
         /// The database replaces this proxy with the loaded storage as soon as it notices the load
         /// (see `DatabaseWithOwnTablesBase::replaceLoadedLazyTableUnlocked`), after which the two
         /// objects are both around and both reachable as this table. Hand over the table-level
-        /// locks, so that they keep excluding each other across the replacement.
+        /// locks and the lifecycle flags, so that they keep excluding each other across the
+        /// replacement, and a `DETACH`, `DROP` or `SYSTEM RESTART REPLICA` marking either object is
+        /// seen through both.
         nested_storage->takeTableLocksFrom(*this);
         nested_storage->startup();
         nested_storage->renameInMemory(getStorageID());
@@ -102,27 +104,6 @@ public:
         if (!is_loaded.load(std::memory_order_acquire))
             return nullptr;
         return nested;
-    }
-
-    /// Once the table has been loaded, the database replaces this proxy with the loaded storage, and
-    /// `DETACH` or `DROP` from then on marks only the loaded storage. A query that resolved the proxy
-    /// before the replacement must still see that, otherwise it could lock a table that is gone.
-    bool isDroppedOrDetached() const override
-    {
-        if (IStorage::isDroppedOrDetached()) // NOLINT(bugprone-parent-virtual-call)
-            return true;
-        auto loaded = getLoadedLazyTable();
-        return loaded && loaded->isDroppedOrDetached();
-    }
-
-    /// Same as isDroppedOrDetached: `SYSTEM RESTART REPLICA` marks the storage it resolves, which is
-    /// the loaded storage once the proxy has been replaced.
-    bool isBeingRestarted() const override
-    {
-        if (IStorage::isBeingRestarted()) // NOLINT(bugprone-parent-virtual-call)
-            return true;
-        auto loaded = getLoadedLazyTable();
-        return loaded && loaded->isBeingRestarted();
     }
 
     StoragePtr loadLazyTable() const override { return getNested(); }
