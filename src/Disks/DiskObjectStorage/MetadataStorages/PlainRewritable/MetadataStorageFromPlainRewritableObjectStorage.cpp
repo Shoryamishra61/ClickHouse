@@ -671,16 +671,26 @@ void MetadataStorageFromPlainRewritableObjectStorage::load(bool is_initial_load,
             orphaned_data_objects.size() + orphaned_metadata_objects.size(),
             tombstones.size() - pending_removals);
 
-        object_storage->removeObjectsIfExist(orphaned_data_objects);
-        object_storage->removeObjectsIfExist(orphaned_metadata_objects);
-        /// Only now, when nothing of these removals is left, the markers can go: a marker that outlives its
-        /// objects only costs another pass, while an object that outlives its marker would look like data.
-        /// The same holds for a pending removal: its directories have all been moved back by now.
-        object_storage->removeObjectsIfExist(marker_objects);
+        /// The layout is already consistent and the leftovers stay hidden while their markers exist, so this
+        /// cleanup is best-effort, like `RemoveRecursiveOperation::finalize`: a failure must not prevent the disk
+        /// from loading. The markers are removed last, so whatever is left is retried on the next start.
+        try
+        {
+            object_storage->removeObjectsIfExist(orphaned_data_objects);
+            object_storage->removeObjectsIfExist(orphaned_metadata_objects);
+            /// Only now, when nothing of these removals is left, the markers can go: a marker that outlives its
+            /// objects only costs another pass, while an object that outlives its marker would look like data.
+            /// The same holds for a pending removal: its directories have all been moved back by now.
+            object_storage->removeObjectsIfExist(marker_objects);
 
-        ProfileEvents::increment(
-            ProfileEvents::DiskPlainRewritableOrphanedObjectsRemoved,
-            orphaned_data_objects.size() + orphaned_metadata_objects.size());
+            ProfileEvents::increment(
+                ProfileEvents::DiskPlainRewritableOrphanedObjectsRemoved,
+                orphaned_data_objects.size() + orphaned_metadata_objects.size());
+        }
+        catch (...)
+        {
+            tryLogCurrentException(log, "Failed to remove the objects left by unfinished removals, will retry on the next start");
+        }
     }
 }
 
