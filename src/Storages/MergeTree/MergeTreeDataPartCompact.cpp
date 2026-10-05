@@ -118,7 +118,7 @@ MergeTreeReaderPtr createMergeTreeReaderCompact(
     if (use_single_buffer)
         return std::make_unique<MergeTreeReaderCompactSingleBuffer>(
             read_info, columns_to_read, virtual_fields,
-            storage_snapshot, storage_settings, uncompressed_cache,
+            storage_snapshot, storage_settings, uncompressed_cache, columns_cache,
             mark_cache, deserialization_prefixes_cache, mark_ranges, reader_settings,
             avg_value_size_hints, profile_callback, CLOCK_MONOTONIC_COARSE);
 
