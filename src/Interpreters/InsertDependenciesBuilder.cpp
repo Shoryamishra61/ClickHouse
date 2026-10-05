@@ -1152,7 +1152,7 @@ bool InsertDependenciesBuilder::storageMayWriteToReplicatedTable(const StoragePt
     if (depth > max_insert_forwarding_depth)
         return true;
 
-    if (dynamic_cast<const StorageReplicatedMergeTree *>(storage.get()))
+    if (castStorage<StorageReplicatedMergeTree>(storage, DeferredTable::Load))
         return true;
 
     /// A `MaterializedView` and proxies pass the write through to their target within this pipeline:
