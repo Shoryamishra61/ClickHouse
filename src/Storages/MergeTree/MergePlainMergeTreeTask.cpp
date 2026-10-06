@@ -145,21 +145,24 @@ void MergePlainMergeTreeTask::prepare()
     /// deterministically let a TTL boundary pass in that window.
     FailPointInjection::pauseFailPoint(FailPoints::plain_merge_task_pause_before_prepare);
 
-    /// Re-price the memory reservation against the destination disk's LIVE multipart upload settings just
-    /// before the merge constructs its writers. Everything else the estimate depends on is pinned at
-    /// selection time (the context, the MergeTree settings, time_of_merge - see below), but the disk's
-    /// request settings cannot be: WriteBufferFromS3 / WriteBufferFromAzureBlobStorage read them from the
-    /// disk's object storage when they are constructed, and a config reload (applyNewSettings) that raises
-    /// *_strict_upload_part_size / *_max_upload_part_size / *_max_inflight_parts_for_one_file while the
-    /// merge waits in the background queue would let the writers outgrow a reservation priced with the old
-    /// values. The replicated path prices its reservation at task start for the same reason
+    /// Re-price the memory reservation against the LIVE state just before the merge constructs its writers.
+    /// The context, the MergeTree settings and time_of_merge are pinned at selection time (see below), but two
+    /// inputs of the estimate cannot be:
+    ///  - the pending mutations: MergeTask builds its own mutations snapshot from the live
+    ///    current_mutations_by_version when it starts, so an ALTER / RENAME COLUMN registered while the merge
+    ///    waits in the background queue is applied on the fly by the merge, and a reservation priced against
+    ///    the selection-time snapshot would miss its conversions. The snapshot below is taken with the same
+    ///    parameters MergeTask uses, right before it builds its own;
+    ///  - the destination disk's request settings: WriteBufferFromS3 / WriteBufferFromAzureBlobStorage read
+    ///    them from the disk's object storage when they are constructed, and a config reload (applyNewSettings)
+    ///    that raises *_strict_upload_part_size / *_max_upload_part_size / *_max_inflight_parts_for_one_file
+    ///    while the merge waits would let the writers outgrow a reservation priced with the old values.
+    /// The replicated path prices its reservation at task start for the same reason
     /// (MergeFromLogEntryTask::prepare); reserve unconditionally, like it does - the merge is committed to
-    /// run, and the refreshed reservation still throttles selection of further merges. A reload between
-    /// this point and a writer's construction mid-merge is the irreducible remainder, covered by the
-    /// reactive background_memory_tracker. A local destination has no disk-level write buffer settings
-    /// (everything it depends on is pinned), so its selection-time reservation is already exact.
+    /// run, and the refreshed reservation still throttles selection of further merges. A change between this
+    /// point and a writer's construction mid-merge is the irreducible remainder, covered by the reactive
+    /// background_memory_tracker.
     const DiskPtr output_disk = merge_mutate_entry->tagger->reserved_space->getDisk();
-    if (output_disk->isRemote())
     {
         const auto parts_info = MergeTreeData::getPartsSnapshotInfo(future_part->parts);
         const MergeTreeData::IMutationsSnapshot::Params mutations_params
@@ -186,7 +189,7 @@ void MergePlainMergeTreeTask::prepare()
                 *merge_mutate_entry->data_settings,
                 mutations_snapshot,
                 merge_mutate_entry->time_of_merge,
-                /*output_on_remote_disk=*/ true,
+                /*output_on_remote_disk=*/ output_disk->isRemote(),
                 {CompactionStatistics::getDiskWriteBufferMemory(output_disk, merge_mutate_entry->merge_context->getWriteSettings())},
                 deduplicate,
                 cleanup));
