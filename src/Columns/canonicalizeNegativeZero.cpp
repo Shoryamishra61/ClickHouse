@@ -1,6 +1,7 @@
 #include <Columns/canonicalizeNegativeZero.h>
 
 #include <Columns/ColumnArray.h>
+#include <Columns/ColumnConst.h>
 #include <Columns/ColumnDynamic.h>
 #include <Columns/ColumnLowCardinality.h>
 #include <Columns/ColumnMap.h>
@@ -10,9 +11,11 @@
 #include <Columns/ColumnTuple.h>
 #include <Columns/ColumnVariant.h>
 #include <Columns/ColumnVector.h>
+#include <Common/Arena.h>
 #include <Common/assert_cast.h>
 #include <DataTypes/DataTypesBinaryEncoding.h>
 #include <Core/TypeId.h>
+#include <DataTypes/DataTypeLowCardinality.h>
 #include <DataTypes/IDataType.h>
 #include <DataTypes/TypeTree.h>
 #include <Formats/FormatSettings.h>
@@ -335,6 +338,26 @@ void canonicalizeNegativeZeroInRawValue(std::string_view value, size_t width, ch
         normalizeNegativeZerosInRawValue<Float32>(res, value.size());
     else if (width == sizeof(BFloat16))
         normalizeNegativeZerosInRawValue<BFloat16>(res, value.size());
+}
+
+std::optional<String> serializeValueIfContainsNegativeZero(const IColumn & column, size_t n)
+{
+    /// Look at the single value of a constant without materializing the constant.
+    const IColumn * source = &column;
+    if (const auto * column_const = typeid_cast<const ColumnConst *>(&column))
+    {
+        source = &column_const->getDataColumn();
+        n = 0;
+    }
+
+    /// `canonicalizeNegativeZero` does not look into `LowCardinality`, whose dictionary can hold a negative zero.
+    ColumnPtr value_column = recursiveRemoveLowCardinality(source->cut(n, 1)->convertToFullIfWrapped());
+    if (!canonicalizeNegativeZero(*value_column))
+        return {};
+
+    Arena arena;
+    const char * begin = nullptr;
+    return String(value_column->serializeValueIntoArena(0, arena, begin, nullptr));
 }
 
 void canonicalizeNegativeZeroInKeyColumns(ColumnRawPtrs & key_columns, Columns & holder)

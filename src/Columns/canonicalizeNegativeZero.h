@@ -2,6 +2,8 @@
 
 #include <Columns/IColumn.h>
 
+#include <optional>
+
 
 namespace DB
 {
@@ -24,6 +26,17 @@ ColumnPtr canonicalizeNegativeZero(const IColumn & column);
 /// The same, in place, for a list of key columns.
 /// The canonicalized columns are appended to `holder`, which has to outlive the usage of `key_columns`.
 void canonicalizeNegativeZeroInKeyColumns(ColumnRawPtrs & key_columns, Columns & holder);
+
+/** `IColumn::updateHashWithValue` agrees with `equals`, so it hashes `-0.` as `0.`. That is wrong where a hash
+  * identifies a constant, e.g. the key of the cache of compiled expressions or of the query condition cache,
+  * because the two zeros are different values: `1 / -0.` is `-inf`.
+  *
+  * Returns the serialized value of `column` at row `n` if it contains a negative zero, `nullopt` otherwise,
+  * which is by far the most common case. A caller that hashes a value with `updateHashWithValue` also hashes
+  * this representation, so that the two zeros hash differently and every other value hashes as it did before.
+  * A caller that compares values with `compareAt` also compares this representation, for the same reason.
+  */
+std::optional<String> serializeValueIfContainsNegativeZero(const IColumn & column, size_t n);
 
 /** A value of a column can be represented in memory as a flat sequence of floating point values of
   * the same width: a `Float64` value, an `Array(Float32)` row, a `LowCardinality(Float64)` value.
