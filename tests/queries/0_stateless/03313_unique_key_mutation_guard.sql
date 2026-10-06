@@ -105,6 +105,14 @@ ALTER TABLE uk_mut_computed UPDATE a = a + 10 WHERE 1; -- { serverError SUPPORT_
 SELECT 'modify_type_source_of_materialized_key' AS step;
 ALTER TABLE uk_mut_computed MODIFY COLUMN a UInt32; -- { serverError ALTER_OF_COLUMN_IS_FORBIDDEN }
 ALTER TABLE uk_mut_computed MODIFY COLUMN a DEFAULT id * 20;
+
+-- Stock refuses a rename and a modify of one column in one ALTER, so the guard needs no rename lookup.
+SELECT 'modify_type_renamed_source_of_materialized_key' AS step;
+ALTER TABLE uk_mut_computed RENAME COLUMN a TO a2, MODIFY COLUMN a2 UInt32; -- { serverError NOT_IMPLEMENTED }
+
+-- UPDATE is checked against the renamed columns; the RENAME before it still applies.
+SELECT 'update_renamed_source_of_materialized_key' AS step;
+ALTER TABLE uk_mut_computed RENAME COLUMN a TO a2, UPDATE a2 = a2 + 1 WHERE 1; -- { serverError SUPPORT_IS_DISABLED }
 DROP TABLE uk_mut_computed;
 
 DROP TABLE IF EXISTS uk_mut_computed_nested;
