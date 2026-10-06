@@ -215,15 +215,28 @@ inline std::optional<UInt64> estimateJoinRowsUpperBound(
     }
 }
 
+/// A relation read through a prepared join storage (a `Join` engine table, a dictionary). It is
+/// probed by its key instead of scanned, so its size does not multiply the join, and its physical
+/// join step accepts the key equalities only. One row as its search value joins it early, while
+/// the other side still relates to it through the key alone.
+inline bool isPreparedStorageRelation(const BitSet & relations, const QueryGraph & query_graph)
+{
+    auto relation = relations.getSingleBit();
+    return relation && query_graph.prepared_storage_relations.test(*relation);
+}
+
 /// Rows the cost of an entry counts: the estimate when there is one, otherwise the upper bound,
 /// otherwise the graph's fallback (the largest known relation). A missing estimate is never
-/// counted as one row, which would make the plan that contains it look cheap.
+/// counted as one row, which would make the plan that contains it look cheap; the exception is a
+/// prepared storage relation, see `isPreparedStorageRelation`.
 inline double searchRows(const DPJoinEntryPtr & entry, const QueryGraph & query_graph)
 {
     if (entry->estimated_rows)
         return static_cast<double>(*entry->estimated_rows);
     if (entry->max_rows)
         return static_cast<double>(*entry->max_rows);
+    if (isPreparedStorageRelation(entry->relations, query_graph))
+        return 1;
     return static_cast<double>(query_graph.unknown_rows_fallback.value_or(1));
 }
 

@@ -4,6 +4,8 @@
 #include <Interpreters/JoinExpressionActions.h>
 #include <Common/logger_useful.h>
 
+#include <bit>
+
 namespace DB
 {
 
@@ -63,16 +65,19 @@ EnumeratorCheckerWithCosts<TDPTable, TOptimizer>::computeJoinCost(const UInt lhs
                                                                   const UInt rhs,
                                                                   const double selectivity) const
 {
-    /// The same search value as `searchRows`: estimate, else upper bound, else the graph's fallback.
-    auto search_rows = [&](const auto & entry) -> double
+    /// The same search value as `searchRows`: estimate, else upper bound, else one row for a
+    /// prepared storage relation, else the graph's fallback.
+    auto search_rows = [&](UInt relations, const auto & entry) -> double
     {
         if (entry.estimated_rows)
             return static_cast<double>(*entry.estimated_rows);
         if (entry.max_rows)
             return static_cast<double>(*entry.max_rows);
+        if (std::has_single_bit(relations) && optimizer.query_graph.prepared_storage_relations.test(static_cast<size_t>(std::countr_zero(relations))))
+            return 1;
         return static_cast<double>(optimizer.query_graph.unknown_rows_fallback.value_or(1));
     };
-    return dp_table[lhs].cost + dp_table[rhs].cost + selectivity * search_rows(dp_table[lhs]) * search_rows(dp_table[rhs]);
+    return dp_table[lhs].cost + dp_table[rhs].cost + selectivity * search_rows(lhs, dp_table[lhs]) * search_rows(rhs, dp_table[rhs]);
 }
 
 
