@@ -124,7 +124,8 @@ void terminateAndRoute(FiberSocket & client, const FrontendContext & ctx)
         return;
     }
 
-    backend_socket.setTimeouts(ctx.config.send_timeout_ms, ctx.config.send_timeout_ms);
+    /// The backend leg is in the handshake until it accepts the login; `runRelay` sets the steady-state timeouts.
+    backend_socket.setTimeouts(ctx.config.handshake_timeout_ms, ctx.config.send_timeout_ms);
     ReadBufferFromPocoSocket backend_in(backend_socket.raw());
     AutoCanceledWriteBuffer<WriteBufferFromPocoSocket> backend_out(backend_socket.raw());
     uint8_t backend_seq = 0;
