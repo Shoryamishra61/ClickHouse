@@ -118,17 +118,26 @@ static std::optional<StreamDisjointnessProperty> applyStreamDisjointness(
         if (distinct->preservesInputOrder())
             return {};
 
+        /// Without parallel hash deduplication, the final step merges its inputs into a single stream.
+        const bool can_scatter
+            = settings.parallel_distinct && distinct->getSortDescription().empty() && !isPreliminaryDistinctInOrder(node);
+
         /// Disjoint inputs can be deduplicated independently. `DistinctStep` enforces size limits on
         /// their combined set while keeping stream assignments intact for downstream consumers.
+        /// Reusing table partitions is always better than merging into a single stream. Against the
+        /// parallel hash scatter, it can cap processing at a smaller stream count or retain the partition
+        /// skew, so it must pass the `DISTINCT` cost heuristic even when another step requested
+        /// per-partition reading, as for window functions.
         if (property && settings.distinct_partitions_independently
-            && partitionDeterminedByKeys(*property, distinct->getColumnNames()))
+            && partitionDeterminedByKeys(*property, distinct->getColumnNames())
+            && (!can_scatter || !property->reading || settings.force_distinct_partitions_independently
+                || property->reading->isPartitionIndependentProcessingProfitable(ReadFromMergeTree::ProcessorKind::Distinct)))
         {
             distinct->skipStreamMerging();
             return property;
         }
 
-        /// Without parallel hash deduplication, the final step merges its inputs into a single stream.
-        if (!settings.parallel_distinct || !distinct->getSortDescription().empty() || isPreliminaryDistinctInOrder(node))
+        if (!can_scatter)
             return {};
 
         distinct->enableParallelDistinct();
