@@ -9234,7 +9234,7 @@ Enable automatic switching to execution with parallel replicas based on collecte
 0 - disabled, 1 - enabled, 2 - only statistics collection is enabled (switching to execution with parallel replicas is disabled).
 )", EXPERIMENTAL, \
         {"25.12", 0, 0, "New setting"}) \
-    DECLARE(Float, automatic_parallel_replicas_max_replicated_read_ratio, 0.5, R"(
+    DECLARE(Float, automatic_parallel_replicas_max_duplicated_read_ratio, 0.5, R"(
 How much of a query's read volume may be read by every replica instead of being split between them, as a
 fraction of the whole, before automatic parallel replicas declines the query.
 
@@ -9244,9 +9244,9 @@ to them, but the cluster performs `max_parallel_replicas` times as much work for
 limit on that waste: at the default 0.5 a query whose coordinated read is less than half of what it reads
 keeps running on one node, however the time comparison turns out.
 
-Set to 1 to accept any amount of replicated reading, which restores the behaviour of only comparing times.
+Set to 1 to accept any amount of duplicated reading, which restores the behaviour of only comparing times.
 )", 0, \
-        {"26.10", 0.5, 0.5, "New setting: the share of a query's read volume that may be repeated on every replica before automatic parallel replicas declines the query. 1 accepts any amount, which is how the cost model behaved before."}) \
+        {"26.10", 1.0, 0.5, "Automatic parallel replicas now declines a query that would repeat more than half of its reading on every replica. Previously there was no limit, which is what 1 still asks for."}) \
     DECLARE(UInt64, automatic_parallel_replicas_min_bytes_per_replica, 1_MiB, R"(
 Threshold of bytes to read per replica to enable parallel replicas automatically (applies only when `automatic_parallel_replicas_mode`=1). 0 means no threshold.
 The total number of bytes to read is estimated based on the collected statistics.
