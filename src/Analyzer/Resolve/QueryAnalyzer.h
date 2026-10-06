@@ -124,7 +124,14 @@ public:
     /// but whose own subsequent check accepts only a part of them (@sa `KeyDescription::getKeyFromAST`)
     /// uses it so that the suggestion names a column the expression may actually use. Unset means
     /// every identifier visible in the scope is a candidate.
-    explicit QueryAnalyzer(bool only_analyze_, std::optional<Names> identifier_typo_hint_columns_ = {});
+    ///
+    /// `typo_correction_columns_` are additional candidates for the `maybe you meant` suggestions, for a
+    /// caller that resolves an expression over a part of the columns it accepts (@sa `buildExpressionCoreDAG`).
+    /// The list must outlive the analyzer.
+    explicit QueryAnalyzer(
+        bool only_analyze_,
+        std::optional<Names> identifier_typo_hint_columns_ = {},
+        const NamesAndTypesList * typo_correction_columns_ = nullptr);
     ~QueryAnalyzer();
 
     void resolve(QueryTreeNodePtr & node, const TableExpressionNodePtr & table_expression, ContextPtr context);
@@ -376,6 +383,9 @@ private:
 
     /// @sa the constructor.
     const std::optional<Names> identifier_typo_hint_columns;
+
+    /// @sa the constructor.
+    const NamesAndTypesList * const typo_correction_columns;
 
     /// True while resolving a cloned AND/OR expression to infer its real result type and detect
     /// semantic carriers. Scalar subqueries are analyzed without execution, and the regular early

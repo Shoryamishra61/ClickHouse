@@ -402,10 +402,12 @@ void hideLambdaArgumentsShadowingAliasExpression(
 
 }
 
-QueryAnalyzer::QueryAnalyzer(bool only_analyze_, std::optional<Names> identifier_typo_hint_columns_)
+QueryAnalyzer::QueryAnalyzer(
+    bool only_analyze_, std::optional<Names> identifier_typo_hint_columns_, const NamesAndTypesList * typo_correction_columns_)
     : identifier_resolver(node_to_projection_name)
     , only_analyze(only_analyze_)
     , identifier_typo_hint_columns(std::move(identifier_typo_hint_columns_))
+    , typo_correction_columns(typo_correction_columns_)
 {}
 
 QueryAnalyzer::~QueryAnalyzer() = default;
@@ -3918,6 +3920,19 @@ ProjectionNames QueryAnalyzer::resolveExpressionNode(
                     allow_lambda_expression,
                     allow_table_expression,
                     valid_identifiers);
+
+                if (typo_correction_columns)
+                {
+                    for (const auto & column : *typo_correction_columns)
+                    {
+                        Identifier column_identifier(column.name);
+                        if (unresolved_identifier.getPartsSize() == column_identifier.getPartsSize())
+                            valid_identifiers.insert(column_identifier);
+
+                        TypoCorrection::collectCompoundExpressionValidIdentifiers(
+                            unresolved_identifier, column.type, column_identifier, valid_identifiers);
+                    }
+                }
 
                 auto hints = TypoCorrection::collectIdentifierTypoHints(unresolved_identifier, valid_identifiers);
 

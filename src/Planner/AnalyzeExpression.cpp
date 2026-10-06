@@ -11,6 +11,7 @@
 #include <Analyzer/TableNode.h>
 #include <Columns/IColumn.h>
 #include <Columns/ColumnConst.h>
+#include <Common/checkStackSize.h>
 #include <Common/FieldVisitorToString.h>
 #include <Functions/IFunctionAdaptors.h>
 #include <Functions/indexHint.h>
@@ -20,7 +21,11 @@
 #include <Interpreters/Context.h>
 #include <Interpreters/ExecuteScalarSubqueriesVisitor.h>
 #include <Interpreters/PreparedSets.h>
+#include <Parsers/ASTAsterisk.h>
+#include <Parsers/ASTColumnsMatcher.h>
 #include <Parsers/ASTExpressionList.h>
+#include <Parsers/ASTIdentifier.h>
+#include <Parsers/ASTQualifiedAsterisk.h>
 #include <Planner/CollectSets.h>
 #include <Planner/CollectTableExpressionData.h>
 #include <Planner/Planner.h>
@@ -61,6 +66,80 @@ struct CoreAnalysisResult
     /// The `IN (subquery)` sets of the expression, left unbuilt when `build_subquery_sets` is false.
     PreparedSets::Subqueries unbuilt_subquery_sets;
 };
+
+/// Collect every name an identifier of the expression may resolve through: each dot-joined run of
+/// the parts of a compound identifier, also with up to two leading parts dropped (a `table.column`
+/// or `db.table.column` qualifier). Returns false if the expression contains a wildcard, a column
+/// matcher, or a parameterized identifier - those may reference columns not named in the AST.
+static bool collectReferencedNames(const IAST & ast, NameSet & prefixes, NameSet & full_names)
+{
+    checkStackSize();
+
+    if (ast.as<ASTAsterisk>() || ast.as<ASTQualifiedAsterisk>()
+        || ast.as<ASTColumnsRegexpMatcher>() || ast.as<ASTColumnsListMatcher>()
+        || ast.as<ASTQualifiedColumnsRegexpMatcher>() || ast.as<ASTQualifiedColumnsListMatcher>())
+        return false;
+
+    if (const auto * identifier = ast.as<ASTIdentifier>())
+    {
+        if (identifier->isParam())
+            return false;
+
+        const auto & parts = identifier->name_parts;
+        for (size_t begin = 0; begin < std::min<size_t>(parts.size(), 3); ++begin)
+        {
+            String name;
+            for (size_t end = begin; end < parts.size(); ++end)
+            {
+                if (end != begin)
+                    name += '.';
+                name += parts[end];
+                prefixes.insert(name);
+            }
+            full_names.insert(name);
+        }
+        return true;
+    }
+
+    for (const auto & child : ast.children)
+        if (!collectReferencedNames(*child, prefixes, full_names))
+            return false;
+
+    return true;
+}
+
+/// Narrow `available_columns` down to the columns the expression may reference, so that the
+/// synthetic table the expression is analyzed over does not have to describe every column of a
+/// wide table: building its `ColumnsDescription` and resolving over it costs time proportional to
+/// the number of columns and their subcolumns, and some callers compile a standalone expression for
+/// every query (e.g. the partition key adjusted by `MergeTreePartition::adjustPartitionKey`).
+///
+/// A column is kept if it is a dot-separated prefix of an identifier (`t` for `t.a`, a subcolumn
+/// reference) or an identifier is a dot-separated prefix of it (`n.a` for `n`, a `Nested` column
+/// that is resolved as a whole). Returns `std::nullopt` if every column must be kept.
+static std::optional<NamesAndTypesList> getReferencedColumns(const IAST & ast, const NamesAndTypesList & available_columns)
+{
+    NameSet prefixes;
+    NameSet full_names;
+    if (!collectReferencedNames(ast, prefixes, full_names))
+        return std::nullopt;
+
+    NamesAndTypesList result;
+    for (const auto & column : available_columns)
+    {
+        bool referenced = prefixes.contains(column.name);
+        for (size_t pos = column.name.find('.'); !referenced && pos != String::npos; pos = column.name.find('.', pos + 1))
+            referenced = full_names.contains(column.name.substr(0, pos));
+
+        if (referenced)
+            result.push_back(column);
+    }
+
+    if (result.size() == available_columns.size())
+        return std::nullopt;
+
+    return result;
+}
 
 static CoreAnalysisResult buildExpressionCoreDAG(
     const ASTPtr & expression_ast,
@@ -144,9 +223,28 @@ static CoreAnalysisResult buildExpressionCoreDAG(
             execution_context->getQueryContext()->addScalar(scalar.first, scalar.second);
     }
 
+    /// Analyze over the referenced columns only.  The suggestions for a typo still come from every
+    /// available column, as they would if the expression were analyzed over all of them.
+    NamesAndTypesList columns_for_dummy;
+    const NamesAndTypesList * typo_correction_columns = nullptr;
+    if (auto referenced_columns = getReferencedColumns(*expression_ast_for_analysis, available_columns))
+    {
+        typo_correction_columns = &available_columns;
+
+        /// Keep one real column when nothing is referenced, so that the `_dummy` column below is
+        /// only ever added for a genuinely empty column list.
+        if (referenced_columns->empty())
+            referenced_columns->push_back(available_columns.front());
+
+        columns_for_dummy = std::move(*referenced_columns);
+    }
+    else
+    {
+        columns_for_dummy = available_columns;
+    }
+
     /// StorageDummy requires at least one column.  When the expression is constant
     /// (e.g. a constant TTL like '2000-10-10'::DateTime), available_columns may be empty.
-    auto columns_for_dummy = available_columns;
     if (columns_for_dummy.empty())
         columns_for_dummy.emplace_back("_dummy", std::make_shared<DataTypeUInt8>());
 
@@ -169,7 +267,7 @@ static CoreAnalysisResult buildExpressionCoreDAG(
     auto global_planner_context = std::make_shared<GlobalPlannerContext>(nullptr, nullptr, nullptr, FiltersForTableExpressionMap{});
     auto planner_context = std::make_shared<PlannerContext>(execution_context, global_planner_context, SelectQueryOptions{});
 
-    QueryAnalyzer analyzer(/* only_analyze */ true, identifier_typo_hint_columns);
+    QueryAnalyzer analyzer(/* only_analyze */ true, identifier_typo_hint_columns, typo_correction_columns);
 
     auto query_node = std::make_shared<QueryNode>(execution_context);
 
