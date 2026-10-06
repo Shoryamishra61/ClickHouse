@@ -39,8 +39,10 @@ $CLICKHOUSE_LOCAL -q "
     INSERT INTO t_merge_mem_dropped_column SELECT number, toJSONString(map('a', number, 'x', toString(number))) FROM numbers(2000, 1000);
 
     -- Metadata-only for now: alter_sync = 0 returns without waiting for the mutation that would rewrite
-    -- the parts, and under the tiny soft limit below that mutation is never scheduled, so the old parts
-    -- keep the dead column's files on disk.
+    -- the parts, and the failpoint keeps the background selector from scheduling that mutation (mutations
+    -- are not gated by the memory soft limit), so the old parts keep the dead column's files on disk and
+    -- OPTIMIZE never races with a part that was already mutated to a newer version.
+    SYSTEM ENABLE FAILPOINT mt_select_parts_to_mutate_no_free_threads;
     ALTER TABLE t_merge_mem_dropped_column DROP COLUMN d SETTINGS alter_sync = 0;
 
     -- The premise really holds: every source part still physically stores d after the metadata drop.
