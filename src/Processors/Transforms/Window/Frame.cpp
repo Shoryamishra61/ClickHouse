@@ -78,16 +78,15 @@ bool isInsideFrame(const WindowTransformParams & params, const SlidingBlocks & b
 
 }
 
-void Frame::enterPartition(RowNumber partition_start)
-{
-    start = RowPoint{.location = partition_start};
-    end = start;
-    fully_visible = false;
-}
-
 Frame::Frame(const WindowTransformParams & params_)
     : params(params_)
 {
+}
+
+void Frame::enterPartition(const SlidingBlocks & blocks, const RowPoint & current, const PartitionBounds & partition)
+{
+    frame_bounds = FrameBounds{.start = RowPoint{.location = partition.start}, .end = RowPoint{.location = partition.start}, .fully_visible = false};
+    advance(blocks, current, partition);
 }
 
 void Frame::advance(const SlidingBlocks & blocks, const RowPoint & current, const PartitionBounds & partition)
@@ -110,21 +109,21 @@ void Frame::advance(const SlidingBlocks & blocks, const RowPoint & current, cons
         return true;
     };
 
-    fully_visible = false;
-    const bool start_found = advance_cursor(start, [&](const RowPoint & row) { return isBeforeFrame(params, blocks, row, current); });
+    frame_bounds.fully_visible = false;
+    const bool start_found = advance_cursor(frame_bounds.start, [&](const RowPoint & row) { return isBeforeFrame(params, blocks, row, current); });
     if (!start_found)
         return;
 
-    if (end.location < start.location)
-        end = start;
+    if (frame_bounds.end.location < frame_bounds.start.location)
+        frame_bounds.end = frame_bounds.start;
 
-    const bool end_found = advance_cursor(end, [&](const RowPoint & row) { return isInsideFrame(params, blocks, row, current); });
-    fully_visible = end_found;
+    const bool end_found = advance_cursor(frame_bounds.end, [&](const RowPoint & row) { return isInsideFrame(params, blocks, row, current); });
+    frame_bounds.fully_visible = end_found;
 }
 
-FrameBounds Frame::bounds() const
+const FrameBounds & Frame::bounds() const
 {
-    return FrameBounds{.start = start.location, .end = end.location, .fully_visible = fully_visible};
+    return frame_bounds;
 }
 
 }
