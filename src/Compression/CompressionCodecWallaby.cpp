@@ -1844,12 +1844,25 @@ void decodeXor(const char * payload, UInt32 payload_size, char * out, UInt32 cou
     std::array<T, WALLABY_RING_SIZE> ring{};
     UInt32 ring_position = 0;
     UInt32 newest_slot = 0;
+    /// The number of ring slots written so far. The encoder only references populated slots,
+    /// so a reference to a slot that has never been written means corrupt input.
+    UInt32 ring_filled = 0;
+
+    /// Returns the slot read from the payload after checking that it has been populated.
+    const auto read_slot = [&]
+    {
+        const UInt32 slot = static_cast<UInt32>(reader.readBits(WALLABY_RING_INDEX_BITS));
+        if (slot >= ring_filled)
+            throw Exception(ErrorCodes::CANNOT_DECOMPRESS, "Cannot decompress Wallaby-encoded data, reference to an unpopulated ring slot");
+        return slot;
+    };
 
     T previous = static_cast<T>(reader.readBits(width));
     emit(0, previous);
     ring[ring_position] = previous;
     newest_slot = ring_position;
     ring_position = (ring_position + 1) % WALLABY_RING_SIZE;
+    ring_filled = 1;
 
     UInt32 produced = 1;
     while (produced < count)
@@ -1874,14 +1887,14 @@ void decodeXor(const char * payload, UInt32 payload_size, char * out, UInt32 cou
         {
             case 0b00:
                 require_bits(WALLABY_RING_INDEX_BITS);
-                value = ring[reader.readBits(WALLABY_RING_INDEX_BITS)];
+                value = ring[read_slot()];
                 break;
             case 0b01:
             case 0b10:
             {
                 const UInt8 trail_field_bits = omit_trail ? 0 : Traits::trail_bits;
                 require_bits((tag == 0b10 ? WALLABY_RING_INDEX_BITS : 0) + WALLABY_LEAD_CLASS_BITS + trail_field_bits);
-                const UInt32 slot = tag == 0b01 ? newest_slot : static_cast<UInt32>(reader.readBits(WALLABY_RING_INDEX_BITS));
+                const UInt32 slot = tag == 0b01 ? newest_slot : read_slot();
                 const UInt8 class_index = static_cast<UInt8>(reader.readBits(WALLABY_LEAD_CLASS_BITS));
                 const UInt8 trail = omit_trail ? 0 : static_cast<UInt8>(reader.readBits(Traits::trail_bits));
                 const Int32 center_length = width - Traits::lead_classes[class_index] - trail;
@@ -1903,6 +1916,7 @@ void decodeXor(const char * payload, UInt32 payload_size, char * out, UInt32 cou
         ring[ring_position] = value;
         newest_slot = ring_position;
         ring_position = (ring_position + 1) % WALLABY_RING_SIZE;
+        ring_filled = std::min(ring_filled + 1, WALLABY_RING_SIZE);
         previous = value;
     }
 

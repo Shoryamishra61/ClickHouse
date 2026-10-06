@@ -3522,6 +3522,36 @@ TEST_F(WallabyTest, DecompressMalformedInputCorruptCenterLength)
     verifyDecompressExpectedException(constructCodecPayload<Float64>(vectors, 2), "Cannot decompress Wallaby-encoded data, corrupt center length", 16);
 }
 
+TEST_F(WallabyTest, DecompressMalformedInputEqualReferenceToUnpopulatedSlot)
+{
+    /// Bits after the raw first value: a single value in the EQUAL branch referencing ring slot
+    /// 255, while only slot 0 has been populated so far.
+    const std::vector<UInt8> vectors = {
+        0x03,                                           // mode = XOR
+        0x0B, 0x00, 0x00, 0x00,                         // payload size = 11
+        0x00,                                           // flags: trailing-zero field present
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // first value: 0.0, stored raw
+        0x1F, 0xE0                                      // EQUAL, slot 255
+    };
+    verifyDecompressExpectedException(
+        constructCodecPayload<Float64>(vectors, 2), "Cannot decompress Wallaby-encoded data, reference to an unpopulated ring slot", 16);
+}
+
+TEST_F(WallabyTest, DecompressMalformedInputXorWindowReferenceToUnpopulatedSlot)
+{
+    /// Bits after the raw first value: a single value in the XOR_WINDOW branch referencing ring
+    /// slot 255, while only slot 0 has been populated so far.
+    const std::vector<UInt8> vectors = {
+        0x03,                                           // mode = XOR
+        0x0C, 0x00, 0x00, 0x00,                         // payload size = 12
+        0x00,                                           // flags: trailing-zero field present
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // first value: 0.0, stored raw
+        0x5F, 0xE0, 0x00                                // XOR_WINDOW, slot 255, lead class 0, 0 trailing zeros
+    };
+    verifyDecompressExpectedException(
+        constructCodecPayload<Float64>(vectors, 2), "Cannot decompress Wallaby-encoded data, reference to an unpopulated ring slot", 16);
+}
+
 TEST_F(WallabyTest, DecompressMalformedInputTrailingGarbageAfterStream)
 {
     /// A byte appended after a complete stream must be rejected by the outer size check.
