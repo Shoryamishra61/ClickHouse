@@ -267,33 +267,13 @@ namespace
         }
     };
 
-    /// Kept rows longer than average (`s != ''` drops only empty rows) make the row-proportional estimate regrow the result.
-    std::optional<size_t> estimateLongerKeptElements(const IColumn::Offsets & offsets, const IColumn::Filter & filt, size_t kept_rows)
+    /// Called when the reserve is exceeded. If rows were dropped (`src_offset >= evidence_offset`) but all elements before
+    /// `src_offset` were copied, the dropped rows were empty, as with `s != ''`: assume so for the rest, reserve the whole source.
+    template <typename T>
+    NO_INLINE void reserveSourceIfDroppedEmpty(PaddedPODArray<T> & res_elems, size_t src_offset, size_t src_size, size_t evidence_offset)
     {
-        const size_t probe_end = offsets.size() / 1024 * 64;
-        size_t probe_kept_rows = 0;
-        size_t probe_kept_elems = 0;
-        for (size_t i = 0; i < probe_end; i += 64)
-        {
-            const UInt64 mask = bytes64MaskToBits64Mask(&filt[i]);
-            probe_kept_rows += std::popcount(mask);
-            /// Reads only what the copy below reads (kept chunks and kept rows), so sparse filters stay cheap.
-            if (mask == 0xffffffffffffffff)
-                probe_kept_elems += offsets[i + 63] - offsets[i - 1];
-            else
-                for (UInt64 bits = mask; bits; bits &= bits - 1)
-                    probe_kept_elems += offsets[i + std::countr_zero(bits)] - offsets[i + std::countr_zero(bits) - 1];
-        }
-        if (!probe_kept_elems)
-            return {};
-        const double ratio = static_cast<double>(probe_kept_elems) * static_cast<double>(probe_end)
-            / (static_cast<double>(probe_kept_rows) * static_cast<double>(offsets[probe_end - 1]));
-        /// Up to 65/64 (uniform lengths) keep the estimate; above, 1.25 absorbs the probe's error, and the cap is exact for `s != ''`.
-        if (ratio <= 65.0 / 64)
-            return {};
-        const double total = static_cast<double>(offsets.back());
-        const double estimate = static_cast<double>(kept_rows) * total / static_cast<double>(offsets.size());
-        return static_cast<size_t>(std::ceil(std::min(estimate * ratio * 1.25, total)));
+        if (src_offset >= evidence_offset && res_elems.size() == src_offset)
+            res_elems.reserve_exact(src_size);
     }
 
     template <typename T, typename ResultOffsetsBuilder>
@@ -314,8 +294,6 @@ namespace
 
             if (result_size_hint < 0)
                 res_elems.reserve_exact(src_elems.size());
-            else if (const auto kept_elems = estimateLongerKeptElements(src_offsets, filt, result_size_hint))
-                res_elems.reserve_exact(*kept_elems);
             else if (result_size_hint < 1000000000 && src_elems.size() < 1000000000)    /// Avoid overflow.
                 res_elems.reserve_exact((result_size_hint * src_elems.size() + size - 1) / size);
         }
@@ -325,6 +303,9 @@ namespace
 
         const auto * offsets_pos = src_offsets.data();
         const auto * offsets_begin = offsets_pos;
+        /// A non-empty row starts at or after the end of the first dropped row iff it follows it. Hint 0 asks for no reserve.
+        const auto * first_dropped = result_size_hint > 0 ? static_cast<const UInt8 *>(std::memchr(filt.data(), 0, size)) : nullptr;
+        const size_t evidence_offset = first_dropped ? src_offsets[first_dropped - filt.data()] : std::numeric_limits<size_t>::max();
 
         /// copy array ending at *end_offset_ptr
         const auto copy_array = [&] (const IColumn::Offset * offset_ptr)
@@ -335,6 +316,8 @@ namespace
             result_offsets_builder.insertOne(arr_size);
 
             const auto elems_size_old = res_elems.size();
+            if (elems_size_old + arr_size > res_elems.capacity())
+                reserveSourceIfDroppedEmpty(res_elems, arr_offset, src_elems.size(), evidence_offset);
             res_elems.resize(elems_size_old + arr_size);
             memcpy(&res_elems[elems_size_old], &src_elems[arr_offset], arr_size * sizeof(T));
         };
@@ -363,6 +346,8 @@ namespace
 
                 /// copy elements for SIMD_BYTES arrays at once
                 const auto elems_size_old = res_elems.size();
+                if (elems_size_old + chunk_size > res_elems.capacity())
+                    reserveSourceIfDroppedEmpty(res_elems, chunk_offset, src_elems.size(), evidence_offset);
                 res_elems.resize(elems_size_old + chunk_size);
                 memcpy(&res_elems[elems_size_old], &src_elems[chunk_offset], chunk_size * sizeof(T));
             }
