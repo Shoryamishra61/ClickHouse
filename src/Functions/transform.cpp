@@ -101,6 +101,9 @@ namespace
 
         String getName() const override { return name; }
 
+        /// The captured setting decides the value of a `FixedString` argument converted to `String`.
+        void updateHash(SipHash & hash) const override { hash.update(cast_fixed_string_to_string_strip_trailing_zeros); }
+
         bool isVariadic() const override { return true; }
         bool isSuitableForShortCircuitArgumentsExecution(const DataTypesWithConstInfo & /*arguments*/) const override { return true; }
         size_t getNumberOfArguments() const override { return 0; }

@@ -188,6 +188,7 @@ struct FunctionConvertSettings
         hash.update(check_conversion_from_numbers_to_enum);
         hash.update(date_time_64_output_format_cut_trailing_zeros_align_to_groups_of_thousands);
         hash.update(cast_keep_nullable);
+        hash.update(cast_fixed_string_to_string_strip_trailing_zeros);
         hash.update(cast_string_to_date_time_mode);
         hash.update(format_settings_hash);
     }

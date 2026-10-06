@@ -9,6 +9,7 @@
 #include <Columns/MaskOperations.h>
 #include <Core/Settings.h>
 #include <Interpreters/castColumn.h>
+#include <Common/SipHash.h>
 #include <Common/assert_cast.h>
 #include <Common/typeid_cast.h>
 #include <Common/VectorWithMemoryTracking.h>
@@ -82,6 +83,10 @@ public:
     {}
 
     String getName() const override { return name; }
+
+    /// The captured setting decides the value of a `FixedString` branch converted to `String`.
+    void updateHash(SipHash & hash) const override { hash.update(cast_fixed_string_to_string_strip_trailing_zeros); }
+
     bool isVariadic() const override { return true; }
     bool isShortCircuit(ShortCircuitSettings & settings, size_t number_of_arguments) const override
     {
