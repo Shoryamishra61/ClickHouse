@@ -2,6 +2,7 @@
 
 #include <Interpreters/IInterpreter.h>
 #include <Parsers/IAST_fwd.h>
+#include <Storages/IStorage_fwd.h>
 
 
 namespace DB
@@ -29,7 +30,11 @@ public:
     bool supportsTransactions() const override { return true; }
 
 private:
-    AccessRightsElements getRequiredAccess() const;
+    AccessRightsElements getRequiredAccess(const StoragePtr & storage) const;
+
+    /// Adds the grants `processSQLSecurityOption` demands for the view's stored SQL security, so replacing the
+    /// body of a `DEFINER` or `NONE` view takes the same authority as declaring that security in the first place.
+    void addRequiredAccessForModifyQuerySQLSecurity(AccessRightsElements & required_access, const StoragePtr & storage) const;
 
     BlockIO executeToTable(const ASTAlterQuery & alter);
 
