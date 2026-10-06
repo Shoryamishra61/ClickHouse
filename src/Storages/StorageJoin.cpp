@@ -161,6 +161,9 @@ void StorageJoin::rebuildLiveStateIfLost(const String & exclude_file_name)
     if (!live_state_lost)
         return;
 
+    /// A failed mutation whose rollback failed too can leave part of the committed backups parked
+    /// in `tmp/mut_backups/`, where `buildFromBackups` would not see them.
+    recoverInterruptedMutation();
     auto rebuilt_join = buildFromBackups(exclude_file_name);
     {
         /// Table data belongs to the server, not to the query releasing it.
@@ -621,6 +624,11 @@ void StorageJoin::publishBackup(const String & backup_file_path, ContextPtr cont
             {
                 throw Exception(ErrorCodes::FAULT_INJECTED, "Injecting fault during the rollback of a failed INSERT into a Join");
             });
+            /// The live state stays correct while a failed mutation leaves part of the committed
+            /// backups parked in `tmp/mut_backups/`, but a rebuild from the table directory alone
+            /// would lose their rows. The write lock excludes a running mutation, so the parked
+            /// backups can only belong to an interrupted one.
+            recoverInterruptedMutation();
             auto rebuilt_join = buildFromBackups(/*exclude_file_name=*/ fs::path(backup_file_path).filename());
             {
                 MemoryTrackerBlockerInThread table_data_not_charged_to_the_query;
