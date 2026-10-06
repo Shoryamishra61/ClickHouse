@@ -4,6 +4,8 @@
 -- columns with the same name, where one of these columns belongs to the unaliased subquery or table function.
 -- Unambiguous queries are allowed without the alias.
 
+SET enable_analyzer = 1;
+
 DROP TABLE IF EXISTS item;
 DROP TABLE IF EXISTS sales;
 DROP TABLE IF EXISTS with_number;

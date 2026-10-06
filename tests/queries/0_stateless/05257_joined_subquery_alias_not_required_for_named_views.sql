@@ -5,6 +5,7 @@
 -- like a table, so an ambiguous column of theirs is resolved as for a table (here by `single_join_prefer_left_table`)
 -- instead of failing with `ALIAS_REQUIRED`.
 
+SET enable_analyzer = 1;
 SET joined_subquery_requires_alias = 1;
 
 DROP TABLE IF EXISTS t_named_left;
