@@ -34,18 +34,16 @@ struct LambdaCapture
 
 using LambdaCapturePtr = std::shared_ptr<LambdaCapture>;
 
-/// The body of a lambda as it was built, before JIT compilation. `ExpressionActions` compiles its DAG in
-/// place: a compiled subtree becomes a single node whose `getName` is a dump of the compiled expression,
-/// not a name `FunctionFactory` knows, and the functions inside it are no longer visible. Everything that
-/// reads the body rather than executes it - `ActionsDAG::serialize`, index analysis, plan optimizations -
-/// needs the original. It is kept only if something was compiled, otherwise the DAG of the
-/// `ExpressionActions` is the original.
-using UncompiledActionsDAGPtr = std::shared_ptr<const ActionsDAG>;
-
 struct LambdaExpressionActions
 {
     ExpressionActionsPtr expression_actions;
-    UncompiledActionsDAGPtr uncompiled_actions_dag;
+    /// The body of the lambda as it was built, before JIT compilation. `ExpressionActions` compiles its DAG
+    /// in place: a compiled subtree becomes a single node whose `getName` is a dump of the compiled
+    /// expression, not a name `FunctionFactory` knows, and the functions inside it are no longer visible.
+    /// Everything that reads the body rather than executes it - `ActionsDAG::serialize`, index analysis,
+    /// plan optimizations - needs the original. It is kept only if something was compiled, otherwise the
+    /// DAG of `expression_actions` is the original.
+    std::shared_ptr<const ActionsDAG> uncompiled_actions_dag;
 };
 
 #if USE_EMBEDDED_COMPILER
@@ -69,7 +67,7 @@ inline bool mayBeJITCompiled(const ActionsDAG & actions_dag)
 
 inline LambdaExpressionActions buildLambdaExpressionActions(ActionsDAG actions_dag, const ExpressionActionsSettings & actions_settings)
 {
-    UncompiledActionsDAGPtr uncompiled_actions_dag;
+    std::shared_ptr<const ActionsDAG> uncompiled_actions_dag;
 #if USE_EMBEDDED_COMPILER
     if (actions_settings.can_compile_expressions && actions_settings.compile_expressions == CompileExpressions::yes
         && mayBeJITCompiled(actions_dag))
@@ -88,7 +86,7 @@ inline LambdaExpressionActions buildLambdaExpressionActions(ActionsDAG actions_d
     return {std::move(expression_actions), std::move(uncompiled_actions_dag)};
 }
 
-inline const ActionsDAG & getLambdaActionsDAG(const ExpressionActionsPtr & expression_actions, const UncompiledActionsDAGPtr & uncompiled_actions_dag)
+inline const ActionsDAG & getLambdaActionsDAG(const ExpressionActionsPtr & expression_actions, const std::shared_ptr<const ActionsDAG> & uncompiled_actions_dag)
 {
     return uncompiled_actions_dag ? *uncompiled_actions_dag : expression_actions->getActionsDAG();
 }
@@ -286,7 +284,7 @@ public:
     using Signature = ExecutableFunctionExpression::Signature;
     using SignaturePtr = ExecutableFunctionExpression::SignaturePtr;
 
-    FunctionExpression(LambdaCapturePtr capture_, ExpressionActionsPtr expression_actions_, UncompiledActionsDAGPtr uncompiled_actions_dag_)
+    FunctionExpression(LambdaCapturePtr capture_, ExpressionActionsPtr expression_actions_, std::shared_ptr<const ActionsDAG> uncompiled_actions_dag_)
         : expression_actions(std::move(expression_actions_))
         , uncompiled_actions_dag(std::move(uncompiled_actions_dag_))
         , capture(std::move(capture_))
@@ -332,7 +330,7 @@ public:
 
 private:
     ExpressionActionsPtr expression_actions;
-    UncompiledActionsDAGPtr uncompiled_actions_dag;
+    std::shared_ptr<const ActionsDAG> uncompiled_actions_dag;
     LambdaCapturePtr capture;
 
     /// This is redundant and is built from capture.
@@ -347,7 +345,7 @@ private:
 class ExecutableFunctionCapture final : public IExecutableFunction
 {
 public:
-    ExecutableFunctionCapture(ExpressionActionsPtr expression_actions_, UncompiledActionsDAGPtr uncompiled_actions_dag_, LambdaCapturePtr capture_)
+    ExecutableFunctionCapture(ExpressionActionsPtr expression_actions_, std::shared_ptr<const ActionsDAG> uncompiled_actions_dag_, LambdaCapturePtr capture_)
         : expression_actions(std::move(expression_actions_))
         , uncompiled_actions_dag(std::move(uncompiled_actions_dag_))
         , capture(std::move(capture_))
@@ -420,7 +418,7 @@ public:
 
 private:
     ExpressionActionsPtr expression_actions;
-    UncompiledActionsDAGPtr uncompiled_actions_dag;
+    std::shared_ptr<const ActionsDAG> uncompiled_actions_dag;
     LambdaCapturePtr capture;
 };
 
@@ -429,7 +427,7 @@ class FunctionCapture final : public IFunctionBase
 public:
     FunctionCapture(
         ExpressionActionsPtr expression_actions_,
-        UncompiledActionsDAGPtr uncompiled_actions_dag_,
+        std::shared_ptr<const ActionsDAG> uncompiled_actions_dag_,
         LambdaCapturePtr capture_,
         DataTypePtr return_type_,
         String name_)
@@ -468,7 +466,7 @@ public:
 
 private:
     ExpressionActionsPtr expression_actions;
-    UncompiledActionsDAGPtr uncompiled_actions_dag;
+    std::shared_ptr<const ActionsDAG> uncompiled_actions_dag;
     LambdaCapturePtr capture;
     DataTypePtr return_type;
     String name;
@@ -547,7 +545,7 @@ public:
 
 private:
     ExpressionActionsPtr expression_actions;
-    UncompiledActionsDAGPtr uncompiled_actions_dag;
+    std::shared_ptr<const ActionsDAG> uncompiled_actions_dag;
     LambdaCapturePtr capture;
     DataTypePtr return_type;
     String name;
