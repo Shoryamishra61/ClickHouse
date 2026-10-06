@@ -2616,6 +2616,11 @@ def test_a_read_option_that_is_accepted_and_ignored(started_cluster):
         document["id"]
         for document in database.command({"find": "accepted_options", "filter": {}, "hint": "id_1"})["cursor"]["firstBatch"]
     ) == plain_find
+    # `singleBatch` asks for the whole result in the first batch, which is how every reply is sent.
+    assert sorted(
+        document["id"]
+        for document in database.command({"find": "accepted_options", "filter": {}, "singleBatch": True})["cursor"]["firstBatch"]
+    ) == plain_find
 
     assert (
         database.command({"count": "accepted_options", "query": {}, "hint": {"id": 1}})["n"]

@@ -23,6 +23,8 @@ Add a `mongo_port` to the server configuration to accept MongoDB connections:
 </clickhouse>
 ```
 
+The endpoint is available only in builds that include the MongoDB libraries and `rapidjson`; in a build without them, a `mongo_port` or a `protocols` entry of type `mongo` makes the server fail at startup with `SUPPORT_IS_DISABLED`.
+
 Then connect with any MongoDB client. Only the `PLAIN` authentication mechanism is supported, because it is the only one that provides the cleartext password that ClickHouse needs to authenticate a user:
 
 ```bash
@@ -60,7 +62,7 @@ What a driver reads back has the shape and the types of what it inserted: a nest
 
 ### Supported commands {#supported-commands}
 
-`insert`, `find`, `aggregate`, `distinct`, `count`, `update`, `delete`, `create`, `drop`, `dropDatabase`, `createIndexes`, `listDatabases`, `listCollections`, `isMaster`, `buildInfo`, `ping`, `connectionStatus`, `killCursors`, `endSessions` and `saslStart`.
+`insert`, `find`, `aggregate`, `distinct`, `count`, `update`, `delete`, `create`, `drop`, `dropDatabase`, `createIndexes`, `listDatabases`, `listCollections`, `hello` (`isMaster`), `buildInfo`, `ping`, `connectionStatus`, `killCursors`, `endSessions` and `saslStart`.
 
 A `find` supports a filter, a projection, `limit`, `skip` and `sort`. A projection may compute `$add`, `$sub`, `$mul` and `$div`. A `count` supports a `query` filter and the `limit` and `skip` bounds.
 
