@@ -521,7 +521,8 @@ public:
         bool removes_filter,
         const Names & available_inputs,
         const ColumnsWithTypeAndName & all_inputs,
-        bool allow_non_deterministic_functions);
+        bool allow_non_deterministic_functions,
+        bool allow_index_hints = true);
 
     struct ActionsForJOINFilterPushDown;
 
