@@ -7,6 +7,7 @@
 #include <Poco/Net/HTTPBasicCredentials.h>
 #include <Poco/URI.h>
 #include <Poco/Net/HTTPRequest.h>
+#include <Common/logger_useful.h>
 
 namespace DB
 {
@@ -14,6 +15,8 @@ class ElasticsearchClient
 {
 public:
     ElasticsearchClient(ElasticsearchConfiguration, ContextPtr);
+
+    ~ElasticsearchClient();
 
     using IndexPage = Poco::JSON::Array::Ptr;
 
@@ -23,7 +26,9 @@ private:
 
     void setPointInTime();
 
-    void validateResponse(Poco::JSON::Object::Ptr response) const;
+    void deletePointInTime();
+
+    void validateShards(Poco::JSON::Object::Ptr response) const;
 
     Poco::JSON::Object::Ptr sendRequestToElastic(
         const String & method,
@@ -34,6 +39,8 @@ private:
     Poco::JSON::Array::Ptr last_document_order_no;
     ElasticsearchConfiguration config;
     Poco::Net::HTTPBasicCredentials credentials;
+    HTTPHeaderEntries auth_headers;
+    LoggerPtr log;
     ContextPtr context;
 };
 }

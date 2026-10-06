@@ -8,11 +8,17 @@
 #include <Poco/JSON/Parser.h>
 #include <Poco/Net/HTTPRequest.h>
 #include <Common/Exception.h>
+#include <Common/ProfileEvents.h>
 #include <Interpreters/Context.h>
 #include <IO/copyData.h>
 
 #include <base/types.h>
 #include <fmt/format.h>
+
+namespace ProfileEvents
+{
+    extern const Event ElasticsearchPointInTimeCloseFailures;
+}
 
 namespace DB
 {
@@ -61,8 +67,32 @@ Poco::JSON::Object::Ptr parseJSONObject(const String & data)
 
 ElasticsearchClient::ElasticsearchClient(ElasticsearchConfiguration config_, ContextPtr context_)
     : config(config_)
+    , log(getLogger("ElasticsearchClient"))
     , context(context_)
 {
+    if (config.auth_kind == ElasticsearchConfiguration::AuthKind::Basic)
+    {
+        credentials.setUsername(config.user);
+        credentials.setPassword(config.password);
+    }
+    auth_headers = config.authorizationHeaders();
+}
+
+ElasticsearchClient::~ElasticsearchClient()
+{
+    if (pit_id.empty())
+        return ;
+
+    try
+    {
+        deletePointInTime();
+    }
+    catch (...)
+    {
+        ProfileEvents::increment(ProfileEvents::ElasticsearchPointInTimeCloseFailures);
+        tryLogCurrentException(log, "Cannot close Elasticsearch point in time");
+    }
+
 }
 
 ElasticsearchClient::IndexPage ElasticsearchClient::searchIndex(bool fetch_source)
@@ -77,11 +107,13 @@ ElasticsearchClient::IndexPage ElasticsearchClient::searchIndex(bool fetch_sourc
 
     Poco::JSON::Object request_body;
 
-    request_body.set("size", config.page_size);
+    /// Page size
+    request_body.set("size", 10'000);
 
     Poco::JSON::Object point_in_time;
     point_in_time.set("id", pit_id);
-    point_in_time.set("keep_alive", config.keep_alive);
+    /// Keep alive
+    point_in_time.set("keep_alive", "1m");
 
     request_body.set("pit", point_in_time);
 
@@ -96,10 +128,7 @@ ElasticsearchClient::IndexPage ElasticsearchClient::searchIndex(bool fetch_sourc
 
     request_body.set("track_total_hits", false);
 
-    Poco::JSON::Object query;
-
-    query.set("match_all", Poco::JSON::Object());
-    request_body.set("query", query);
+    request_body.set("query", config.parsed_query);
     if (!fetch_source)
         request_body.set("_source", false);
 
@@ -107,7 +136,7 @@ ElasticsearchClient::IndexPage ElasticsearchClient::searchIndex(bool fetch_sourc
     request_body.stringify(body);
     auto response_json = sendRequestToElastic(Poco::Net::HTTPRequest::HTTP_POST, uri, body.str());
 
-    validateResponse(response_json);
+    validateShards(response_json);
 
     if (response_json->optValue<bool>("timed_out", false))
         throw Exception(ErrorCodes::RECEIVED_ERROR_FROM_REMOTE_IO_SERVER, "Elasticsearch request timed out"); 
@@ -137,11 +166,12 @@ ElasticsearchClient::IndexPage ElasticsearchClient::searchIndex(bool fetch_sourc
 void ElasticsearchClient::setPointInTime()
 {
     static constexpr std::string_view point_in_time = "_pit";
-    const String parameters = fmt::format("?keep_alive={}&allow_no_indices=false", config.keep_alive);
+    /// Keep alive
+    const String parameters = fmt::format("?keep_alive={}&allow_no_indices=false", "1m");
     const auto uri = Poco::URI(fmt::format("{}/{}/{}{}", config.url, config.index, point_in_time, parameters));
     auto response_json = sendRequestToElastic(Poco::Net::HTTPRequest::HTTP_POST, uri, "");
 
-    validateResponse(response_json);
+    validateShards(response_json);
 
     pit_id = response_json->optValue<String>("id", "");
 
@@ -150,9 +180,24 @@ void ElasticsearchClient::setPointInTime()
 
 }
 
+void ElasticsearchClient::deletePointInTime()
+{
+    const auto uri = Poco::URI(fmt::format("{}/_pit", config.url));
+
+    Poco::JSON::Object request_body;
+    request_body.set("id", pit_id);
+
+    std::ostringstream body; // STYLE_CHECK_ALLOW_STD_STRING_STREAM
+    request_body.stringify(body);
+    auto response = sendRequestToElastic(Poco::Net::HTTPRequest::HTTP_DELETE, uri, body.str());
+    
+    if (!response->optValue<bool>("succeeded", false))
+      throw Exception(ErrorCodes::RECEIVED_ERROR_FROM_REMOTE_IO_SERVER, "Elasticsearch did not close the point in time");
+}
+
 Poco::JSON::Object::Ptr ElasticsearchClient::sendRequestToElastic(const String & method, const Poco::URI & uri, const String & request_body) const
 {
-    HTTPHeaderEntries headers;
+    HTTPHeaderEntries headers = auth_headers;
     ReadWriteBufferFromHTTP::OutStreamCallback out_stream_callback;
     if (!request_body.empty())
     {
@@ -175,19 +220,8 @@ Poco::JSON::Object::Ptr ElasticsearchClient::sendRequestToElastic(const String &
     return parseJSONObject(response.str());
 }
 
-void ElasticsearchClient::validateResponse(Poco::JSON::Object::Ptr response_json) const
+void ElasticsearchClient::validateShards(Poco::JSON::Object::Ptr response_json) const
 {
-    auto error = response_json->getObject("error");
-
-    if (error)
-    {
-        auto response_code = response_json->optValue<Int64>("status", 0);
-        auto type = error->getValue<String>("type");
-        String reason = error->optValue<String>("reason", "");
-
-        throw Exception(ErrorCodes::RECEIVED_ERROR_FROM_REMOTE_IO_SERVER, "Elasticsearch returned an error: (HTTP {}): type: {} reason: {}", response_code, type, reason); 
-    }
-
     auto shards = response_json->getObject("_shards");
     if (!shards)
         return;

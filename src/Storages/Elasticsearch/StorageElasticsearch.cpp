@@ -44,21 +44,6 @@ namespace ErrorCodes
     extern const int INCORRECT_DATA;
 }
 
-ElasticsearchConfiguration StorageElasticsearch::getConfiguration(ASTs & args, ContextPtr context)
-{
-    ElasticsearchConfiguration configuration;
-
-    if (args.empty() || args.size() < 2)
-        throw Exception(ErrorCodes::NUMBER_OF_ARGUMENTS_DOESNT_MATCH, "Elasticsearch requires arguments");
-
-    for (auto & arg : args)
-        arg = evaluateConstantExpressionOrIdentifierAsLiteral(arg, context);
-
-    configuration.url = checkAndGetLiteralArgument<String>(args[0], "base_url");
-    configuration.index = checkAndGetLiteralArgument<String>(args[1], "index");
-    return configuration;
-}
-
 class ElasticsearchSource : public ISource
 {
 public:
@@ -67,10 +52,8 @@ public:
         SharedHeader sample_block,
         ContextPtr context,
         const String & json_column_name,
-        bool fetch_source_,
-        size_t page_size_)
+        bool fetch_source_)
         : ISource(sample_block)
-        , page_size(page_size_)
         , json_pos(sample_block->findPositionByName(json_column_name))
         , id_pos(sample_block->findPositionByName("_id"))
         , index_pos(sample_block->findPositionByName("_index"))
@@ -134,14 +117,14 @@ private:
             object_serialization->deserializeObject(*columns[*json_pos], source_stream.view(), format_settings);
         }
 
-        if (num_rows < page_size)
+        /// Page size
+        if (num_rows < 10'000)
             has_data = false;
 
         return Chunk(std::move(columns), num_rows);
     }
 
     bool has_data = true;
-    const size_t page_size;
     std::optional<size_t> json_pos;
     std::optional<size_t> id_pos;
     std::optional<size_t> index_pos;
@@ -202,7 +185,7 @@ Pipe StorageElasticsearch::read(
     auto client = std::make_shared<ElasticsearchClient>(config, context);
     return Pipe(std::make_shared<ElasticsearchSource>(
         std::move(client),
-        std::make_shared<Block>(std::move(sample_block)), context, json_column_name, fetch_source, config.page_size));
+        std::make_shared<Block>(std::move(sample_block)), context, json_column_name, fetch_source));
 }
 
 VirtualColumnsDescription StorageElasticsearch::createVirtuals()
@@ -236,7 +219,7 @@ void registerStorageElasticsearch(StorageFactory & factory)
             if (!columns.empty() && !isObject(columns.front().type))
                 throw Exception(ErrorCodes::BAD_ARGUMENTS, "Elasticsearch table engine requires the column type to be JSON, got {}", columns.front().type->getName());
 
-            auto configuration = StorageElasticsearch::getConfiguration(args.engine_args, args.getLocalContext());
+            auto configuration = ElasticsearchConfiguration::fromArguments(args.engine_args, args.getLocalContext());
             return std::make_shared<StorageElasticsearch>(
                 args.table_id, std::move(configuration), args.columns, args.constraints, args.comment);
         },

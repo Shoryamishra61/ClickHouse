@@ -15,8 +15,6 @@ class StorageElasticsearch : public IStorage
 {
 public:
 
-    static ElasticsearchConfiguration getConfiguration(ASTs & engine_args, ContextPtr context);
-
     StorageElasticsearch(
         const StorageID & table_id_,
         ElasticsearchConfiguration configuration_,
