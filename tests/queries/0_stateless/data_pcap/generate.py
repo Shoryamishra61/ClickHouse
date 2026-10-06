@@ -131,3 +131,10 @@ write_pcapng(out_dir / "packets.pcapng", full)
 SNAPLEN = 34
 truncated = [(packet[:SNAPLEN], len(packet)) for packet in packets[:3]]
 write_pcap(out_dir / "truncated.pcap", truncated, snaplen=SNAPLEN)
+
+# A short Ethernet frame: UDP with a 4-byte payload is 46 bytes, so the sender
+# pads it to the 60-byte minimum. The padding is past the IP length and is not
+# part of `payload`, so `payload` is not a suffix of `raw` here.
+short = ethernet(ipv4(17, struct.pack(">HHHH", 5353, 5353, 12, 0) + b"ping"))
+padded = short + b"\xee" * (60 - len(short))
+write_pcap(out_dir / "padded.pcap", [(padded, len(padded))])

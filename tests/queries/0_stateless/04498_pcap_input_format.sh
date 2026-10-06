@@ -127,6 +127,16 @@ for f in packets.pcap packets.pcapng truncated.pcap; do
     FROM file('$DATA_DIR/$f', PCAP) FORMAT TSV"
 done
 
+echo "--- padded short frame: payload excludes the Ethernet padding ---"
+$CLICKHOUSE_LOCAL -q "
+SELECT
+    capture_length,
+    payload_length,
+    payload,
+    substring(raw, (capture_length - payload_length) + 1) = payload AS payload_is_suffix,
+    position(raw, payload) - 1 AS payload_offset
+FROM file('$DATA_DIR/padded.pcap', PCAP) FORMAT TSV"
+
 echo "--- subset of columns (only number, dst_port) ---"
 $CLICKHOUSE_LOCAL -q "
 SELECT number, dst_port FROM file('$DATA_DIR/packets.pcap', PCAP) ORDER BY number FORMAT TSV"

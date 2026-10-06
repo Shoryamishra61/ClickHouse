@@ -90,6 +90,8 @@ UDP	4	1
 packets.pcap	0	0	0
 packets.pcapng	0	0	0
 truncated.pcap	0	0	0
+--- padded short frame: payload excludes the Ethernet padding ---
+60	4	ping	0	42
 --- subset of columns (only number, dst_port) ---
 1	80
 2	67

@@ -86,8 +86,11 @@ Those two low-cardinality string columns use an empty string when their layer
 is absent. Packets that do not contain a given layer (for example a non-IP
 packet, or a UDP packet that has no TCP fields) still produce a row.
 
-The transport-layer payload is a suffix of the raw frame, so its position in
-`raw` is `capture_length - payload_length`, and
+The transport-layer payload is a contiguous range of the raw frame. It only
+covers the bytes within the IP length, so bytes after the IP packet, such as the
+padding of short Ethernet frames or a link-layer trailer, are part of `raw` but
+not of `payload`. When a frame has no such trailing bytes, the payload is a
+suffix of `raw`, and
 `substring(raw, capture_length - payload_length + 1) = payload`.
 
 ## Example usage {#example-usage}
@@ -185,14 +188,20 @@ SELECT
 FROM file('capture.pcap', PCAP);
 ```
 
-You usually do not need to store both `raw` and `payload`. The payload is a
-suffix of the raw frame, so it can always be recovered from `raw` together
-with `capture_length` and `payload_length`:
+You usually do not need to store both `raw` and `payload`. For frames without
+bytes after the IP packet, the payload is a suffix of the raw frame, so it can
+be recovered from `raw` together with `capture_length` and `payload_length`:
 
 ```sql title="Recover the payload from raw"
 SELECT substring(raw, (capture_length - payload_length) + 1) AS payload
 FROM packets;
 ```
+
+This does not hold for padded short Ethernet frames (for example a UDP packet
+with a few bytes of payload padded to 60 bytes) or frames with a link-layer
+trailer: there `raw` ends with the padding, and the query above returns the
+padding instead of the payload. Store `payload` as well if your capture can
+contain such frames.
 
 Storing only `raw` (plus the two lengths) avoids duplicating the packet bytes,
 while still letting you reconstruct the payload on demand. If you never need
