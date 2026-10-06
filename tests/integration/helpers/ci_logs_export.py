@@ -561,10 +561,16 @@ def _test_name(cluster):
     """The name of the pytest module the cluster belongs to: the name of the
     suite directory for a single-file suite (`test_storage_s3`), and the module
     inside it for a multi-file suite (`test_prometheus_protocols/test_series_api`),
-    so that the exported logs identify the module that produced them."""
+    so that the exported logs identify the module that produced them.
+
+    A cluster created in the `conftest.py` of a suite is shared by all modules
+    of the suite, and the label is baked into the watcher materialized views
+    once, when the server starts, so it cannot name the module of each row:
+    such a cluster is labelled with the suite name, the narrowest unit that is
+    still correct for all of its rows."""
     suite = os.path.basename(cluster.base_dir)
     module = os.path.splitext(os.path.basename(cluster.base_path))[0]
-    if module == "test":
+    if module in ("test", "conftest", "__init__"):
         return suite
     return f"{suite}/{module}"
 
