@@ -39,7 +39,7 @@ using namespace DB::QueryPlanOptimizations;
 namespace ProfileEvents
 {
 extern const Event AutoParallelReplicasPlanBuildAttempts;
-extern const Event AutoParallelReplicasMicroseconds;
+extern const Event AutoParallelReplicasOptimizationMicroseconds;
 extern const Event AutoParallelReplicasPlanBuildMicroseconds;
 extern const Event AutoParallelReplicasSkippedDueToSettings;
 extern const Event AutoParallelReplicasPlanShapeNotSupported;
@@ -678,7 +678,8 @@ void considerEnablingParallelReplicas(
     Stopwatch watch;
     UInt64 plan_build_microseconds = 0;
     SCOPE_EXIT({
-        ProfileEvents::increment(ProfileEvents::AutoParallelReplicasMicroseconds, watch.elapsedMicroseconds() - plan_build_microseconds);
+        ProfileEvents::increment(
+            ProfileEvents::AutoParallelReplicasOptimizationMicroseconds, watch.elapsedMicroseconds() - plan_build_microseconds);
     });
 
     /// Cannot guarantee projection usage with parallel replicas. `buildQueryPlanForAutomaticParallelReplicas`

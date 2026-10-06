@@ -1,6 +1,6 @@
 -- The overhead of automatic parallel replicas is reported in parts: building the plan with parallel
 -- replicas (`AutoParallelReplicasPlanBuildMicroseconds`), the rest of the optimization
--- (`AutoParallelReplicasMicroseconds`), and collecting statistics while the query runs
+-- (`AutoParallelReplicasOptimizationMicroseconds`), and collecting statistics while the query runs
 -- (`RuntimeDataflowStatistics{Input,Output}Nanoseconds`). The first run has no statistics yet, so it
 -- collects them; the second decides from them and collects nothing.
 
@@ -27,7 +27,7 @@ SYSTEM FLUSH LOGS query_log;
 
 SELECT ProfileEvents['AutoParallelReplicasNoStatistics'] AS collected,
        ProfileEvents['AutoParallelReplicasPlanBuildMicroseconds'] > 0 AS plan_build_timed,
-       ProfileEvents['AutoParallelReplicasMicroseconds'] > 0 AS rest_timed,
+       ProfileEvents['AutoParallelReplicasOptimizationMicroseconds'] > 0 AS rest_timed,
        ProfileEvents['RuntimeDataflowStatisticsInputNanoseconds'] > 0 AS input_collection_timed,
        ProfileEvents['RuntimeDataflowStatisticsOutputNanoseconds'] > 0 AS output_collection_timed
 FROM system.query_log
