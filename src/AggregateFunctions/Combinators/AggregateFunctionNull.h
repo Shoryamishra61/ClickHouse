@@ -356,6 +356,11 @@ public:
         return nested_function->getDefaultVersion();
     }
 
+    DataTypePtr getStateType() const override
+    {
+        return this->getStateTypeWithVersionOf(*nested_function);
+    }
+
     AggregateFunctionPtr getNestedFunction() const override { return nested_function; }
 
     /// Only the `Subadditive` bound survives the wrapping: a group whose rows are all NULL has an
