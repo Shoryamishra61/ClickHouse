@@ -332,7 +332,8 @@ void DistinctStep::transformPipeline(QueryPipelineBuilder & pipeline, const Buil
 
                 return std::make_shared<DistinctTransform>(
                     header, local_limits, limit_hint, columns,
-                    allow_abandoning, /*skip_null_keys_=*/ false, pass_through_threshold, shared_set_bytes);
+                    allow_abandoning, /*skip_null_keys_=*/ false, pass_through_threshold, shared_set_bytes,
+                    /*coalesce_rows_=*/ coalesce_output ? settings.max_block_size : 0);
             });
     }
 

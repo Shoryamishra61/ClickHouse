@@ -105,6 +105,12 @@ public:
     /// columns. Input-order requirements and sorted deduplication take precedence.
     void enableParallelDistinct() { parallel_distinct = true; }
 
+    /// Merge the small output chunks of a preliminary step before a parallel final step scatters them (see
+    /// `DistinctTransform`). The transform bounds the delay by the input rows it consumes, so this is enabled
+    /// only when the input comes straight from a read and cannot stall behind a step that suppresses rows.
+    /// This affects only performance, so it is not serialized.
+    void coalesceOutput() { coalesce_output = true; }
+
 private:
     void updateOutputHeader() override;
 
@@ -120,6 +126,7 @@ private:
     bool skip_stream_merging = false;
     bool parallel_distinct = false;
     bool preserve_input_order = false;
+    bool coalesce_output = false;
 };
 
 }

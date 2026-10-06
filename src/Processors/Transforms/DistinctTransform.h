@@ -61,6 +61,13 @@ public:
     /// through, giving up any remaining local limit hint. Zero disables this memory policy.
     /// `shared_set_bytes_` accounts for retained set memory across disjoint streams and attaches
     /// snapshots to output chunks for global limit accounting by `DistinctLimitsCheckingTransform`.
+    /// A nonzero `coalesce_rows_` merges the output chunks until they hold this many rows, or until
+    /// `COALESCE_INPUT_BLOCKS` times as many input rows were consumed since the last output. Preliminary
+    /// deduplication of highly duplicated input emits a stream of tiny chunks, and each of them costs
+    /// scheduling in the consumer. This is worst for a parallel final `DISTINCT`, which scatters every
+    /// chunk across all partitions and merges the many resulting pieces into the query output. The bound
+    /// in input rows keeps the delay finite on an unbounded input that adds no new keys, so a downstream
+    /// limit can still stop the query.
     DistinctTransform(
         SharedHeader header_,
         const SizeLimits & set_size_limits_,
@@ -69,14 +76,20 @@ public:
         bool allow_abandoning_ = false,
         bool skip_null_keys_ = false,
         UInt64 max_bytes_before_pass_through_ = 0,
-        DistinctSetMemoryTracker::SharedCounter shared_set_bytes_ = nullptr);
+        DistinctSetMemoryTracker::SharedCounter shared_set_bytes_ = nullptr,
+        UInt64 coalesce_rows_ = 0);
 
     String getName() const override { return "DistinctTransform"; }
+
+    Status prepare() override;
 
 protected:
     void transform(Chunk & chunk) override;
 
 private:
+    void deduplicate(Chunk & chunk);
+    Chunk flushPendingChunks();
+
     /// Outlives the set so its contribution is removed after the retained allocations are released.
     DistinctSetMemoryTracker set_memory;
     /// An absent filter means subsequent chunks pass through without deduplication.
@@ -86,6 +99,15 @@ private:
     std::optional<DeduplicationAbandonController> abandon_controller;
 
     const UInt64 max_bytes_before_pass_through;
+
+    /// A parallel final `DISTINCT` splits every chunk into up to 16 partitions (see `DistinctStep`).
+    static constexpr UInt64 COALESCE_INPUT_BLOCKS = 16;
+
+    const UInt64 coalesce_rows;
+    /// Output chunks held back for coalescing, their rows, and the input rows consumed since the last output.
+    Chunks pending_chunks;
+    UInt64 pending_rows = 0;
+    UInt64 pending_input_rows = 0;
 };
 
 }

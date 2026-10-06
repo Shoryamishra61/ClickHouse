@@ -61,6 +61,32 @@ static bool isPreliminaryDistinctInOrder(const QueryPlan::Node & node)
     return distinct && distinct->isPreliminary() && !distinct->getSortDescription().empty();
 }
 
+static QueryPlan::Node * skipExpressions(QueryPlan::Node * node)
+{
+    while (node->children.size() == 1 && typeid_cast<const ExpressionStep *>(node->step.get()))
+        node = node->children.front();
+    return node;
+}
+
+/// On highly duplicated input, a preliminary `DISTINCT` emits a stream of tiny chunks. Scattering splits each
+/// of them across all partitions, and the scheduling of the resulting pieces exceeds the gain from parallel
+/// deduplication, so the preliminary step coalesces its output. Its delay is bounded by the rows it consumes,
+/// which requires an input that keeps flowing: a read, possibly through expressions. Above another `DISTINCT`,
+/// a filter, or a join, an unbounded input can stop producing rows while the coalesced keys wait for more.
+static void coalescePreliminaryDistinctOutput(QueryPlan::Node & node)
+{
+    if (node.children.size() != 1)
+        return;
+
+    auto * preliminary_node = skipExpressions(node.children.front());
+    auto * preliminary = typeid_cast<DistinctStep *>(preliminary_node->step.get());
+    if (!preliminary || !preliminary->isPreliminary() || preliminary_node->children.size() != 1)
+        return;
+
+    if (skipExpressions(preliminary_node->children.front())->children.empty())
+        preliminary->coalesceOutput();
+}
+
 static std::optional<StreamDisjointnessProperty> applyStreamDisjointness(
     QueryPlan::Node & node, std::optional<StreamDisjointnessProperty> property, const QueryPlanOptimizationSettings & settings)
 {
@@ -106,6 +132,7 @@ static std::optional<StreamDisjointnessProperty> applyStreamDisjointness(
             return {};
 
         distinct->enableParallelDistinct();
+        coalescePreliminaryDistinctOutput(node);
         const auto & header = *distinct->getInputHeaders().front();
         const auto & keys = distinct->getColumnNames();
         /// Hash partitioning keeps equal keys in one stream. A single-stream result without scattering
