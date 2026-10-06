@@ -73,6 +73,7 @@
 #include <Common/re2.h>
 #include <Common/ErrnoException.h>
 #include <Common/saturatedDuration.h>
+#include <Common/StringUtils.h>
 #include <Formats/SchemaInferenceUtils.h>
 #include <base/defines.h>
 
@@ -2973,22 +2974,57 @@ static void checkFileCanBeOpenedForWriting(const String & path)
 /// where it is rather than deleting a file that may as well belong to someone else. That is not worth an error -
 /// the truncated table does not read those files either - but it is worth a warning, so that the leftovers that
 /// a glob pattern over the directory still sees do not come as a surprise.
+///
+/// The directory is scanned for every numbered name of the path rather than probing the first one only: an insert
+/// with `engine_file_allow_create_multiple_files` steps over the names taken by someone else, so the files it has
+/// written do not have to start from 1 or to be contiguous.
 static void warnAboutForgottenSplitTail(
     const Strings & current_paths, const NumberedFileNames & numbered_paths, const String & table_name_for_log)
 {
     if (current_paths.size() != 1)
         return;
 
-    const String forgotten_path = numbered_paths.getName(1);
-    if (!fs::exists(forgotten_path))
+    /// The numbered names differ only in the sequence number, so the names with the numbers 1 and 2 give
+    /// the parts of the name before and after the number.
+    const fs::path first_numbered_path = numbered_paths.getName(1);
+    const String first_name = first_numbered_path.filename().string();
+    const String second_name = fs::path(numbered_paths.getName(2)).filename().string();
+    if (first_name.size() != second_name.size())
+        return;
+    size_t number_pos = 0;
+    while (number_pos < first_name.size() && first_name[number_pos] == second_name[number_pos])
+        ++number_pos;
+    if (number_pos == first_name.size())
+        return;
+    const std::string_view name_prefix(first_name.data(), number_pos);
+    const std::string_view name_suffix(first_name.data() + number_pos + 1, first_name.size() - number_pos - 1);
+
+    const fs::path directory = first_numbered_path.parent_path();
+    std::error_code error;
+    fs::directory_iterator it(directory, error);
+    if (error)
         return;
 
-    LOG_WARNING(
-        getLogger("StorageFile"),
-        "The truncated table {} has left the file {} in place: it was written by an insert split by size before the table "
-        "was reloaded, and the table no longer attributes it to itself. Remove it manually if it is not needed.",
-        table_name_for_log,
-        forgotten_path);
+    Strings forgotten_paths;
+    for (const auto & entry : it)
+    {
+        const String name = entry.path().filename().string();
+        if (name.size() <= name_prefix.size() + name_suffix.size() || !name.starts_with(name_prefix) || !name.ends_with(name_suffix))
+            continue;
+        const std::string_view number(name.data() + name_prefix.size(), name.size() - name_prefix.size() - name_suffix.size());
+        if (number.front() == '0' || !std::all_of(number.begin(), number.end(), isNumericASCII))
+            continue;
+        forgotten_paths.push_back((directory / name).string());
+    }
+    std::sort(forgotten_paths.begin(), forgotten_paths.end());
+
+    for (const auto & forgotten_path : forgotten_paths)
+        LOG_WARNING(
+            getLogger("StorageFile"),
+            "The truncated table {} has left the file {} in place: it was written by an insert split by size before the table "
+            "was reloaded, and the table no longer attributes it to itself. Remove it manually if it is not needed.",
+            table_name_for_log,
+            forgotten_path);
 }
 
 

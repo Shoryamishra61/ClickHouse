@@ -1150,6 +1150,11 @@ void StorageObjectStorage::truncate(
     /// leaves it where it is rather than deleting an object that may as well belong to someone else. That is not
     /// worth an error - the truncated table does not read those objects either - but it is worth a warning, so
     /// that the leftovers that a glob pattern over the bucket still sees do not come as a surprise.
+    ///
+    /// Unlike the `File` engine, which scans the directory for every numbered name, only the first numbered key is
+    /// probed: listing differs between the backends (a prefix in S3 and Azure, a directory in HDFS) and can be
+    /// expensive for a large prefix. A forgotten tail that does not start from the first number - the one written
+    /// with `*_create_new_file_on_insert` stepping over the keys taken by someone else - is left without a warning.
     if (paths.size() == 1)
     {
         const auto numbered_keys = getNumberedFileNames(paths.front().path);
