@@ -7,44 +7,44 @@
       "versionId": "ae00ec2598472ccb8856e4f1f4020869cb1221d8279c1e05e1753221f38f987b",
       "translations": {
         "ar": {
-          "updatedAt": "2026-10-06T03:42:55.426Z",
+          "updatedAt": "2026-10-06T07:33:47.465Z",
           "fileName": "docs.json",
-          "postProcessHash": "6364e2f6fcd10df74e153ed7723b293437e44bea13dea312e51323f8c5fb1fb5"
+          "postProcessHash": "db3484d5a18fc90de67853c07df9844f7d2969b59d76e844ff92aa43539169a1"
         },
         "fr": {
-          "updatedAt": "2026-10-06T03:42:55.620Z",
+          "updatedAt": "2026-10-06T07:33:47.642Z",
           "fileName": "docs.json",
-          "postProcessHash": "6364e2f6fcd10df74e153ed7723b293437e44bea13dea312e51323f8c5fb1fb5"
+          "postProcessHash": "db3484d5a18fc90de67853c07df9844f7d2969b59d76e844ff92aa43539169a1"
         },
         "ja": {
-          "updatedAt": "2026-10-06T03:42:54.472Z",
+          "updatedAt": "2026-10-06T07:33:46.572Z",
           "fileName": "docs.json",
-          "postProcessHash": "6364e2f6fcd10df74e153ed7723b293437e44bea13dea312e51323f8c5fb1fb5"
+          "postProcessHash": "db3484d5a18fc90de67853c07df9844f7d2969b59d76e844ff92aa43539169a1"
         },
         "es": {
-          "updatedAt": "2026-10-06T03:42:54.258Z",
+          "updatedAt": "2026-10-06T07:33:46.367Z",
           "fileName": "docs.json",
-          "postProcessHash": "6364e2f6fcd10df74e153ed7723b293437e44bea13dea312e51323f8c5fb1fb5"
+          "postProcessHash": "db3484d5a18fc90de67853c07df9844f7d2969b59d76e844ff92aa43539169a1"
         },
         "zh": {
-          "updatedAt": "2026-10-06T03:42:55.235Z",
+          "updatedAt": "2026-10-06T07:33:47.264Z",
           "fileName": "docs.json",
-          "postProcessHash": "6364e2f6fcd10df74e153ed7723b293437e44bea13dea312e51323f8c5fb1fb5"
+          "postProcessHash": "db3484d5a18fc90de67853c07df9844f7d2969b59d76e844ff92aa43539169a1"
         },
         "pt-BR": {
-          "updatedAt": "2026-10-06T03:42:54.850Z",
+          "updatedAt": "2026-10-06T07:33:46.917Z",
           "fileName": "docs.json",
-          "postProcessHash": "6364e2f6fcd10df74e153ed7723b293437e44bea13dea312e51323f8c5fb1fb5"
+          "postProcessHash": "db3484d5a18fc90de67853c07df9844f7d2969b59d76e844ff92aa43539169a1"
         },
         "ko": {
-          "updatedAt": "2026-10-06T03:42:54.666Z",
+          "updatedAt": "2026-10-06T07:33:46.747Z",
           "fileName": "docs.json",
-          "postProcessHash": "6364e2f6fcd10df74e153ed7723b293437e44bea13dea312e51323f8c5fb1fb5"
+          "postProcessHash": "db3484d5a18fc90de67853c07df9844f7d2969b59d76e844ff92aa43539169a1"
         },
         "ru": {
-          "updatedAt": "2026-10-06T03:42:55.045Z",
+          "updatedAt": "2026-10-06T07:33:47.096Z",
           "fileName": "docs.json",
-          "postProcessHash": "6364e2f6fcd10df74e153ed7723b293437e44bea13dea312e51323f8c5fb1fb5"
+          "postProcessHash": "db3484d5a18fc90de67853c07df9844f7d2969b59d76e844ff92aa43539169a1"
         }
       },
       "fileName": "docs.json"
@@ -135621,47 +135621,47 @@
     },
     {
       "fileId": "95a0c8b4ffe85316616b836936bf94ff6e8e6ce04859c9961878d2324d3efb0a",
-      "versionId": "5e920e3b5153e08c9faea7c61a9c5f5f72011e3ca50103851d663da6827a3ad5",
+      "versionId": "fc2069027b8e577735dbed9e6f145fc54ae013c3aba5e33ba2c6c934f934773e",
       "translations": {
-        "es": {
-          "updatedAt": "2026-09-24T10:24:05.128Z",
-          "fileName": "es/products/bring-your-own-cloud/connector/onboarding.mdx",
-          "postProcessHash": "927ba939528a86b60eefe18527be1a83b06d97177ac901c09bec99f06f8dc604"
-        },
-        "ja": {
-          "updatedAt": "2026-09-24T10:24:05.128Z",
-          "fileName": "ja/products/bring-your-own-cloud/connector/onboarding.mdx",
-          "postProcessHash": "c6ac76a5b3bb63e98ea950c1a798a0ff5ce633c97bada0c3051ff727abb7a806"
-        },
-        "ko": {
-          "updatedAt": "2026-09-24T10:24:05.129Z",
-          "fileName": "ko/products/bring-your-own-cloud/connector/onboarding.mdx",
-          "postProcessHash": "31242f3562bddceec7523d24e3cc27326bc2fa86de2f892f8a7bbf2baca1d298"
-        },
         "pt-BR": {
-          "updatedAt": "2026-09-24T10:24:05.129Z",
+          "updatedAt": "2026-10-06T07:33:51.018Z",
           "fileName": "pt-BR/products/bring-your-own-cloud/connector/onboarding.mdx",
-          "postProcessHash": "0acc9df770ecdd7a7a2cb26f2f45cc79031ba0b3251f45cc0e07cb63d44984c8"
-        },
-        "ru": {
-          "updatedAt": "2026-09-24T10:24:05.130Z",
-          "fileName": "ru/products/bring-your-own-cloud/connector/onboarding.mdx",
-          "postProcessHash": "38bef8e008f2ad3adb831e4dea57b9ec0425ec9bb7c5b5a357e889124eed5ee0"
-        },
-        "zh": {
-          "updatedAt": "2026-09-24T10:24:05.130Z",
-          "fileName": "zh/products/bring-your-own-cloud/connector/onboarding.mdx",
-          "postProcessHash": "44cdc51e289700e4e61e3e0df9f67a5f038aa6926af1f7bf323bab5a9779c356"
-        },
-        "ar": {
-          "updatedAt": "2026-09-24T10:24:05.131Z",
-          "fileName": "ar/products/bring-your-own-cloud/connector/onboarding.mdx",
-          "postProcessHash": "3bdff8150fd8291fb60b53ae296308006656f6dd9f17881535e3a899495844ff"
+          "postProcessHash": "68bafd957cb6ebd428e3e20fa07b2e7a930cb88daf3afe90eb7d1460014e4684"
         },
         "fr": {
-          "updatedAt": "2026-09-24T10:24:05.131Z",
+          "updatedAt": "2026-10-06T07:33:51.020Z",
           "fileName": "fr/products/bring-your-own-cloud/connector/onboarding.mdx",
-          "postProcessHash": "956ee2bc35c675e4e448488f31e93eb3f6bfceca8d7f3377ec722d900821ba17"
+          "postProcessHash": "b1056e84ec6079c03fcaf84f4965c308ef6dc1591cc02426088b89613e766b00"
+        },
+        "ja": {
+          "updatedAt": "2026-10-06T07:33:51.021Z",
+          "fileName": "ja/products/bring-your-own-cloud/connector/onboarding.mdx",
+          "postProcessHash": "676bc1a19cb82582e314083bb4a8a198341ff93fd1233ada1ff301cc223b4bf3"
+        },
+        "es": {
+          "updatedAt": "2026-10-06T07:33:51.021Z",
+          "fileName": "es/products/bring-your-own-cloud/connector/onboarding.mdx",
+          "postProcessHash": "37eb6e19983429e8d4f307107fddcc0739e38a23b4fba260bca0f7b7b39d9a58"
+        },
+        "ru": {
+          "updatedAt": "2026-10-06T07:33:51.022Z",
+          "fileName": "ru/products/bring-your-own-cloud/connector/onboarding.mdx",
+          "postProcessHash": "d829a4a796ebafb7821d0aa2597591cce610769ce813c6e8dac791e8fe74b9df"
+        },
+        "ar": {
+          "updatedAt": "2026-10-06T07:33:51.022Z",
+          "fileName": "ar/products/bring-your-own-cloud/connector/onboarding.mdx",
+          "postProcessHash": "f056a2894c5093b7a8842ca4d49c4bfda270f400a1359bcdf6d80a343207572e"
+        },
+        "ko": {
+          "updatedAt": "2026-10-06T07:33:51.023Z",
+          "fileName": "ko/products/bring-your-own-cloud/connector/onboarding.mdx",
+          "postProcessHash": "5a48c71b6221564db8253c6a2d55ab583343d459a2968ec6cc3fa2ac87193e91"
+        },
+        "zh": {
+          "updatedAt": "2026-10-06T07:33:51.023Z",
+          "fileName": "zh/products/bring-your-own-cloud/connector/onboarding.mdx",
+          "postProcessHash": "4e9da0596adee3a7a4b496576def4724e3dd73438f688dee4ddde399e40fa230"
         }
       },
       "fileName": "products/bring-your-own-cloud/connector/onboarding.mdx"
@@ -135903,47 +135903,47 @@
     },
     {
       "fileId": "d1bda4670bc5140c4563e5318934b65c56321b5143c7fd4d60b031be1eee48df",
-      "versionId": "979ffe4a9558f094bd0da45a84a88f1d8ddabf90dab04731743c68f15979a42b",
+      "versionId": "19c29b498cd9377e86b00fa6c8b40f6cc2ff33074fd1f61f8c14e5e7e53acaa0",
       "translations": {
-        "es": {
-          "updatedAt": "2026-09-24T10:24:07.155Z",
-          "fileName": "es/products/bring-your-own-cloud/connector/reference/cli.mdx",
-          "postProcessHash": "8fd6ebba89fcb55080144ca1475b1c4b4c5fc737c530aae64eb1a0c4cd4af1d2"
-        },
         "ja": {
-          "updatedAt": "2026-09-24T10:24:07.156Z",
+          "updatedAt": "2026-10-06T07:33:51.024Z",
           "fileName": "ja/products/bring-your-own-cloud/connector/reference/cli.mdx",
-          "postProcessHash": "8e5fab6a741689c8637eec10604d9cf20ae63aca9eee9a60696cf3d6965dfe7f"
+          "postProcessHash": "e58fe54798de7b4ca7210b61c1ae5f4c3f6cf5f6641b2dc30c0890ee5b9e5591"
         },
-        "ko": {
-          "updatedAt": "2026-09-24T10:24:07.157Z",
-          "fileName": "ko/products/bring-your-own-cloud/connector/reference/cli.mdx",
-          "postProcessHash": "63f1af939a8c6e99df5e7daf8b6d306d7aa9378c6b7ea7bb0321b194a408f23b"
-        },
-        "pt-BR": {
-          "updatedAt": "2026-09-24T10:24:07.157Z",
-          "fileName": "pt-BR/products/bring-your-own-cloud/connector/reference/cli.mdx",
-          "postProcessHash": "100e64adecd310855081ea69b1208bbdd78246eadddb0fb306c3bae166e659a3"
+        "es": {
+          "updatedAt": "2026-10-06T07:33:51.024Z",
+          "fileName": "es/products/bring-your-own-cloud/connector/reference/cli.mdx",
+          "postProcessHash": "62c616735fe4db82f2290365ce8d4905a94986eb096c39c303a6920c1d1bdd45"
         },
         "ru": {
-          "updatedAt": "2026-09-24T10:24:07.158Z",
+          "updatedAt": "2026-10-06T07:33:51.025Z",
           "fileName": "ru/products/bring-your-own-cloud/connector/reference/cli.mdx",
-          "postProcessHash": "531fe4f462532161f508902090e068451776c69fcace9694f254382b78aca46e"
+          "postProcessHash": "15b05f03613ecb869e69ac817f27ff0bc99db990da99a56713723d8f047298ac"
         },
-        "zh": {
-          "updatedAt": "2026-09-24T10:24:07.159Z",
-          "fileName": "zh/products/bring-your-own-cloud/connector/reference/cli.mdx",
-          "postProcessHash": "a49cb2969a29eabe049cb3a74514d430d368d89ca6e626da24dbf19d7c45d6f4"
-        },
-        "ar": {
-          "updatedAt": "2026-09-24T10:24:07.160Z",
-          "fileName": "ar/products/bring-your-own-cloud/connector/reference/cli.mdx",
-          "postProcessHash": "4962b821dcaabb0a929b299cf9282ae7ede62343699b88a60719272d0338c04f"
+        "pt-BR": {
+          "updatedAt": "2026-10-06T07:33:51.025Z",
+          "fileName": "pt-BR/products/bring-your-own-cloud/connector/reference/cli.mdx",
+          "postProcessHash": "ac82eeda8294c973282d76af8519539bdbd611d9337e067c8e7d506bb7a496d1"
         },
         "fr": {
-          "updatedAt": "2026-09-24T10:24:07.160Z",
+          "updatedAt": "2026-10-06T07:33:51.026Z",
           "fileName": "fr/products/bring-your-own-cloud/connector/reference/cli.mdx",
-          "postProcessHash": "feb6bb47675059d7fee543110a8fdeb9b6add54b5b7a90244f499939b8250a13"
+          "postProcessHash": "f3913144bc874ea1e0e7892f2e37c74ee43be7c3983cca690b3b5e30ace14f42"
+        },
+        "zh": {
+          "updatedAt": "2026-10-06T07:33:51.027Z",
+          "fileName": "zh/products/bring-your-own-cloud/connector/reference/cli.mdx",
+          "postProcessHash": "29edb7a0a2f1f4daa554511efc80b9ef8012ce8b1a05820096d825ed64ef56d8"
+        },
+        "ar": {
+          "updatedAt": "2026-10-06T07:33:51.027Z",
+          "fileName": "ar/products/bring-your-own-cloud/connector/reference/cli.mdx",
+          "postProcessHash": "37ab9875effd4f67ccbbb2514b401422b0ad4a4aff8d2744cb70dbe24a53f1c9"
+        },
+        "ko": {
+          "updatedAt": "2026-10-06T07:33:51.028Z",
+          "fileName": "ko/products/bring-your-own-cloud/connector/reference/cli.mdx",
+          "postProcessHash": "da1d07b344481d2f64ad92a209d32f9fc281f0efc0cdc6fa259be5f87681281e"
         }
       },
       "fileName": "products/bring-your-own-cloud/connector/reference/cli.mdx"
@@ -140647,6 +140647,53 @@
         }
       },
       "fileName": "resources/changelogs/cloud/release-notes/26_8.mdx"
+    },
+    {
+      "fileId": "a2715ceeb74e07e5d24b58cd98b9f14780cd6a96cb6ce3c9c6dc1afddc74029c",
+      "versionId": "0528fe28b8b3f7d74754614dbccb6eabbff608ba8bd7491b909777be410ae0f1",
+      "translations": {
+        "es": {
+          "updatedAt": "2026-10-06T07:33:51.017Z",
+          "fileName": "es/products/bring-your-own-cloud/connector/terraform-aws.mdx",
+          "postProcessHash": "99246843e3cdb2b44dc2ebb8661450244c4a803bfde96c5d4d0163e47d89601e"
+        },
+        "ru": {
+          "updatedAt": "2026-10-06T07:33:51.017Z",
+          "fileName": "ru/products/bring-your-own-cloud/connector/terraform-aws.mdx",
+          "postProcessHash": "9340408408848ac041539787ba1084d7ad0348dc12c412b3e8de7f1807c7adb2"
+        },
+        "fr": {
+          "updatedAt": "2026-10-06T07:33:51.018Z",
+          "fileName": "fr/products/bring-your-own-cloud/connector/terraform-aws.mdx",
+          "postProcessHash": "f9ec7b5d1e75a0d9522751ebeeeb3aef563f891cd38638141ec778371f995262"
+        },
+        "pt-BR": {
+          "updatedAt": "2026-10-06T07:33:51.019Z",
+          "fileName": "pt-BR/products/bring-your-own-cloud/connector/terraform-aws.mdx",
+          "postProcessHash": "cc3a764d5820b13d3cfa3c73a51d52c223873876380f7ed07cc21bd306748b46"
+        },
+        "ar": {
+          "updatedAt": "2026-10-06T07:33:51.019Z",
+          "fileName": "ar/products/bring-your-own-cloud/connector/terraform-aws.mdx",
+          "postProcessHash": "72713247443bfb10aa34bd8966c708dcbbcabaecfbac722f9b551dbc329ea951"
+        },
+        "ja": {
+          "updatedAt": "2026-10-06T07:33:51.019Z",
+          "fileName": "ja/products/bring-your-own-cloud/connector/terraform-aws.mdx",
+          "postProcessHash": "1f39e6f438e6c3d86630b8087f9bf79ca9bce56c5c9f518c7d53bd576dee78b8"
+        },
+        "ko": {
+          "updatedAt": "2026-10-06T07:33:51.020Z",
+          "fileName": "ko/products/bring-your-own-cloud/connector/terraform-aws.mdx",
+          "postProcessHash": "626a4ce7c0b13f7d519b54e4a497ead5d62daf3d53a916e11294f96b3aee52cd"
+        },
+        "zh": {
+          "updatedAt": "2026-10-06T07:33:51.021Z",
+          "fileName": "zh/products/bring-your-own-cloud/connector/terraform-aws.mdx",
+          "postProcessHash": "ab754d6473808e80fbf5f28a9bbc556f8c959de074f4cf82fef242b0f6ae545f"
+        }
+      },
+      "fileName": "products/bring-your-own-cloud/connector/terraform-aws.mdx"
     }
   ]
 }
