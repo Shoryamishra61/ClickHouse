@@ -183,7 +183,8 @@ String AIServerFunctionTransport::renderSystemPrompt(const String & system_promp
         "After your tool calls, stop and wait: the results will be provided in the next message as "
         "'Tool result [<n>]' entries, in the order of your calls. "
         "When you do not call any tools, your message is the final answer. "
-        "A block inside Markdown code - a code span or a fenced code block (with backticks or tildes) - is not a call: "
+        "A block inside Markdown code - a code span, a fenced code block (with backticks or tildes), or a line "
+        "indented by four spaces or a tab - is not a call: "
         "to show the syntax of a tool call without making it, put it in code.\n\n",
         out);
 
@@ -432,6 +433,24 @@ size_t tildeFenceAt(const String & s, size_t line_start)
     return run >= 3 ? run : 0;
 }
 
+/// Whether the line starting at `line_start` is indented by at least four columns of spaces and
+/// tabs, as a line of a Markdown indented code block is. A paragraph continuation line can be
+/// indented as well, but treating it as code only makes a call be shown instead of executed.
+bool isIndentedCodeLine(const String & s, size_t line_start)
+{
+    size_t column = 0;
+    for (size_t i = line_start; i < s.size() && column < 4; ++i)
+    {
+        if (s[i] == ' ')
+            ++column;
+        else if (s[i] == '\t')
+            column = 4;
+        else
+            break;
+    }
+    return column >= 4;
+}
+
 /// Whether the rest of the line after `pos` holds only whitespace.
 bool restOfLineIsBlank(const String & s, size_t pos)
 {
@@ -444,9 +463,9 @@ bool restOfLineIsBlank(const String & s, size_t pos)
 /// The position of the next `open_tag` at or after `pos` that is outside of Markdown code - a code
 /// span or a fenced code block opened and closed by a run of backticks of the same length, or a
 /// fenced code block opened by a line starting with three or more tildes and closed by a line of at
-/// least as many tildes - or `npos`. A tool call block inside code is an example of the syntax the
-/// model shows, e.g. when asked how the protocol looks, and must not be executed: the read-only and
-/// schema tools run without a confirmation. Code that is never closed extends to the end of the
+/// least as many tildes, or an indented code block - or `npos`. A tool call block inside code is an
+/// example of the syntax the model shows, e.g. when asked how the protocol looks, and must not be
+/// executed: the read-only and schema tools run without a confirmation. Code that is never closed extends to the end of the
 /// response, so a stray backtick or tilde fence can only make a call be shown instead of executed,
 /// never the other way around.
 size_t findToolCallOutsideCode(const String & s, size_t pos, std::string_view open_tag)
@@ -465,6 +484,13 @@ size_t findToolCallOutsideCode(const String & s, size_t pos, std::string_view op
                     code_tildes = run;
                 else if (run >= code_tildes && restOfLineIsBlank(s, s.find('~', i) + run))
                     code_tildes = 0;
+                size_t line_end = s.find('\n', i);
+                i = line_end == String::npos ? s.size() : line_end + 1;
+                continue;
+            }
+            if (code_tildes == 0 && isIndentedCodeLine(s, i))
+            {
+                /// Backticks inside an indented code block are literal, so the whole line is skipped.
                 size_t line_end = s.find('\n', i);
                 i = line_end == String::npos ? s.size() : line_end + 1;
                 continue;

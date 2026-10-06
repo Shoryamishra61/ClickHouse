@@ -93,6 +93,23 @@ TEST(AIAgentProtocol, ToolCallInCodeIsNotExecuted)
     /// An unclosed tilde fence extends to the end.
     step = AIServerFunctionTransport::parseResponse("~~~\n<tool_call>{\"name\": \"a\", \"arguments\": {}}</tool_call>", counter);
     EXPECT_TRUE(step.tool_calls.empty());
+
+    /// A line indented by four spaces or a tab is an indented code block, and backticks in it are
+    /// literal: they do not open a code span that would hide the call after it.
+    step = AIServerFunctionTransport::parseResponse(
+        "The syntax is:\n"
+        "\n"
+        "    <tool_call>{\"name\": \"run_readonly_query\", \"arguments\": {\"query\": \"SELECT 1\"}}</tool_call>\n"
+        "\t<tool_call>{\"name\": \"list_tables\", \"arguments\": {}}</tool_call> `\n"
+        "  \t<tool_call>{\"name\": \"describe_table\", \"arguments\": {}}</tool_call>\n"
+        "\n"
+        "   <tool_call>{\"name\": \"b\", \"arguments\": {}}</tool_call>",
+        counter);
+    ASSERT_EQ(step.tool_calls.size(), 1u);
+    EXPECT_EQ(step.tool_calls[0].tool_name, "b");
+    EXPECT_NE(step.text.find("run_readonly_query"), String::npos);
+    EXPECT_NE(step.text.find("list_tables"), String::npos);
+    EXPECT_NE(step.text.find("describe_table"), String::npos);
 }
 
 TEST(AIAgentProtocol, ParseArgumentsAsEncodedString)
