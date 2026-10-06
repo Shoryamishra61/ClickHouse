@@ -1349,17 +1349,11 @@ bool HashJoin::addBlockToJoin(const Block & block, ScatteredBlock::Selector sele
                     }
                     else
                     {
-                        using Map = std::decay_t<decltype(map)>;
-                        /// A set cell is narrower than the others, so it needs its own kind here.
-                        constexpr MapsKind scatter_maps_kind = std::is_same_v<Map, HashJoin::MapsOne> ? MapsKind::One
-                            : std::is_same_v<Map, HashJoin::MapsAll>                                  ? MapsKind::All
-                            : std::is_same_v<Map, HashJoin::MapsSet>                                  ? MapsKind::Set
-                                                                                                      : MapsKind::Asof;
                         {
                             ProfileEventTimeIncrement<Microseconds> scatter_watch(ProfileEvents::HashJoinBuildScatterMicroseconds);
                             scattered = scatterBlockBySlot(
                                 data->type,
-                                scatter_maps_kind,
+                                map,
                                 key_columns,
                                 key_sizes[onexpr_idx],
                                 stored_columns->selector,
@@ -2057,9 +2051,7 @@ private:
 
             while (it != end && rows_added < max_block_size)
             {
-                /// Cheaper than `offsetInternal`: the bucket is known and the prefix sums are up
-                /// to date, thanks to `freezeMapsForProbing`.
-                size_t offset = map.offsetInternalAtBucket(it.getPtr(), it.getBucket());
+                size_t offset = map.offsetInternal(it.getPtr());
                 if (!parent.isUsed(offset))
                 {
                     const Mapped & mapped = it->getMapped();

@@ -15,26 +15,17 @@ namespace DB
 namespace
 {
 
-/// `routingHashForRow` wants a map to hash with, and there is no instance here.
-template <typename RepMap>
-struct ScatterHashAdapter
-{
-    template <typename K>
-    size_t hash(const K & key) const { return RepMap::hash(key); }
-};
-
-/// Instantiated per key type instead of per (kind, strictness, mapped type). `RepMap` stands in for
-/// the clause's map - any mapped type will do except for a fixed-range one, see `MapsKind`. Routing
-/// forwards to the map's own statics, so the two cannot disagree.
-template <HashJoin::Type type, typename RepMap>
+/// Routes each row the way `map` places its key: by `map.hash` and `getBucketOfKey`.
+template <HashJoin::Type type, typename Map>
 SlotScatter scatterImpl(
+    const Map & map,
     const ColumnRawPtrs & key_columns,
     const Sizes & key_sizes,
     const ScatteredBlock::Selector & selector,
     size_t num_slots,
     bool is_asof)
 {
-    using KeyGetter = KeyGetterForType<type, RepMap, false>::Type;
+    using KeyGetter = KeyGetterForType<type, Map, false>::Type;
 
     if constexpr (requires { KeyGetter::has_pre_computed_hashes; })
         static_assert(!KeyGetter::has_pre_computed_hashes, "Bucket routing assumes the map computes the hash it places by");
@@ -43,8 +34,6 @@ SlotScatter scatterImpl(
     /// right here. `dense_keys` below still gathers the full key list, ASOF column included.
     KeyGetter key_getter
         = is_asof ? createKeyGetter<KeyGetter, true>(key_columns, key_sizes) : createKeyGetter<KeyGetter, false>(key_columns, key_sizes);
-
-    static constexpr ScatterHashAdapter<RepMap> hash_adapter{};
 
     /// Nothing here outlives the call: the key holders are read for their hash, never persisted.
     Arena scratch_pool;
@@ -59,12 +48,12 @@ SlotScatter scatterImpl(
         const auto & key = keyHolderGetKey(key_holder);
 
         size_t hash_value = 0;
-        if constexpr (requires { key_getter.routingHashForRow(hash_adapter, selector[i], scratch_pool); })
-            hash_value = key_getter.routingHashForRow(hash_adapter, selector[i], scratch_pool);
+        if constexpr (requires { key_getter.routingHashForRow(map, selector[i], scratch_pool); })
+            hash_value = key_getter.routingHashForRow(map, selector[i], scratch_pool);
         else
-            hash_value = RepMap::hash(key);
+            hash_value = map.hash(key);
 
-        const size_t bucket = RepMap::getBucketFromHash(RepMap::bucketRoutingHash(key, hash_value));
+        const size_t bucket = getBucketOfKey<Map>(key, hash_value);
         const auto slot = static_cast<UInt32>(slotForBucket(bucket, num_slots));
         row_to_slot[i] = slot;
         ++counts[slot];
@@ -119,60 +108,35 @@ SlotScatter scatterImpl(
 
 }
 
+template <typename Maps>
 SlotScatter scatterBlockBySlot(
     HashJoin::Type type,
-    MapsKind maps_kind,
+    const Maps & maps,
     const ColumnRawPtrs & key_columns,
     const Sizes & key_sizes,
     const ScatteredBlock::Selector & selector,
     size_t num_slots)
 {
     /// `MapsAsof` is the map of every ASOF clause and of no other strictness.
-    const bool is_asof = maps_kind == MapsKind::Asof;
+    constexpr bool is_asof = std::is_same_v<Maps, HashJoin::MapsAsof>;
     switch (type)
     {
 #define M(NAME) \
         case HashJoin::Type::NAME: \
-        { \
-            using MapOne = typename decltype(std::declval<HashJoin::MapsOne>().NAME)::element_type; \
-            if constexpr (is_partitioned_fixed_table<MapOne>) \
-            { \
-                switch (maps_kind) \
-                { \
-                    case MapsKind::One: \
-                        return scatterImpl<HashJoin::Type::NAME, MapOne>( \
-                            key_columns, key_sizes, selector, num_slots, is_asof); \
-                    case MapsKind::All: \
-                    { \
-                        using MapAll = typename decltype(std::declval<HashJoin::MapsAll>().NAME)::element_type; \
-                        return scatterImpl<HashJoin::Type::NAME, MapAll>( \
-                            key_columns, key_sizes, selector, num_slots, is_asof); \
-                    } \
-                    case MapsKind::Asof: \
-                    { \
-                        using MapAsof = typename decltype(std::declval<HashJoin::MapsAsof>().NAME)::element_type; \
-                        return scatterImpl<HashJoin::Type::NAME, MapAsof>( \
-                            key_columns, key_sizes, selector, num_slots, is_asof); \
-                    } \
-                    case MapsKind::Set: \
-                    { \
-                        using MapSet = typename decltype(std::declval<HashJoin::MapsSet>().NAME)::element_type; \
-                        return scatterImpl<HashJoin::Type::NAME, MapSet>( \
-                            key_columns, key_sizes, selector, num_slots, is_asof); \
-                    } \
-                } \
-            } \
-            else \
-            { \
-                return scatterImpl<HashJoin::Type::NAME, MapOne>( \
-                    key_columns, key_sizes, selector, num_slots, is_asof); \
-            } \
-        }
-
+            return scatterImpl<HashJoin::Type::NAME>(*maps.NAME, key_columns, key_sizes, selector, num_slots, is_asof);
             APPLY_FOR_JOIN_VARIANTS(M)
 #undef M
     }
     UNREACHABLE();
 }
+
+template SlotScatter scatterBlockBySlot(
+    HashJoin::Type, const HashJoin::MapsOne &, const ColumnRawPtrs &, const Sizes &, const ScatteredBlock::Selector &, size_t);
+template SlotScatter scatterBlockBySlot(
+    HashJoin::Type, const HashJoin::MapsAll &, const ColumnRawPtrs &, const Sizes &, const ScatteredBlock::Selector &, size_t);
+template SlotScatter scatterBlockBySlot(
+    HashJoin::Type, const HashJoin::MapsAsof &, const ColumnRawPtrs &, const Sizes &, const ScatteredBlock::Selector &, size_t);
+template SlotScatter scatterBlockBySlot(
+    HashJoin::Type, const HashJoin::MapsSet &, const ColumnRawPtrs &, const Sizes &, const ScatteredBlock::Selector &, size_t);
 
 }

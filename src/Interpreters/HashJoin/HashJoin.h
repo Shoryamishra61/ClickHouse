@@ -29,8 +29,7 @@
 #include <Common/HashTable/HashMap.h>
 #include <Common/HashTable/HashSet.h>
 #include <Common/HashTable/HashTableTraits.h>
-#include <Common/HashTable/PartitionedFixedHashMap.h>
-#include <Common/HashTable/PartitionedFixedHashSet.h>
+#include <Common/HashTable/PartitionedFixedHashTable.h>
 #include <Common/HashTable/TwoLevelHashMap.h>
 
 namespace DB
@@ -146,13 +145,6 @@ using TwoLevelJoinHashMapWithSavedHash = std::conditional_t<
         HashTableAllocator,
         HashMapTable,
         BITS_FOR_BUCKET_TWO_LEVEL>>;
-
-/// A `PartitionedFixedHashTable` keeps one flat table under all its buckets, with no sub-table per bucket.
-template <typename Table>
-constexpr bool is_partitioned_fixed_table = false;
-
-template <typename Impl, size_t bits>
-constexpr bool is_partitioned_fixed_table<PartitionedFixedHashTable<Impl, bits>> = true;
 
 template <typename Key, typename Mapped, size_t size_bits = sizeof(Key) * 8>
 using JoinFixedHashMap = std::conditional_t<
