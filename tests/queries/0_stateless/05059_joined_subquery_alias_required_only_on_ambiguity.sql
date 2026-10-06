@@ -117,6 +117,8 @@ SELECT rhs.arr FROM (SELECT [1] AS arr) ARRAY JOIN arr INNER JOIN (SELECT 0 AS a
 SELECT x FROM numbers(1) AS l ARRAY JOIN [1] AS x INNER JOIN (SELECT 0 AS x) AS rhs ON true;
 SELECT arr FROM (SELECT [1] AS arr) ARRAY JOIN arr;
 SELECT y FROM (SELECT [1] AS arr, 2 AS y) ARRAY JOIN arr INNER JOIN (SELECT 0 AS z) AS rhs ON true;
+SELECT * FROM (SELECT [1] AS arr, 2 AS x) ARRAY JOIN arr AS x;
+SELECT * FROM (SELECT [1] AS arr, 2 AS x) ARRAY JOIN arr AS x CROSS JOIN (SELECT 0 AS x); -- { serverError ALIAS_REQUIRED }
 
 SELECT '-- The restriction can be disabled entirely';
 SELECT brand FROM item, (SELECT s_brand AS brand FROM sales) ORDER BY brand SETTINGS joined_subquery_requires_alias = 0;

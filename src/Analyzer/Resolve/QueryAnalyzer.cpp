@@ -2781,10 +2781,17 @@ static const IQueryTreeNode * findInnermostJoinCombiningTableExpressions(
 
 /// The table expression a matched node originates from. Subcolumns and `Nested` columns are resolved into functions
 /// (`getSubcolumn`, `nested`) over the actual columns, and the column is not necessarily the first argument.
+/// The column source of an array-joined column is the `ArrayJoinNode` itself, while the other columns of the same table
+/// expression keep the wrapped table expression as their source, hence the unwrapping.
 static const IQueryTreeNode * getMatchedColumnSource(const QueryTreeNodePtr & node)
 {
     if (const auto * column_node = node->as<ColumnNode>())
-        return column_node->getColumnSourceOrNull().get();
+    {
+        const IQueryTreeNode * column_source = column_node->getColumnSourceOrNull().get();
+        while (const auto * array_join_node = column_source ? column_source->as<ArrayJoinNode>() : nullptr)
+            column_source = array_join_node->getTableExpressionNode().get();
+        return column_source;
+    }
 
     if (const auto * function_node = node->as<FunctionNode>())
     {
