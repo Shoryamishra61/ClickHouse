@@ -870,6 +870,14 @@ public:
 
         auto block = getHeader().cloneWithColumns(chunk.getColumns());
 
+        /// Reads serve rows straight from the buffer and may resolve subcolumns of a `String` column there
+        /// (for example `s.size` after `optimize_functions_to_subcolumns`), which a non-native
+        /// `ColumnLowCardinality` (automatic `LowCardinality` serialization of a source table) does not have.
+        /// The insert pipeline normally delivers full columns already; make sure the buffer never keeps the
+        /// encoded representation, whatever the source of the block.
+        for (auto & column : block)
+            column.column = recursiveRemoveNonNativeLowCardinality(column.column);
+
         StoragePtr destination = storage.getDestinationTable();
         if (destination)
         {
