@@ -228,6 +228,13 @@ namespace Setting
 /// cap rather than reject the query, keeping the setting a pure performance knob.
 static constexpr size_t MAX_LIST_OBJECT_PARALLELISM = 1000;
 
+/// Upper bound on the page size of the parallel listing. `list_object_keys_size` is not validated, yet it
+/// feeds the buffered-key cap (`page_size * parallelism * 2`) and the a-priori page byte bound, so an absurd
+/// value (e.g. set by a fuzzer) would overflow them. Listing services never return pages this large
+/// (`ListObjectsV2` returns at most 1000 keys, and the request narrows `MaxKeys` to `int`), so clamping
+/// both the requested page size and the derived caps loses nothing.
+static constexpr size_t MAX_LIST_OBJECT_KEYS_SIZE = 10000;
+
 static void logIcebergFileStats(const ObjectInfoPtr & object_info, const LoggerPtr & log)
 {
 #if USE_AVRO
@@ -2075,7 +2082,10 @@ StorageObjectStorageSource::GlobIterator::GlobIterator(
         /// cap below: deriving the cap from the raw zero would collapse it to a single key while
         /// every listed page still carries a full default-sized batch, blocking the workers on the
         /// count budget and serializing the parallel listing.
-        const size_t page_size = list_object_keys_size ? list_object_keys_size : object_storage->getListObjectsDefaultPageSize();
+        /// Clamp it as well (see `MAX_LIST_OBJECT_KEYS_SIZE`) so the caps derived from it cannot overflow.
+        const size_t page_size = std::min(
+            list_object_keys_size ? list_object_keys_size : object_storage->getListObjectsDefaultPageSize(),
+            MAX_LIST_OBJECT_KEYS_SIZE);
 
         if (parallelism > 1
             && !globPathHasRecursiveWildcard(key_with_globs.path)
