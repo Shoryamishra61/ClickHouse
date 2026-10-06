@@ -1904,7 +1904,7 @@ void MergeTreeIndexTextGranuleBuilder::addDocumentsFromLowCardinality(
     const auto * column_array = typeid_cast<const ColumnArray *>(column.get());
     const auto & column_low_cardinality = assert_cast<const ColumnLowCardinality &>(column_array ? column_array->getData() : *column);
     const IColumnUnique & dictionary = column_low_cardinality.getDictionary();
-    auto elements_begin = [&](size_t row) { return column_array ? column_array->getOffsets()[row - 1] : row; };
+    auto elements_begin = [&](size_t row) { return column_array ? column_array->getOffsets()[static_cast<ssize_t>(row) - 1] : row; };
 
     /// Values must repeat for the cache to pay off.
     static constexpr size_t min_documents_per_value = 8;
