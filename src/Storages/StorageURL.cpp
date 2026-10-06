@@ -313,10 +313,12 @@ namespace
         return headers;
     }
 
+    /// `description` is the pattern `uri` was generated from: when the failover options of `uri` alone
+    /// exceed the limit, the message reports the addresses of the whole pattern.
     StorageURLSource::FailoverOptions
-    getFailoverOptions(const String & uri, size_t max_addresses, const RemoteDescriptionCaller & caller)
+    getFailoverOptions(const String & uri, const String & description, size_t max_addresses, const RemoteDescriptionCaller & caller)
     {
-        return parseRemoteDescription(uri, 0, uri.size(), '|', max_addresses, caller);
+        return parseReplicasOfShard(uri, description, max_addresses, caller);
     }
 }
 
@@ -1412,17 +1414,19 @@ namespace
     class URLReadBufferIterator : public IReadBufferIterator, WithContext
     {
     public:
-        /// `url_producer_` yields the addresses to try, one at a time. Inference stops at the first
-        /// address it can read from, so a pattern is only expanded as far as that.
+        /// `url_producer_` yields the addresses to try, one at a time, generated from `description_`.
+        /// Inference stops at the first address it can read from, so a pattern is only expanded as far
+        /// as that.
         URLReadBufferIterator(
             URLProducer url_producer_,
+            const String & description_,
             std::optional<String> format_,
             const CompressionMethod & compression_method_,
             const HTTPHeaderEntries & headers_,
             const std::optional<FormatSettings> & format_settings_,
             const ContextPtr & context_,
             const RemoteDescriptionCaller & caller_)
-            : WithContext(context_), url_producer(std::move(url_producer_)), caller(caller_), format(std::move(format_)), compression_method(compression_method_), headers(headers_), format_settings(format_settings_)
+            : WithContext(context_), url_producer(std::move(url_producer_)), description(description_), caller(caller_), format(std::move(format_)), compression_method(compression_method_), headers(headers_), format_settings(format_settings_)
         {
             produceMoreURLs();
         }
@@ -1566,7 +1570,7 @@ namespace
 
             String url;
             while (url_options_to_check.size() - size_before < target && url_producer(url))
-                url_options_to_check.push_back(getFailoverOptions(url, max_addresses, caller));
+                url_options_to_check.push_back(getFailoverOptions(url, description, max_addresses, caller));
 
             return url_options_to_check.size() != size_before;
         }
@@ -1651,6 +1655,7 @@ namespace
         }
 
         URLProducer url_producer;
+        const String description;
         const RemoteDescriptionCaller caller;
         std::vector<std::vector<String>> url_options_to_check;
         size_t current_index = 0;
@@ -1702,7 +1707,7 @@ std::pair<ColumnsDescription, String> IStorageURLBase::getTableStructureAndForma
         };
     }
 
-    URLReadBufferIterator read_buffer_iterator(url_producer, format, compression_method, headers, format_settings, context, caller);
+    URLReadBufferIterator read_buffer_iterator(url_producer, uri, format, compression_method, headers, format_settings, context, caller);
     if (format)
         return {readSchemaFromFormat(*format, format_settings, read_buffer_iterator, context), *format};
     return detectFormatAndReadSchema(format_settings, read_buffer_iterator, context);
@@ -1948,7 +1953,9 @@ void ReadFromURL::createIterator(const ActionsDAG::Node * predicate)
                 auto task = callback();
                 if (!task || task->isEmpty())
                     return StorageURLSource::FailoverOptions{};
-                return getFailoverOptions(task->path, max_addresses, caller);
+                /// The worker only knows its task, not the pattern of the initiator, which counts the
+                /// failover options of every task against the limit before handing it out.
+                return parseRemoteDescription(task->path, 0, task->path.size(), '|', max_addresses, caller);
             });
     }
     else
@@ -1976,7 +1983,7 @@ void ReadFromURL::createIterator(const ActionsDAG::Node * predicate)
                 String next_uri = glob_iterator->next();
                 if (next_uri.empty())
                     return StorageURLSource::FailoverOptions{};
-                auto options = getFailoverOptions(next_uri, max_addresses, caller);
+                auto options = getFailoverOptions(next_uri, uri, max_addresses, caller);
                 if (with_globs && consumed_addresses->fetch_add(options.size()) + options.size() > max_addresses)
                     throwTooManyAddressesForDescription(uri, ',', '|', caller, max_addresses);
                 return options;

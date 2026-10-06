@@ -127,6 +127,16 @@ public:
 private:
     friend std::vector<RemoteDescriptionShard> parseRemoteDescriptionWithFailover(
         const String & description, size_t max_addresses, const RemoteDescriptionCaller & caller);
+    friend std::vector<String> parseReplicasOfShard(
+        const String & shard, const String & description, size_t max_addresses, const RemoteDescriptionCaller & caller);
+
+    /// The description the user wrote, for the error message - see `throwTooManyAddressesForDescription`.
+    struct Origin
+    {
+        String description;
+        char separator;
+        std::optional<char> replica_separator;
+    };
 
     /// One position of the direct product: either a set of alternatives, or a numeric interval, which
     /// is kept symbolic so that `{0..1000000000}` does not cost a billion strings.
@@ -150,7 +160,8 @@ private:
     };
 
     /// A group with the separator inside is parsed by a nested generator, which reports the number of
-    /// addresses of the `outer` description, the one the user wrote, when the limit is hit.
+    /// addresses of the `outer` description, the one the user wrote, when the limit is hit. The same
+    /// goes for the replicas of a shard that was generated from that description.
     RemoteDescriptionGenerator(
         const String & description,
         size_t l,
@@ -159,7 +170,7 @@ private:
         size_t max_addresses,
         const RemoteDescriptionCaller & caller,
         std::optional<char> replica_separator,
-        const RemoteDescriptionGenerator * outer);
+        const Origin * outer);
 
     /// Moves to the first segment that generates anything, starting from `segment_index`.
     void startSegment();
@@ -169,10 +180,7 @@ private:
     const size_t max_addresses;
     const RemoteDescriptionCaller caller;
 
-    /// The description the user wrote, for the error message - see `throwTooManyAddressesForDescription`.
-    String origin_description;
-    char origin_separator;
-    std::optional<char> origin_replica_separator;
+    Origin origin;
 
     std::vector<Segment> segments;
     std::optional<UInt64> total_count;
@@ -192,6 +200,16 @@ std::vector<String> parseRemoteDescription(
     char separator,
     size_t max_addresses,
     const RemoteDescriptionCaller & caller = {});
+
+/// Expands a `shard` that the first stage generated from `description` (shards separated by `,`) into
+/// its replicas separated by `|`, as the `url` family does with every address it takes. Throws when the
+/// replicas alone exceed `max_addresses`, reporting how many addresses the whole `description` generates
+/// over both stages, as when the first stage hits the limit - see `throwTooManyAddressesForDescription`.
+std::vector<String> parseReplicasOfShard(
+    const String & shard,
+    const String & description,
+    size_t max_addresses,
+    const RemoteDescriptionCaller & caller);
 
 /// A shard of a `shards,separated,by,commas` description together with its `replicas|separated|by|bars`.
 struct RemoteDescriptionShard

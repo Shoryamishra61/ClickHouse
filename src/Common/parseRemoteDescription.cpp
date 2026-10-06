@@ -314,12 +314,10 @@ RemoteDescriptionGenerator::RemoteDescriptionGenerator(
     size_t max_addresses_,
     const RemoteDescriptionCaller & caller_,
     std::optional<char> replica_separator,
-    const RemoteDescriptionGenerator * outer)
+    const Origin * outer)
     : max_addresses(max_addresses_)
     , caller(caller_)
-    , origin_description(outer ? outer->origin_description : description.substr(l, r > l ? r - l : 0))
-    , origin_separator(outer ? outer->origin_separator : separator)
-    , origin_replica_separator(outer ? outer->origin_replica_separator : replica_separator)
+    , origin(outer ? *outer : Origin{description.substr(l, r > l ? r - l : 0), separator, replica_separator})
 {
     /// Groups holding the separator are parsed recursively, and `max_addresses` bounds the number
     /// of generated addresses, not the nesting depth: `{{{{...,...}}}}` recurses once per level.
@@ -424,7 +422,7 @@ RemoteDescriptionGenerator::RemoteDescriptionGenerator(
                 /// product needs all of them up front. It cannot contain a numeric interval - a `..`
                 /// anywhere inside braces takes the branch above - so this only materializes literal
                 /// text, but keep it bounded all the same.
-                RemoteDescriptionGenerator nested(description, i + 1, m, separator, max_addresses, caller, std::nullopt, this);
+                RemoteDescriptionGenerator nested(description, i + 1, m, separator, max_addresses, caller, std::nullopt, &origin);
                 String alternative;
                 while (nested.next(alternative))
                     factor.alternatives.push_back(alternative);
@@ -484,7 +482,7 @@ void RemoteDescriptionGenerator::startSegment()
 
 void RemoteDescriptionGenerator::throwTooManyAddresses() const
 {
-    throwTooManyAddressesForDescription(origin_description, origin_separator, origin_replica_separator, caller, max_addresses);
+    throwTooManyAddressesForDescription(origin.description, origin.separator, origin.replica_separator, caller, max_addresses);
 }
 
 bool RemoteDescriptionGenerator::next(String & out)
@@ -547,6 +545,30 @@ std::vector<String> parseRemoteDescription(
 }
 
 
+std::vector<String> parseReplicasOfShard(
+    const String & shard,
+    const String & description,
+    size_t max_addresses,
+    const RemoteDescriptionCaller & caller)
+{
+    const RemoteDescriptionGenerator::Origin origin{description, ',', '|'};
+    RemoteDescriptionGenerator replica_generator(shard, 0, shard.size(), '|', max_addresses, caller, std::nullopt, &origin);
+
+    /// Checked before generating any replica, so at most the limit is ever materialized.
+    const auto replica_count = replica_generator.totalCount();
+    if (!replica_count || *replica_count > max_addresses)
+        throwTooManyAddressesForDescription(description, ',', '|', caller, max_addresses);
+
+    std::vector<String> replicas;
+    replicas.reserve(*replica_count);
+    String replica;
+    while (replica_generator.next(replica))
+        replicas.push_back(replica);
+
+    return replicas;
+}
+
+
 std::vector<RemoteDescriptionShard> parseRemoteDescriptionWithFailover(
     const String & description, size_t max_addresses, const RemoteDescriptionCaller & caller)
 {
@@ -563,7 +585,7 @@ std::vector<RemoteDescriptionShard> parseRemoteDescriptionWithFailover(
     String shard;
     while (shard_generator.next(shard))
     {
-        RemoteDescriptionGenerator replica_generator(shard, 0, shard.size(), '|', max_addresses, caller, std::nullopt, &shard_generator);
+        RemoteDescriptionGenerator replica_generator(shard, 0, shard.size(), '|', max_addresses, caller, std::nullopt, &shard_generator.origin);
 
         /// Checked before generating any replica, so at most the limit is ever materialized.
         const auto replica_count = replica_generator.totalCount();

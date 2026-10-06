@@ -188,7 +188,7 @@ RemoteQueryExecutor::Extension StorageURLCluster::getTaskIteratorExtension(
         if (with_globs)
         {
             const auto caller = tableFunctionURLClusterCaller();
-            const size_t options = parseRemoteDescription(url, 0, url.size(), '|', max_addresses, caller).size();
+            const size_t options = parseReplicasOfShard(url, uri_, max_addresses, caller).size();
             if (consumed_addresses->fetch_add(options) + options > max_addresses)
                 throwTooManyAddressesForDescription(uri_, ',', '|', caller, max_addresses);
         }
