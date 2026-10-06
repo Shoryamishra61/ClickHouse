@@ -7,42 +7,42 @@
       "versionId": "ae00ec2598472ccb8856e4f1f4020869cb1221d8279c1e05e1753221f38f987b",
       "translations": {
         "ar": {
-          "updatedAt": "2026-10-05T19:48:06.316Z",
+          "updatedAt": "2026-10-06T03:42:55.426Z",
           "fileName": "docs.json",
           "postProcessHash": "6364e2f6fcd10df74e153ed7723b293437e44bea13dea312e51323f8c5fb1fb5"
         },
         "fr": {
-          "updatedAt": "2026-10-05T19:48:06.510Z",
+          "updatedAt": "2026-10-06T03:42:55.620Z",
           "fileName": "docs.json",
           "postProcessHash": "6364e2f6fcd10df74e153ed7723b293437e44bea13dea312e51323f8c5fb1fb5"
         },
         "ja": {
-          "updatedAt": "2026-10-05T19:48:05.370Z",
+          "updatedAt": "2026-10-06T03:42:54.472Z",
           "fileName": "docs.json",
           "postProcessHash": "6364e2f6fcd10df74e153ed7723b293437e44bea13dea312e51323f8c5fb1fb5"
         },
         "es": {
-          "updatedAt": "2026-10-05T19:48:05.160Z",
+          "updatedAt": "2026-10-06T03:42:54.258Z",
           "fileName": "docs.json",
           "postProcessHash": "6364e2f6fcd10df74e153ed7723b293437e44bea13dea312e51323f8c5fb1fb5"
         },
         "zh": {
-          "updatedAt": "2026-10-05T19:48:06.129Z",
+          "updatedAt": "2026-10-06T03:42:55.235Z",
           "fileName": "docs.json",
           "postProcessHash": "6364e2f6fcd10df74e153ed7723b293437e44bea13dea312e51323f8c5fb1fb5"
         },
         "pt-BR": {
-          "updatedAt": "2026-10-05T19:48:05.748Z",
+          "updatedAt": "2026-10-06T03:42:54.850Z",
           "fileName": "docs.json",
           "postProcessHash": "6364e2f6fcd10df74e153ed7723b293437e44bea13dea312e51323f8c5fb1fb5"
         },
         "ko": {
-          "updatedAt": "2026-10-05T19:48:05.562Z",
+          "updatedAt": "2026-10-06T03:42:54.666Z",
           "fileName": "docs.json",
           "postProcessHash": "6364e2f6fcd10df74e153ed7723b293437e44bea13dea312e51323f8c5fb1fb5"
         },
         "ru": {
-          "updatedAt": "2026-10-05T19:48:05.943Z",
+          "updatedAt": "2026-10-06T03:42:55.045Z",
           "fileName": "docs.json",
           "postProcessHash": "6364e2f6fcd10df74e153ed7723b293437e44bea13dea312e51323f8c5fb1fb5"
         }
@@ -131541,47 +131541,47 @@
     },
     {
       "fileId": "8ae1fd80466ab6494b7765c352afe0e2d069b2aa1a4fac31c8b10f9a13b84e03",
-      "versionId": "3e05dc683b4e93517de18a682e506335e8d54e4fce79c28fd8adbc4745e80cb1",
+      "versionId": "2be888afa6292d697c1577d9de83d6c4d384142844c3491456446340111d3f3e",
       "translations": {
-        "es": {
-          "updatedAt": "2026-10-02T03:44:46.429Z",
-          "fileName": "es/resources/support-center/knowledge-base/troubleshooting/recovering-from-corrupt-keeper-snapshot.mdx",
-          "postProcessHash": "8a6db0049cce922a1e34003fae1adec6447359e1f4d6f841da93b4cd5094d97e"
+        "zh": {
+          "updatedAt": "2026-10-06T03:42:59.120Z",
+          "fileName": "zh/resources/support-center/knowledge-base/troubleshooting/recovering-from-corrupt-keeper-snapshot.mdx",
+          "postProcessHash": "6d1dc5083235dbadf4c69ef6d23d5c6c6e3ecb98c9437829c8a3180111d83a0d"
         },
         "ja": {
-          "updatedAt": "2026-10-02T03:44:46.429Z",
+          "updatedAt": "2026-10-06T03:42:59.120Z",
           "fileName": "ja/resources/support-center/knowledge-base/troubleshooting/recovering-from-corrupt-keeper-snapshot.mdx",
-          "postProcessHash": "9f43f501bd01c1f073b2d793318bd663c93e6f6d457315d160b7bc7d19f293ab"
+          "postProcessHash": "2c3bbb96b6305944d2e8698222613b7452a801a6675e7202fffe31a969cc298c"
         },
-        "ko": {
-          "updatedAt": "2026-10-02T03:44:46.430Z",
-          "fileName": "ko/resources/support-center/knowledge-base/troubleshooting/recovering-from-corrupt-keeper-snapshot.mdx",
-          "postProcessHash": "6948ce25b6259da93edf1353909a02269c3d19f05295d69cc7a5196e1d1cc671"
-        },
-        "pt-BR": {
-          "updatedAt": "2026-10-02T03:44:46.430Z",
-          "fileName": "pt-BR/resources/support-center/knowledge-base/troubleshooting/recovering-from-corrupt-keeper-snapshot.mdx",
-          "postProcessHash": "edf28822de57c59067d653e8f7b82c0f3a91bd430733f368660679da79f63b36"
-        },
-        "ru": {
-          "updatedAt": "2026-10-02T03:44:46.431Z",
-          "fileName": "ru/resources/support-center/knowledge-base/troubleshooting/recovering-from-corrupt-keeper-snapshot.mdx",
-          "postProcessHash": "955d57c99a995b451625a828fa6693d58833f0a58ef79e6870da7c9830d21f95"
-        },
-        "zh": {
-          "updatedAt": "2026-10-02T03:44:46.431Z",
-          "fileName": "zh/resources/support-center/knowledge-base/troubleshooting/recovering-from-corrupt-keeper-snapshot.mdx",
-          "postProcessHash": "76d96f2670978f6efceba697327615217431201bb57dcfc111c5759caf82bea2"
-        },
-        "ar": {
-          "updatedAt": "2026-10-02T03:44:46.431Z",
-          "fileName": "ar/resources/support-center/knowledge-base/troubleshooting/recovering-from-corrupt-keeper-snapshot.mdx",
-          "postProcessHash": "71d49a94c56376ad23308b8c95dcb7d09853271790a916d69895b4a61e94f482"
+        "es": {
+          "updatedAt": "2026-10-06T03:42:59.121Z",
+          "fileName": "es/resources/support-center/knowledge-base/troubleshooting/recovering-from-corrupt-keeper-snapshot.mdx",
+          "postProcessHash": "6ddbbcf42d19332f84c36984e0fdaadb79c08beff583d6cb32e5af4b2f561745"
         },
         "fr": {
-          "updatedAt": "2026-10-02T03:44:46.431Z",
+          "updatedAt": "2026-10-06T03:42:59.121Z",
           "fileName": "fr/resources/support-center/knowledge-base/troubleshooting/recovering-from-corrupt-keeper-snapshot.mdx",
-          "postProcessHash": "2c37d6f96aaf4829c160d6b748911c3e6c04fcb1197b3e1615b3fb2f24add354"
+          "postProcessHash": "c91444b27d3f909c0b9be46f2a5764427ff85c6f4534a90fff8c59cf08172387"
+        },
+        "ar": {
+          "updatedAt": "2026-10-06T03:42:59.121Z",
+          "fileName": "ar/resources/support-center/knowledge-base/troubleshooting/recovering-from-corrupt-keeper-snapshot.mdx",
+          "postProcessHash": "d039727079bd0a737ae97b35804981e6ec7e029bf054c7f488e44e8bf07ec056"
+        },
+        "pt-BR": {
+          "updatedAt": "2026-10-06T03:42:59.122Z",
+          "fileName": "pt-BR/resources/support-center/knowledge-base/troubleshooting/recovering-from-corrupt-keeper-snapshot.mdx",
+          "postProcessHash": "6bfddc3a76d07fd81b404ae1294957fcbeef95fc8261ab7a98506192e9f5f552"
+        },
+        "ko": {
+          "updatedAt": "2026-10-06T03:42:59.122Z",
+          "fileName": "ko/resources/support-center/knowledge-base/troubleshooting/recovering-from-corrupt-keeper-snapshot.mdx",
+          "postProcessHash": "4d824f31179d94c0d5350664ac399edd4fe06bf5032d37150007cdcca55590bb"
+        },
+        "ru": {
+          "updatedAt": "2026-10-06T03:42:59.123Z",
+          "fileName": "ru/resources/support-center/knowledge-base/troubleshooting/recovering-from-corrupt-keeper-snapshot.mdx",
+          "postProcessHash": "a383be41cfb2cff86705c03e59de20b10398b64c941b99ddcb6324a98e36bca1"
         }
       },
       "fileName": "resources/support-center/knowledge-base/troubleshooting/recovering-from-corrupt-keeper-snapshot.mdx"

@@ -287,6 +287,17 @@ em duas linhas: uma com o número total de nós removidos e as raízes das subá
 e outra com os caminhos ausentes do snapshot que delimitam a região danificada. Os descendentes
 abaixo dessas raízes também são removidos, mas não são listados individualmente.
 
+Após verificar o final do log local, o Keeper grava a árvore reparada em um novo arquivo de snapshot no mesmo
+índice de log antes de iniciar o Raft. Reparos concluídos têm precedência sobre cópias mais antigas nesse índice,
+de modo que uma recuperação interrompida pode ser retomada sem selecionar o snapshot danificado. Novos seguidores recebem
+o snapshot reparado, e as reinicializações seguintes
+não precisam mais da remoção de órfãos habilitada. O snapshot original e quaisquer cópias do mesmo índice são preservados
+com o prefixo `orphaned_` no nome do arquivo; esses arquivos são ignorados no carregamento de snapshots e na retenção
+automática. Mantenha-os para diagnóstico e remova-os manualmente quando não forem mais necessários. A
+reinicialização de recuperação exige espaço em disco adicional para o snapshot reparado e para o backup do original.
+Se a gravação do snapshot reparado, a sincronização das alterações no diretório local ou a preservação dos originais
+falhar, o Keeper se recusa a iniciar. Uma inicialização posterior conclui qualquer arquivamento interrompido.
+
 <Warning>
   **Repara apenas o estado local**
 

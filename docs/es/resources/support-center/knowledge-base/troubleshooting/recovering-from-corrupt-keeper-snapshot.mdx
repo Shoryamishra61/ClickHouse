@@ -287,6 +287,17 @@ en dos líneas: una con el número total de nodos eliminados y las raíces de lo
 eliminados, y otra con las rutas ausentes de la instantánea que delimitan la región dañada. Los descendientes
 situados por debajo de esas raíces también se eliminan, pero no se enumeran individualmente.
 
+Tras comprobar la cola del log local, Keeper escribe el árbol reparado en un nuevo archivo de instantánea con el mismo
+índice de log antes de iniciar Raft. Las reparaciones completadas tienen prioridad sobre las copias anteriores con ese índice,
+de modo que una recuperación interrumpida puede reanudarse sin seleccionar la instantánea dañada. Los nuevos followers reciben
+la instantánea reparada, y en los reinicios posteriores
+ya no es necesario tener habilitada la eliminación de huérfanos. La instantánea original y las copias con el mismo índice se conservan
+con el prefijo de nombre de archivo `orphaned_`; estos archivos quedan excluidos de la carga de instantáneas y de la retención
+automática. Consérvelos para el diagnóstico y elimínelos manualmente cuando ya no los necesite. El
+reinicio de recuperación requiere espacio en disco adicional para la instantánea reparada y la copia de seguridad de la original.
+Si falla la escritura de la instantánea reparada, la sincronización de los cambios en el directorio local o la conservación de los originales,
+Keeper se niega a iniciarse. En el siguiente inicio se completa cualquier archivado que haya quedado interrumpido.
+
 <Warning>
   **Solo repara el estado local**
 

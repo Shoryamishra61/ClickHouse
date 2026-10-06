@@ -287,6 +287,17 @@ sous la forme de deux lignes : l&#39;une indique le nombre total de nœuds suppr
 supprimés, l&#39;autre les paths absents du snapshot qui délimitent la région endommagée. Les descendants
 situés sous ces racines sont également supprimés, mais ne sont pas listés individuellement.
 
+Après avoir vérifié la fin du journal local, Keeper écrit l&#39;arbre réparé dans un nouveau fichier de snapshot au même
+index de journal, avant de démarrer Raft. Les réparations terminées ont préséance sur les copies plus anciennes situées à cet index,
+si bien qu&#39;une récupération interrompue peut reprendre sans sélectionner le snapshot endommagé. Les nouveaux followers reçoivent
+le snapshot réparé, et il n&#39;est plus nécessaire d&#39;activer la suppression des orphelins
+lors des redémarrages ultérieurs. Le snapshot d&#39;origine et toutes les copies au même index sont conservés
+avec le préfixe de nom de fichier `orphaned_` ; ces fichiers sont exclus du chargement des snapshots et de la rétention
+automatique. Conservez-les à des fins de diagnostic, puis supprimez-les manuellement lorsque vous n&#39;en avez plus besoin. Le
+redémarrage de récupération nécessite de l&#39;espace disque supplémentaire pour le snapshot réparé et la sauvegarde de l&#39;original.
+En cas d&#39;échec de l&#39;écriture du snapshot réparé, de la synchronisation des modifications du répertoire local ou de la conservation des originaux,
+Keeper refuse de démarrer. Le démarrage suivant achève tout archivage interrompu.
+
 <Warning>
   **Répare uniquement l&#39;état local**
 
