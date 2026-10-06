@@ -227,6 +227,8 @@ using LoadTaskPtrs = std::vector<LoadTaskPtr>;
 
 class IClassifier;
 using ClassifierPtr = std::shared_ptr<IClassifier>;
+class QuerySchedulingGroup;
+using QuerySchedulingGroupPtr = std::shared_ptr<QuerySchedulingGroup>;
 class IResourceManager;
 using ResourceManagerPtr = std::shared_ptr<IResourceManager>;
 
@@ -657,9 +659,12 @@ protected:
     /// Temporary data for query execution accounting.
     TemporaryDataOnDiskScopePtr temp_data_on_disk;
 
-    /// Resource classifier for a query, holds smart pointers required for ResourceLink
-    /// NOTE: all resource links became invalid after `classifier` destruction
-    mutable ClassifierPtr classifier;
+    /// Scheduling group of the query; holds the resource classifier, which holds smart pointers
+    /// required for ResourceLink.
+    /// NOTE: all resource links became invalid after the classifier destruction
+    mutable QuerySchedulingGroupPtr scheduling_group;
+    /// Group of the query this query context is a part of, see `setParentSchedulingGroup`.
+    QuerySchedulingGroupPtr parent_scheduling_group;
 
     /// Prepared sets that can be shared between different queries. One use case is when is to share prepared sets between
     /// mutation tasks of one mutation executed against different parts of the same table.
@@ -1020,6 +1025,14 @@ public:
     /// Resource management related
     ResourceManagerPtr getResourceManager() const;
     ClassifierPtr getWorkloadClassifier() const;
+    /// Scheduling group of the query, see `QuerySchedulingGroup`. Created on the first call from the
+    /// `workload` and scheduling settings, or the parent group if it accepts them.
+    /// NOTE: Workload cannot be changed after the group is created.
+    QuerySchedulingGroupPtr getSchedulingGroup() const;
+    /// Makes this query context a part of the query that owns `group`: the query is scheduled together
+    /// with the other parts of `group`, unless it changes the workload or a scheduling setting.
+    /// Call after `makeQueryContext` and before the group is created.
+    void setParentSchedulingGroup(QuerySchedulingGroupPtr group);
     /// Release the query slot early so the client can reuse it for its next query.
     /// Only the query slot is released, not the memory reservation: pipeline threads still hold raw
     /// pointers to it, so it is released later by `BlockIO::onFinish` after the pipeline is finalized.

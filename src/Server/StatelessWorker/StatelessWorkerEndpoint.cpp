@@ -96,6 +96,9 @@ void serializeTask(const DistributedQueryTaskDescription & task_description, Wri
         writeStringBinary(change.name, out);
         writeFieldBinary(change.value, out);
     }
+
+    if (task_description.serialization_version >= 4)
+        writeStringBinary(task_description.scheduling_group_id, out);
 }
 
 namespace
@@ -192,6 +195,9 @@ void deserializeTask(DistributedQueryTaskDescription & task_description, ReadBuf
             task_description.settings_changes.emplace_back(name, value);
         }
     }
+
+    if (version >= 4)
+        readStringBinary(task_description.scheduling_group_id, in);
 }
 
 }
