@@ -176,7 +176,7 @@ void InterpreterDescribeQuery::fillColumnsFromTableFunction(const ASTTableExpres
     /// still produce the `UNKNOWN_FUNCTION` error (with hints) below, not a table-resolution or
     /// access-check exception.
     {
-        auto [database_name, table_name] = extractDatabaseAndTableNameForParameterizedView(table_function_name, current_context);
+        auto [database_name, table_name] = extractDatabaseAndTableNameForParameterizedView(table_function_name, current_context, false);
         StoragePtr table;
         if (!table_name.empty())
             table = DatabaseCatalog::instance().tryGetTable({database_name, table_name}, current_context);
