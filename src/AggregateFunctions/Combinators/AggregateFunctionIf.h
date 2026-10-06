@@ -114,6 +114,11 @@ public:
         nested_func->predictValues(place, to, arguments, offset, limit, context);
     }
 
+    DataTypePtr getStateType() const override
+    {
+        return this->getStateTypeWithVersionOf(*nested_func);
+    }
+
     void create(AggregateDataPtr __restrict place) const override
     {
         nested_func->create(place);

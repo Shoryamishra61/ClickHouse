@@ -372,6 +372,11 @@ public:
         nested_function->predictValues(nestedPlace(place), to, arguments, offset, limit, context);
     }
 
+    DataTypePtr getStateType() const override
+    {
+        return this->getStateTypeWithVersionOf(*nested_function);
+    }
+
     AggregateFunctionPtr getNestedFunction() const override { return nested_function; }
 
 #if USE_EMBEDDED_COMPILER
