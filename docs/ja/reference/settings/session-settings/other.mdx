@@ -55,6 +55,19 @@ HTTP CORS ヘッダーを追加して書き込みます。
 
 有効にすると、アナライザは通常の (非マテリアライズドかつ非パラメータ化された) ビューを、それを定義するサブクエリで置き換えます。これにより、述語プッシュダウンやカラムのプルーニングなど、ビュー境界をまたぐ最適化が可能になります。
 
+## anti_join_include_columns_from_both_sides {#anti_join_include_columns_from_both_sides}
+
+<SettingsInfoBlock type="Bool" default_value="1" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1"},{"label": "新しい設定。無効にすると、`JOIN ON` 式を除き、`ANTI JOIN` でアクセスできるカラムが保持される側に制限されます"}]}]} />
+
+有効な場合 (デフォルト) 、`ANTI` JOIN では結合結果から両側のカラムにアクセスでき、`SELECT *` も両側のカラムを返します。これは ClickHouse の従来 (レガシー) の動作です。
+無効な場合、アナライザは SQL 標準に従い、`ANTI` JOIN でアクセスできるカラムを保持される側に制限します。
+`LEFT ANTI JOIN` では左テーブルのカラムのみ、`RIGHT ANTI JOIN` では右テーブルのカラムのみにアクセスできます。
+この制限は、`SELECT`、`PREWHERE`、`WHERE`、`GROUP BY`、`HAVING`、`QUALIFY`、`ORDER BY`、`LIMIT BY` 句など、結合結果から解決される式に適用され、`t1.*` のような修飾付きワイルドカードも対象となります。
+保持されない側のカラムを明示的に参照すると、`SEMI_ANTI_JOIN_COLUMN_ACCESS_DENIED` 例外が送出されます。対象には、`t2.b` のような修飾付き参照、`t2.*` のような修飾付きワイルドカード、`d.id` のような `USING` カラム、`db.table.column` のような完全修飾参照が含まれます。また、`if(false, t2.b, 42)` のように静的に到達しない分岐内であっても、この制限は適用されます。なお、アクセス可能などのカラムにも一致しない修飾なしの識別子については、従来どおり汎用の `UNKNOWN_IDENTIFIER` 例外となります。
+同じ `JOIN` の `JOIN ON` 式からは、この設定にかかわらず両側にアクセスできます。
+
 ## any_join_distinct_right_table_keys {#any_join_distinct_right_table_keys}
 
 <SettingsInfoBlock type="Bool" default_value="0" />
@@ -784,6 +797,23 @@ false の場合、h3 関数 (例: h3CellAreaM2) は入力が無効であれば�
 
 Function &#39;geoToH3&#39; は、&#39;lon&#95;lat&#39; に設定すると (lon, lat) を、&#39;lat&#95;lon&#39; に設定すると (lat, lon) を受け入れます。
 
+## get_zookeeper_lock_acquire_timeout_ms {#get_zookeeper_lock_acquire_timeout_ms}
+
+<SettingsInfoBlock type="Milliseconds" default_value="120000" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "120000"},{"label": "新しい設定"}]}]} />
+
+Keeper クライアントが対応する `Context` のミューテックスの取得を待機する時間(ミリ秒)を定義します。この時間を超えると取得は失敗します。
+
+この値は、取得を実行する `Context` から読み取られます。クエリ単位のオーバーライドが適用されるのは、操作がクエリコンテキストを使用する場合に限られます。たとえば、`system.zookeeper` からの読み取り、`zookeeperSessionUptime`、`SYSTEM RECONNECT ZOOKEEPER`、クエリコンテキストからの補助 Keeper へのアクセスなどが該当します。
+`BACKUP` および `RESTORE` の協調処理や `Replicated` データベースの処理など、グローバルコンテキストまたはバックグラウンドコンテキストを使用する操作では、そのコンテキストの値が使用されます。
+`SYSTEM RELOAD CONFIG` および `SYSTEM RELOAD ASYNCHRONOUS METRICS` は、それぞれ独立してシリアル化されたリロードパスを使用するため、この設定の対象外です。
+
+設定可能な値:
+
+* 正の整数(ミリ秒単位)。
+* 0 — ロック取得のタイムアウトなし。
+
 ## glob_expansion_max_elements {#glob_expansion_max_elements}
 
 <SettingsInfoBlock type="UInt64" default_value="1000" />
@@ -1474,6 +1504,19 @@ FORMAT Null;
 * [insert&#95;quorum](/ja/reference/settings/session-settings/insert-quorum#insert_quorum)
 * [insert&#95;quorum&#95;timeout](/ja/reference/settings/session-settings/insert-quorum#insert_quorum_timeout)
 * [insert&#95;quorum&#95;parallel](/ja/reference/settings/session-settings/insert-quorum#insert_quorum_parallel)
+
+## semi_join_include_columns_from_both_sides {#semi_join_include_columns_from_both_sides}
+
+<SettingsInfoBlock type="Bool" default_value="1" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1"},{"label": "新しい設定。無効にすると、`JOIN ON` の式を除き、`SEMI JOIN` でアクセスできるカラムが保持される側に制限されます"}]}]} />
+
+有効な場合 (デフォルト) 、`SEMI` JOIN の結合結果では両側のカラムにアクセスでき、`SELECT *` は両側のカラムを返します。これは ClickHouse のレガシーな動作です。
+無効な場合、アナライザは SQL 標準に従い、`SEMI` JOIN でアクセスできるカラムを保持される側に制限します。
+`LEFT SEMI JOIN` では左テーブルのカラムのみ、`RIGHT SEMI JOIN` では右テーブルのカラムのみにアクセスできます。
+この制限は、`SELECT`、`PREWHERE`、`WHERE`、`GROUP BY`、`HAVING`、`QUALIFY`、`ORDER BY`、`LIMIT BY` の各句など、結合結果から解決される式に適用され、`t1.*` のような修飾付きワイルドカードも対象となります。
+保持されない側のカラムを明示的に参照すると、`SEMI_ANTI_JOIN_COLUMN_ACCESS_DENIED` 例外が送出されます。これには、`t2.b` のような修飾付き参照、`t2.*` のような修飾付きワイルドカード、`d.id` のような `USING` カラム、`db.table.column` のような完全修飾参照が含まれます。また、この制限は `if(false, t2.b, 42)` のように静的に到達しない分岐の内部でも適用されます。一方、アクセス可能なカラムのいずれにも一致しない修飾なしの識別子については、従来どおり汎用の `UNKNOWN_IDENTIFIER` 例外にフォールバックします。
+同じ `JOIN` の `JOIN ON` 式では、この設定にかかわらず両側のカラムにアクセスできます。
 
 ## session_query_ids_history_size {#session_query_ids_history_size}
 

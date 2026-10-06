@@ -176,13 +176,14 @@ const MergeTreeSettingsExplorer = ({ href: baseRoute }) => {
     },
     {
       label: "enable_*",
-      count: 7,
+      count: 8,
       settings: [
         { name: "enable_adaptive_codec_selection", path: "/enable#enable_adaptive_codec_selection", default: "0" },
         { name: "enable_index_granularity_compression", path: "/enable#enable_index_granularity_compression", default: "1" },
         { name: "enable_max_bytes_limit_for_min_age_to_force_merge", path: "/enable#enable_max_bytes_limit_for_min_age_to_force_merge", default: "1" },
         { name: "enable_mixed_granularity_parts", path: "/enable#enable_mixed_granularity_parts", default: "1" },
         { name: "enable_replacing_merge_with_cleanup_for_min_age_to_force_merge", path: "/enable#enable_replacing_merge_with_cleanup_for_min_age_to_force_merge", default: "0" },
+        { name: "enable_row_mask_update_coalescing", path: "/enable#enable_row_mask_update_coalescing", default: "1" },
         { name: "enable_the_endpoint_id_with_zookeeper_name_prefix", path: "/enable#enable_the_endpoint_id_with_zookeeper_name_prefix", default: "0" },
         { name: "enable_vertical_merge_algorithm", path: "/enable#enable_vertical_merge_algorithm", default: "1" }
       ],
@@ -318,7 +319,7 @@ const MergeTreeSettingsExplorer = ({ href: baseRoute }) => {
     },
     {
       label: "max_*",
-      count: 13,
+      count: 17,
       settings: [
         { name: "max_avg_part_size_for_too_many_parts", path: "/max#max_avg_part_size_for_too_many_parts", default: "1073741824" },
         { name: "max_buckets_in_map", path: "/max#max_buckets_in_map", default: "32" },
@@ -329,6 +330,10 @@ const MergeTreeSettingsExplorer = ({ href: baseRoute }) => {
         { name: "max_file_name_length", path: "/max#max_file_name_length", default: "127" },
         { name: "max_partitions_to_read", path: "/max#max_partitions_to_read", default: "-1" },
         { name: "max_projections", path: "/max#max_projections", default: "25" },
+        { name: "max_row_mask_update_coalescing_ast_bytes", path: "/max#max_row_mask_update_coalescing_ast_bytes", default: "1048576" },
+        { name: "max_row_mask_update_coalescing_commands", path: "/max#max_row_mask_update_coalescing_commands", default: "4096" },
+        { name: "max_row_mask_update_coalescing_key_bytes", path: "/max#max_row_mask_update_coalescing_key_bytes", default: "65536" },
+        { name: "max_row_mask_update_coalescing_keys", path: "/max#max_row_mask_update_coalescing_keys", default: "256" },
         { name: "max_table_size_bytes_compressed", path: "/max#max_table_size_bytes_compressed", default: "0" },
         { name: "max_table_size_bytes_uncompressed", path: "/max#max_table_size_bytes_uncompressed", default: "0" },
         { name: "max_table_size_rows", path: "/max#max_table_size_rows", default: "0" },

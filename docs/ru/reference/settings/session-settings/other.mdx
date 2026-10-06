@@ -55,6 +55,19 @@ import { CloudOnlyBadge } from "/snippets/ru/components/CloudOnlyBadge/CloudOnly
 
 Если включено, анализатор подставляет обычные (нематериализованные, непараметризованные) представления их определяющими подзапросами, что позволяет применять оптимизации поверх границ представлений, такие как pushdown предикатов и отсечение столбцов.
 
+## anti_join_include_columns_from_both_sides {#anti_join_include_columns_from_both_sides}
+
+<SettingsInfoBlock type="Bool" default_value="1" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1"},{"label": "Новая настройка. Отключите её, чтобы в `ANTI JOIN` были доступны только столбцы сохраняемой стороны (кроме выражений `JOIN ON`)"}]}]} />
+
+Если настройка включена (по умолчанию), в результате `ANTI` JOIN остаются доступными столбцы обеих сторон, а `SELECT *` возвращает столбцы обеих сторон. Это унаследованное поведение ClickHouse.
+Если настройка отключена, анализатор в соответствии со стандартом SQL разрешает в `ANTI` JOIN доступ только к столбцам сохраняемой стороны.
+Для `LEFT ANTI JOIN` доступны только столбцы левой таблицы, для `RIGHT ANTI JOIN` — только столбцы правой таблицы.
+Это относится к выражениям, которые разрешаются по результату соединения, например в секциях `SELECT`, `PREWHERE`, `WHERE`, `GROUP BY`, `HAVING`, `QUALIFY`, `ORDER BY` и `LIMIT BY`, включая квалифицированные подстановочные шаблоны вида `t1.*`.
+Явное обращение к столбцу несохраняемой стороны вызывает исключение `SEMI_ANTI_JOIN_COLUMN_ACCESS_DENIED`. Это касается квалифицированных ссылок вида `t2.b`, квалифицированных подстановочных шаблонов вида `t2.*`, столбцов `USING` вида `d.id` и полностью квалифицированных ссылок вида `db.table.column`; ограничение действует даже внутри статически недостижимых ветвей, например `if(false, t2.b, 42)`. Если же неквалифицированный идентификатор не соответствует ни одному доступному столбцу, по-прежнему возникает общее исключение `UNKNOWN_IDENTIFIER`.
+В выражении `JOIN ON` того же `JOIN` доступны обе стороны независимо от этой настройки.
+
 ## any_join_distinct_right_table_keys {#any_join_distinct_right_table_keys}
 
 <SettingsInfoBlock type="Bool" default_value="0" />
@@ -797,6 +810,23 @@ curl "http://localhost:8123/?framing_output_format=JSONEachPacketString" -d "SEL
 
 Функция &#39;geoToH3&#39; принимает (lon, lat), если установлено значение &#39;lon&#95;lat&#39;, и (lat, lon), если установлено значение &#39;lat&#95;lon&#39;.
 
+## get_zookeeper_lock_acquire_timeout_ms {#get_zookeeper_lock_acquire_timeout_ms}
+
+<SettingsInfoBlock type="Milliseconds" default_value="120000" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "120000"},{"label": "новая настройка"}]}]} />
+
+Задаёт время в миллисекундах, в течение которого клиент Keeper ожидает захвата соответствующего мьютекса `Context`, прежде чем завершиться с ошибкой.
+
+Значение берётся из того `Context`, который выполняет захват. Переопределение на уровне запроса действует, только если операция использует контекст запроса: например, при чтении из `system.zookeeper`, вызове `zookeeperSessionUptime`, выполнении `SYSTEM RECONNECT ZOOKEEPER`, а также при обращении к вспомогательному Keeper в контексте запроса.
+Операции, использующие глобальный или фоновый контекст (в том числе координация `BACKUP` и `RESTORE`, а также работа базы данных `Replicated`), берут значение из своего контекста.
+На `SYSTEM RELOAD CONFIG` и `SYSTEM RELOAD ASYNCHRONOUS METRICS` настройка не распространяется, поскольку для них перезагрузка выполняется по отдельным, независимо сериализованным путям.
+
+Возможные значения:
+
+* Положительное целое число (в миллисекундах).
+* 0 — без тайм-аута блокировки.
+
 ## glob_expansion_max_elements {#glob_expansion_max_elements}
 
 <SettingsInfoBlock type="UInt64" default_value="1000" />
@@ -1495,6 +1525,19 @@ FORMAT Null;
 * [insert&#95;quorum](/ru/reference/settings/session-settings/insert-quorum#insert_quorum)
 * [insert&#95;quorum&#95;timeout](/ru/reference/settings/session-settings/insert-quorum#insert_quorum_timeout)
 * [insert&#95;quorum&#95;parallel](/ru/reference/settings/session-settings/insert-quorum#insert_quorum_parallel)
+
+## semi_join_include_columns_from_both_sides {#semi_join_include_columns_from_both_sides}
+
+<SettingsInfoBlock type="Bool" default_value="1" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1"},{"label": "Новая настройка. Отключите её, чтобы ограничить доступ к столбцам в `SEMI JOIN` только сохраняемой стороной (за исключением выражений `JOIN ON`)"}]}]} />
+
+Если настройка включена (по умолчанию), при `SEMI` JOIN в результате соединения остаются доступны столбцы обеих сторон, а `SELECT *` возвращает столбцы обеих сторон. Это унаследованное поведение ClickHouse.
+Если настройка отключена, анализатор в соответствии со стандартом SQL ограничивает доступ к столбцам в `SEMI` JOIN только сохраняемой стороной.
+Для `LEFT SEMI JOIN` доступны только столбцы левой таблицы, для `RIGHT SEMI JOIN` — только столбцы правой.
+Это относится к выражениям, разрешаемым относительно результата соединения, например в секциях `SELECT`, `PREWHERE`, `WHERE`, `GROUP BY`, `HAVING`, `QUALIFY`, `ORDER BY` и `LIMIT BY`, включая квалифицированные подстановочные шаблоны вида `t1.*`.
+Явное обращение к столбцу несохраняемой стороны вызывает исключение `SEMI_ANTI_JOIN_COLUMN_ACCESS_DENIED`. Это касается квалифицированных ссылок (например, `t2.b`), квалифицированных подстановочных шаблонов (например, `t2.*`), столбцов из `USING` (например, `d.id`) и полностью квалифицированных ссылок (например, `db.table.column`). Ограничение действует даже внутри статически недостижимых ветвей, например `if(false, t2.b, 42)`. Если же неквалифицированный идентификатор не соответствует ни одному доступному столбцу, по-прежнему возникает общее исключение `UNKNOWN_IDENTIFIER`.
+В выражении `JOIN ON` того же `JOIN` доступны обе стороны независимо от значения этой настройки.
 
 ## session_query_ids_history_size {#session_query_ids_history_size}
 

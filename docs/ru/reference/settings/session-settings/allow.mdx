@@ -37,6 +37,23 @@ import { BetaBadge } from "/snippets/ru/components/BetaBadge/BetaBadge.jsx";
 
 Использовать фоновый пул I/O для чтения из таблиц семейства MergeTree. Эта настройка может повысить производительность запросов, ограниченных пропускной способностью I/O
 
+## allow_block_nested_loop_join {#allow_block_nested_loop_join}
+
+<SettingsInfoBlock type="Bool" default_value="1" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1"},{"label": "Новая настройка, управляющая блочным JOIN с вложенными циклами: он выполняет `JOIN`, в секции `ON` которого не определён ключ соединения, вместо того чтобы отклонять его с ошибкой `INVALID_JOIN_ON_EXPRESSION`. Значение 0 в режиме совместимости восстанавливает прежнее поведение."}]}]} />
+
+Разрешает выполнять `JOIN` с произвольным условием `ON`, то есть без равенства между соединяемыми таблицами, как [блочный JOIN с вложенными циклами](/ru/reference/statements/select/join#join-with-an-arbitrary-on-condition).
+
+Он перебирает все пары строк, поэтому его стоимость равна произведению количества строк обеих таблиц. Этот оператор — крайняя мера при планировании JOIN: к нему прибегают, только если ни один [`join_algorithm`](/ru/reference/settings/session-settings/join#join_algorithm) не может выполнить условие, поэтому выбрать его через эту настройку нельзя.
+
+Если настройка отключена, запрос, дошедший до этого оператора, отклоняется с ошибкой `INVALID_JOIN_ON_EXPRESSION` ещё на этапе планирования.
+
+Возможные значения:
+
+* 0 — отклонять такой запрос.
+* 1 — выполнять его как блочный JOIN с вложенными циклами (по умолчанию).
+
 ## allow_calculating_subcolumns_sizes_for_merge_tree_reading {#allow_calculating_subcolumns_sizes_for_merge_tree_reading}
 
 <SettingsInfoBlock type="Bool" default_value="1" />
@@ -367,12 +384,6 @@ import { BetaBadge } from "/snippets/ru/components/BetaBadge/BetaBadge.jsx";
 <VersionHistory rows={[{"id": "row-1","items": [{"label": "26.7"},{"label": "0"},{"label": "По умолчанию запрещает создавать индекс пропуска данных minmax для JSON-столбцов, поскольку сериализация индекса не может обрабатывать неоднородные значения Field"}]}]} />
 
 Разрешает создавать индексы пропуска данных minmax для столбцов JSON (Object). По умолчанию отключено, поскольку путь сериализации индекса minmax не может обрабатывать неоднородные значения Field, которые могут содержаться в JSON-столбцах.
-
-## allow_named_collection_override_by_default {#allow_named_collection_override_by_default}
-
-<SettingsInfoBlock type="Bool" default_value="1" />
-
-По умолчанию разрешает переопределение полей именованных коллекций.
 
 ## allow_non_metadata_alters {#allow_non_metadata_alters}
 

@@ -514,6 +514,10 @@ import SystemTableCloud from '/snippets/ru/_system_table_cloud.mdx';
 * `ProfileEvent_MarkCacheEvictedBytes` ([UInt64](/ru/reference/data-types/int-uint)) — Количество байтов, вытесненных из кэша меток.
 * `ProfileEvent_MarkCacheEvictedMarks` ([UInt64](/ru/reference/data-types/int-uint)) — Количество меток, вытесненных из кэша меток.
 * `ProfileEvent_MarkCacheEvictedFiles` ([UInt64](/ru/reference/data-types/int-uint)) — Количество файлов меток, вытесненных из кэша меток.
+* `ProfileEvent_ColumnsCacheHits` ([UInt64](/ru/reference/data-types/int-uint)) — Количество случаев, когда десериализованный столбец был найден в кэше столбцов.
+* `ProfileEvent_ColumnsCacheMisses` ([UInt64](/ru/reference/data-types/int-uint)) — Количество случаев, когда десериализованный столбец не был найден в кэше столбцов.
+* `ProfileEvent_ColumnsCacheEvictedBytes` ([UInt64](/ru/reference/data-types/int-uint)) — Количество байтов, вытесненных из кэша столбцов.
+* `ProfileEvent_ColumnsCacheEvictedEntries` ([UInt64](/ru/reference/data-types/int-uint)) — Количество записей, вытесненных из кэша столбцов.
 * `ProfileEvent_LoadedPrimaryIndexFiles` ([UInt64](/ru/reference/data-types/int-uint)) — Количество загруженных файлов первичного индекса.
 * `ProfileEvent_LoadedPrimaryIndexRows` ([UInt64](/ru/reference/data-types/int-uint)) — Количество загруженных строк первичного ключа.
 * `ProfileEvent_LoadedPrimaryIndexBytes` ([UInt64](/ru/reference/data-types/int-uint)) — Количество загруженных строк первичного ключа.
@@ -2066,6 +2070,9 @@ import SystemTableCloud from '/snippets/ru/_system_table_cloud.mdx';
 * `CurrentMetric_PageCacheCells` ([Int64](/ru/reference/data-types/int-uint)) — Общее количество записей в кэше страниц в пространстве пользователя
 * `CurrentMetric_UncompressedCacheBytes` ([Int64](/ru/reference/data-types/int-uint)) — Общий размер кэша несжатых данных в байтах. Кэш несжатых данных обычно не повышает производительность, поэтому его, как правило, лучше не использовать
 * `CurrentMetric_UncompressedCacheCells` ([Int64](/ru/reference/data-types/int-uint)) — Общее количество записей в кэше несжатых данных. Каждая запись представляет собой распакованный блок данных. Кэш несжатых данных обычно не повышает производительность, поэтому его, как правило, лучше не использовать
+* `CurrentMetric_ColumnsCacheBytes` ([Int64](/ru/reference/data-types/int-uint)) — Общий размер кэша столбцов в байтах. Кэш столбцов хранит десериализованные столбцы из таблиц семейства MergeTree, чтобы избежать повторной распаковки и десериализации.
+* `CurrentMetric_ColumnsCacheEntries` ([Int64](/ru/reference/data-types/int-uint)) — Общее количество записей в кэше столбцов.
+* `CurrentMetric_ColumnsCacheSizeLimit` ([Int64](/ru/reference/data-types/int-uint)) — Текущий лимит размера кэша столбцов в байтах. Он снижается ниже настроенного значения `columns_cache_size`, когда остальным компонентам сервера не хватает памяти, и снова повышается в сторону этого значения, когда потребление памяти уменьшается; см. `columns_cache_free_memory_ratio`.
 * `CurrentMetric_IndexMarkCacheBytes` ([Int64](/ru/reference/data-types/int-uint)) — Общий размер кэша меток для вторичных индексов в байтах
 * `CurrentMetric_IndexMarkCacheFiles` ([Int64](/ru/reference/data-types/int-uint)) — Общее количество файлов меток, кэшированных в кэше меток для вторичных индексов
 * `CurrentMetric_IndexUncompressedCacheBytes` ([Int64](/ru/reference/data-types/int-uint)) — Общий размер кэша несжатых данных для вторичных индексов в байтах. Кэш несжатых данных обычно не повышает производительность, поэтому его, как правило, лучше не использовать

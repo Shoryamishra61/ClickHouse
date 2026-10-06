@@ -403,6 +403,16 @@ A desvantagem é um uso de memória potencialmente maior.
 
 Habilita o codec de compressão `Quantized`.
 
+## enable_reads_from_columns_cache {#enable_reads_from_columns_cache}
+
+<BetaBadge />
+
+<SettingsInfoBlock type="Bool" default_value="1" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1"},{"label": "Nova configuração para controlar a leitura do cache de colunas"}]}]} />
+
+Define se deve ser feita a leitura do cache de colunas quando `use_columns_cache` estiver habilitado. Aceita 0 ou 1. O padrão é 1 (habilitado).
+
 ## enable_reads_from_query_cache {#enable_reads_from_query_cache}
 
 <SettingsInfoBlock type="Bool" default_value="1" />
@@ -588,6 +598,16 @@ Desativado por padrão.
 <VersionHistory rows={[{"id": "row-1","items": [{"label": "24.6"},{"label": "1"},{"label": "Ativa o FINAL vertical por padrão novamente após corrigir o bug"}]}, {"id": "row-2","items": [{"label": "24.1"},{"label": "1"},{"label": "Usa o FINAL vertical por padrão"}]}]} />
 
 Se ativado, remove linhas duplicadas durante o FINAL marcando as linhas como excluídas e filtrando-as posteriormente, em vez de mesclar as linhas
+
+## enable_writes_to_columns_cache {#enable_writes_to_columns_cache}
+
+<BetaBadge />
+
+<SettingsInfoBlock type="Bool" default_value="1" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1"},{"label": "Nova configuração para controlar a gravação no cache de colunas"}]}]} />
+
+Define se os dados devem ser gravados no cache de colunas quando `use_columns_cache` estiver habilitado. Aceita 0 ou 1. O padrão é 1 (habilitado).
 
 ## enable_writes_to_query_cache {#enable_writes_to_query_cache}
 

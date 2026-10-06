@@ -35,6 +35,7 @@
     "ko/reference/settings/session-settings/cluster",
     "ko/reference/settings/session-settings/cluster-table",
     "ko/reference/settings/session-settings/collect-hash",
+    "ko/reference/settings/session-settings/columns-cache",
     "ko/reference/settings/session-settings/compatibility",
     "ko/reference/settings/session-settings/compatibility-ignore",
     "ko/reference/settings/session-settings/compile",

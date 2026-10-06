@@ -55,6 +55,19 @@ HTTP CORS 헤더를 추가합니다.
 
 활성화하면 분석기가 일반(구체화되지 않고 매개변수화되지 않은) 뷰를 해당 뷰를 정의하는 서브쿼리로 대체하여 프레디케이트 푸시다운 및 컬럼 프루닝과 같은 경계를 넘는 최적화를 수행할 수 있습니다.
 
+## anti_join_include_columns_from_both_sides {#anti_join_include_columns_from_both_sides}
+
+<SettingsInfoBlock type="Bool" default_value="1" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1"},{"label": "새 설정입니다. 비활성화하면 `JOIN ON` 표현식을 제외하고 `ANTI JOIN`의 컬럼 액세스가 보존되는 쪽으로 제한됩니다"}]}]} />
+
+활성화하면(기본값) `ANTI` JOIN의 조인 결과에서 양쪽 컬럼에 모두 액세스할 수 있으며, `SELECT *`도 양쪽 컬럼을 모두 반환합니다. 이는 기존 ClickHouse 동작입니다.
+비활성화하면 분석기는 SQL 표준에 따라 `ANTI` JOIN의 컬럼 액세스를 보존되는 쪽으로 제한합니다.
+`LEFT ANTI JOIN`에서는 왼쪽 테이블의 컬럼만, `RIGHT ANTI JOIN`에서는 오른쪽 테이블의 컬럼만 액세스할 수 있습니다.
+이 제한은 `SELECT`, `PREWHERE`, `WHERE`, `GROUP BY`, `HAVING`, `QUALIFY`, `ORDER BY`, `LIMIT BY` 절 등 조인 결과에서 해석되는 표현식에 적용되며, `t1.*`과 같은 한정된 와일드카드도 포함됩니다.
+보존되지 않는 쪽의 컬럼을 명시적으로 참조하면 `SEMI_ANTI_JOIN_COLUMN_ACCESS_DENIED` 예외가 발생합니다. 여기에는 `t2.b`와 같은 한정된 참조, `t2.*`과 같은 한정된 와일드카드, `d.id`와 같은 `USING` 컬럼, `db.table.column`과 같은 완전히 한정된 참조가 모두 포함되며, `if(false, t2.b, 42)`처럼 정적으로 실행되지 않는 분기 안에서도 동일하게 적용됩니다. 반면 액세스 가능한 컬럼과 일치하지 않는 한정되지 않은 식별자는 기존과 같이 일반적인 `UNKNOWN_IDENTIFIER` 예외로 폴백합니다.
+동일한 `JOIN`의 `JOIN ON` 표현식에서는 이 설정과 관계없이 양쪽 모두에 액세스할 수 있습니다.
+
 ## any_join_distinct_right_table_keys {#any_join_distinct_right_table_keys}
 
 <SettingsInfoBlock type="Bool" default_value="0" />
@@ -786,6 +799,23 @@ false인 경우 h3 함수(예: h3CellAreaM2)는 입력이 유효하지 않으면
 
 함수 &#39;geoToH3&#39;는 &#39;lon&#95;lat&#39;로 설정된 경우 (lon, lat)를, &#39;lat&#95;lon&#39;으로 설정된 경우 (lat, lon)을 허용합니다.
 
+## get_zookeeper_lock_acquire_timeout_ms {#get_zookeeper_lock_acquire_timeout_ms}
+
+<SettingsInfoBlock type="밀리초" default_value="120000" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "120000"},{"label": "새로운 설정"}]}]} />
+
+Keeper 클라이언트가 해당 `Context` 뮤텍스를 획득하기 위해 대기하는 최대 시간(밀리초)을 정의합니다. 이 시간 안에 획득하지 못하면 실패합니다.
+
+이 값은 획득을 수행하는 `Context`에서 가져옵니다. 쿼리별 재정의는 작업이 쿼리 컨텍스트를 사용할 때만 적용됩니다. `system.zookeeper` 읽기, `zookeeperSessionUptime`, `SYSTEM RECONNECT ZOOKEEPER`, 쿼리 컨텍스트를 통한 보조 Keeper 액세스 등이 이에 해당합니다.
+`BACKUP` 및 `RESTORE` 조정, `Replicated` 데이터베이스 작업처럼 전역 또는 백그라운드 컨텍스트를 사용하는 작업은 해당 컨텍스트의 값을 사용합니다.
+`SYSTEM RELOAD CONFIG` 및 `SYSTEM RELOAD ASYNCHRONOUS METRICS`는 별도로 직렬화된 다시 로드 경로를 사용하므로 이 설정이 적용되지 않습니다.
+
+가능한 값:
+
+* 양의 정수(밀리초 단위).
+* 0 — 잠금 타임아웃 없음.
+
 ## glob_expansion_max_elements {#glob_expansion_max_elements}
 
 <SettingsInfoBlock type="UInt64" default_value="1000" />
@@ -1483,6 +1513,19 @@ FORMAT Null;
 * [insert&#95;quorum](/ko/reference/settings/session-settings/insert-quorum#insert_quorum)
 * [insert&#95;quorum&#95;timeout](/ko/reference/settings/session-settings/insert-quorum#insert_quorum_timeout)
 * [insert&#95;quorum&#95;parallel](/ko/reference/settings/session-settings/insert-quorum#insert_quorum_parallel)
+
+## semi_join_include_columns_from_both_sides {#semi_join_include_columns_from_both_sides}
+
+<SettingsInfoBlock type="Bool" default_value="1" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1"},{"label": "새 설정입니다. 이 설정을 비활성화하면 `JOIN ON` 표현식을 제외하고 `SEMI JOIN`의 컬럼 액세스가 보존되는 쪽으로 제한됩니다"}]}]} />
+
+활성화하면(기본값) `SEMI` JOIN의 조인 결과에서 양쪽 컬럼에 모두 액세스할 수 있으며, `SELECT *`는 양쪽 컬럼을 모두 반환합니다. 이는 기존(legacy) ClickHouse 동작입니다.
+비활성화하면 분석기는 SQL 표준에 따라 `SEMI` JOIN의 컬럼 액세스를 보존되는 쪽으로 제한합니다.
+`LEFT SEMI JOIN`에서는 왼쪽 테이블의 컬럼에만, `RIGHT SEMI JOIN`에서는 오른쪽 테이블의 컬럼에만 액세스할 수 있습니다.
+이 제한은 `SELECT`, `PREWHERE`, `WHERE`, `GROUP BY`, `HAVING`, `QUALIFY`, `ORDER BY`, `LIMIT BY` 절 등 조인 결과로부터 해석되는 표현식에 적용되며, `t1.*`와 같은 한정된 와일드카드도 포함됩니다.
+보존되지 않는 쪽의 컬럼을 명시적으로 참조하면 `SEMI_ANTI_JOIN_COLUMN_ACCESS_DENIED` 예외가 발생합니다. 여기에는 `t2.b`와 같은 한정된 참조, `t2.*`와 같은 한정된 와일드카드, `d.id`와 같은 `USING` 컬럼, `db.table.column`과 같은 완전히 한정된 참조가 모두 포함되며, `if(false, t2.b, 42)`처럼 정적으로 실행되지 않는 분기 안에서도 동일하게 적용됩니다. 액세스 가능한 어떤 컬럼과도 일치하지 않는 한정되지 않은 식별자는 기존과 같이 일반적인 `UNKNOWN_IDENTIFIER` 예외로 폴백됩니다.
+같은 `JOIN`의 `JOIN ON` 표현식에서는 이 설정과 관계없이 양쪽 모두에 액세스할 수 있습니다.
 
 ## session_query_ids_history_size {#session_query_ids_history_size}
 

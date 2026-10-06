@@ -245,6 +245,14 @@ SYSTEM DROP DATABASE REPLICA 'replica_name' [FROM SHARD 'shard_name'] FROM ZKPAT
 يُفعَّل أو يُعطَّل التخزين المؤقت للبيانات غير المضغوطة باستخدام الإعداد [`use_uncompressed_cache`](/ar/reference/settings/session-settings/use#use_uncompressed_cache) على مستوى الاستعلام/المستخدم/ملف التعريف.
 يمكن تهيئة حجمه باستخدام الإعداد [`uncompressed_cache_size`](/ar/reference/settings/server-settings/settings/uncompressed-cache#uncompressed_cache_size) على مستوى الخادم.
 
+## SYSTEM CLEAR|DROP COLUMNS CACHE {#drop-columns-cache}
+
+يمسح ذاكرة التخزين المؤقت للأعمدة (الأعمدة التي فُكّ تسلسلها والمحتفَظ بها في الذاكرة).
+لا يمكن لعمليات القراءة الجارية لحظة مسح ذاكرة التخزين المؤقت أن تعيد بياناتها إليها، حتى تلك المقروءة من أجزاء البيانات التي لا تبلغها إلا بعد المسح، ولذلك تظل ذاكرة التخزين المؤقت فارغة حتى تحت الضغط.
+تُفعَّل ذاكرة التخزين المؤقت للأعمدة أو تُعطَّل عبر الإعداد `use_columns_cache` على مستوى الاستعلام أو المستخدم أو ملف التعريف.
+ويمكن تهيئة حجمها باستخدام الإعداد `columns_cache_size` على مستوى الخادم.
+استخدم [`system.columns_cache`](/ar/reference/system-tables/columns_cache) لفحص محتويات ذاكرة التخزين المؤقت.
+
 ## SYSTEM CLEAR|DROP COMPILED EXPRESSION CACHE {#drop-compiled-expression-cache}
 
 يمسح ذاكرة التخزين المؤقت للتعبيرات المترجمة.
@@ -953,6 +961,18 @@ SYSTEM REFRESH ALL BACKGROUND
 ```sql
 SYSTEM FLUSH OBJECT STORAGE QUEUE [db.]table_name PATH 'path'
 ```
+
+## SYSTEM RESET FILELOG {#reset-filelog}
+
+يغيّر الموضع الذي يستأنف منه جدول [FileLog](/ar/reference/engines/table-engines/special/filelog) القراءة، دون إعادة إنشاء الجدول.
+
+```sql
+SYSTEM RESET FILELOG [ON CLUSTER cluster_name] [db.]table_name [FILE 'file_name' [OFFSET n | TO END]]
+```
+
+عند عدم استخدام `FILE`، تُعاد قراءة جميع ملفات الجدول من البداية. وعند استخدام `FILE`، يقتصر تأثير الأمر على الملف المحدد (بالاسم الوارد في العمود الافتراضي `_filename`): فتُعاد قراءته من البداية، أو من البايت `n` عند استخدام `OFFSET n` (بداية سطر، مثل قيمة `_offset`)، أو تُقرأ فقط البيانات المضافة بعد تنفيذ الأمر عند استخدام `TO END`، مع تجاوز محتوى الملف الحالي.
+
+تُدرج الصفوف التي تُعاد قراءتها في العروض المُجسَّدة مرة أخرى. يُحفظ الموضع الجديد فورًا ويُحتفظ به بعد إعادة تشغيل الخادم. ينتظر الأمر اكتمال أي عملية قراءة جارية في الخلفية، ويفشل إذا كان استعلام `SELECT` يقرأ من الجدول. ويتطلب امتياز `SYSTEM RESET FILELOG` على الجدول.
 
 ## SYSTEM ENABLE|DISABLE FAILPOINT {#failpoint}
 

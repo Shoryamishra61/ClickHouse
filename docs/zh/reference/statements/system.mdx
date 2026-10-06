@@ -245,6 +245,14 @@ SYSTEM DROP DATABASE REPLICA 'replica_name' [FROM SHARD 'shard_name'] FROM ZKPAT
 可通过查询/用户/profile 级设置 [`use_uncompressed_cache`](/zh/reference/settings/session-settings/use#use_uncompressed_cache) 启用或禁用未压缩数据缓存。
 其大小可通过服务器级设置 [`uncompressed_cache_size`](/zh/reference/settings/server-settings/settings/uncompressed-cache#uncompressed_cache_size) 配置。
 
+## SYSTEM CLEAR|DROP COLUMNS CACHE {#drop-columns-cache}
+
+清除列缓存 (即保存在内存中的已反序列化列) 。
+清除缓存时仍在进行的读取操作无法再将数据写回缓存，即使是清除之后才读到的数据 parts 也是如此，因此即便在负载下，缓存也会保持清空状态。
+列缓存可通过查询级、用户级或 profile 级设置 `use_columns_cache` 启用或禁用。
+其大小可通过服务器级设置 `columns_cache_size` 进行配置。
+可使用 [`system.columns_cache`](/zh/reference/system-tables/columns_cache) 查看缓存内容。
+
 ## SYSTEM CLEAR|DROP 编译 expression 缓存 {#drop-compiled-expression-cache}
 
 清除已编译表达式缓存。
@@ -953,6 +961,18 @@ SYSTEM REFRESH ALL BACKGROUND
 ```sql
 SYSTEM FLUSH OBJECT STORAGE QUEUE [db.]table_name PATH 'path'
 ```
+
+## SYSTEM RESET FILELOG {#reset-filelog}
+
+更改 [FileLog](/zh/reference/engines/table-engines/special/filelog) 表继续读取的起始位置，无需重新创建该表。
+
+```sql
+SYSTEM RESET FILELOG [ON CLUSTER cluster_name] [db.]table_name [FILE 'file_name' [OFFSET n | TO END]]
+```
+
+不指定 `FILE` 时，表中的所有文件都会从头重新读取。指定 `FILE` 时，仅影响指定的文件 (文件名与 `_filename` 虚拟列中的值一致) ：该文件会从头重新读取；使用 `OFFSET n` 时，从第 `n` 个字节开始读取 (须为某一行的起始位置，例如某个 `_offset` 值) ；使用 `TO END` 时，则仅读取该命令执行后追加的数据，即跳过文件中现有的内容。
+
+重新读取的行会再次插入到 materialized view 中。新的读取位置会立即保存，服务器重启后依然保留。该命令会等待后台正在进行的读取完成；如果有 `SELECT` 查询正在读取该表，则命令执行失败。执行该命令需要具有该表的 `SYSTEM RESET FILELOG` 特权。
 
 ## SYSTEM ENABLE|DISABLE FAILPOINT {#failpoint}
 

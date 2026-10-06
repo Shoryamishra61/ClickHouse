@@ -37,6 +37,23 @@ Los motores File/S3 y la función de tabla interpretarán las rutas con &#39;::&
 
 Usa el grupo de E/S en segundo plano para leer desde tablas MergeTree. Esta configuración puede mejorar el rendimiento de las consultas limitadas por E/S.
 
+## allow_block_nested_loop_join {#allow_block_nested_loop_join}
+
+<SettingsInfoBlock type="Bool" default_value="1" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1"},{"label": "Nueva configuración que controla el block nested loop join, el cual ejecuta un `JOIN` cuya sección `ON` no determina ninguna join key, en lugar de rechazarlo con `INVALID_JOIN_ON_EXPRESSION`. El valor de compatibilidad 0 restaura el comportamiento anterior."}]}]} />
+
+Permite ejecutar un `JOIN` con una condición `ON` arbitraria, es decir, sin ninguna igualdad entre las tablas unidas, como un [block nested loop join](/es/reference/statements/select/join#join-with-an-arbitrary-on-condition).
+
+Examina cada par de filas, por lo que su coste equivale al producto del número de filas de ambas tablas. El operador es el último recurso de la planificación de JOIN y solo se recurre a él cuando ningún [`join_algorithm`](/es/reference/settings/session-settings/join#join_algorithm) puede ejecutar la condición, por lo que no se selecciona mediante esa configuración.
+
+Cuando la configuración está deshabilitada, toda consulta que llegue al operador se rechaza con `INVALID_JOIN_ON_EXPRESSION` durante su planificación.
+
+Valores posibles:
+
+* 0 — Rechazar la consulta.
+* 1 — Ejecutarla como un block nested loop join (predeterminado).
+
 ## allow_calculating_subcolumns_sizes_for_merge_tree_reading {#allow_calculating_subcolumns_sizes_for_merge_tree_reading}
 
 <SettingsInfoBlock type="Bool" default_value="1" />
@@ -367,12 +384,6 @@ Establézcalo en false para forzar el comportamiento anterior de mutación compl
 <VersionHistory rows={[{"id": "row-1","items": [{"label": "26.7"},{"label": "0"},{"label": "Prohíbe crear índices de omisión minmax en columnas JSON de forma predeterminada, porque la serialización del índice no puede manejar valores de Field heterogéneos"}]}]} />
 
 Permite crear índices de omisión minmax en columnas JSON (Object). Está deshabilitado de forma predeterminada porque la ruta de serialización del índice minmax no puede manejar valores de Field heterogéneos que pueden contener las columnas JSON.
-
-## allow_named_collection_override_by_default {#allow_named_collection_override_by_default}
-
-<SettingsInfoBlock type="Bool" default_value="1" />
-
-Permite sobrescribir de forma predeterminada los campos de las colecciones con nombre.
 
 ## allow_non_metadata_alters {#allow_non_metadata_alters}
 

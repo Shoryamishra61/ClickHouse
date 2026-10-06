@@ -112,6 +112,16 @@ analyzer 是自 v24.3 起默认启用的查询分析与查询计划基础设施�
 
 启用 Kusto 查询语言 (KQL) 方言，可作为 SQL 的替代方案。
 
+## allow_experimental_lateral_join {#allow_experimental_lateral_join}
+
+<ExperimentalBadge />
+
+<SettingsInfoBlock type="Bool" default_value="0" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "0"},{"label": "新增设置，用于允许使用 `LATERAL JOIN` 语法。"}]}]} />
+
+允许使用 LATERAL JOIN 语法。启用后，JOIN 右侧的子查询可以引用左侧的列，从而支持在 FROM 子句中使用关联子查询 (即 SQL 标准中的 LATERAL JOIN) 。
+
 ## allow_experimental_logsql_dialect {#allow_experimental_logsql_dialect}
 
 <ExperimentalBadge />

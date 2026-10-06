@@ -245,6 +245,14 @@ SYSTEM DROP DATABASE REPLICA 'replica_name' [FROM SHARD 'shard_name'] FROM ZKPAT
 Кэш несжатых данных включается и отключается с помощью настройки уровня запроса, пользователя или профиля [`use_uncompressed_cache`](/ru/reference/settings/session-settings/use#use_uncompressed_cache).
 Его размер можно задать с помощью настройки уровня сервера [`uncompressed_cache_size`](/ru/reference/settings/server-settings/settings/uncompressed-cache#uncompressed_cache_size).
 
+## SYSTEM CLEAR|DROP COLUMNS CACHE {#drop-columns-cache}
+
+Очищает кэш столбцов (десериализованные столбцы, хранящиеся в памяти).
+Операции чтения, которые уже выполняются в момент очистки кэша, не могут снова поместить свои данные в кэш — в том числе данные из частей, до которых они доходят уже после очистки, поэтому кэш остаётся очищенным даже под нагрузкой.
+Кэш столбцов включается и отключается настройкой `use_columns_cache` на уровне запроса, пользователя или профиля.
+Его размер задаётся настройкой уровня сервера `columns_cache_size`.
+Чтобы исследовать содержимое кэша, используйте [`system.columns_cache`](/ru/reference/system-tables/columns_cache).
+
 ## SYSTEM CLEAR|DROP COMPILED EXPRESSION CACHE {#drop-compiled-expression-cache}
 
 Очищает кэш скомпилированных выражений.
@@ -953,6 +961,18 @@ SYSTEM REFRESH ALL BACKGROUND
 ```sql
 SYSTEM FLUSH OBJECT STORAGE QUEUE [db.]table_name PATH 'path'
 ```
+
+## SYSTEM RESET FILELOG {#reset-filelog}
+
+Изменяет позицию, с которой таблица [FileLog](/ru/reference/engines/table-engines/special/filelog) продолжает чтение, без необходимости пересоздавать таблицу.
+
+```sql
+SYSTEM RESET FILELOG [ON CLUSTER cluster_name] [db.]table_name [FILE 'file_name' [OFFSET n | TO END]]
+```
+
+Без `FILE` каждый файл таблицы читается заново с самого начала. С `FILE` затрагивается только указанный файл (имя задаётся так же, как в виртуальном столбце `_filename`): он читается заново с начала, с байта `n` при указании `OFFSET n` (это должно быть начало строки, например значение `_offset`) или, при указании `TO END`, только начиная с данных, дописанных после выполнения команды, — то есть текущее содержимое файла пропускается.
+
+Повторно прочитанные строки снова вставляются в materialized view. Новая позиция сохраняется сразу и не теряется после перезапуска сервера. Команда дожидается завершения фонового чтения и завершается с ошибкой, если из таблицы в этот момент читает `SELECT`-запрос. Для её выполнения требуется привилегия `SYSTEM RESET FILELOG` на таблицу.
 
 ## SYSTEM ENABLE|DISABLE FAILPOINT {#failpoint}
 

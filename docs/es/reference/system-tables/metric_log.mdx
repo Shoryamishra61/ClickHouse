@@ -514,6 +514,10 @@ Es seguro truncar o eliminar esta tabla en cualquier momento.
 * `ProfileEvent_MarkCacheEvictedBytes` ([UInt64](/es/reference/data-types/int-uint)) — Número de bytes expulsados de la caché de marcas.
 * `ProfileEvent_MarkCacheEvictedMarks` ([UInt64](/es/reference/data-types/int-uint)) — Número de marcas expulsadas de la caché de marcas.
 * `ProfileEvent_MarkCacheEvictedFiles` ([UInt64](/es/reference/data-types/int-uint)) — Número de archivos de marcas expulsados de la caché de marcas.
+* `ProfileEvent_ColumnsCacheHits` ([UInt64](/es/reference/data-types/int-uint)) — Número de veces que se encontró una columna deserializada en la caché de columnas.
+* `ProfileEvent_ColumnsCacheMisses` ([UInt64](/es/reference/data-types/int-uint)) — Número de veces que no se encontró una columna deserializada en la caché de columnas.
+* `ProfileEvent_ColumnsCacheEvictedBytes` ([UInt64](/es/reference/data-types/int-uint)) — Número de bytes desalojados de la caché de columnas.
+* `ProfileEvent_ColumnsCacheEvictedEntries` ([UInt64](/es/reference/data-types/int-uint)) — Número de entradas desalojadas de la caché de columnas.
 * `ProfileEvent_LoadedPrimaryIndexFiles` ([UInt64](/es/reference/data-types/int-uint)) — Número de archivos de índice primario cargados.
 * `ProfileEvent_LoadedPrimaryIndexRows` ([UInt64](/es/reference/data-types/int-uint)) — Número de filas de la clave primaria cargadas.
 * `ProfileEvent_LoadedPrimaryIndexBytes` ([UInt64](/es/reference/data-types/int-uint)) — Número de filas de la clave primaria cargadas.
@@ -738,25 +742,25 @@ Es seguro truncar o eliminar esta tabla en cualquier momento.
 * `ProfileEvent_QueryProfilerErrors` ([UInt64](/es/reference/data-types/int-uint)) — Accesos a memoria no válidos durante el desenrollado asíncrono de la pila.
 * `ProfileEvent_CreatedLogEntryForMerge` ([UInt64](/es/reference/data-types/int-uint)) — Se creó correctamente una entrada de registro para fusionar partes en ReplicatedMergeTree.
 * `ProfileEvent_NotCreatedLogEntryForMerge` ([UInt64](/es/reference/data-types/int-uint)) — La entrada de registro para fusionar partes en ReplicatedMergeTree no se crea debido a una actualización concurrente del registro por otra réplica.
-* `ProfileEvent_CreatedLogEntryForMutation` ([UInt64](/es/reference/data-types/int-uint)) — Se creó correctamente una entrada de registro para mutar partes en ReplicatedMergeTree.
-* `ProfileEvent_NotCreatedLogEntryForMutation` ([UInt64](/es/reference/data-types/int-uint)) — La entrada de registro para mutar partes en ReplicatedMergeTree no se crea debido a una actualización concurrente del registro por otra réplica.
+* `ProfileEvent_CreatedLogEntryForMutation` ([UInt64](/es/reference/data-types/int-uint)) — Se creó correctamente una entrada de log para mutar partes en ReplicatedMergeTree.
+* `ProfileEvent_NotCreatedLogEntryForMutation` ([UInt64](/es/reference/data-types/int-uint)) — La entrada de log para mutar partes en ReplicatedMergeTree no se crea debido a una actualización concurrente del log por otra réplica.
 * `ProfileEvent_S3ReadMicroseconds` ([UInt64](/es/reference/data-types/int-uint)) — Tiempo de las solicitudes GET y HEAD al almacenamiento S3.
 * `ProfileEvent_S3ReadRequestsCount` ([UInt64](/es/reference/data-types/int-uint)) — Número de solicitudes GET y HEAD al almacenamiento S3.
-* `ProfileEvent_S3ReadRequestsErrors` ([UInt64](/es/reference/data-types/int-uint)) — Número de errores no debidos a throttling en las solicitudes GET y HEAD al almacenamiento S3.
+* `ProfileEvent_S3ReadRequestsErrors` ([UInt64](/es/reference/data-types/int-uint)) — Número de errores no debidos a la limitación de tasa en las solicitudes GET y HEAD al almacenamiento S3.
 * `ProfileEvent_S3ReadRequestsThrottling` ([UInt64](/es/reference/data-types/int-uint)) — Número de errores 429 y 503 en las solicitudes GET y HEAD al almacenamiento S3.
-* `ProfileEvent_S3ReadRequestsRedirects` ([UInt64](/es/reference/data-types/int-uint)) — Número de redirecciones en las solicitudes GET y HEAD al almacenamiento S3.
+* `ProfileEvent_S3ReadRequestsRedirects` ([UInt64](/es/reference/data-types/int-uint)) — Número de redireccionamientos en las solicitudes GET y HEAD al almacenamiento S3.
 * `ProfileEvent_S3ReadRequestAttempts` ([UInt64](/es/reference/data-types/int-uint)) — Número de intentos de las solicitudes GET y HEAD, incluido el intento inicial y cualquier reintento, pero excluidos los reintentos realizados internamente por la estrategia de reintento de S3
-* `ProfileEvent_S3ReadRequestRetryableErrors` ([UInt64](/es/reference/data-types/int-uint)) — Número de error recuperable en las solicitudes GET y HEAD, excluidos los reintentos realizados internamente por la estrategia de reintento de S3
+* `ProfileEvent_S3ReadRequestRetryableErrors` ([UInt64](/es/reference/data-types/int-uint)) — Número de errores recuperables en las solicitudes GET y HEAD, excluidos los reintentos realizados internamente por la estrategia de reintento de S3
 * `ProfileEvent_S3WriteMicroseconds` ([UInt64](/es/reference/data-types/int-uint)) — Tiempo de las solicitudes POST, DELETE, PUT y PATCH al almacenamiento S3.
 * `ProfileEvent_S3WriteRequestsCount` ([UInt64](/es/reference/data-types/int-uint)) — Número de solicitudes POST, DELETE, PUT y PATCH al almacenamiento de S3.
-* `ProfileEvent_S3WriteRequestsErrors` ([UInt64](/es/reference/data-types/int-uint)) — Número de errores no debidos a la limitación de velocidad en las solicitudes POST, DELETE, PUT y PATCH al almacenamiento de S3.
+* `ProfileEvent_S3WriteRequestsErrors` ([UInt64](/es/reference/data-types/int-uint)) — Número de errores no debidos a la limitación de tasa en las solicitudes POST, DELETE, PUT y PATCH al almacenamiento de S3.
 * `ProfileEvent_S3WriteRequestsThrottling` ([UInt64](/es/reference/data-types/int-uint)) — Número de errores 429 y 503 en las solicitudes POST, DELETE, PUT y PATCH al almacenamiento de S3.
 * `ProfileEvent_S3WriteRequestsRedirects` ([UInt64](/es/reference/data-types/int-uint)) — Número de redireccionamientos en las solicitudes POST, DELETE, PUT y PATCH al almacenamiento de S3.
 * `ProfileEvent_S3WriteRequestAttempts` ([UInt64](/es/reference/data-types/int-uint)) — Número de intentos de solicitudes POST, DELETE, PUT y PATCH, incluido el intento inicial y cualquier reintento, pero excluidos los reintentos realizados internamente por la estrategia de reintento
 * `ProfileEvent_S3WriteRequestRetryableErrors` ([UInt64](/es/reference/data-types/int-uint)) — Número de errores recuperables en las solicitudes POST, DELETE, PUT y PATCH, excluidos los reintentos realizados internamente por la estrategia de reintento
 * `ProfileEvent_DiskS3ReadMicroseconds` ([UInt64](/es/reference/data-types/int-uint)) — Tiempo de las solicitudes GET y HEAD al almacenamiento DiskS3.
 * `ProfileEvent_DiskS3ReadRequestsCount` ([UInt64](/es/reference/data-types/int-uint)) — Número de solicitudes GET y HEAD al almacenamiento DiskS3.
-* `ProfileEvent_DiskS3ReadRequestsErrors` ([UInt64](/es/reference/data-types/int-uint)) — Número de errores no debidos a la limitación de velocidad en las solicitudes GET y HEAD al almacenamiento DiskS3.
+* `ProfileEvent_DiskS3ReadRequestsErrors` ([UInt64](/es/reference/data-types/int-uint)) — Número de errores no debidos a la limitación de tasa en las solicitudes GET y HEAD al almacenamiento DiskS3.
 * `ProfileEvent_DiskS3ReadRequestsThrottling` ([UInt64](/es/reference/data-types/int-uint)) — Número de errores 429 y 503 en las solicitudes GET y HEAD al almacenamiento DiskS3.
 * `ProfileEvent_DiskS3ReadRequestsRedirects` ([UInt64](/es/reference/data-types/int-uint)) — Número de redireccionamientos en las solicitudes GET y HEAD al almacenamiento DiskS3.
 * `ProfileEvent_DiskS3ReadRequestAttempts` ([UInt64](/es/reference/data-types/int-uint)) — Número de intentos de solicitudes GET y HEAD al almacenamiento DiskS3, incluido el intento inicial y cualquier reintento, pero excluidos los reintentos realizados internamente por la estrategia de reintento de S3
@@ -1171,7 +1175,7 @@ Es seguro truncar o eliminar esta tabla en cualquier momento.
 * `ProfileEvent_ReadTaskRequestsSent` ([UInt64](/es/reference/data-types/int-uint)) — Número de callbacks solicitados desde el servidor remoto al servidor iniciador para elegir la tarea de lectura (para la table function s3Cluster y similares). Medido del lado del servidor remoto.
 * `ProfileEvent_MergeTreeReadTaskRequestsSent` ([UInt64](/es/reference/data-types/int-uint)) — Número de callbacks solicitados desde el servidor remoto al servidor iniciador para elegir la tarea de lectura (para tablas MergeTree). Medido del lado del servidor remoto.
 * `ProfileEvent_MergeTreeAllRangesAnnouncementsSent` ([UInt64](/es/reference/data-types/int-uint)) — Número de anuncios enviados desde el servidor remoto al servidor iniciador sobre el conjunto de partes de datos (para tablas MergeTree). Medido del lado del servidor remoto.
-* `ProfileEvent_ReadTaskRequestsSentElapsedMicroseconds` ([UInt64](/es/reference/data-types/int-uint)) — Tiempo dedicado a los callbacks solicitados desde el servidor remoto al servidor iniciador para elegir la tarea de lectura (para la table function `s3Cluster` y similares). Medido del lado del servidor remoto.
+* `ProfileEvent_ReadTaskRequestsSentElapsedMicroseconds` ([UInt64](/es/reference/data-types/int-uint)) — Tiempo dedicado a los callbacks solicitados desde el servidor remoto al servidor iniciador para elegir la tarea de lectura (para la table function s3Cluster y similares). Medido del lado del servidor remoto.
 * `ProfileEvent_MergeTreeReadTaskRequestsSentElapsedMicroseconds` ([UInt64](/es/reference/data-types/int-uint)) — Tiempo dedicado a los callbacks solicitados desde el servidor remoto al servidor iniciador para elegir la tarea de lectura (para tablas MergeTree). Medido del lado del servidor remoto.
 * `ProfileEvent_MergeTreeAllRangesAnnouncementsSentElapsedMicroseconds` ([UInt64](/es/reference/data-types/int-uint)) — Tiempo dedicado a enviar el anuncio desde el servidor remoto al servidor iniciador sobre el conjunto de partes de datos (para tablas MergeTree). Medido del lado del servidor remoto.
 * `ProfileEvent_MergerMutatorsGetPartsForMergeElapsedMicroseconds` ([UInt64](/es/reference/data-types/int-uint)) — Tiempo dedicado a tomar una instantánea de las partes de datos para construir rangos a partir de ellas.
@@ -2066,6 +2070,9 @@ Es seguro truncar o eliminar esta tabla en cualquier momento.
 * `CurrentMetric_PageCacheCells` ([Int64](/es/reference/data-types/int-uint)) — Número total de entradas en la caché de páginas en espacio de usuario
 * `CurrentMetric_UncompressedCacheBytes` ([Int64](/es/reference/data-types/int-uint)) — Tamaño total de la caché sin comprimir en bytes. La caché sin comprimir no suele mejorar el rendimiento y, por lo general, debe evitarse
 * `CurrentMetric_UncompressedCacheCells` ([Int64](/es/reference/data-types/int-uint)) — Número total de entradas en la caché sin comprimir. Cada entrada representa un bloque de datos descomprimido. La caché sin comprimir no suele mejorar el rendimiento y, por lo general, debe evitarse
+* `CurrentMetric_ColumnsCacheBytes` ([Int64](/es/reference/data-types/int-uint)) — Tamaño total de la caché de columnas en bytes. La caché de columnas almacena columnas deserializadas de tablas MergeTree para evitar repetir la descompresión y la deserialización.
+* `CurrentMetric_ColumnsCacheEntries` ([Int64](/es/reference/data-types/int-uint)) — Número total de entradas en la caché de columnas.
+* `CurrentMetric_ColumnsCacheSizeLimit` ([Int64](/es/reference/data-types/int-uint)) — Límite de tamaño vigente de la caché de columnas, en bytes. Se reduce por debajo del valor configurado de `columns_cache_size` cuando el resto del servidor dispone de poca memoria y vuelve a aumentar hacia ese valor cuando disminuye el consumo de memoria; consulte `columns_cache_free_memory_ratio`.
 * `CurrentMetric_IndexMarkCacheBytes` ([Int64](/es/reference/data-types/int-uint)) — Tamaño total de la caché de marcas para índices secundarios en bytes
 * `CurrentMetric_IndexMarkCacheFiles` ([Int64](/es/reference/data-types/int-uint)) — Número total de archivos de marcas almacenados en caché en la caché de marcas para índices secundarios
 * `CurrentMetric_IndexUncompressedCacheBytes` ([Int64](/es/reference/data-types/int-uint)) — Tamaño total de la caché sin comprimir para índices secundarios en bytes. La caché sin comprimir no suele mejorar el rendimiento y, por lo general, debe evitarse

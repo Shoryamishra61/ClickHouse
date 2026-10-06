@@ -111,6 +111,42 @@ server 上的单个表中存储数百 TB 的数据。这
 
 MergeTree 投影的数量上限。
 
+## max_row_mask_update_coalescing_ast_bytes {#max_row_mask_update_coalescing_ast_bytes}
+
+<SettingsInfoBlock type="UInt64" default_value="1048576" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1048576"},{"label": "新增设置"}]}]} />
+
+允许参与行掩码更新合并的原始命令的 `ast_text` 字节总数上限。当命令中包含较大的字面量时，仅靠命令数量限制无法控制该副本的大小。设置为 0 可禁用合并。
+
+## max_row_mask_update_coalescing_commands {#max_row_mask_update_coalescing_commands}
+
+<SettingsInfoBlock type="UInt64" default_value="4096" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "4096"},{"label": "新增设置"}]}]} />
+
+可参与行掩码更新合并的分片本地变更命令的最大数量。该设置用于限制此优化额外复制命令列表的开销；
+该值仅作为资源保护措施，而非语义层面的限制。值小于 2 时将禁用合并。
+
+## max_row_mask_update_coalescing_key_bytes {#max_row_mask_update_coalescing_key_bytes}
+
+<SettingsInfoBlock type="UInt64" default_value="65536" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "65536"},{"label": "新增设置"}]}]} />
+
+单次合并后的行掩码更新中，键字面量的总字节数上限。
+此设置用于限制所生成 `IN` 谓词的大小。设为 0 即可禁用合并。
+
+## max_row_mask_update_coalescing_keys {#max_row_mask_update_coalescing_keys}
+
+<SettingsInfoBlock type="UInt64" default_value="256" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "256"},{"label": "新增设置"}]}]} />
+
+单次合并的行掩码更新中最多可包含的键数量。实际生效的上限
+还受后台查询设置中 `max_rows_in_set` 的约束。取值小于
+2 时将禁用合并。
+
 ## max_table_size_bytes_compressed {#max_table_size_bytes_compressed}
 
 <SettingsInfoBlock type="UInt64" default_value="0" />

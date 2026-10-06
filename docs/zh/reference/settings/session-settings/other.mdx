@@ -55,6 +55,19 @@ import { CloudOnlyBadge } from "/snippets/zh/components/CloudOnlyBadge/CloudOnly
 
 启用后，analyzer 会用定义这些普通 (非物化、非参数化) 视图的子查询替换它们，从而实现跨边界优化，例如谓词下推和列裁剪。
 
+## anti_join_include_columns_from_both_sides {#anti_join_include_columns_from_both_sides}
+
+<SettingsInfoBlock type="Bool" default_value="1" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1"},{"label": "新增设置。禁用后，除 `JOIN ON` 表达式外，`ANTI JOIN` 只能访问保留侧的列"}]}]} />
+
+启用时 (默认) ，`ANTI` JOIN 的连接结果中两侧的列均可访问，且 `SELECT *` 会返回两侧的列。这是 ClickHouse 的旧有行为。
+禁用时，analyzer 会遵循 SQL 标准，将 `ANTI` JOIN 的列访问限制在保留侧。
+对于 `LEFT ANTI JOIN`，只能访问左表的列；对于 `RIGHT ANTI JOIN`，只能访问右表的列。
+此限制适用于基于连接结果解析的表达式，例如 `SELECT`、`PREWHERE`、`WHERE`、`GROUP BY`、`HAVING`、`QUALIFY`、`ORDER BY` 和 `LIMIT BY` 子句，也包括 `t1.*` 这类限定通配符。
+显式引用非保留侧的列会引发 `SEMI_ANTI_JOIN_COLUMN_ACCESS_DENIED` 异常。这包括 `t2.b` 这类限定引用、`t2.*` 这类限定通配符、`d.id` 这类 `USING` 列，以及 `db.table.column` 这类完全限定引用；即使位于静态不可达的分支中 (例如 `if(false, t2.b, 42)`) ，该限制同样生效。若未限定的标识符不匹配任何可访问的列，仍会回退为通用的 `UNKNOWN_IDENTIFIER` 异常。
+无论此设置取值如何，同一 `JOIN` 的 `JOIN ON` 表达式都可以访问两侧的列。
+
 ## any_join_distinct_right_table_keys {#any_join_distinct_right_table_keys}
 
 <SettingsInfoBlock type="Bool" default_value="0" />
@@ -775,6 +788,23 @@ curl "http://localhost:8123/?framing_output_format=JSONEachPacketString" -d "SEL
 
 函数 `geoToH3` 在设置为 `lon_lat` 时接受 (lon, lat)，在设置为 `lat_lon` 时接受 (lat, lon)。
 
+## get_zookeeper_lock_acquire_timeout_ms {#get_zookeeper_lock_acquire_timeout_ms}
+
+<SettingsInfoBlock type="Milliseconds" default_value="120000" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "120000"},{"label": "New setting"}]}]} />
+
+定义 Keeper 客户端获取对应 `Context` 互斥锁时的最长等待时间 (毫秒) ，超时则判定失败。
+
+该值取自执行获取操作的 `Context`。仅当操作使用查询上下文时，查询级别的覆盖值才会生效，例如从 `system.zookeeper` 读取数据、`zookeeperSessionUptime`、`SYSTEM RECONNECT ZOOKEEPER`，以及基于查询上下文的辅助 Keeper 访问。
+使用全局上下文或后台上下文的操作 (包括 `BACKUP` 和 `RESTORE` 的协调以及 `Replicated` 数据库的相关活动) 则使用该上下文中的值。
+`SYSTEM RELOAD CONFIG` 和 `SYSTEM RELOAD ASYNCHRONOUS METRICS` 不受此设置影响，因为它们使用各自独立序列化的重新加载路径。
+
+可选值：
+
+* 正整数 (单位为毫秒) 。
+* 0 — 获取锁时不设超时。
+
 ## glob_expansion_max_elements {#glob_expansion_max_elements}
 
 <SettingsInfoBlock type="UInt64" default_value="1000" />
@@ -1467,6 +1497,19 @@ See also:
 * [insert&#95;quorum](/zh/reference/settings/session-settings/insert-quorum#insert_quorum)
 * [insert&#95;quorum&#95;timeout](/zh/reference/settings/session-settings/insert-quorum#insert_quorum_timeout)
 * [insert&#95;quorum&#95;parallel](/zh/reference/settings/session-settings/insert-quorum#insert_quorum_parallel)
+
+## semi_join_include_columns_from_both_sides {#semi_join_include_columns_from_both_sides}
+
+<SettingsInfoBlock type="Bool" default_value="1" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1"},{"label": "新增设置。禁用此设置后，除 `JOIN ON` 表达式外，`SEMI JOIN` 只能访问保留侧的列"}]}]} />
+
+启用时 (默认) ，`SEMI` JOIN 的连接结果中两侧的列均可访问，`SELECT *` 也会返回两侧的列。这是 ClickHouse 的旧有行为。
+禁用时，analyzer 会遵循 SQL 标准，将 `SEMI` JOIN 的列访问限制在保留侧。
+对于 `LEFT SEMI JOIN`，只能访问左表的列；对于 `RIGHT SEMI JOIN`，只能访问右表的列。
+此限制适用于基于连接结果解析的表达式，例如 `SELECT`、`PREWHERE`、`WHERE`、`GROUP BY`、`HAVING`、`QUALIFY`、`ORDER BY` 和 `LIMIT BY` 子句中的表达式，也包括 `t1.*` 这类限定通配符。
+显式引用非保留侧的列会引发 `SEMI_ANTI_JOIN_COLUMN_ACCESS_DENIED` 异常。这包括 `t2.b` 这类限定引用、`t2.*` 这类限定通配符、`d.id` 这类 `USING` 列，以及 `db.table.column` 这类完全限定引用；即使引用位于静态不可达的分支中 (例如 `if(false, t2.b, 42)`) ，该限制也同样生效。若非限定标识符不匹配任何可访问的列，则仍会回退为通用的 `UNKNOWN_IDENTIFIER` 异常。
+无论此设置的值如何，同一 `JOIN` 的 `JOIN ON` 表达式始终可以访问两侧的列。
 
 ## session_query_ids_history_size {#session_query_ids_history_size}
 

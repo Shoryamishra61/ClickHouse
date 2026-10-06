@@ -111,6 +111,47 @@ filesystem エラーを避けるには、最大ファイル名長 (通常は 255
 
 MergeTreeプロジェクションの最大数。
 
+## max_row_mask_update_coalescing_ast_bytes {#max_row_mask_update_coalescing_ast_bytes}
+
+<SettingsInfoBlock type="UInt64" default_value="1048576" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1048576"},{"label": "新しい設定"}]}]} />
+
+行マスク更新の結合 (coalescing) の対象とする、元のコマンドの `ast_text` の合計バイト数の上限です。
+コマンドに大きなリテラルが含まれる場合、コマンド数の制限だけではこのコピーのサイズを抑えられません。
+0 に設定すると結合は無効になります。
+
+## max_row_mask_update_coalescing_commands {#max_row_mask_update_coalescing_commands}
+
+<SettingsInfoBlock type="UInt64" default_value="4096" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "4096"},{"label": "新しい設定"}]}]} />
+
+行マスク更新の結合 (coalescing) の対象となる、パーツローカルなミューテーションコマンドの最大数です。
+この設定により、この最適化で作成されるコマンドリストの追加コピーの上限が決まります。
+この値はリソースを保護するためのものであり、動作の意味に関わる制限ではありません。2 未満の値を指定すると、
+結合は無効になります。
+
+## max_row_mask_update_coalescing_key_bytes {#max_row_mask_update_coalescing_key_bytes}
+
+<SettingsInfoBlock type="UInt64" default_value="65536" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "65536"},{"label": "新しい設定"}]}]} />
+
+1 回の結合された行マスク更新に含めることができるキーリテラルの合計バイト数の上限です。
+この設定により、生成される `IN` 述語のサイズが制限されます。0 に設定すると、
+結合は無効になります。
+
+## max_row_mask_update_coalescing_keys {#max_row_mask_update_coalescing_keys}
+
+<SettingsInfoBlock type="UInt64" default_value="256" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "256"},{"label": "新しい設定"}]}]} />
+
+1 回の結合された行マスク更新に含めるキーの最大数です。実際の上限には、
+バックグラウンドのクエリ設定の `max_rows_in_set` も適用されます。
+2 未満の値を指定すると、結合は無効になります。
+
 ## max_table_size_bytes_compressed {#max_table_size_bytes_compressed}
 
 <SettingsInfoBlock type="UInt64" default_value="0" />

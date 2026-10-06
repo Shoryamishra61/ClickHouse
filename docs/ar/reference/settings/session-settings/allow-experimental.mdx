@@ -112,6 +112,16 @@ import { ExperimentalBadge } from "/snippets/ar/components/ExperimentalBadge/Exp
 
 يتيح استخدام لهجة Kusto Query Language (KQL) كبديل لـ SQL.
 
+## allow_experimental_lateral_join {#allow_experimental_lateral_join}
+
+<ExperimentalBadge />
+
+<SettingsInfoBlock type="Bool" default_value="0" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "0"},{"label": "إعداد جديد للسماح بصيغة `LATERAL JOIN`."}]}]} />
+
+يسمح باستخدام صيغة LATERAL JOIN. عند تفعيل هذا الإعداد، يصبح بإمكان الاستعلامات الفرعية في الجانب الأيمن من JOIN الإشارة إلى أعمدة من الجانب الأيسر، مما يتيح استخدام الاستعلامات الفرعية المترابطة داخل عبارة FROM (‏LATERAL JOIN وفق معيار SQL).
+
 ## allow_experimental_logsql_dialect {#allow_experimental_logsql_dialect}
 
 <ExperimentalBadge />

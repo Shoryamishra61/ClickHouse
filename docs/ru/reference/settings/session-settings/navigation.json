@@ -35,6 +35,7 @@
     "ru/reference/settings/session-settings/cluster",
     "ru/reference/settings/session-settings/cluster-table",
     "ru/reference/settings/session-settings/collect-hash",
+    "ru/reference/settings/session-settings/columns-cache",
     "ru/reference/settings/session-settings/compatibility",
     "ru/reference/settings/session-settings/compatibility-ignore",
     "ru/reference/settings/session-settings/compile",

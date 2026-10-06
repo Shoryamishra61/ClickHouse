@@ -37,6 +37,23 @@ File/S3 エンジン/テーブル関数では、アーカイブの拡張子が�
 
 MergeTree テーブルからの読み取りにバックグラウンド I/O プールを使用します。この設定により、I/O 律速のクエリではパフォーマンスが向上する場合があります。
 
+## allow_block_nested_loop_join {#allow_block_nested_loop_join}
+
+<SettingsInfoBlock type="Bool" default_value="1" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1"},{"label": "ブロックネステッドループ結合の使用を制御する新しい設定です。この結合は、`ON` 句から結合キーを特定できない `JOIN` を、`INVALID_JOIN_ON_EXPRESSION` で拒否する代わりに実行します。互換性のために値を 0 に設定すると、従来の動作に戻ります。"}]}]} />
+
+結合するテーブル間に等値比較を含まない任意の `ON` 条件を持つ `JOIN` を、[ブロックネステッドループ結合](/ja/reference/statements/select/join#join-with-an-arbitrary-on-condition)として実行できるようにします。
+
+すべての行の組み合わせを調べるため、処理コストは 2 つのテーブルの行数の積に比例します。この演算子はJOIN 計画を作成する際の最終手段であり、どの [`join_algorithm`](/ja/reference/settings/session-settings/join#join_algorithm) でも条件を処理できない場合にのみ使用されます。そのため、この設定で明示的に選択することはできません。
+
+この設定が無効な場合、この演算子を必要とするクエリは、実行計画の作成中に `INVALID_JOIN_ON_EXPRESSION` で拒否されます。
+
+設定可能な値:
+
+* 0 — このようなクエリを拒否します。
+* 1 — ブロックネステッドループ結合として実行します (デフォルト) 。
+
 ## allow_calculating_subcolumns_sizes_for_merge_tree_reading {#allow_calculating_subcolumns_sizes_for_merge_tree_reading}
 
 <SettingsInfoBlock type="Bool" default_value="1" />
@@ -368,12 +385,6 @@ false に設定すると、従来の完全 mutation の動作を強制します�
 
 JSON (Object) カラムに対する minmax スキップ索引の作成を許可します。デフォルトでは無効です。これは、minmax
 索引のシリアライゼーション処理では、JSON カラムに含まれる可能性がある異種の Field 値を扱えないためです。
-
-## allow_named_collection_override_by_default {#allow_named_collection_override_by_default}
-
-<SettingsInfoBlock type="Bool" default_value="1" />
-
-デフォルトで named collections のフィールドの上書きを許可します。
 
 ## allow_non_metadata_alters {#allow_non_metadata_alters}
 

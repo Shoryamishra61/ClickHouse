@@ -37,6 +37,23 @@ File/S3 엔진/테이블 함수는 아카이브에 올바른 확장자가 있으
 
 백그라운드 I/O 풀을 사용해 MergeTree 테이블에서 읽습니다. 이 설정을 사용하면 I/O 병목이 있는 쿼리의 성능이 향상될 수 있습니다.
 
+## allow_block_nested_loop_join {#allow_block_nested_loop_join}
+
+<SettingsInfoBlock type="Bool" default_value="1" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1"},{"label": "블록 중첩 루프 조인(block nested loop join)의 사용 여부를 결정하는 새로운 설정입니다. 블록 중첩 루프 조인은 `ON` 절에서 조인 키를 결정할 수 없는 `JOIN`을 `INVALID_JOIN_ON_EXPRESSION` 오류로 거부하지 않고 실행합니다. compatibility 값을 0으로 지정하면 이전 동작이 복원됩니다."}]}]} />
+
+임의의 `ON` 조건, 즉 조인되는 테이블 간에 동등 조건이 없는 `JOIN`을 [블록 중첩 루프 조인](/ko/reference/statements/select/join#join-with-an-arbitrary-on-condition)으로 실행할 수 있도록 허용합니다.
+
+이 방식은 모든 행 쌍을 검사하므로 두 테이블의 행 수를 곱한 만큼의 비용이 듭니다. 이 연산자는 조인 계획 수립 시 최후의 수단으로, 어떤 [`join_algorithm`](/ko/reference/settings/session-settings/join#join_algorithm)으로도 해당 조건을 실행할 수 없을 때에만 사용됩니다. 따라서 `join_algorithm` 설정으로는 이 연산자를 선택할 수 없습니다.
+
+이 설정을 비활성화하면 이 연산자까지 도달한 쿼리는 계획 수립 단계에서 `INVALID_JOIN_ON_EXPRESSION` 오류와 함께 거부됩니다.
+
+가능한 값:
+
+* 0 — 해당 쿼리를 거부합니다.
+* 1 — 블록 중첩 루프 조인으로 실행합니다(기본값).
+
 ## allow_calculating_subcolumns_sizes_for_merge_tree_reading {#allow_calculating_subcolumns_sizes_for_merge_tree_reading}
 
 <SettingsInfoBlock type="Bool" default_value="1" />
@@ -368,12 +385,6 @@ true로 설정하면 새 하위 필드만 추가하는 named Tuple에 대한 ALT
 
 JSON (Object) 컬럼에 minmax 스킵 인덱스를 생성할 수 있도록 허용합니다. JSON 컬럼에는 이기종 Field 값이 포함될 수 있는데, minmax
 인덱스 직렬화 경로가 이를 처리할 수 없기 때문에 기본적으로 비활성화되어 있습니다.
-
-## allow_named_collection_override_by_default {#allow_named_collection_override_by_default}
-
-<SettingsInfoBlock type="Bool" default_value="1" />
-
-기본적으로 이름이 지정된 컬렉션의 필드를 재정의할 수 있도록 허용합니다.
 
 ## allow_non_metadata_alters {#allow_non_metadata_alters}
 

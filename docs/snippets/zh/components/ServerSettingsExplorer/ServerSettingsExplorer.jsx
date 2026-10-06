@@ -137,6 +137,19 @@ const ServerSettingsExplorer = ({ href: baseRoute }) => {
       children: []
     },
     {
+      label: "columns_cache_*",
+      count: 6,
+      settings: [
+        { name: "columns_cache_free_memory_ratio", path: "/columns-cache#columns_cache_free_memory_ratio", default: "0.15" },
+        { name: "columns_cache_history_window_ms", path: "/columns-cache#columns_cache_history_window_ms", default: "1000" },
+        { name: "columns_cache_policy", path: "/columns-cache#columns_cache_policy", default: "SLRU" },
+        { name: "columns_cache_size", path: "/columns-cache#columns_cache_size", default: "2147483648" },
+        { name: "columns_cache_size_ratio", path: "/columns-cache#columns_cache_size_ratio", default: "0.5" },
+        { name: "columns_cache_size_to_ram_ratio", path: "/columns-cache#columns_cache_size_to_ram_ratio", default: "0.1" }
+      ],
+      children: []
+    },
+    {
       label: "compiled_expression_*",
       count: 2,
       settings: [
@@ -545,7 +558,7 @@ const ServerSettingsExplorer = ({ href: baseRoute }) => {
       count: 2,
       settings: [
         { name: "logger.async", path: "/logger-async#logger.async", default: "1" },
-        { name: "logger.async_queye_max_size", path: "/logger-async#logger.async_queye_max_size", default: "65536" }
+        { name: "logger.async_queue_max_size", path: "/logger-async#logger.async_queue_max_size", default: "65536" }
       ],
       children: []
     },

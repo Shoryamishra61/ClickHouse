@@ -520,6 +520,10 @@ por padrão). Os dados também são coletados quando a consulta termina, caso el
 * `ProfileEvent_MarkCacheEvictedBytes` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de bytes removidos do cache de marcas.
 * `ProfileEvent_MarkCacheEvictedMarks` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de marcas removidas do cache de marcas.
 * `ProfileEvent_MarkCacheEvictedFiles` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de arquivos de marcação removidos do cache de marcas.
+* `ProfileEvent_ColumnsCacheHits` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de vezes que uma coluna desserializada foi encontrada no cache de colunas.
+* `ProfileEvent_ColumnsCacheMisses` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de vezes que uma coluna desserializada não foi encontrada no cache de colunas.
+* `ProfileEvent_ColumnsCacheEvictedBytes` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de bytes removidos do cache de colunas.
+* `ProfileEvent_ColumnsCacheEvictedEntries` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de entradas removidas do cache de colunas.
 * `ProfileEvent_LoadedPrimaryIndexFiles` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de arquivos de índice primário carregados.
 * `ProfileEvent_LoadedPrimaryIndexRows` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de linhas da chave primária carregadas.
 * `ProfileEvent_LoadedPrimaryIndexBytes` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de linhas da chave primária carregadas.
@@ -1538,7 +1542,7 @@ por padrão). Os dados também são coletados quando a consulta termina, caso el
 * `ProfileEvent_WasmGuestExecuteMicroseconds` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Tempo gasto na execução de código WebAssembly
 * `ProfileEvent_WasmTotalExecuteMicroseconds` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Tempo gasto na execução de código WebAssembly
 * `ProfileEvent_WasmModuleInstatiate` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de compartimentos WebAssembly criados
-* `ProfileEvent_ExecutableUserDefinedFunctionInvocations` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de invocações de funções definidas pelo usuário executáveis e executable&#95;pool.
+* `ProfileEvent_ExecutableUserDefinedFunctionInvocations` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de invocações de funções definidas pelo usuário executable e executable&#95;pool.
 * `ProfileEvent_ExecutableUserDefinedFunctionElapsedMicroseconds` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Tempo de relógio de parede gasto na execução de funções definidas pelo usuário executable e executable&#95;pool, em microssegundos.
 * `ProfileEvent_ExecutableUserDefinedFunctionUserTimeMicroseconds` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Tempo de CPU em modo de usuário consumido por processos filhos de funções definidas pelo usuário executable e executable&#95;pool, em microssegundos.
 * `ProfileEvent_ExecutableUserDefinedFunctionSystemTimeMicroseconds` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Tempo de CPU em modo kernel consumido por processos filhos de funções definidas pelo usuário executable e executable&#95;pool, em microssegundos.

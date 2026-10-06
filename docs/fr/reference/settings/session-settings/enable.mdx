@@ -404,6 +404,16 @@ L&#39;inconvénient est une consommation de mémoire potentiellement plus élev�
 
 Active le codec de compression `Quantized`.
 
+## enable_reads_from_columns_cache {#enable_reads_from_columns_cache}
+
+<BetaBadge />
+
+<SettingsInfoBlock type="Bool" default_value="1" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1"},{"label": "Nouveau paramètre permettant de contrôler la lecture depuis le cache de colonnes"}]}]} />
+
+Détermine si la lecture s&#39;effectue depuis le cache de colonnes lorsque `use_columns_cache` est activé. Valeurs acceptées : 0 ou 1. Valeur par défaut : 1 (activé).
+
 ## enable_reads_from_query_cache {#enable_reads_from_query_cache}
 
 <SettingsInfoBlock type="Bool" default_value="1" />
@@ -589,6 +599,16 @@ Désactivé par défaut.
 <VersionHistory rows={[{"id": "row-1","items": [{"label": "24.6"},{"label": "1"},{"label": "Réactiver vertical final par défaut après correction du bogue"}]}, {"id": "row-2","items": [{"label": "24.1"},{"label": "1"},{"label": "Utiliser vertical final par défaut"}]}]} />
 
 Si cette option est activée, les lignes dupliquées sont supprimées pendant FINAL en marquant les lignes comme supprimées, puis en les filtrant ultérieurement au lieu de les fusionner
+
+## enable_writes_to_columns_cache {#enable_writes_to_columns_cache}
+
+<BetaBadge />
+
+<SettingsInfoBlock type="Bool" default_value="1" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1"},{"label": "Nouveau paramètre permettant de contrôler l'écriture dans le cache de colonnes"}]}]} />
+
+Détermine si les données sont écrites dans le cache de colonnes lorsque `use_columns_cache` est activé. Accepte 0 ou 1. Valeur par défaut : 1 (activé).
 
 ## enable_writes_to_query_cache {#enable_writes_to_query_cache}
 

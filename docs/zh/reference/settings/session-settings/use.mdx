@@ -36,6 +36,23 @@ import { ExperimentalBadge } from "/snippets/zh/components/ExperimentalBadge/Exp
 
 使用客户端时区来解析 DateTime 字符串值，而不是使用服务器时区。
 
+## use_columns_cache {#use_columns_cache}
+
+<ExperimentalBadge />
+
+<SettingsInfoBlock type="Bool" default_value="0" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "0"},{"label": "新增实验性设置，用于为 MergeTree 表启用列缓存，默认禁用。"}]}]} />
+
+是否使用列缓存。可取值为 0 或 1。默认值为 0 (禁用) 。
+列缓存用于存储从 `MergeTree` 表中反序列化得到的列，从而避免对热点数据反复进行解压缩和反序列化。对于针对相同数据的重复查询，这可以显著降低延迟。缓存以表 UUID、分片名称、列名以及一个条带 (由约 65536 行的连续粒度组成) 为键。
+
+由于缓存条目以表 UUID 为键，因此该缓存仅对会分配 UUID 的数据库中的表生效，例如 `Atomic`、`Replicated` 和 `Shared` (ClickHouse Cloud 中的默认数据库引擎) ；旧版 `Ordinary` 数据库中的 `MergeTree` 表的 UUID 为空，会静默忽略此设置。
+
+目前该缓存仅适用于 wide 分片：compact 分片中的数据既不会从列缓存中读取，也不会写入列缓存，因此读取能否加速取决于分片的格式。
+
+每个缓存条目保存某个条带内的一段连续粒度：只有当某个粒度从第一行到最后一行都被完整读取后，它才会进入缓存；从缓存读取时按粒度逐个提供数据；不同读取操作写入的范围会被合并，因此即使各次读取将同一个分片划分为不同的标记范围，也能共享这些缓存条目。
+
 ## use_concurrency_control {#use_concurrency_control}
 
 <SettingsInfoBlock type="Bool" default_value="1" />

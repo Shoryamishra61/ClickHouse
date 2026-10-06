@@ -36,6 +36,23 @@ Habilitado por padrão.
 
 Use o fuso horário do cliente para interpretar valores de string do tipo DateTime, em vez de usar o fuso horário do servidor.
 
+## use_columns_cache {#use_columns_cache}
+
+<ExperimentalBadge />
+
+<SettingsInfoBlock type="Bool" default_value="0" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "0"},{"label": "Nova configuração experimental para habilitar o cache de colunas em tabelas MergeTree, desabilitada por padrão."}]}]} />
+
+Define se o cache de colunas deve ser usado. Aceita 0 ou 1. O valor padrão é 0 (desabilitado).
+O cache de colunas armazena colunas desserializadas de tabelas `MergeTree`, evitando repetir a descompressão e a desserialização de dados acessados com frequência. Isso pode reduzir significativamente a latência de consultas repetidas sobre os mesmos dados. O cache é indexado pelo UUID da tabela, pelo nome da parte de dados, pelo nome da coluna e por um segmento de grânulos consecutivos com cerca de 65536 linhas.
+
+Como as entradas são indexadas pelo UUID da tabela, o cache só fica ativo para tabelas em bancos de dados que atribuem UUIDs, como `Atomic`, `Replicated` e `Shared` (o motor de banco de dados padrão no ClickHouse Cloud); tabelas `MergeTree` em bancos de dados legados `Ordinary` têm um UUID nulo e ignoram essa configuração sem emitir avisos.
+
+Atualmente, o cache se aplica apenas a partes no formato wide: os dados em partes compactas não são lidos do cache de colunas nem gravados nele. Portanto, a aceleração de uma leitura depende do formato da parte.
+
+Uma entrada contém um intervalo contíguo de grânulos de um único segmento: um grânulo só entra no cache depois de ter sido lido da primeira à última linha; as leituras são atendidas pelo cache grânulo por grânulo; e os intervalos gravados por leituras diferentes são mesclados. Assim, leituras que dividem uma parte em diferentes intervalos de marcas compartilham as entradas.
+
 ## use_concurrency_control {#use_concurrency_control}
 
 <SettingsInfoBlock type="Bool" default_value="1" />

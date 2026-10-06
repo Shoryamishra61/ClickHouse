@@ -310,6 +310,18 @@ CacheDictionaries 업데이트 큐에 있는 키의 정확한 수입니다.
 
 파일 시스템 캐시에 비동기적으로 로드되기를 기다리는 원격 파일 세그먼트의 총 크기입니다.
 
+### ColumnsCacheBytes {#columnscachebytes}
+
+컬럼 캐시의 전체 크기(바이트 단위)입니다. 컬럼 캐시는 MergeTree 테이블에서 역직렬화된 컬럼을 저장하여 압축 해제와 역직렬화가 반복되지 않도록 합니다.
+
+### ColumnsCacheEntries {#columnscacheentries}
+
+컬럼 캐시의 전체 엔트리 수입니다.
+
+### ColumnsCacheSizeLimit {#columnscachesizelimit}
+
+현재 적용 중인 컬럼 캐시의 크기 제한(바이트 단위)입니다. 서버의 다른 부분에서 메모리가 부족해지면 구성된 `columns_cache_size`보다 낮게 줄어들고, 메모리 사용량이 다시 줄어들면 원래 값에 가깝게 다시 높아집니다. 자세한 내용은 `columns_cache_free_memory_ratio`를 참조하십시오.
+
 ### ColumnsDescriptionsCacheSize {#columnsdescriptionscachesize}
 
 ColumnsDescriptions 캐시의 크기(테이블별 캐시)

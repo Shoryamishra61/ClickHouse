@@ -245,6 +245,14 @@ Borra la caché de datos sin comprimir.
 La caché de datos sin comprimir se habilita o deshabilita mediante la configuración [`use_uncompressed_cache`](/es/reference/settings/session-settings/use#use_uncompressed_cache) a nivel de consulta/USER/perfil.
 Su tamaño puede configurarse mediante la configuración [`uncompressed_cache_size`](/es/reference/settings/server-settings/settings/uncompressed-cache#uncompressed_cache_size) a nivel de servidor.
 
+## SYSTEM CLEAR|DROP COLUMNS CACHE {#drop-columns-cache}
+
+Vacía la caché de columnas (columnas deserializadas que se mantienen en memoria).
+Las lecturas que ya están en curso cuando se vacía la caché no pueden volver a almacenar sus datos en ella, ni siquiera los de las partes de los datos a las que solo llegan después del vaciado, por lo que la caché permanece vacía incluso bajo carga.
+La caché de columnas se habilita o deshabilita con el ajuste `use_columns_cache`, configurable a nivel de consulta, usuario o perfil.
+Su tamaño puede configurarse mediante el ajuste de nivel de servidor `columns_cache_size`.
+Utilice [`system.columns_cache`](/es/reference/system-tables/columns_cache) para inspeccionar el contenido de la caché.
+
 ## SYSTEM CLEAR|DROP CACHÉ DE EXPRESIONES COMPILADAS {#drop-compiled-expression-cache}
 
 Borra la caché de expresiones compiladas.
@@ -953,6 +961,18 @@ Espera hasta que el archivo especificado haya sido procesado o haya fallado de f
 ```sql
 SYSTEM FLUSH OBJECT STORAGE QUEUE [db.]table_name PATH 'path'
 ```
+
+## SYSTEM RESET FILELOG {#reset-filelog}
+
+Cambia la posición desde la que una tabla [FileLog](/es/reference/engines/table-engines/special/filelog) continúa leyendo, sin tener que volver a crear la tabla.
+
+```sql
+SYSTEM RESET FILELOG [ON CLUSTER cluster_name] [db.]table_name [FILE 'file_name' [OFFSET n | TO END]]
+```
+
+Sin `FILE`, todos los archivos de la tabla se vuelven a leer desde el principio. Con `FILE`, solo se ve afectado el archivo indicado (con el nombre que figura en la columna virtual `_filename`): se vuelve a leer desde el principio, desde el byte `n` con `OFFSET n` (el inicio de una línea, como un valor de `_offset`) o, con `TO END`, solo a partir de los datos añadidos después del comando, de modo que se omite el contenido actual del archivo.
+
+Las filas que se vuelven a leer se insertan de nuevo en las vistas materializadas. La nueva posición se guarda de inmediato y se conserva tras reiniciar el servidor. El comando espera a que finalice cualquier lectura en curso en segundo plano y falla si una consulta `SELECT` está leyendo de la tabla. Requiere el privilegio `SYSTEM RESET FILELOG` sobre la tabla.
 
 ## SYSTEM ENABLE|DISABLE FAILPOINT {#failpoint}
 

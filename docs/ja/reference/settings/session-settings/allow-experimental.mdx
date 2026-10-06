@@ -112,6 +112,16 @@ Iceberg テーブルで &#39;OPTIMIZE&#39; を明示的に使用できるよう�
 
 SQL の代替となる Kusto Query Language (KQL) 方言を有効にします。
 
+## allow_experimental_lateral_join {#allow_experimental_lateral_join}
+
+<ExperimentalBadge />
+
+<SettingsInfoBlock type="Bool" default_value="0" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "0"},{"label": "`LATERAL JOIN` 構文を許可する新しい設定。"}]}]} />
+
+LATERAL JOIN 構文を許可します。有効にすると、JOIN の右側のサブクエリから左側のカラムを参照できるようになり、FROM 句で相関サブクエリ (SQL 標準の LATERAL JOIN) を使用できるようになります。
+
 ## allow_experimental_logsql_dialect {#allow_experimental_logsql_dialect}
 
 <ExperimentalBadge />

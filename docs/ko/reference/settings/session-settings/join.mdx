@@ -86,7 +86,7 @@ MergeTree 테이블의 경우 이 알고리즘은 조인 키 필터를 스토리
 
 조인 대상 테이블의 표현식 간 부등식 비교(`<`, `<=`, `>`, `>=`)가 2개 있는 `ON` 절을 포함하는 `JOIN`을 위한 정렬 기반 [IEJoin](https://vldb.org/pvldb/vol8/p2074-khayyat.pdf) 알고리즘입니다. `ALL INNER/LEFT/RIGHT/FULL JOIN` 및 `SEMI`/`ANTI` `LEFT/RIGHT JOIN`을 지원합니다.
 
-목록 내 위치가 우선순위를 결정합니다. 기본값처럼 다른 알고리즘 뒤에 나열하면 IEJoin은 해당 알고리즘을 적용할 수 없을 때만 사용됩니다(`ON` 절에 동등 조건이 없는 경우). 첫 번째로 나열하면 `ON` 절에 부등 조건이 2개 있을 때마다 사용됩니다. 나머지 조건(동등 조건 포함)은 `ALL INNER JOIN`에서는 조인 결과에 대한 필터로 적용되며, 다른 Kind에서는 매칭에 영향을 주는 잔여 조건으로 연산자 내부에서 평가됩니다. `ON` 절에 적합한 부등 조건이 2개를 초과하면, 알고리즘에서 사용할 2개는 컬럼 min/max 통계의 추정 선택도를 기준으로 선택합니다([Column statistics](/ko/reference/engines/table-engines/mergetree-family/mergetree#column-statistics)의 `basic` 유형 참조). 추정값을 사용할 수 없는 경우(통계가 없거나 [`use_statistics`](/ko/reference/settings/session-settings/use-statistics#use_statistics)가 비활성화된 경우)에는 구문 순서상 처음 2개를 사용합니다. 목록에 `ie_join`이 없으면 부등 조건만 있는 `INNER JOIN`은 필터가 적용된 `CROSS JOIN`으로 실행되며, 다른 Kind는 지원되지 않습니다.
+목록 내 위치가 우선순위를 결정합니다. 기본값처럼 다른 알고리즘 뒤에 나열하면 `ie_join`은 `ON` 절에 동등 조건이 없을 때만 사용됩니다. 첫 번째로 나열하면 `ON` 절에 부등 조건이 2개 있을 때마다 사용되며, 나머지 조건은 조인 결과에 대한 필터로 적용됩니다. 부등 조건이 2개를 초과하면, 알고리즘에서 사용할 2개는 [컬럼 통계](/ko/reference/engines/table-engines/mergetree-family/mergetree#column-statistics)의 추정 선택도를 기준으로 선택합니다. 통계가 없으면 구문 순서상 처음 2개를 사용합니다. 목록에 `ie_join`이 없으면 부등 조건만 있는 `INNER JOIN`은 필터가 적용된 `CROSS JOIN`으로 실행되며, 다른 조인 Kind는 [블록 중첩 루프 조인](/ko/reference/statements/select/join#join-with-an-arbitrary-on-condition)으로 실행됩니다.
 
 두 입력은 조인 전에 메모리에 누적됩니다. [`max_rows_in_join`](/ko/reference/settings/session-settings/max-rows#max_rows_in_join) 및 [`max_bytes_in_join`](/ko/reference/settings/session-settings/max-bytes#max_bytes_in_join)은 양쪽 입력의 누적량을 함께 제한하며(오른쪽만 제한하는 것이 아님), 오버플로우 시 동작은 [`join_overflow_mode`](/ko/reference/settings/session-settings/join#join_overflow_mode)로 설정합니다. 연산자가 누적된 입력을 기반으로 구축하는 정렬 인덱스는 이 제한에 포함되지 않습니다. 조인 연산자 자체는 단일 스레드에서 실행되며, 입력의 조인 전 정렬만 병렬화됩니다.
 
@@ -118,7 +118,7 @@ ClickHouse는 가능하면 항상 `partial_merge` 조인을 사용하려 시도�
 오른쪽 테이블에서 하나의 키에 일치하는 행이 여러 개 있을 때 `ANY` 엄격성을 사용하는 JOIN 작업의 동작을 변경합니다.
 
 <Note>
-  이 설정은 [`Join`](/ko/reference/engines/table-engines/special/join) 테이블 엔진을 사용하는 테이블과 해시 기반 조인 알고리즘에 적용됩니다.
+  이 설정은 [`Join`](/ko/reference/engines/table-engines/special/join) 테이블 엔진을 사용하는 테이블과 해시 기반 조인 알고리즘에 적용됩니다. [블록 중첩 루프 조인(block nested loop join)](/ko/reference/statements/select/join#join-with-an-arbitrary-on-condition)에는 영향을 주지 않습니다. 이 방식에는 조인 키가 없으므로, 마지막 행을 고를 일치 행 그룹 자체가 존재하지 않기 때문입니다.
 
   조인이 병렬로 구성되면 행의 순서가 비결정적일 수 있습니다. 즉, `join_any_take_last_row = 1`은 `ANY JOIN` 쿼리에서 비결정적인 행을 반환할 수 있습니다.
 </Note>

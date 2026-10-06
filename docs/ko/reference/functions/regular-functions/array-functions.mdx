@@ -1807,7 +1807,7 @@ SELECT arrayJaccardIndex([1, 2], [2, 3]) AS res
 
 도입 버전: v1.1.0
 
-`arrayJoin` 함수는 배열이 포함된 행을 받아 이를 펼쳐, 배열의 각 요소에 대해 하나씩 여러 개의 행을 생성합니다.
+`arrayJoin` 함수는 배열이 포함된 행을 받아 이를 펼쳐, 배열의 각 원소에 대해 하나씩 여러 개의 행을 생성합니다.
 이는 ClickHouse의 일반 함수가 동일한 행 내에서 입력 값을 출력 값에 매핑하는 방식이나,
 집계 함수가 여러 행의 그룹을 받아 이를 단일 요약 행으로 &quot;압축&quot;하거나 &quot;줄이는&quot; 방식
 (`GROUP BY`와 함께 사용할 경우에는 요약 행 내의 단일 값으로 줄임)과는 대조적입니다.
@@ -1815,7 +1815,7 @@ SELECT arrayJaccardIndex([1, 2], [2, 3]) AS res
 이 함수가 적용된 컬럼의 값을 제외하면 다른 컬럼의 값은 모두 그대로 복사되며,
 해당 값은 대응하는 배열 값으로 대체됩니다.
 
-`unnest`(버전 26.5부터)는 함수 호출 형식(`SELECT unnest(arr)`)에서 `arrayJoin`의 대소문자를 구분하지 않는 별칭입니다. PostgreSQL 테이블 소스 구문은 지원되지 않습니다(`FROM unnest(...)`, `CROSS JOIN UNNEST(...)`, `LATERAL`). 이러한 쿼리에는 `ARRAY JOIN` 절을 사용하십시오.
+`unnest`(버전 26.5부터)는 함수 호출 형식(`SELECT unnest(arr)`)에서 `arrayJoin`의 대소문자를 구분하지 않는 별칭입니다. PostgreSQL 테이블 소스 구문은 지원되지 않습니다(`FROM unnest(...)`, `CROSS JOIN UNNEST(...)`, `LATERAL unnest(...)`). 이러한 쿼리에는 `ARRAY JOIN` 절을 사용하십시오. 상관 하위 쿼리에 대한 `JOIN LATERAL`은 별도의 Experimental 기능이며, 이를 사용하더라도 `unnest`를 테이블 소스로 사용할 수는 없습니다.
 
 `unnest` 별칭을 통한 사용을 포함해 `arrayJoin`은 조인 중에 평가되는 `JOIN ON` 조건에서 사용할 수 없습니다. 이러한 조건은
 행 수를 유지해야 하기 때문입니다. 한쪽에만 적용되는 조건과 `arrayJoin`에 대한 동등 키는

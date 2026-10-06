@@ -55,6 +55,19 @@ import { CloudOnlyBadge } from "/snippets/ar/components/CloudOnlyBadge/CloudOnly
 
 عند تمكينه، يستبدل analyzer طرق العرض العادية (غير المُجسَّدة وغير المعلَّمة بمعلمات) بالاستعلامات الفرعية التي تعرّفها، مما يتيح تحسينات عابرة للحدود مثل دفع عبارات التصفية وتشذيب الأعمدة.
 
+## anti_join_include_columns_from_both_sides {#anti_join_include_columns_from_both_sides}
+
+<SettingsInfoBlock type="Bool" default_value="1" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1"},{"label": "إعداد جديد. عطّله لقصر الوصول إلى أعمدة `ANTI JOIN` على الجانب المحفوظ، باستثناء تعبيرات `JOIN ON`"}]}]} />
+
+عند تفعيله (وهو الوضع الافتراضي)، يُبقي `ANTI` JOIN أعمدة الجانبين كليهما متاحة في نتيجة الربط، ويُعيد `SELECT *` أعمدة الجانبين. وهذا هو السلوك القديم في ClickHouse.
+وعند تعطيله، يقصر المحلّل الوصول إلى أعمدة `ANTI` JOIN على الجانب المحفوظ، وفقًا لمعيار SQL.
+ففي `LEFT ANTI JOIN` لا تُتاح إلا أعمدة الجدول الأيسر، وفي `RIGHT ANTI JOIN` لا تُتاح إلا أعمدة الجدول الأيمن.
+وينطبق ذلك على التعبيرات التي تُحلَّل انطلاقًا من نتيجة الربط، كما في عبارات `SELECT` و`PREWHERE` و`WHERE` و`GROUP BY` و`HAVING` و`QUALIFY` و`ORDER BY` و`LIMIT BY`، بما في ذلك محارف البدل المؤهلة مثل `t1.*`.
+وتؤدي الإشارة الصريحة إلى عمود من الجانب غير المحفوظ إلى إطلاق الاستثناء `SEMI_ANTI_JOIN_COLUMN_ACCESS_DENIED`. ويشمل ذلك الإشارات المؤهلة مثل `t2.b`، ومحارف البدل المؤهلة مثل `t2.*`، وأعمدة `USING` مثل `d.id`، والإشارات المؤهلة بالكامل مثل `db.table.column`، ويُطبَّق هذا القيد حتى داخل الفروع التي يُعلم مسبقًا أنها لن تُنفَّذ، مثل `if(false, t2.b, 42)`. أما المعرّف غير المؤهل الذي لا يطابق أي عمود متاح، فيظل يُطلق الاستثناء العام `UNKNOWN_IDENTIFIER` كما هو معتاد.
+ويمكن لتعبير `JOIN ON` في عملية `JOIN` نفسها الوصول إلى الجانبين كليهما، بصرف النظر عن هذا الإعداد.
+
 ## any_join_distinct_right_table_keys {#any_join_distinct_right_table_keys}
 
 <SettingsInfoBlock type="Bool" default_value="0" />
@@ -796,6 +809,23 @@ curl "http://localhost:8123/?framing_output_format=JSONEachPacketString" -d "SEL
 
 تقبل الدالة &#39;geoToH3&#39; ‎(lon, lat)‎ إذا ضُبطت على &#39;lon&#95;lat&#39;، و‎(lat, lon)‎ إذا ضُبطت على &#39;lat&#95;lon&#39;.
 
+## get_zookeeper_lock_acquire_timeout_ms {#get_zookeeper_lock_acquire_timeout_ms}
+
+<SettingsInfoBlock type="Milliseconds" default_value="120000" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "120000"},{"label": "New setting"}]}]} />
+
+يحدد مدة الانتظار بالمللي ثانية التي يقضيها عميل Keeper لحجز mutex الخاص بـ `Context` المقابل قبل أن يفشل.
+
+تُؤخذ القيمة من `Context` الذي يُجري عملية الحجز. ولا يسري التجاوز على مستوى الاستعلام إلا عندما تستخدم العملية سياق الاستعلام، مثل عمليات القراءة من `system.zookeeper`، و`zookeeperSessionUptime`، و`SYSTEM RECONNECT ZOOKEEPER`، والوصول إلى Keeper المساعد ضمن سياق الاستعلام.
+أما العمليات التي تستخدم سياقًا عامًا أو سياق خلفية، بما في ذلك تنسيق `BACKUP` و`RESTORE` ونشاط قاعدة البيانات `Replicated`، فتعتمد على قيمة ذلك السياق.
+ولا يشمل هذا الإعداد `SYSTEM RELOAD CONFIG` و`SYSTEM RELOAD ASYNCHRONOUS METRICS`، لأنهما تستخدمان مسارات إعادة تحميل متسلسلة بشكل مستقل.
+
+القيم الممكنة:
+
+* عدد صحيح موجب (بالمللي ثانية).
+* 0 — بلا انتهاء مهلة للقفل.
+
 ## glob_expansion_max_elements {#glob_expansion_max_elements}
 
 <SettingsInfoBlock type="UInt64" default_value="1000" />
@@ -1494,6 +1524,19 @@ FORMAT Null;
 * [insert&#95;quorum](/ar/reference/settings/session-settings/insert-quorum#insert_quorum)
 * [insert&#95;quorum&#95;timeout](/ar/reference/settings/session-settings/insert-quorum#insert_quorum_timeout)
 * [insert&#95;quorum&#95;parallel](/ar/reference/settings/session-settings/insert-quorum#insert_quorum_parallel)
+
+## semi_join_include_columns_from_both_sides {#semi_join_include_columns_from_both_sides}
+
+<SettingsInfoBlock type="Bool" default_value="1" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1"},{"label": "إعداد جديد. عطّله لقصر الوصول إلى أعمدة `SEMI JOIN` على الجانب المحفوظ، باستثناء تعبيرات `JOIN ON`"}]}]} />
+
+عند تفعيله (وهو الوضع الافتراضي)، يُبقي `SEMI` JOIN أعمدة الجانبين كليهما متاحة في نتيجة الربط، ويُعيد `SELECT *` أعمدة الجانبين معًا. وهذا هو السلوك القديم في ClickHouse.
+وعند تعطيله، يقصر المحلّل الوصول إلى أعمدة `SEMI` JOIN على الجانب المحفوظ، وفقًا لمعيار SQL.
+ففي `LEFT SEMI JOIN` لا يمكن الوصول إلا إلى أعمدة الجدول الأيسر، وفي `RIGHT SEMI JOIN` إلا إلى أعمدة الجدول الأيمن.
+وينطبق ذلك على التعبيرات التي تُحَلّ من نتيجة الربط، مثل عبارات `SELECT` و`PREWHERE` و`WHERE` و`GROUP BY` و`HAVING` و`QUALIFY` و`ORDER BY` و`LIMIT BY`، بما في ذلك محارف البدل المؤهَّلة مثل `t1.*`.
+ويؤدي أي مرجع صريح إلى عمود من الجانب غير المحفوظ إلى إطلاق الاستثناء `SEMI_ANTI_JOIN_COLUMN_ACCESS_DENIED`. ويشمل ذلك المراجع المؤهَّلة مثل `t2.b`، ومحارف البدل المؤهَّلة مثل `t2.*`، وأعمدة `USING` مثل `d.id`، والمراجع المؤهَّلة بالكامل مثل `db.table.column`، ويُفرَض هذا القيد حتى داخل الفروع التي يُعلَم مسبقًا أنها لن تُنفَّذ مثل `if(false, t2.b, 42)`. أما المعرّف غير المؤهَّل الذي لا يطابق أي عمود متاح، فيظل يُطلق الاستثناء العام `UNKNOWN_IDENTIFIER`.
+ويمكن لتعبير `JOIN ON` الخاص بعملية `JOIN` نفسها الوصول إلى الجانبين كليهما بصرف النظر عن هذا الإعداد.
 
 ## session_query_ids_history_size {#session_query_ids_history_size}
 

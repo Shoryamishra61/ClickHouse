@@ -824,9 +824,9 @@ Linhas e bytes são informados uma vez para todo o passo (a linha `I/O`). O temp
   2. o número máximo de threads de processamento de consultas definido em `max_threads`.
 </Note>
 
-#### Etapas de junção {#explain-analyze-join-steps}
+#### Passos de junção {#explain-analyze-join-steps}
 
-Em uma etapa de junção, `EXPLAIN ANALYZE` exibe linhas que comparam as estimativas do otimizador de ordem de junção com o que realmente ocorreu (consulte [Métricas de junção estimadas versus reais](#explain-analyze-join-estimation)) e linhas de *participação* para cada lado — `Left` e `Right` — seguidas de linhas específicas da implementação da junção. Todos os valores de [`join_algorithm`](/pt-BR/reference/settings/session-settings/join#join_algorithm) são contemplados (`hash`, `parallel_hash`, `grace_hash`, `partial_merge`, `full_sorting_merge`, `parallel_full_sorting_merge`, `direct`), assim como as duas implementações que essa configuração não pode selecionar: uma junção `CROSS` ou `COMMA`, qualquer seção `ON` sem igualdade de chave e o motor de tabela [`Join`](/pt-BR/reference/engines/table-engines/special/join). A maioria deles informa ambos os lados; alguns informam apenas o lado que materializam (por exemplo, `direct` exibe apenas `Left:`).
+Em um passo de junção, `EXPLAIN ANALYZE` exibe linhas que comparam as estimativas do otimizador de ordem de junção com o que realmente ocorreu (consulte [Métricas de junção estimadas versus reais](#explain-analyze-join-estimation)) e linhas de *participação* para cada lado — `Left` e `Right` — seguidas de linhas específicas da implementação da junção. `Left` e `Right` correspondem aos lados lógicos do SQL. Na maioria dos casos, `Left` também será o lado de sondagem (probe) da junção, e `Right` será o lado de construção (build). No entanto, isso nem sempre ocorre, por causa da troca que pode acontecer durante a execução da junção. Todos os valores de [`join_algorithm`](/pt-BR/reference/settings/session-settings/join#join_algorithm) são contemplados (`hash`, `parallel_hash`, `grace_hash`, `partial_merge`, `full_sorting_merge`, `parallel_full_sorting_merge`, `direct`), assim como as três implementações que essa configuração não pode selecionar: uma junção `CROSS` ou `COMMA`, a [junção de laço aninhado por blocos](/pt-BR/reference/statements/select/join#join-with-an-arbitrary-on-condition), usada quando a seção `ON` não determina nenhuma chave de junção, e o motor de tabela [`Join`](/pt-BR/reference/engines/table-engines/special/join). A maioria deles informa ambos os lados; alguns informam apenas o lado que materializam (por exemplo, `direct` exibe apenas `Left:`).
 
 As linhas de cada lado seguem o mesmo formato:
 
@@ -943,7 +943,20 @@ O motor de tabela [`Join`](/pt-BR/reference/engines/table-engines/special/join) 
 
 **`CROSS`, `COMMA` e um `ON` constante.** Nenhum dos lados, conforme descrito [acima](#explain-analyze-join-algorithm-lines).
 
-Quando ambos os algoritmos informam um número, os resultados coincidem. Os algoritmos de mesclagem simplesmente têm mais informações; eles não divergem quanto ao que constitui uma correspondência.
+**Junção de laço aninhado por blocos.** Este operador recebe uma seção `ON` que não define nenhuma chave de junção, a menos que um dos caminhos anteriores a ele se encarregue da condição (consulte [`allow_block_nested_loop_join`](/pt-BR/reference/settings/session-settings/allow)). Ele aceita todos os tipos e strictness, exceto `ASOF`, `PASTE` e `ANY FULL`:
+
+| Junção                                                        | `matched` à esquerda | `matched` à direita |
+| ------------------------------------------------------------- | -------------------- | ------------------- |
+| `ALL FULL`                                                    | sim                  | sim                 |
+| `ALL LEFT`, `ANY LEFT`, `SEMI LEFT`, `ANTI LEFT`, `ANY INNER` | sim                  | não                 |
+| `ALL RIGHT`, `ANY RIGHT`, `SEMI RIGHT`, `ANTI RIGHT`          | com `matches = 1`    | sim                 |
+| `ALL INNER`                                                   | com `matches = 1`    | não                 |
+
+O lado esquerdo é informado sem essa opção sempre que o operador já registra quais linhas à esquerda tiveram correspondência: todo tipo que mantém as linhas à esquerda sem correspondência precisa desse registro, assim como toda strictness que aceita no máximo um par por linha à esquerda. O lado direito é informado sempre que o operador mantém seus indicadores de correspondência, necessários para `RIGHT`, `FULL` e `SEMI`/`ANTI` orientados pelo lado direito. `ANY INNER` também os mantém, mas apenas para atribuir uma linha à direita a uma única linha à esquerda: ele deixa de buscar correspondências para uma linha à esquerda que já tem seu par. Assim, os indicadores marcam os pares do resultado, e não todas as correspondências, e não são informados. `ALL INNER` só chega a esse operador quando `hash` está desabilitado, pois, caso contrário, a condição se torna um `CROSS JOIN` com um filtro.
+
+Habilitar [`any_join_distinct_right_table_keys`](/pt-BR/reference/settings/session-settings/other#any_join_distinct_right_table_keys) faz com que `ANY` também use a semântica de `RightAny` neste caso, informando o lado esquerdo para todos os tipos e o lado direito para `RIGHT` e `FULL`; `ANY INNER` é reescrito como `SEMI LEFT`.
+
+Quando dois algoritmos informam um número, os valores coincidem. Os algoritmos de mesclagem apenas dispõem de mais informações; não divergem quanto ao que constitui uma correspondência.
 
 #### Linhas específicas do algoritmo {#explain-analyze-join-algorithm-lines}
 
@@ -980,14 +993,14 @@ Right: rows estimated <estimated_right_rows> · rows <right_rows> · matched <ma
 * `size <right_size>` — o tamanho em memória dos blocos da tabela à direita.
 * `blocks <right_blocks>` — o número de blocos nos quais a tabela à direita foi armazenada em buffer.
 * `storage <in-memory|external>` — indica se a tabela à direita coube na memória (`in-memory`) ou precisou ser descarregada em disco (`external`). Quando é `external`, um campo adicional `spilled <spilled_bytes>` informa os bytes comprimidos gravados em disco.
-* `sort time <sort_time>` — o tempo gasto na ordenação da tabela à direita (no estágio de compilação) e de cada bloco recebido da esquerda (no estágio de sondagem).
-* `sort share <sort_share>%` — `sort time` como proporção do *tempo de ocupação do próprio estágio* (a soma do tempo decorrido de seus processadores), diferentemente da porcentagem de `time` do estágio, que representa uma proporção do *tempo de execução de toda a consulta*.
+* `sort time <sort_time>` — o tempo gasto na ordenação da tabela à direita (na etapa de compilação) e de cada bloco recebido da esquerda (na etapa de sondagem).
+* `sort share <sort_share>%` — `sort time` como proporção do *tempo de ocupação da própria etapa* (a soma do tempo decorrido de seus processadores), diferentemente da porcentagem de `time` da etapa, que representa uma proporção do *tempo de execução de toda a consulta*.
 
 Para a junção `full_sorting_merge`, são impressas apenas as linhas comuns `Left:` e `Right:`.
 
 Para a junção `direct`, é impressa apenas a linha `Left:`, pois o lado direito é um armazenamento de chave-valor consultado diretamente, em vez de ser materializado em linhas.
 
-Para uma junção `CROSS` ou `COMMA`, e para qualquer seção `ON` sem igualdade de chave, uma linha `Buffer:` descreve como a tabela à direita foi mantida na memória, e uma linha `Spill:` informa se ela foi descarregada em disco:
+Para uma junção `CROSS` ou `COMMA`, e para um `ALL INNER JOIN` cuja seção `ON` não tem igualdade de chave — que o planejador converte em um `CROSS JOIN` com essa condição como filtro —, uma linha `Buffer:` descreve como a tabela à direita foi mantida na memória, e uma linha `Spill:` informa se ela foi descarregada em disco:
 
 ```txt
 Buffer: memory <peak_memory> · compressed <yes|no>
@@ -995,12 +1008,25 @@ Spill: yes · right spilled <right_spilled_bytes>
 ```
 
 * `memory <peak_memory>` — o pico de memória ocupado pela tabela da direita armazenada em buffer.
-* `compressed <yes|no>` — indica se pelo menos um bloco armazenado em buffer foi comprimido; nesse caso, os leitores descompactam todos os blocos armazenados.
+* `compressed <yes|no>` — indica se pelo menos um bloco armazenado em buffer foi comprimido; nesse caso, os leitores descomprimem todos os blocos armazenados.
 * `Spill:` — a mesma flag `yes`/`no` de `grace_hash`, com `right spilled <right_spilled_bytes>` informando os bytes comprimidos gravados em disco.
 
 Ambos os lados informam `matched not collected` aqui: um predicado constante associa todas as linhas da esquerda a todas as linhas da direita ou a nenhuma delas; portanto, não é possível determinar quais linhas individuais corresponderam.
 
-Para uma junção com o motor de tabela [`Join`](/pt-BR/reference/engines/table-engines/special/join), ambos os lados são informados, juntamente com a linha `Hash table:`, que descreve a tabela pré-criada. O lado direito contabiliza as linhas armazenadas no mecanismo, não as linhas de uma compilação específica da consulta.
+A junção de laço aninhado por blocos, que processa todas as demais seções `ON` sem igualdade de chave, exibe as mesmas duas linhas sobre a tabela da direita que ela materializa:
+
+```txt
+Buffer: memory <peak_memory> · compressed <yes|no>
+Spill: yes · right spilled <right_spilled_bytes>
+```
+
+* `memory <peak_memory>` — o pico de memória ocupado pela tabela direita armazenada. É `0` quando cada bloco foi gravado em disco assim que chegou, já que nenhum deles chegou a ser mantido em memória.
+* `compressed <yes|no>` — indica se pelo menos um bloco armazenado foi comprimido; nesse caso, os leitores descomprimem todos os blocos armazenados.
+* `Spill:` — o mesmo indicador `yes`/`no` usado em `grace_hash`, com `right spilled <right_spilled_bytes>` informando os bytes comprimidos gravados em disco.
+
+Ao contrário do caso `CROSS`, aqui ambos os lados podem informar `matched`, já que o operador avalia uma condição real em cada par que examina; a tabela [acima](#explain-analyze-matches) indica qual deles o faz.
+
+Para uma junção com o motor de tabela [`Join`](/pt-BR/reference/engines/table-engines/special/join), ambos os lados são informados, juntamente com a linha `Hash table:`, que descreve a tabela pré-criada. O lado direito contabiliza as linhas armazenadas no motor, não as linhas de uma compilação específica da consulta.
 
 #### Tempos por processador {#explain-analyze-processors}
 

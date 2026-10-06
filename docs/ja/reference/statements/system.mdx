@@ -245,6 +245,14 @@ SYSTEM DROP DATABASE REPLICA 'replica_name' [FROM SHARD 'shard_name'] FROM ZKPAT
 非圧縮データcacheは、クエリ/USER/profile レベルの設定 [`use_uncompressed_cache`](/ja/reference/settings/session-settings/use#use_uncompressed_cache) で有効または無効にできます。
 そのサイズは、サーバーレベルの設定 [`uncompressed_cache_size`](/ja/reference/settings/server-settings/settings/uncompressed-cache#uncompressed_cache_size) で構成できます。
 
+## SYSTEM CLEAR|DROP COLUMNS CACHE {#drop-columns-cache}
+
+カラムキャッシュ (メモリ上に保持されているデシリアライズ済みのカラム) をクリアします。
+キャッシュのクリア時点ですでに進行中の読み取りは、そのデータをキャッシュに書き戻すことができません。これは、クリア後に初めて読み取るデータのパーツについても同様です。そのため、高負荷時でもキャッシュはクリアされた状態に保たれます。
+カラムキャッシュの有効化/無効化は、クエリ/ユーザー/プロファイルレベルの設定 `use_columns_cache` で制御します。
+キャッシュのサイズは、サーバーレベルの設定 `columns_cache_size` で設定できます。
+キャッシュの内容を確認するには、[`system.columns_cache`](/ja/reference/system-tables/columns_cache) を使用します。
+
 ## SYSTEM CLEAR|DROP COMPILED EXPRESSION CACHE {#drop-compiled-expression-cache}
 
 コンパイル済み expression cache をクリアします。
@@ -952,6 +960,18 @@ SYSTEM REFRESH ALL BACKGROUND
 ```sql
 SYSTEM FLUSH OBJECT STORAGE QUEUE [db.]table_name PATH 'path'
 ```
+
+## SYSTEM RESET FILELOG {#reset-filelog}
+
+[FileLog](/ja/reference/engines/table-engines/special/filelog) テーブルを再作成せずに、読み取りを継続する位置を変更します。
+
+```sql
+SYSTEM RESET FILELOG [ON CLUSTER cluster_name] [db.]table_name [FILE 'file_name' [OFFSET n | TO END]]
+```
+
+`FILE` を指定しない場合、テーブルのすべてのファイルが先頭から再度読み込まれます。`FILE` を指定した場合は、指定したファイル (`_filename` 仮想カラムに表示される名前) のみが対象となります。このファイルは先頭から再度読み込まれます。`OFFSET n` を指定した場合はバイト `n` (`_offset` の値など、行の先頭である必要があります) から読み込まれ、`TO END` を指定した場合はコマンド実行後に追記されたデータのみが読み込まれます (ファイルに現在含まれている内容はスキップされます) 。
+
+再度読み込まれた行は、materialized view に再び挿入されます。新しい読み込み位置は直ちに保存され、サーバーを再起動しても保持されます。このコマンドは、バックグラウンドで実行中の読み込みが完了するまで待機します。また、`SELECT` クエリがテーブルを読み込んでいる場合は失敗します。このコマンドを実行するには、テーブルに対する `SYSTEM RESET FILELOG` 権限が必要です。
 
 ## SYSTEM ENABLE|DISABLE FAILPOINT {#failpoint}
 

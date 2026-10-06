@@ -520,6 +520,10 @@ import SystemTableCloud from '/snippets/ja/_system_table_cloud.mdx';
 * `ProfileEvent_MarkCacheEvictedBytes` ([UInt64](/ja/reference/data-types/int-uint)) — mark cache から追い出されたバイト数。
 * `ProfileEvent_MarkCacheEvictedMarks` ([UInt64](/ja/reference/data-types/int-uint)) — mark cache から追い出されたマーク数。
 * `ProfileEvent_MarkCacheEvictedFiles` ([UInt64](/ja/reference/data-types/int-uint)) — mark cache から追い出されたマークファイル数。
+* `ProfileEvent_ColumnsCacheHits` ([UInt64](/ja/reference/data-types/int-uint)) — デシリアル化されたカラムがカラムキャッシュ内で見つかった回数。
+* `ProfileEvent_ColumnsCacheMisses` ([UInt64](/ja/reference/data-types/int-uint)) — デシリアル化されたカラムがカラムキャッシュ内で見つからなかった回数。
+* `ProfileEvent_ColumnsCacheEvictedBytes` ([UInt64](/ja/reference/data-types/int-uint)) — カラムキャッシュから追い出されたバイト数。
+* `ProfileEvent_ColumnsCacheEvictedEntries` ([UInt64](/ja/reference/data-types/int-uint)) — カラムキャッシュから追い出されたエントリ数。
 * `ProfileEvent_LoadedPrimaryIndexFiles` ([UInt64](/ja/reference/data-types/int-uint)) — 読み込まれたプライマリインデックスファイル数。
 * `ProfileEvent_LoadedPrimaryIndexRows` ([UInt64](/ja/reference/data-types/int-uint)) — 読み込まれた主キーの行数。
 * `ProfileEvent_LoadedPrimaryIndexBytes` ([UInt64](/ja/reference/data-types/int-uint)) — 読み込まれた主キーのバイト数。
@@ -1029,7 +1033,7 @@ import SystemTableCloud from '/snippets/ja/_system_table_cloud.mdx';
 * `ProfileEvent_KafkaMessagesFailed` ([UInt64](/ja/reference/data-types/int-uint)) — ClickHouse がパースに失敗した Kafka メッセージの数
 * `ProfileEvent_KafkaRowsRead` ([UInt64](/ja/reference/data-types/int-uint)) — Kafka メッセージから解析された行数
 * `ProfileEvent_KafkaRowsRejected` ([UInt64](/ja/reference/data-types/int-uint)) — 解析された行のうち、後で拒否された行数 (リバランスやエラーなどが原因) 。これらの行は、リバランス後に再度消費されます。
-* `ProfileEvent_KafkaDirectReads` ([UInt64](/ja/reference/data-types/int-uint)) — サーバーの起動以降に Kafka テーブルに対して実行された直接 `select` の回数
+* `ProfileEvent_KafkaDirectReads` ([UInt64](/ja/reference/data-types/int-uint)) — サーバーの起動以降に Kafka テーブルに対して実行された直接 select の回数
 * `ProfileEvent_KafkaBackgroundReads` ([UInt64](/ja/reference/data-types/int-uint)) — サーバーの起動以降に、Kafka から materialized view を取り込むために実行されたバックグラウンド読み取りの回数
 * `ProfileEvent_KafkaCommits` ([UInt64](/ja/reference/data-types/int-uint)) — 消費済みオフセットの Kafka へのコミット成功回数 (通常は KafkaBackgroundReads と同じになるはずです)
 * `ProfileEvent_KafkaCommitFailures` ([UInt64](/ja/reference/data-types/int-uint)) — 消費済みオフセットの Kafka へのコミット失敗回数 (通常はデータ重複の兆候です)

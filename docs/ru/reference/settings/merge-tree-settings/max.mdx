@@ -113,6 +113,47 @@ import { VersionHistory } from "/snippets/ru/components/VersionHistory/VersionHi
 
 Максимальное количество проекций в MergeTree.
 
+## max_row_mask_update_coalescing_ast_bytes {#max_row_mask_update_coalescing_ast_bytes}
+
+<SettingsInfoBlock type="UInt64" default_value="1048576" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1048576"},{"label": "новая настройка"}]}]} />
+
+Максимальный суммарный размер `ast_text` исходных команд (в байтах), при котором допускается объединение
+обновлений маски строк. Если команды содержат большие литералы, одного лишь ограничения на количество команд
+недостаточно, чтобы ограничить размер этой копии. Установите значение 0, чтобы отключить объединение.
+
+## max_row_mask_update_coalescing_commands {#max_row_mask_update_coalescing_commands}
+
+<SettingsInfoBlock type="UInt64" default_value="4096" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "4096"},{"label": "Новая настройка"}]}]} />
+
+Максимальное количество команд мутации, локальных для части, которые могут быть объединены
+в одно обновление маски строк. Настройка ограничивает размер дополнительной копии списка команд, создаваемой этой оптимизацией;
+значение служит защитой от чрезмерного расхода ресурсов и не влияет на семантику. Значения меньше 2 отключают
+объединение.
+
+## max_row_mask_update_coalescing_key_bytes {#max_row_mask_update_coalescing_key_bytes}
+
+<SettingsInfoBlock type="UInt64" default_value="65536" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "65536"},{"label": "Новая настройка"}]}]} />
+
+Максимальный суммарный объём литералов ключей (в байтах) в одном объединённом обновлении маски строк.
+Ограничивает размер генерируемого предиката `IN`. Значение 0 отключает
+объединение.
+
+## max_row_mask_update_coalescing_keys {#max_row_mask_update_coalescing_keys}
+
+<SettingsInfoBlock type="UInt64" default_value="256" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "256"},{"label": "Новая настройка"}]}]} />
+
+Максимальное количество ключей в одном объединённом обновлении маски строк. Фактическое ограничение
+также зависит от значения `max_rows_in_set` в настройках фоновых запросов. Значения меньше
+2 отключают объединение.
+
 ## max_table_size_bytes_compressed {#max_table_size_bytes_compressed}
 
 <SettingsInfoBlock type="UInt64" default_value="0" />

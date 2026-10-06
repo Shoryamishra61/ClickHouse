@@ -79,6 +79,17 @@ Valores possíveis:
 * `true`
 * `false`
 
+## enable_row_mask_update_coalescing {#enable_row_mask_update_coalescing}
+
+<SettingsInfoBlock type="Bool" default_value="1" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1"},{"label": "Habilita por padrão a combinação de atualizações de máscara de linha"}]}]} />
+
+Combina comandos singleton adjacentes `UPDATE _row_exists = 0` durante a mutação de uma
+parte Wide com armazenamento Full. Os comandos de mutação persistidos e suas
+versões não são alterados.
+Defina como false para executar cada comando separadamente.
+
 ## enable_the_endpoint_id_with_zookeeper_name_prefix {#enable_the_endpoint_id_with_zookeeper_name_prefix}
 
 <SettingsInfoBlock type="Bool" default_value="0" />

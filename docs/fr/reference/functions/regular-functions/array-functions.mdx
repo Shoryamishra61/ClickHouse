@@ -1809,26 +1809,26 @@ SELECT arrayJaccardIndex([1, 2], [2, 3]) AS res
 
 ## arrayJoin {#arrayJoin}
 
-Introduit dans : v1.1.0
+Introduit dans : v1.1.0
 
 La fonction `arrayJoin` prend une ligne contenant un tableau et la déplie en générant plusieurs lignes — une pour chaque élément du tableau.
 Cela contraste avec les fonctions régulières de ClickHouse, qui associent des valeurs d’entrée à des valeurs de sortie dans la même ligne,
 et avec les fonctions d’agrégation, qui prennent un groupe de lignes et les &quot;compressent&quot; ou les &quot;réduisent&quot; en une seule ligne de synthèse
 (ou en une seule valeur dans une ligne de synthèse si elles sont utilisées avec `GROUP BY`).
 
-Toutes les valeurs des colonnes sont simplement copiées, à l’exception de celles de la colonne à laquelle cette fonction est appliquée ;
+Toutes les valeurs des colonnes sont simplement copiées, à l’exception de celles de la colonne à laquelle cette fonction est appliquée ;
 celles-ci sont remplacées par la valeur correspondante du tableau.
 
-`unnest` (depuis la version 26.5) est un alias insensible à la casse de `arrayJoin` sous forme d’appel de fonction (`SELECT unnest(arr)`). La syntaxe PostgreSQL de source de table n’est pas prise en charge (`FROM unnest(...)`, `CROSS JOIN UNNEST(...)` et `LATERAL`). Utilisez la clause `ARRAY JOIN` pour ces requêtes.
+`unnest` (depuis la version 26.5) est un alias insensible à la casse de `arrayJoin` sous forme d’appel de fonction (`SELECT unnest(arr)`). La syntaxe PostgreSQL de source de table n’est pas prise en charge (`FROM unnest(...)`, `CROSS JOIN UNNEST(...)` et `LATERAL unnest(...)`). Utilisez la clause `ARRAY JOIN` pour ces requêtes. `JOIN LATERAL` sur une sous-requête corrélée est une fonctionnalité expérimentale distincte et ne permet pas pour autant d’utiliser `unnest` comme source de table.
 
 `arrayJoin`, y compris via son alias `unnest`, ne peut pas être utilisé dans une condition `JOIN ON` évaluée lors de la jointure, car une telle condition doit
 préserver le nombre de lignes. Une condition qui ne porte que sur un seul côté, ainsi qu’une clé d’égalité sur `arrayJoin`, sont
 extraites avant la jointure et ne sont pas affectées. Une condition `ALL INNER JOIN` sans disjonction n’est pas non plus affectée,
 car la condition y est appliquée après la jointure.
-Lorsque l’expansion ne dépend que d’un côté, déplacez-la dans un `ARRAY JOIN` d’une sous-requête avant la jointure ; une condition dont l’argument `arrayJoin` lit des colonnes des deux côtés doit être restructurée.
+Lorsque l’expansion ne dépend que d’un côté, déplacez-la dans un `ARRAY JOIN` d’une sous-requête avant la jointure ; une condition dont l’argument `arrayJoin` lit des colonnes des deux côtés doit être restructurée.
 
 <Note>
-  Cette fonction est non déterministe : elle peut renvoyer des résultats différents pour les mêmes arguments.
+  Cette fonction est non déterministe : elle peut renvoyer des résultats différents pour les mêmes arguments.
 </Note>
 
 **Syntaxe**
@@ -1837,7 +1837,7 @@ Lorsque l’expansion ne dépend que d’un côté, déplacez-la dans un `ARRAY 
 arrayJoin(arr)
 ```
 
-**Alias** : `unnest`
+**Alias** : `unnest`
 
 **Arguments**
 

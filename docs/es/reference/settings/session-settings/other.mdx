@@ -55,6 +55,19 @@ Si una tabla tiene una curva de llenado de espacio en su índice, por ejemplo, `
 
 Cuando está habilitada, el analizador reemplaza las vistas ordinarias (no materializadas y no parametrizadas) por las subconsultas que las definen, lo que permite optimizaciones entre límites como el pushdown de predicados y la poda de columnas.
 
+## anti_join_include_columns_from_both_sides {#anti_join_include_columns_from_both_sides}
+
+<SettingsInfoBlock type="Bool" default_value="1" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1"},{"label": "Nueva configuración. Desactívela para restringir el acceso a las columnas en `ANTI JOIN` al lado preservado, excepto en las expresiones `JOIN ON`"}]}]} />
+
+Cuando está habilitada (valor predeterminado), `ANTI` JOIN mantiene accesibles las columnas de ambos lados en el resultado de la unión, y `SELECT *` devuelve columnas de ambos lados. Este es el comportamiento heredado de ClickHouse.
+Cuando está deshabilitada, el analizador restringe el acceso a las columnas en `ANTI` JOIN al lado preservado, conforme al estándar SQL.
+En `LEFT ANTI JOIN` solo son accesibles las columnas de la tabla izquierda; en `RIGHT ANTI JOIN`, solo las de la tabla derecha.
+Esto se aplica a las expresiones que se resuelven a partir del resultado de la unión, como las de las cláusulas `SELECT`, `PREWHERE`, `WHERE`, `GROUP BY`, `HAVING`, `QUALIFY`, `ORDER BY` y `LIMIT BY`, incluidos los comodines calificados como `t1.*`.
+Una referencia explícita a una columna del lado no preservado lanza la excepción `SEMI_ANTI_JOIN_COLUMN_ACCESS_DENIED`. Esto incluye las referencias calificadas como `t2.b`, los comodines calificados como `t2.*`, las columnas de `USING` como `d.id` y las referencias totalmente calificadas como `db.table.column`, y se aplica incluso dentro de ramas que nunca se ejecutan según el análisis estático, como `if(false, t2.b, 42)`. Un identificador no calificado que no coincida con ninguna columna accesible sigue provocando la excepción genérica `UNKNOWN_IDENTIFIER`.
+La expresión `JOIN ON` del mismo `JOIN` puede acceder a ambos lados, independientemente de esta configuración.
+
 ## any_join_distinct_right_table_keys {#any_join_distinct_right_table_keys}
 
 <SettingsInfoBlock type="Bool" default_value="0" />
@@ -798,6 +811,23 @@ Si los cuatro argumentos de las funciones `geoDistance`, `greatCircleDistance` y
 
 La función &#39;geoToH3&#39; acepta (lon, lat) si se establece en &#39;lon&#95;lat&#39; y (lat, lon) si se establece en &#39;lat&#95;lon&#39;.
 
+## get_zookeeper_lock_acquire_timeout_ms {#get_zookeeper_lock_acquire_timeout_ms}
+
+<SettingsInfoBlock type="Milliseconds" default_value="120000" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "120000"},{"label": "New setting"}]}]} />
+
+Define cuántos milisegundos espera un Client de Keeper para adquirir el mutex de `Context` correspondiente antes de fallar.
+
+El valor se obtiene del `Context` que realiza la adquisición. Una sobrescritura a nivel de consulta solo se aplica cuando la operación utiliza el contexto de la consulta, como en las lecturas de `system.zookeeper`, `zookeeperSessionUptime`, `SYSTEM RECONNECT ZOOKEEPER` y el acceso a Keeper auxiliar desde el contexto de la consulta.
+Las operaciones que utilizan un contexto global o en segundo plano, como la coordinación de `BACKUP` y `RESTORE` y la actividad de las bases de datos `Replicated`, utilizan en su lugar el valor de ese contexto.
+`SYSTEM RELOAD CONFIG` y `SYSTEM RELOAD ASYNCHRONOUS METRICS` quedan excluidos, ya que utilizan rutas de recarga serializadas de forma independiente.
+
+Valores posibles:
+
+* Entero positivo (en milisegundos).
+* 0 — Sin tiempo de espera para el bloqueo.
+
 ## glob_expansion_max_elements {#glob_expansion_max_elements}
 
 <SettingsInfoBlock type="UInt64" default_value="1000" />
@@ -1496,6 +1526,19 @@ Véase también:
 * [insert&#95;quorum](/es/reference/settings/session-settings/insert-quorum#insert_quorum)
 * [insert&#95;quorum&#95;timeout](/es/reference/settings/session-settings/insert-quorum#insert_quorum_timeout)
 * [insert&#95;quorum&#95;parallel](/es/reference/settings/session-settings/insert-quorum#insert_quorum_parallel)
+
+## semi_join_include_columns_from_both_sides {#semi_join_include_columns_from_both_sides}
+
+<SettingsInfoBlock type="Bool" default_value="1" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1"},{"label": "Nueva configuración. Desactívela para restringir el acceso a las columnas en `SEMI JOIN` al lado preservado, excepto en las expresiones `JOIN ON`"}]}]} />
+
+Cuando está habilitada (valor predeterminado), `SEMI` JOIN mantiene accesibles las columnas de ambos lados en el resultado de la unión, y `SELECT *` devuelve columnas de ambos lados. Este es el comportamiento heredado de ClickHouse.
+Cuando está deshabilitada, el analizador restringe el acceso a las columnas en `SEMI` JOIN al lado preservado, conforme al estándar SQL.
+En `LEFT SEMI JOIN` solo son accesibles las columnas de la tabla izquierda; en `RIGHT SEMI JOIN`, solo las de la tabla derecha.
+Esto se aplica a las expresiones que se resuelven a partir del resultado de la unión, como las de las cláusulas `SELECT`, `PREWHERE`, `WHERE`, `GROUP BY`, `HAVING`, `QUALIFY`, `ORDER BY` y `LIMIT BY`, incluidos los comodines calificados como `t1.*`.
+Una referencia explícita a una columna del lado no preservado lanza la excepción `SEMI_ANTI_JOIN_COLUMN_ACCESS_DENIED`. Esto abarca las referencias calificadas como `t2.b`, los comodines calificados como `t2.*`, las columnas de `USING` como `d.id` y las referencias completamente calificadas como `db.table.column`, y se aplica incluso dentro de ramas estáticamente inalcanzables como `if(false, t2.b, 42)`. Un identificador no calificado que no coincida con ninguna columna accesible sigue produciendo la excepción genérica `UNKNOWN_IDENTIFIER`.
+La expresión `JOIN ON` del mismo `JOIN` puede acceder a ambos lados, independientemente de esta configuración.
 
 ## session_query_ids_history_size {#session_query_ids_history_size}
 

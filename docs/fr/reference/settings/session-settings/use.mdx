@@ -36,6 +36,23 @@ Activé par défaut.
 
 Utilise le fuseau horaire du client pour interpréter les valeurs de chaîne DateTime, au lieu de celui du serveur.
 
+## use_columns_cache {#use_columns_cache}
+
+<ExperimentalBadge />
+
+<SettingsInfoBlock type="Bool" default_value="0" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "0"},{"label": "Nouveau paramètre expérimental permettant d'activer le cache de colonnes pour les tables MergeTree, désactivé par défaut."}]}]} />
+
+Détermine si le cache de colonnes est utilisé. Accepte 0 ou 1. Valeur par défaut : 0 (désactivé).
+Le cache de colonnes stocke les colonnes désérialisées issues des tables `MergeTree`, ce qui évite de décompresser et de désérialiser à plusieurs reprises les données fréquemment consultées. Il peut ainsi réduire considérablement la latence des requêtes répétées sur les mêmes données. Le cache est indexé par l&#39;UUID de la table, le nom de la part, le nom de la colonne et un stripe de granules consécutifs d&#39;environ 65536 lignes.
+
+Les entrées étant indexées par l&#39;UUID de la table, le cache n&#39;est actif que pour les tables des bases de données qui attribuent des UUID, comme `Atomic`, `Replicated` et `Shared` (le moteur de base de données par défaut dans ClickHouse Cloud) ; les tables `MergeTree` des bases de données legacy `Ordinary` ont un UUID nul et ignorent silencieusement ce paramètre.
+
+Pour l&#39;instant, le cache ne s&#39;applique qu&#39;aux parts wide : les données des parts compact ne sont ni lues depuis le cache de colonnes ni écrites dans celui-ci, si bien que l&#39;accélération d&#39;une lecture dépend du format de la part.
+
+Une entrée contient une plage contiguë de granules d&#39;un même stripe : un granule n&#39;entre dans le cache qu&#39;une fois lu intégralement, de sa première à sa dernière ligne ; une lecture est servie depuis le cache granule par granule, et les plages écrites par des lectures distinctes sont fusionnées, de sorte que des lectures découpant une part en plages de marques différentes partagent les mêmes entrées.
+
 ## use_concurrency_control {#use_concurrency_control}
 
 <SettingsInfoBlock type="Bool" default_value="1" />

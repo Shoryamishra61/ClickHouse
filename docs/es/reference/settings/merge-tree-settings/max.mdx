@@ -113,6 +113,47 @@ a nivel de consulta / sesión / perfil.
 
 El número máximo de proyecciones de MergeTree.
 
+## max_row_mask_update_coalescing_ast_bytes {#max_row_mask_update_coalescing_ast_bytes}
+
+<SettingsInfoBlock type="UInt64" default_value="1048576" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1048576"},{"label": "Nueva configuración"}]}]} />
+
+Suma máxima de los bytes de `ast_text` de los comandos originales que pueden combinarse para
+actualizar máscaras de filas. El límite del número de comandos por sí solo no permite limitar el tamaño de esta copia cuando
+los comandos contienen literales de gran tamaño. Establezca este valor en 0 para desactivar la combinación.
+
+## max_row_mask_update_coalescing_commands {#max_row_mask_update_coalescing_commands}
+
+<SettingsInfoBlock type="UInt64" default_value="4096" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "4096"},{"label": "Nueva configuración"}]}]} />
+
+Número máximo de comandos de mutación de una misma parte que pueden combinarse para actualizar
+las máscaras de filas. Esto limita el tamaño de la copia adicional de la lista de comandos que realiza la optimización;
+el valor sirve para proteger los recursos, no como límite semántico. Los valores inferiores a 2 desactivan
+la combinación.
+
+## max_row_mask_update_coalescing_key_bytes {#max_row_mask_update_coalescing_key_bytes}
+
+<SettingsInfoBlock type="UInt64" default_value="65536" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "65536"},{"label": "Nueva configuración"}]}]} />
+
+Número máximo total de bytes de literales de clave en una única actualización combinada de máscara de filas.
+Limita el tamaño del predicado `IN` generado. Establézcalo en 0 para deshabilitar
+la combinación.
+
+## max_row_mask_update_coalescing_keys {#max_row_mask_update_coalescing_keys}
+
+<SettingsInfoBlock type="UInt64" default_value="256" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "256"},{"label": "Nueva configuración"}]}]} />
+
+Número máximo de claves en una única actualización combinada de máscara de filas. El límite efectivo
+también tiene en cuenta `max_rows_in_set` en los ajustes de consulta en segundo plano. Los valores inferiores
+a 2 desactivan la combinación.
+
 ## max_table_size_bytes_compressed {#max_table_size_bytes_compressed}
 
 <SettingsInfoBlock type="UInt64" default_value="0" />

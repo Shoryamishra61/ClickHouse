@@ -113,6 +113,47 @@ au niveau d’une requête / session / profil.
 
 Le nombre maximal de projections MergeTree.
 
+## max_row_mask_update_coalescing_ast_bytes {#max_row_mask_update_coalescing_ast_bytes}
+
+<SettingsInfoBlock type="UInt64" default_value="1048576" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1048576"},{"label": "Nouveau paramètre"}]}]} />
+
+Taille maximale cumulée, en octets, des `ast_text` des commandes d&#39;origine pouvant faire l&#39;objet
+d&#39;une fusion des mises à jour par masque de lignes. La seule limite sur le nombre de commandes ne permet pas de borner cette copie
+lorsque les commandes contiennent des littéraux volumineux. Définissez la valeur à 0 pour désactiver la fusion.
+
+## max_row_mask_update_coalescing_commands {#max_row_mask_update_coalescing_commands}
+
+<SettingsInfoBlock type="UInt64" default_value="4096" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "4096"},{"label": "New setting"}]}]} />
+
+Nombre maximal de commandes de mutation locales à une partie de données pouvant faire l&#39;objet d&#39;une fusion
+des mises à jour par masque de lignes. Ce paramètre borne la copie supplémentaire de la liste de commandes
+effectuée par cette optimisation ; sa valeur sert de garde-fou pour les ressources, et non de limite sémantique.
+Une valeur inférieure à 2 désactive la fusion.
+
+## max_row_mask_update_coalescing_key_bytes {#max_row_mask_update_coalescing_key_bytes}
+
+<SettingsInfoBlock type="UInt64" default_value="65536" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "65536"},{"label": "Nouveau paramètre"}]}]} />
+
+Nombre total maximal d&#39;octets de littéraux de clé dans une même mise à jour fusionnée du masque de lignes.
+Ce paramètre limite la taille du prédicat `IN` généré. Définissez-le sur 0 pour désactiver
+la fusion.
+
+## max_row_mask_update_coalescing_keys {#max_row_mask_update_coalescing_keys}
+
+<SettingsInfoBlock type="UInt64" default_value="256" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "256"},{"label": "Nouveau paramètre"}]}]} />
+
+Nombre maximal de clés dans une mise à jour fusionnée du masque de lignes. La limite effective
+tient également compte de `max_rows_in_set` dans les paramètres des requêtes en arrière-plan. Une valeur inférieure
+à 2 désactive la fusion.
+
 ## max_table_size_bytes_compressed {#max_table_size_bytes_compressed}
 
 <SettingsInfoBlock type="UInt64" default_value="0" />

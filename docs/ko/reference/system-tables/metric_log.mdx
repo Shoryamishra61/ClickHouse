@@ -427,7 +427,7 @@ import SystemTableCloud from '/snippets/ko/_system_table_cloud.mdx';
 * `ProfileEvent_CompileFunction` ([UInt64](/ko/reference/data-types/int-uint)) — 생성된 LLVM 코드의 컴파일(복잡한 표현식을 위한 fused function 생성을 목적)을 시작한 횟수입니다.
 * `ProfileEvent_CompiledFunctionExecute` ([UInt64](/ko/reference/data-types/int-uint)) — 컴파일된 function이 실행된 횟수입니다.
 * `ProfileEvent_CompileExpressionsMicroseconds` ([UInt64](/ko/reference/data-types/int-uint)) — 표현식을 LLVM 코드로 컴파일하는 데 소요된 총시간입니다.
-* `ProfileEvent_CompileExpressionsBytes` ([UInt64](/ko/reference/data-types/int-uint)) — 표현식 컴파일에 사용된 바이트 수입니다。
+* `ProfileEvent_CompileExpressionsBytes` ([UInt64](/ko/reference/data-types/int-uint)) — 표현식 컴파일에 사용된 바이트 수입니다.
 * `ProfileEvent_CompileRegexpFunction` ([UInt64](/ko/reference/data-types/int-uint)) — 정규식이 머신 코드로 JIT 컴파일된 횟수입니다.
 * `ProfileEvent_ExecuteShellCommand` ([UInt64](/ko/reference/data-types/int-uint)) — 셸 명령 실행 횟수입니다.
 * `ProfileEvent_ExternalProcessingCompressedBytesTotal` ([UInt64](/ko/reference/data-types/int-uint)) — 외부 처리(정렬/집계/JOIN)에서 기록한 압축 바이트 수입니다.
@@ -513,6 +513,10 @@ import SystemTableCloud from '/snippets/ko/_system_table_cloud.mdx';
 * `ProfileEvent_MarkCacheEvictedBytes` ([UInt64](/ko/reference/data-types/int-uint)) — 마크 캐시에서 제거된 바이트 수.
 * `ProfileEvent_MarkCacheEvictedMarks` ([UInt64](/ko/reference/data-types/int-uint)) — 마크 캐시에서 제거된 마크 수.
 * `ProfileEvent_MarkCacheEvictedFiles` ([UInt64](/ko/reference/data-types/int-uint)) — 마크 캐시에서 제거된 마크 파일 수.
+* `ProfileEvent_ColumnsCacheHits` ([UInt64](/ko/reference/data-types/int-uint)) — 역직렬화된 컬럼이 컬럼 캐시에서 발견된 횟수입니다.
+* `ProfileEvent_ColumnsCacheMisses` ([UInt64](/ko/reference/data-types/int-uint)) — 역직렬화된 컬럼을 컬럼 캐시에서 찾지 못한 횟수입니다.
+* `ProfileEvent_ColumnsCacheEvictedBytes` ([UInt64](/ko/reference/data-types/int-uint)) — 컬럼 캐시에서 축출된 바이트 수입니다.
+* `ProfileEvent_ColumnsCacheEvictedEntries` ([UInt64](/ko/reference/data-types/int-uint)) — 컬럼 캐시에서 축출된 엔트리 수입니다.
 * `ProfileEvent_LoadedPrimaryIndexFiles` ([UInt64](/ko/reference/data-types/int-uint)) — 로드된 프라이머리 인덱스 파일 수.
 * `ProfileEvent_LoadedPrimaryIndexRows` ([UInt64](/ko/reference/data-types/int-uint)) — 로드된 프라이머리 키 행 수.
 * `ProfileEvent_LoadedPrimaryIndexBytes` ([UInt64](/ko/reference/data-types/int-uint)) — 로드된 프라이머리 키 행 수.
@@ -2065,6 +2069,9 @@ import SystemTableCloud from '/snippets/ko/_system_table_cloud.mdx';
 * `CurrentMetric_PageCacheCells` ([Int64](/ko/reference/data-types/int-uint)) — 사용자 공간 페이지 캐시 엔트리의 총 개수
 * `CurrentMetric_UncompressedCacheBytes` ([Int64](/ko/reference/data-types/int-uint)) — 비압축 캐시의 총 크기(바이트)입니다. 비압축 캐시는 일반적으로 성능 향상에 도움이 되지 않으므로, 대부분의 경우 사용을 피해야 합니다
 * `CurrentMetric_UncompressedCacheCells` ([Int64](/ko/reference/data-types/int-uint)) — 비압축 캐시 엔트리의 총 개수입니다. 각 엔트리는 압축 해제된 데이터 블록을 나타냅니다. 비압축 캐시는 일반적으로 성능 향상에 도움이 되지 않으므로, 대부분의 경우 사용을 피해야 합니다
+* `CurrentMetric_ColumnsCacheBytes` ([Int64](/ko/reference/data-types/int-uint)) — 컬럼 캐시의 총 크기(바이트)입니다. 컬럼 캐시는 반복적인 압축 해제와 역직렬화를 피하기 위해 MergeTree 테이블에서 역직렬화된 컬럼을 저장합니다.
+* `CurrentMetric_ColumnsCacheEntries` ([Int64](/ko/reference/data-types/int-uint)) — 컬럼 캐시 엔트리의 총 개수입니다.
+* `CurrentMetric_ColumnsCacheSizeLimit` ([Int64](/ko/reference/data-types/int-uint)) — 현재 적용 중인 컬럼 캐시의 크기 제한(바이트)입니다. 서버의 다른 부분에서 메모리가 부족해지면 설정된 `columns_cache_size`보다 낮아지고, 해당 메모리 사용량이 줄어들면 다시 설정값에 가까워지도록 높아집니다. `columns_cache_free_memory_ratio`를 참조하십시오.
 * `CurrentMetric_IndexMarkCacheBytes` ([Int64](/ko/reference/data-types/int-uint)) — 보조 인덱스용 마크 캐시의 총 크기(바이트)
 * `CurrentMetric_IndexMarkCacheFiles` ([Int64](/ko/reference/data-types/int-uint)) — 보조 인덱스용 마크 캐시에 캐시된 마크 파일의 총 개수
 * `CurrentMetric_IndexUncompressedCacheBytes` ([Int64](/ko/reference/data-types/int-uint)) — 보조 인덱스용 비압축 캐시의 총 크기(바이트)입니다. 비압축 캐시는 일반적으로 성능 향상에 도움이 되지 않으므로, 대부분의 경우 사용을 피해야 합니다

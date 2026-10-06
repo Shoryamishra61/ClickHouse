@@ -35,6 +35,7 @@
     "es/reference/settings/session-settings/cluster",
     "es/reference/settings/session-settings/cluster-table",
     "es/reference/settings/session-settings/collect-hash",
+    "es/reference/settings/session-settings/columns-cache",
     "es/reference/settings/session-settings/compatibility",
     "es/reference/settings/session-settings/compatibility-ignore",
     "es/reference/settings/session-settings/compile",

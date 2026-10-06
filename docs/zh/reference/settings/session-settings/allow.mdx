@@ -37,6 +37,23 @@ File/S3 引擎/表函数会将包含 &#39;::&#39; 的路径解析为 `<archive> 
 
 使用后台 I/O 线程池从 MergeTree 表中读取数据。此设置可能会提高受 I/O 限制的查询的性能
 
+## allow_block_nested_loop_join {#allow_block_nested_loop_join}
+
+<SettingsInfoBlock type="Bool" default_value="1" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1"},{"label": "新增设置，用于控制块嵌套循环连接（block nested loop join）：对于 `ON` 子句无法确定任何连接键的 `JOIN`，将直接执行，而不再报 `INVALID_JOIN_ON_EXPRESSION` 错误并拒绝执行。将 compatibility 值设为 0 可恢复之前的行为。"}]}]} />
+
+允许以[块嵌套循环连接](/zh/reference/statements/select/join#join-with-an-arbitrary-on-condition)的方式执行带有任意 `ON` 条件 (即被连接的表之间不存在等值条件) 的 `JOIN`。
+
+该算法会逐一检查每一对行，开销为两个表行数的乘积。该运算符是 JOIN 规划的最后手段，仅当所有 [`join_algorithm`](/zh/reference/settings/session-settings/join#join_algorithm) 都无法执行该条件时才会启用，因此无法通过该设置来选择它。
+
+禁用此设置后，凡是需要使用该运算符的查询，都会在规划阶段报 `INVALID_JOIN_ON_EXPRESSION` 错误并被拒绝。
+
+可选值：
+
+* 0 — 拒绝此类查询。
+* 1 — 以块嵌套循环连接方式执行 (默认) 。
+
 ## allow_calculating_subcolumns_sizes_for_merge_tree_reading {#allow_calculating_subcolumns_sizes_for_merge_tree_reading}
 
 <SettingsInfoBlock type="Bool" default_value="1" />
@@ -369,12 +386,6 @@ Cloud 默认值: `1`。
 
 允许在 JSON (Object) 列上创建 minmax 跳过索引。默认处于禁用状态，因为 minmax
 索引的序列化过程无法处理 JSON 列中可能包含的不同类型的 Field 值。
-
-## allow_named_collection_override_by_default {#allow_named_collection_override_by_default}
-
-<SettingsInfoBlock type="Bool" default_value="1" />
-
-默认允许覆盖命名集合中的字段。
 
 ## allow_non_metadata_alters {#allow_non_metadata_alters}
 

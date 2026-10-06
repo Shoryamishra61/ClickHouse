@@ -37,6 +37,23 @@ Os motores File/S3 e a função de tabela analisarão caminhos com &#39;::&#39; 
 
 Usa o pool de E/S em segundo plano para ler dados de tabelas MergeTree. Essa configuração pode aumentar o desempenho de consultas limitadas por E/S.
 
+## allow_block_nested_loop_join {#allow_block_nested_loop_join}
+
+<SettingsInfoBlock type="Bool" default_value="1" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1"},{"label": "Nova configuração que controla o block nested loop join, que executa um `JOIN` cuja seção `ON` não define nenhuma chave de junção, em vez de rejeitá-lo com `INVALID_JOIN_ON_EXPRESSION`. O valor de compatibilidade 0 restaura o comportamento anterior."}]}]} />
+
+Permite executar um `JOIN` com uma condição `ON` arbitrária, ou seja, sem igualdade entre as tabelas unidas, como um [block nested loop join](/pt-BR/reference/statements/select/join#join-with-an-arbitrary-on-condition).
+
+Esse operador examina cada par de linhas, com custo equivalente ao produto do número de linhas das duas tabelas. Ele é o último recurso do planejamento de junção e só é acionado quando nenhum [`join_algorithm`](/pt-BR/reference/settings/session-settings/join#join_algorithm) consegue executar a condição; por isso, não é selecionado por meio dessa configuração.
+
+Quando a configuração está desabilitada, uma consulta que chega a esse operador é rejeitada com `INVALID_JOIN_ON_EXPRESSION` durante o planejamento.
+
+Valores possíveis:
+
+* 0 — Rejeita esse tipo de consulta.
+* 1 — Executa a consulta como um block nested loop join (padrão).
+
 ## allow_calculating_subcolumns_sizes_for_merge_tree_reading {#allow_calculating_subcolumns_sizes_for_merge_tree_reading}
 
 <SettingsInfoBlock type="Bool" default_value="1" />
@@ -368,12 +385,6 @@ Defina como false para forçar o comportamento anterior de mutação completa.
 
 Permite criar índices skip minmax em colunas JSON (Object). Desativado por padrão porque o
 mecanismo de serialização do índice minmax não consegue lidar com os valores heterogêneos de Field que as colunas JSON podem conter.
-
-## allow_named_collection_override_by_default {#allow_named_collection_override_by_default}
-
-<SettingsInfoBlock type="Bool" default_value="1" />
-
-Permite, por padrão, a substituição dos campos das coleções nomeadas.
 
 ## allow_non_metadata_alters {#allow_non_metadata_alters}
 

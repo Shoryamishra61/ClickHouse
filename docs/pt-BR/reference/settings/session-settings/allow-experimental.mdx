@@ -112,6 +112,16 @@ Permite usar explicitamente &#39;OPTIMIZE&#39; em tabelas Iceberg.
 
 Habilita o dialeto Kusto Query Language (KQL), uma alternativa ao SQL.
 
+## allow_experimental_lateral_join {#allow_experimental_lateral_join}
+
+<ExperimentalBadge />
+
+<SettingsInfoBlock type="Bool" default_value="0" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "0"},{"label": "Nova configuração para permitir a sintaxe `LATERAL JOIN`."}]}]} />
+
+Permite a sintaxe LATERAL JOIN. Quando habilitada, subconsultas no lado direito de um JOIN podem referenciar colunas do lado esquerdo, o que possibilita o uso de subconsultas correlacionadas na cláusula FROM (LATERAL JOIN conforme o padrão SQL).
+
 ## allow_experimental_logsql_dialect {#allow_experimental_logsql_dialect}
 
 <ExperimentalBadge />

@@ -826,7 +826,7 @@ I/O: rows <in> → <out> (<selectivity>%) · <bytes_in> → <bytes_out>
 
 #### Join 步骤 {#explain-analyze-join-steps}
 
-对于 JOIN 步骤，`EXPLAIN ANALYZE` 会输出用于比较 JOIN 顺序优化器估算值与实际结果的行 (请参阅[估算值与实际 JOIN 指标](#explain-analyze-join-estimation)) ，以及每一侧的*参与*行——`Left` 和 `Right`——后面跟着所有特定于该 JOIN 实现的行。涵盖了 [`join_algorithm`](/zh/reference/settings/session-settings/join#join_algorithm) 的所有取值 (`hash`、`parallel_hash`、`grace_hash`、`partial_merge`、`full_sorting_merge`、`parallel_full_sorting_merge`、`direct`) ，以及该设置无法选择的两种实现：`CROSS` 或 `COMMA` JOIN、任何不含键相等条件的 `ON` 子句，以及 [`Join`](/zh/reference/engines/table-engines/special/join) 表引擎。大多数实现都会报告两侧；有些仅报告其物化的一侧 (例如，`direct` 只输出 `Left:`) 。
+对于 JOIN 步骤，`EXPLAIN ANALYZE` 会输出用于比较 JOIN 顺序优化器估算值与实际结果的行 (请参阅[估算值与实际 JOIN 指标](#explain-analyze-join-estimation)) ，以及每一侧的*参与*行——`Left` 和 `Right`——后面跟着所有特定于该 JOIN 实现的行。`Left` 和 `Right` 对应 SQL 中的逻辑侧。在大多数情况下，`Left` 同时也是 JOIN 的探测侧，`Right` 则是 JOIN 的构建侧。但由于 JOIN 执行期间可能发生左右交换，情况并非总是如此。涵盖了 [`join_algorithm`](/zh/reference/settings/session-settings/join#join_algorithm) 的所有取值 (`hash`、`parallel_hash`、`grace_hash`、`partial_merge`、`full_sorting_merge`、`parallel_full_sorting_merge`、`direct`) ，以及该设置无法选择的三种实现：`CROSS` 或 `COMMA` JOIN、用于处理无法确定连接键的 `ON` 子句的[块嵌套循环连接](/zh/reference/statements/select/join#join-with-an-arbitrary-on-condition)，以及 [`Join`](/zh/reference/engines/table-engines/special/join) 表引擎。大多数实现都会报告两侧；有些仅报告其物化的一侧 (例如，`direct` 只输出 `Left:`) 。
 
 各侧的行采用相同的形态：
 
@@ -837,7 +837,7 @@ Right: rows estimated <estimated_right_rows> · rows <right_rows> · matched <ma
 
 对于每一侧，`EXPLAIN ANALYZE` 会报告：
 
-* `rows estimated <estimated_rows>` — JOIN 顺序优化器对该侧行数的估算，用于与其旁边的实际 `rows` 进行比较；当优化器未生成估算时显示 `no stats` (请参阅[估算与实际 JOIN 指标](#explain-analyze-join-estimation)) 。
+* `rows estimated <estimated_rows>` — JOIN 顺序优化器对该侧行数的估算，用于与其旁边的实际 `rows` 进行比较；当优化器未生成估算时显示 `no stats` (请参阅[估算值与实际 JOIN 指标](#explain-analyze-join-estimation)) 。
 * `rows <rows>` — 该侧经过 JOIN 的行总数。
 * `matched <matched_rows>` — 该侧在另一侧找到至少一个 JOIN 匹配行的行数。这里统计的是*行*，而不是键：如果某个键在右侧出现三次且能够匹配，则这三行右侧行都会计为已匹配。
 * `match rate <match_rate>%` — 该侧已匹配行的占比，计算方式为 `100 * <matched_rows> / <rows>`。
@@ -943,7 +943,20 @@ fanout              = <matched output rows> / <matched_rows of that side>
 
 **`CROSS`、`COMMA` 和常量 `ON`。** 两侧均不报告，如[上文](#explain-analyze-join-algorithm-lines)所述。
 
-当两种算法都报告数值时，结果是一致的。合并算法只是掌握了更多信息；对于何谓匹配，它们并无分歧。
+**块嵌套循环连接 (Block nested loop join) 。** 当 `ON` 子句无法确定连接键时，由该操作员处理，除非在它之前的某条路径已认领该条件 (参见 [`allow_block_nested_loop_join`](/zh/reference/settings/session-settings/allow)) 。它支持除 `ASOF`、`PASTE` 和 `ANY FULL` 之外的所有连接类型和严格性：
+
+| 连接                                                            | 左侧 `matched`    | 右侧 `matched` |
+| ------------------------------------------------------------- | --------------- | ------------ |
+| `ALL FULL`                                                    | 是               | 是            |
+| `ALL LEFT`, `ANY LEFT`, `SEMI LEFT`, `ANTI LEFT`, `ANY INNER` | 是               | 否            |
+| `ALL RIGHT`, `ANY RIGHT`, `SEMI RIGHT`, `ANTI RIGHT`          | 需 `matches = 1` | 是            |
+| `ALL INNER`                                                   | 需 `matches = 1` | 否            |
+
+只要该操作员本身已记录了哪些左侧行发生匹配，无需该选项即可报告左侧：所有保留未匹配左侧行的连接类型都需要这一记录，所有每个左侧行最多只取一对的严格性同样需要。只要该操作员保留了匹配标志，就会报告右侧，而 `RIGHT`、`FULL` 以及由右侧驱动的 `SEMI`/`ANTI` 正需要这些标志。`ANY INNER` 也会保留这些标志，但仅用于将一个右侧行分配给单个左侧行：一旦某个左侧行已有配对，它就不再为其认领，因此这些标志标记的只是结果中的配对，而非全部匹配，故不予报告。只有在禁用 `hash` 时，`ALL INNER` 才会交由该操作员处理，否则该条件会变为带过滤器的 `CROSS JOIN`。
+
+启用 [`any_join_distinct_right_table_keys`](/zh/reference/settings/session-settings/other#any_join_distinct_right_table_keys) 后，此处的 `ANY` 同样会切换为 `RightAny` 语义：对所有连接类型报告左侧，对 `RIGHT` 和 `FULL` 报告右侧；`ANY INNER` 会被重写为 `SEMI LEFT`。
+
+如果两种算法都报告了某个数值，这些数值是一致的。合并算法只是掌握的信息更多，二者对“匹配”的定义并无分歧。
 
 #### 算法特定行 {#explain-analyze-join-algorithm-lines}
 
@@ -987,18 +1000,31 @@ Right: rows estimated <estimated_right_rows> · rows <right_rows> · matched <ma
 
 对于 `direct` JOIN，仅输出 `Left:` 行，因为右侧是直接查找的键值存储，而非物化为行。
 
-对于 `CROSS` 或 `COMMA` JOIN，以及任何不含键相等条件的 `ON` 部分，`Buffer:` 行会说明右表如何保存在内存中，`Spill:` 行则报告其是否落盘：
+对于 `CROSS` 或 `COMMA` JOIN，以及 `ON` 部分不含键相等条件的 `ALL INNER JOIN` (查询规划器会将其转换为以该条件作为过滤器的 `CROSS JOIN`) ，`Buffer:` 行会说明右表如何保存在内存中，`Spill:` 行则报告其是否落盘：
 
 ```txt
 Buffer: memory <peak_memory> · compressed <yes|no>
 Spill: yes · right spilled <right_spilled_bytes>
 ```
 
-* `memory <peak_memory>` — 缓冲右表占用的峰值内存。
+* `memory <peak_memory>` — 缓冲右表占用的峰值内存占用。
 * `compressed <yes|no>` — 是否至少有一个缓冲块经过压缩；读取器随后会解压所有已存储的块。
 * `Spill:` — 与 `grace_hash` 相同的 `yes`/`no` 标志；`right spilled <right_spilled_bytes>` 则报告落盘的压缩字节数。
 
 此处两侧均显示 `matched not collected`：常量谓词要么让每个左行与每个右行匹配，要么完全不匹配，因此无法确定具体哪些行发生了匹配。
+
+块嵌套循环连接负责处理其余所有不含键相等条件的 `ON` 子句，它同样会针对其物化的右表输出这两行信息：
+
+```txt
+Buffer: memory <peak_memory> · compressed <yes|no>
+Spill: yes · right spilled <right_spilled_bytes>
+```
+
+* `memory <peak_memory>` — 已存储的右表所占用的峰值内存占用。如果每个块在到达时都直接写入磁盘，则该值为 `0`，因为没有任何块曾驻留在内存中。
+* `compressed <yes|no>` — 是否至少有一个已存储的块经过压缩；若是，读取器会对所有已存储的块进行解压。
+* `Spill:` — 与 `grace_hash` 相同的 `yes`/`no` 标志，其中 `right spilled <right_spilled_bytes>` 表示写入磁盘的压缩字节数。
+
+与 `CROSS` 的情况不同，此处两侧都可能报告 `matched`，因为该操作员会对其检查的每一对行求值真实的连接条件；具体由哪一侧报告，请参见[上方](#explain-analyze-matches)的表格。
 
 对于与 [`Join`](/zh/reference/engines/table-engines/special/join) 表引擎进行的 JOIN，会同时报告两侧的信息，并附带描述预构建表的 `Hash table:` 行。右侧统计的是存储在引擎中的行数，而非某次查询中构建的行数。
 

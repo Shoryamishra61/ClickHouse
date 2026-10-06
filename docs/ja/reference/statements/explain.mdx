@@ -823,9 +823,9 @@ I/O: rows <in> → <out> (<selectivity>%) · <bytes_in> → <bytes_out>
   2. `max_threads` で設定されたクエリ処理スレッドの最大数
 </Note>
 
-#### Join ステップ {#explain-analyze-join-steps}
+#### 結合 ステップ {#explain-analyze-join-steps}
 
-join ステップでは、`EXPLAIN ANALYZE` は結合順序オプティマイザの推定値と実際に起きたことを比較する行 ([推定値と実測値の join メトリクス](#explain-analyze-join-estimation) を参照) と、各側の*参加*行 (`Left` と `Right`) を出力し、その後に join の実装固有の行を出力します。[`join_algorithm`](/ja/reference/settings/session-settings/join#join_algorithm) のすべての値 (`hash`、`parallel_hash`、`grace_hash`、`partial_merge`、`full_sorting_merge`、`parallel_full_sorting_merge`、`direct`) に対応しています。また、この設定では選択できない 2 つの実装、すなわち `CROSS` または `COMMA` join、キーの等価条件を含まない `ON` 句、および [`Join`](/ja/reference/engines/table-engines/special/join) テーブルエンジンも対象です。ほとんどの実装では両側が報告されますが、マテリアライズする側のみを報告するものもあります (たとえば、`direct` は `Left:` のみを出力します) 。
+結合 ステップでは、`EXPLAIN ANALYZE` は結合順序オプティマイザの推定値と実際に起きたことを比較する行 ([推定値と実測値の join メトリクス](#explain-analyze-join-estimation) を参照) と、各側の*参加*行 (`Left` と `Right`) を出力し、その後に 結合 の実装固有の行を出力します。`Left` と `Right` は SQL 上の論理的な側に対応します。ほとんどの場合、`Left` は 結合 のプローブ側、`Right` は 結合 のビルド側にもなります。ただし、結合 の実行中に入れ替え (swap) が発生することがあるため、常にそうなるとは限りません。[`join_algorithm`](/ja/reference/settings/session-settings/join#join_algorithm) のすべての値 (`hash`、`parallel_hash`、`grace_hash`、`partial_merge`、`full_sorting_merge`、`parallel_full_sorting_merge`、`direct`) に対応しています。また、この設定では選択できない 3 つの実装、すなわち `CROSS` または `COMMA` 結合、結合キーが定まらない `ON` 句を受け取る [block nested loop 結合](/ja/reference/statements/select/join#join-with-an-arbitrary-on-condition)、および [`Join`](/ja/reference/engines/table-engines/special/join) テーブルエンジンも対象です。ほとんどの実装では両側が報告されますが、マテリアライズする側のみを報告するものもあります (たとえば、`direct` は `Left:` のみを出力します) 。
 
 各側の行は同じ形式です。
 
@@ -836,7 +836,7 @@ Right: rows estimated <estimated_right_rows> · rows <right_rows> · matched <ma
 
 各側について、`EXPLAIN ANALYZE` は以下を報告します。
 
-* `rows estimated <estimated_rows>` — 結合順序オプティマイザによるその側の行数の推定値。隣に表示される実際の `rows` との比較用に出力されます。オプティマイザが推定値を生成しなかった場合は `no stats` となります (「[推定 join メトリクスと実測値](#explain-analyze-join-estimation)」を参照) 。
+* `rows estimated <estimated_rows>` — 結合順序オプティマイザによるその側の行数の推定値。隣に表示される実際の `rows` との比較用に出力されます。オプティマイザが推定値を生成しなかった場合は `no stats` となります (「[推定値と実測値の join メトリクス](#explain-analyze-join-estimation)」を参照) 。
 * `rows <rows>` — 結合処理を通過したその側の行の総数。
 * `matched <matched_rows>` — もう一方の側で少なくとも1つの結合相手が見つかった、その側の行数。これはキーではなく*行*を数えます。キーが右側に3回出現して一致した場合、右側の3行すべてが一致した行としてカウントされます。
 * `match rate <match_rate>%` — 一致したその側の行の割合。`100 * <matched_rows> / <rows>` として算出されます。
@@ -942,13 +942,26 @@ fanout              = <matched output rows> / <matched_rows of that side>
 
 **`CROSS`、`COMMA`、定数の `ON`。** [前述](#explain-analyze-join-algorithm-lines)のとおり、どちらの側も報告されません。
 
-両方のアルゴリズムが数値を報告する場合、その値は一致します。マージアルゴリズムは単により多くの情報を持っているだけで、何を一致とみなすかについて見解が異なるわけではありません。
+**ブロックネステッドループ結合。** 結合キーを定めない `ON` セクションを受け取るオペレーターです。ただし、それより前のいずれかのパスがその条件を引き受ける場合は除きます ([`allow_block_nested_loop_join`](/ja/reference/settings/session-settings/allow) を参照) 。`ASOF`、`PASTE`、`ANY FULL` を除く、すべての種類と厳密性を受け付けます。
+
+| Join                                                          | `matched` 左       | `matched` 右 |
+| ------------------------------------------------------------- | ----------------- | ----------- |
+| `ALL FULL`                                                    | あり                | あり          |
+| `ALL LEFT`, `ANY LEFT`, `SEMI LEFT`, `ANTI LEFT`, `ANY INNER` | あり                | なし          |
+| `ALL RIGHT`, `ANY RIGHT`, `SEMI RIGHT`, `ANTI RIGHT`          | `matches = 1` の場合 | あり          |
+| `ALL INNER`                                                   | `matches = 1` の場合 | なし          |
+
+オペレーターがどの左側の行が一致したかをすでに記録している場合、左側はこのオプションなしで報告されます。一致しなかった左側の行を保持する種類ではいずれもその記録が必要であり、左側の行ごとに最大 1 つのペアしか取らない厳密性でも同様です。右側は、オペレーターが一致フラグを保持している場合に報告されます。一致フラグは `RIGHT`、`FULL`、および右側駆動の `SEMI`/`ANTI` で必要になります。`ANY INNER` もフラグを保持しますが、その目的は右側の行を単一の左側の行に割り当てることだけです。すでにペアを持つ左側の行については引き受けを止めるため、フラグはすべての一致ではなく結果のペアを示すものとなり、報告されません。`ALL INNER` がこのオペレーターに到達するのは `hash` が無効な場合のみです。それ以外の場合、条件はフィルタ付きの `CROSS JOIN` になります。
+
+[`any_join_distinct_right_table_keys`](/ja/reference/settings/session-settings/other#any_join_distinct_right_table_keys) を有効にすると、ここでも `ANY` が `RightAny` のセマンティクスに切り替わり、左側はすべての種類で、右側は `RIGHT` と `FULL` で報告されます。`ANY INNER` は `SEMI LEFT` に書き換えられます。
+
+2 つのアルゴリズムがともに数値を報告する場合、その数値は一致します。マージアルゴリズムは単により多くの情報を持っているだけで、何を一致とみなすかについて見解が食い違うことはありません。
 
 #### アルゴリズム固有の行 {#explain-analyze-join-algorithm-lines}
 
-各JOIN実装がこれに加えて出力する行を見てみましょう。
+各結合実装がこれに加えて出力する行を見てみましょう。
 
-`hash` および `parallel_hash` JOIN、ならびに `Join` テーブルエンジンでは、`Hash table:` 行に右テーブルから構築されたハッシュテーブルの情報が表示されます。
+`hash` および `parallel_hash` 結合、ならびに `Join` テーブルエンジンでは、`Hash table:` 行に右テーブルから構築されたハッシュテーブルの情報が表示されます。
 
 ```txt
 Hash table: unique keys <unique_keys> · memory <peak_memory>
@@ -957,14 +970,14 @@ Hash table: unique keys <unique_keys> · memory <peak_memory>
 * `unique keys <unique_keys>` — ビルドフェーズ中にハッシュテーブルに格納された一意のキーの数。
 * `memory <peak_memory>` — ビルドフェーズ中にハッシュテーブルが使用したピークメモリ。
 
-`grace_hash` join では、`Hash table:` 行に、join がメモリ制限にどのように適応したかも表示されます。また、`Spill:` 行には、データがディスクにスピルされたかどうかが表示されます。
+`grace_hash` 結合 では、`Hash table:` 行に、結合 がメモリ制限にどのように適応したかも表示されます。また、`Spill:` 行には、データがディスクにスピルされたかどうかが表示されます。
 
 ```txt
 Hash table: unique keys <unique_keys> · memory <peak_memory> · buckets <buckets> · rehashes <rehashes>
 Spill: yes · left spilled <left_spilled_bytes> · right spilled <right_spilled_bytes>
 ```
 
-* `buckets <buckets>` — 実行終了時点で Grace Hash Join に含まれるバケット数です。常に `2` のべき乗になります。
+* `buckets <buckets>` — 実行終了時点で Grace Hash 結合 に含まれるバケット数です。常に `2` のべき乗になります。
 * `rehashes <rehashes>` — メモリ制限内に収めるために、バケット数を 2 倍にする必要があった回数です。
 * `Spill:` — ディスクへのスピリングが発生したかどうかを示す `yes`/`no` フラグです。発生した場合、`left spilled <left_spilled_bytes>` と `right spilled <right_spilled_bytes>` は、それぞれ左側 (probe) と右側 (build) でスピリングされた圧縮バイト数を示します。スピリングが発生しなかった場合、この行は単に `Spill: no` となります。
 
@@ -982,11 +995,11 @@ Right: rows estimated <estimated_right_rows> · rows <right_rows> · matched <ma
 * `sort time <sort_time>` — 右テーブルのソート (build ステージ) と、受信した各左ブロックのソート (probe ステージ) に費やされた時間。
 * `sort share <sort_share>%` — ステージの `time` の割合が*クエリ全体の実行時間*に占める割合であるのに対し、`sort time` が*そのステージ自体のビジー時間* (各プロセッサの経過時間の合計) に占める割合。
 
-`full_sorting_merge` join では、共通の `Left:` 行と `Right:` 行のみが出力されます。
+`full_sorting_merge` 結合 では、共通の `Left:` 行と `Right:` 行のみが出力されます。
 
-`direct` join では、右側は行としてマテリアライズされず直接ルックアップされるキー・バリューストアであるため、`Left:` 行のみが出力されます。
+`direct` 結合 では、右側は行としてマテリアライズされず直接ルックアップされるキー・バリューストアであるため、`Left:` 行のみが出力されます。
 
-`CROSS` または `COMMA` join、およびキーの等価条件を含まない任意の `ON` セクションでは、`Buffer:` 行に右テーブルがメモリ内でどのように保持されたかが示され、`Spill:` 行にディスクにスピルされたかどうかが表示されます。
+`CROSS` または `COMMA` 結合、および `ON` セクションにキーの等価条件を含まない `ALL INNER JOIN` (planner はこれを、その条件をフィルタとする `CROSS JOIN` に変換します) では、`Buffer:` 行に右テーブルがメモリ内でどのように保持されたかが示され、`Spill:` 行にディスクにスピルされたかどうかが表示されます。
 
 ```txt
 Buffer: memory <peak_memory> · compressed <yes|no>
@@ -994,12 +1007,25 @@ Spill: yes · right spilled <right_spilled_bytes>
 ```
 
 * `memory <peak_memory>` — バッファリングされた右テーブルが使用したピークメモリ。
-* `compressed <yes|no>` — バッファリングされたブロックが少なくとも1つ圧縮されているかどうか。圧縮されている場合、reader は保存されているすべてのブロックを展開します。
+* `compressed <yes|no>` — バッファリングされたブロックが少なくとも1つ圧縮されているかどうか。圧縮されている場合、リーダー は保存されているすべてのブロックを伸長します。
 * `Spill:` — `grace_hash` と同じ `yes`/`no` フラグで、`right spilled <right_spilled_bytes>` はディスクに書き込まれた圧縮バイト数を示します。
 
 ここでは両側で `matched not collected` が報告されます。定数の predicate では、すべての左行がすべての右行と組み合わされるか、まったく組み合わされないかのいずれかとなるため、個々のどの行が一致したかを特定することはできません。
 
-[`Join`](/ja/reference/engines/table-engines/special/join) テーブルエンジンとの join では、事前構築済みテーブルを説明する `Hash table:` 行とともに、両側が報告されます。右側では、クエリごとの build の行数ではなく、エンジンに格納されている行数がカウントされます。
+キーの等価条件を持たないその他すべての `ON` 句を処理する block nested loop 結合 も、マテリアライズする右テーブルについて同じ 2 行を出力します。
+
+```txt
+Buffer: memory <peak_memory> · compressed <yes|no>
+Spill: yes · right spilled <right_spilled_bytes>
+```
+
+* `memory <peak_memory>` — 格納された右テーブルが占有したピークメモリです。すべてのブロックが到着時にディスクへ書き込まれた場合は、どのブロックもメモリに保持されなかったため `0` になります。
+* `compressed <yes|no>` — 格納されたブロックのうち少なくとも1つが圧縮されているかどうかを示します。圧縮されている場合、リーダーは格納されたすべてのブロックを伸長します。
+* `Spill:` — `grace_hash` と同じ `yes`/`no` フラグです。`right spilled <right_spilled_bytes>` は、ディスクに書き込まれた圧縮バイト数を示します。
+
+`CROSS` の場合とは異なり、ここではオペレーターが調べる各ペアに対して実際の条件を評価するため、両側とも `matched` を報告する可能性があります。どちらが報告するかについては、[上記](#explain-analyze-matches)の表を参照してください。
+
+[`Join`](/ja/reference/engines/table-engines/special/join) テーブルエンジンとの 結合 では、事前構築済みテーブルを説明する `Hash table:` 行とともに、両側が報告されます。右側では、クエリごとの build の行数ではなく、エンジンに格納されている行数がカウントされます。
 
 #### プロセッサごとの時間 {#explain-analyze-processors}
 

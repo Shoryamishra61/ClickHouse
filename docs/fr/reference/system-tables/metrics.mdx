@@ -311,6 +311,18 @@ Nombre de segments de fichier présents dans le cache
 
 Taille totale des segments de fichiers distants en attente de chargement asynchrone dans le cache du système de fichiers.
 
+### ColumnsCacheBytes {#columnscachebytes}
+
+Taille totale du cache des colonnes, en octets. Le cache des colonnes stocke les colonnes désérialisées des tables MergeTree afin d&#39;éviter de répéter leur décompression et leur désérialisation.
+
+### ColumnsCacheEntries {#columnscacheentries}
+
+Nombre total d&#39;entrées dans le cache des colonnes.
+
+### ColumnsCacheSizeLimit {#columnscachesizelimit}
+
+Limite de taille du cache des colonnes actuellement en vigueur, en octets. Elle est abaissée en dessous de la valeur configurée de `columns_cache_size` lorsque le reste du serveur manque de mémoire, puis relevée progressivement vers cette valeur une fois la pression mémoire retombée ; voir `columns_cache_free_memory_ratio`.
+
 ### ColumnsDescriptionsCacheSize {#columnsdescriptionscachesize}
 
 Taille du cache ColumnsDescriptions (cache par table)

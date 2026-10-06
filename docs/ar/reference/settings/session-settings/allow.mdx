@@ -37,6 +37,23 @@ import { BetaBadge } from "/snippets/ar/components/BetaBadge/BetaBadge.jsx";
 
 استخدم مجموعة I/O في الخلفية للقراءة من جداول MergeTree. قد يؤدي هذا الإعداد إلى تحسين الأداء للاستعلامات المقيّدة بعمليات I/O
 
+## allow_block_nested_loop_join {#allow_block_nested_loop_join}
+
+<SettingsInfoBlock type="Bool" default_value="1" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1"},{"label": "إعداد جديد يتحكم في ربط الحلقات المتداخلة على مستوى الكتل (block nested loop join)، الذي ينفّذ عملية `JOIN` لا يحدد قسم `ON` فيها أي مفتاح ربط، بدلاً من رفضها بالخطأ `INVALID_JOIN_ON_EXPRESSION`. وتعيد قيمة التوافق 0 السلوك السابق."}]}]} />
+
+يسمح بتنفيذ عملية `JOIN` ذات شرط `ON` اعتباطي، أي شرط لا يتضمن مساواة بين الجداول المربوطة، على هيئة [ربط حلقات متداخلة على مستوى الكتل](/ar/reference/statements/select/join#join-with-an-arbitrary-on-condition).
+
+يفحص هذا الربط كل زوج من الصفوف، وتساوي تكلفته حاصل ضرب عددَي صفوف الجدولين. ويُعدّ هذا المشغّل الملاذ الأخير في تخطيط JOIN، إذ لا يُلجأ إليه إلا حين يتعذّر على كل خوارزميات [`join_algorithm`](/ar/reference/settings/session-settings/join#join_algorithm) تنفيذ الشرط، ولذلك لا يمكن اختياره عبر ذلك الإعداد.
+
+عند تعطيل هذا الإعداد، يُرفض أي استعلام يصل إلى هذا المشغّل بالخطأ `INVALID_JOIN_ON_EXPRESSION` في أثناء تخطيطه.
+
+القيم الممكنة:
+
+* 0 — رفض هذا النوع من الاستعلامات.
+* 1 — تنفيذه على هيئة ربط حلقات متداخلة على مستوى الكتل (القيمة الافتراضية).
+
 ## allow_calculating_subcolumns_sizes_for_merge_tree_reading {#allow_calculating_subcolumns_sizes_for_merge_tree_reading}
 
 <SettingsInfoBlock type="Bool" default_value="1" />
@@ -368,12 +385,6 @@ Cloud default value: `1`.
 
 السماح بإنشاء فهارس minmax للتخطي على أعمدة JSON ‏(Object). يكون هذا الخيار معطّلًا افتراضيًا لأن مسار
 تسلسل فهرس minmax لا يمكنه التعامل مع قيم Field غير المتجانسة التي قد تحتويها أعمدة JSON.
-
-## allow_named_collection_override_by_default {#allow_named_collection_override_by_default}
-
-<SettingsInfoBlock type="Bool" default_value="1" />
-
-السماح افتراضيًا بتجاوز حقول المجموعات المسماة.
 
 ## allow_non_metadata_alters {#allow_non_metadata_alters}
 

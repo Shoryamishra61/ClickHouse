@@ -311,6 +311,18 @@ Número de segmentos de archivo de la caché existentes
 
 Tamaño total de los segmentos de archivo remotos que están a la espera de cargarse de forma asíncrona en la caché del sistema de archivos.
 
+### ColumnsCacheBytes {#columnscachebytes}
+
+Tamaño total de la caché de columnas, en bytes. La caché de columnas almacena columnas deserializadas de tablas MergeTree para evitar tener que descomprimirlas y deserializarlas repetidamente.
+
+### ColumnsCacheEntries {#columnscacheentries}
+
+Número total de entradas en la caché de columnas.
+
+### ColumnsCacheSizeLimit {#columnscachesizelimit}
+
+Límite de tamaño, en bytes, actualmente en vigor para la caché de columnas. Se reduce por debajo del valor configurado en `columns_cache_size` mientras el resto del servidor dispone de poca memoria y vuelve a aumentar hacia dicho valor cuando ese uso disminuye; consulte `columns_cache_free_memory_ratio`.
+
 ### ColumnsDescriptionsCacheSize {#columnsdescriptionscachesize}
 
 Tamaño de la caché de ColumnsDescriptions (caché por tabla)

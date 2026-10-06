@@ -113,6 +113,46 @@ table을 생성할 때 지정한 설정 값은
 
 MergeTree 프로젝션의 최대 개수입니다.
 
+## max_row_mask_update_coalescing_ast_bytes {#max_row_mask_update_coalescing_ast_bytes}
+
+<SettingsInfoBlock type="UInt64" default_value="1048576" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1048576"},{"label": "새로운 설정"}]}]} />
+
+행 마스크(row-mask) UPDATE 병합(coalescing) 대상이 될 수 있는 원본 명령어들의 `ast_text` 바이트 합계 최댓값입니다. 명령어에 큰 리터럴(literal)이 포함되어 있으면
+명령어 개수 제한만으로는 이 복사본의 크기를 제한할 수 없습니다. 병합을 비활성화하려면 0으로 설정하십시오.
+
+## max_row_mask_update_coalescing_commands {#max_row_mask_update_coalescing_commands}
+
+<SettingsInfoBlock type="UInt64" default_value="4096" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "4096"},{"label": "새로운 설정"}]}]} />
+
+행 마스크 UPDATE 병합(coalescing)을 적용할 수 있는 파트 로컬 뮤테이션 명령어의
+최대 개수입니다. 이 설정은 최적화 과정에서 추가로 만들어지는 명령어 목록 복사본의 크기를 제한합니다.
+이 값은 리소스 보호용이며, 동작 의미에 영향을 주는 제한이 아닙니다. 값이 2 미만이면
+병합이 비활성화됩니다.
+
+## max_row_mask_update_coalescing_key_bytes {#max_row_mask_update_coalescing_key_bytes}
+
+<SettingsInfoBlock type="UInt64" default_value="65536" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "65536"},{"label": "새로운 설정"}]}]} />
+
+하나로 병합된 행 마스크(row-mask) UPDATE에 포함되는 키 리터럴(key literal)의 최대 총 바이트 수입니다.
+이 값은 생성되는 `IN` 프레디케이트의 크기 상한을 정합니다. 0으로 설정하면
+병합(coalescing)이 비활성화됩니다.
+
+## max_row_mask_update_coalescing_keys {#max_row_mask_update_coalescing_keys}
+
+<SettingsInfoBlock type="UInt64" default_value="256" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "256"},{"label": "새로운 설정"}]}]} />
+
+병합된 행 마스크(row-mask) UPDATE 하나에 포함할 수 있는 키의 최대 개수입니다. 실제 적용되는 한도는
+백그라운드 쿼리 설정의 `max_rows_in_set` 값도 함께 고려합니다. 값이
+2 미만이면 병합(coalescing)이 비활성화됩니다.
+
 ## max_table_size_bytes_compressed {#max_table_size_bytes_compressed}
 
 <SettingsInfoBlock type="UInt64" default_value="0" />

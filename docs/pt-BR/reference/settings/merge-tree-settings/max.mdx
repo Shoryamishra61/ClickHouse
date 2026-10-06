@@ -113,6 +113,47 @@ no nível de consulta / sessão / perfil.
 
 Número máximo de projeções de MergeTree.
 
+## max_row_mask_update_coalescing_ast_bytes {#max_row_mask_update_coalescing_ast_bytes}
+
+<SettingsInfoBlock type="UInt64" default_value="1048576" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1048576"},{"label": "New setting"}]}]} />
+
+Soma máxima, em bytes, do `ast_text` dos comandos originais elegíveis para a coalescência
+de atualizações de máscara de linhas. O limite de quantidade de comandos, por si só, não é suficiente para limitar essa cópia quando
+os comandos contêm literais grandes. Defina como 0 para desativar a coalescência.
+
+## max_row_mask_update_coalescing_commands {#max_row_mask_update_coalescing_commands}
+
+<SettingsInfoBlock type="UInt64" default_value="4096" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "4096"},{"label": "New setting"}]}]} />
+
+Número máximo de comandos de mutação locais de uma parte que podem ser combinados pela coalescência
+de atualizações de máscara de linha. Isso limita a cópia extra da lista de comandos feita por essa otimização;
+o valor serve como proteção de recursos, e não como um limite semântico. Valores menores que 2 desativam
+a coalescência.
+
+## max_row_mask_update_coalescing_key_bytes {#max_row_mask_update_coalescing_key_bytes}
+
+<SettingsInfoBlock type="UInt64" default_value="65536" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "65536"},{"label": "New setting"}]}]} />
+
+Número total máximo de bytes de literais de chave em uma única atualização de máscara de linhas coalescida.
+Isso limita o tamanho do predicado `IN` gerado. Defina como 0 para desativar
+a coalescência.
+
+## max_row_mask_update_coalescing_keys {#max_row_mask_update_coalescing_keys}
+
+<SettingsInfoBlock type="UInt64" default_value="256" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "256"},{"label": "New setting"}]}]} />
+
+Número máximo de chaves em uma única atualização coalescida de máscara de linhas. O limite efetivo
+também respeita `max_rows_in_set` nas configurações das consultas em segundo plano. Valores menores
+que 2 desativam a coalescência.
+
 ## max_table_size_bytes_compressed {#max_table_size_bytes_compressed}
 
 <SettingsInfoBlock type="UInt64" default_value="0" />

@@ -520,6 +520,10 @@ import SystemTableCloud from '/snippets/zh/_system_table_cloud.mdx';
 * `ProfileEvent_MarkCacheEvictedBytes` ([UInt64](/zh/reference/data-types/int-uint)) — 从标记缓存中逐出的字节数。
 * `ProfileEvent_MarkCacheEvictedMarks` ([UInt64](/zh/reference/data-types/int-uint)) — 从标记缓存中逐出的标记数量。
 * `ProfileEvent_MarkCacheEvictedFiles` ([UInt64](/zh/reference/data-types/int-uint)) — 从标记缓存中逐出的标记文件数量。
+* `ProfileEvent_ColumnsCacheHits` ([UInt64](/zh/reference/data-types/int-uint)) — 在列缓存中找到已反序列化列的次数。
+* `ProfileEvent_ColumnsCacheMisses` ([UInt64](/zh/reference/data-types/int-uint)) — 在列缓存中未找到已反序列化列的次数。
+* `ProfileEvent_ColumnsCacheEvictedBytes` ([UInt64](/zh/reference/data-types/int-uint)) — 从列缓存中淘汰的字节数。
+* `ProfileEvent_ColumnsCacheEvictedEntries` ([UInt64](/zh/reference/data-types/int-uint)) — 从列缓存中淘汰的条目数量。
 * `ProfileEvent_LoadedPrimaryIndexFiles` ([UInt64](/zh/reference/data-types/int-uint)) — 已加载的主索引文件数量。
 * `ProfileEvent_LoadedPrimaryIndexRows` ([UInt64](/zh/reference/data-types/int-uint)) — 已加载的主键行数。
 * `ProfileEvent_LoadedPrimaryIndexBytes` ([UInt64](/zh/reference/data-types/int-uint)) — 已加载的主键字节数。
@@ -1177,7 +1181,7 @@ import SystemTableCloud from '/snippets/zh/_system_table_cloud.mdx';
 * `ProfileEvent_ReadTaskRequestsSent` ([UInt64](/zh/reference/data-types/int-uint)) — 为选择读取任务，从远程服务器回调到发起端服务器的请求次数 (用于 s3Cluster 表函数及类似场景) 。在远程服务器侧统计。
 * `ProfileEvent_MergeTreeReadTaskRequestsSent` ([UInt64](/zh/reference/data-types/int-uint)) — 为选择读取任务，从远程服务器回调到发起端服务器的请求次数 (用于 MergeTree 表) 。在远程服务器侧统计。
 * `ProfileEvent_MergeTreeAllRangesAnnouncementsSent` ([UInt64](/zh/reference/data-types/int-uint)) — 从远程服务器发送到发起端服务器、关于数据分区片段集合的通知数量 (用于 MergeTree 表) 。在远程服务器侧统计。
-* `ProfileEvent_ReadTaskRequestsSentElapsedMicroseconds` ([UInt64](/zh/reference/data-types/int-uint)) — 为选择读取任务，从远程服务器回调到发起端服务器所花费的时间 (用于 `s3Cluster` 表函数及类似场景) 。在远程服务器侧统计。
+* `ProfileEvent_ReadTaskRequestsSentElapsedMicroseconds` ([UInt64](/zh/reference/data-types/int-uint)) — 为选择读取任务，从远程服务器回调到发起端服务器所花费的时间 (用于 s3Cluster 表函数及类似场景) 。在远程服务器侧统计。
 * `ProfileEvent_MergeTreeReadTaskRequestsSentElapsedMicroseconds` ([UInt64](/zh/reference/data-types/int-uint)) — 为选择读取任务，从远程服务器回调到发起端服务器所花费的时间 (用于 MergeTree 表) 。在远程服务器侧统计。
 * `ProfileEvent_MergeTreeAllRangesAnnouncementsSentElapsedMicroseconds` ([UInt64](/zh/reference/data-types/int-uint)) — 将关于数据分区片段集合的通知从远程服务器发送到发起端服务器所花费的时间 (用于 MergeTree 表) 。在远程服务器侧统计。
 * `ProfileEvent_MergerMutatorsGetPartsForMergeElapsedMicroseconds` ([UInt64](/zh/reference/data-types/int-uint)) — 获取数据分区片段快照并基于其构建范围所花费的时间。

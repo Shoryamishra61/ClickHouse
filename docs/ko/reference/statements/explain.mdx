@@ -827,7 +827,7 @@ I/O: rows <in> → <out> (<selectivity>%) · <bytes_in> → <bytes_out>
 
 #### 조인 단계 {#explain-analyze-join-steps}
 
-조인 단계에서 `EXPLAIN ANALYZE`는 조인 순서 최적화기의 추정치와 실제 결과를 비교하는 행([추정 조인 메트릭과 실제 조인 메트릭 비교](#explain-analyze-join-estimation) 참고)과 각 측의 *참여* 행인 `Left`와 `Right`를 출력한 후, 조인 구현에 특화된 행을 출력합니다. [`join_algorithm`](/ko/reference/settings/session-settings/join#join_algorithm)의 모든 값(`hash`, `parallel_hash`, `grace_hash`, `partial_merge`, `full_sorting_merge`, `parallel_full_sorting_merge`, `direct`)이 지원됩니다. 또한 이 설정으로 선택할 수 없는 두 구현, 즉 `CROSS` 또는 `COMMA` 조인, 키 동등 조건이 없는 모든 `ON` 절 및 [`Join`](/ko/reference/engines/table-engines/special/join) 테이블 엔진도 지원됩니다. 대부분은 양쪽 모두에 대한 정보를 보고하지만, 일부는 구체화하는 측에 대해서만 보고합니다(예: `direct`는 `Left:`만 출력합니다).
+조인 단계에서 `EXPLAIN ANALYZE`는 조인 순서 최적화기의 추정치와 실제 결과를 비교하는 행([추정 조인 메트릭과 실제 조인 메트릭 비교](#explain-analyze-join-estimation) 참고)과 각 측의 *참여* 행인 `Left`와 `Right`를 출력한 후, 조인 구현에 특화된 행을 출력합니다. `Left`와 `Right`는 SQL상의 논리적인 측에 해당합니다. 대부분 `Left`는 조인의 프로브(probe) 측이기도 하며, `Right`는 조인의 빌드(build) 측이기도 합니다. 그러나 조인 실행 중에 스왑이 발생할 수 있으므로 항상 그런 것은 아닙니다. [`join_algorithm`](/ko/reference/settings/session-settings/join#join_algorithm)의 모든 값(`hash`, `parallel_hash`, `grace_hash`, `partial_merge`, `full_sorting_merge`, `parallel_full_sorting_merge`, `direct`)이 지원됩니다. 또한 이 설정으로 선택할 수 없는 세 가지 구현, 즉 `CROSS` 또는 `COMMA` 조인, 조인 키를 결정하지 않는 `ON` 절을 사용하는 [블록 중첩 루프 조인(block nested loop join)](/ko/reference/statements/select/join#join-with-an-arbitrary-on-condition), 그리고 [`Join`](/ko/reference/engines/table-engines/special/join) 테이블 엔진도 지원됩니다. 대부분은 양쪽 모두에 대한 정보를 보고하지만, 일부는 구체화하는 측에 대해서만 보고합니다(예: `direct`는 `Left:`만 출력합니다).
 
 각 측의 행은 동일한 형식을 따릅니다:
 
@@ -943,7 +943,20 @@ fanout              = <matched output rows> / <matched_rows of that side>
 
 **`CROSS`, `COMMA` 및 상수 `ON`.** [위](#explain-analyze-join-algorithm-lines)에 설명한 대로 어느 쪽도 해당하지 않습니다.
 
-두 알고리즘이 모두 수치를 보고하는 경우 그 수치는 일치합니다. 머지 알고리즘은 더 많은 정보를 제공할 뿐, 무엇을 일치로 간주하는지에 대해서는 서로 다르지 않습니다.
+**블록 중첩 루프 조인(Block nested loop join).** 조인 키를 결정하지 않는 `ON` 절을 받는 연산자입니다. 단, 그보다 앞선 경로 중 하나가 해당 조건을 먼저 가져가는 경우는 예외입니다([`allow_block_nested_loop_join`](/ko/reference/settings/session-settings/allow) 참조). 이 연산자는 `ASOF`, `PASTE`, `ANY FULL`을 제외한 모든 조인 종류와 엄격성을 지원합니다.
+
+| Join                                                          | `matched` 왼쪽       | `matched` 오른쪽 |
+| ------------------------------------------------------------- | ------------------ | ------------- |
+| `ALL FULL`                                                    | 예                  | 예             |
+| `ALL LEFT`, `ANY LEFT`, `SEMI LEFT`, `ANTI LEFT`, `ANY INNER` | 예                  | 아니요           |
+| `ALL RIGHT`, `ANY RIGHT`, `SEMI RIGHT`, `ANTI RIGHT`          | `matches = 1` 사용 시 | 예             |
+| `ALL INNER`                                                   | `matches = 1` 사용 시 | 아니요           |
+
+연산자가 어떤 왼쪽 행이 매칭되었는지 이미 기록하고 있다면, 옵션 없이도 왼쪽이 보고됩니다. 매칭되지 않은 왼쪽 행을 유지하는 모든 조인 종류에는 이 기록이 필요하며, 왼쪽 행당 최대 하나의 쌍만 취하는 모든 엄격성도 마찬가지입니다. 오른쪽은 연산자가 매치 플래그를 유지하는 경우에 보고되며, 이 플래그는 `RIGHT`, `FULL` 및 오른쪽 기준의 `SEMI`/`ANTI`에 필요합니다. `ANY INNER`도 플래그를 유지하지만, 이는 오른쪽 행을 하나의 왼쪽 행에만 할당하기 위해서일 뿐입니다. 이미 쌍이 정해진 왼쪽 행에 대해서는 더 이상 매칭을 시도하지 않으므로, 플래그는 모든 매치가 아니라 결과에 포함된 쌍만 표시하며, 따라서 보고되지 않습니다. `ALL INNER`는 `hash`가 비활성화된 경우에만 이 연산자로 처리됩니다. 그렇지 않으면 해당 조건은 필터가 적용된 `CROSS JOIN`으로 변환되기 때문입니다.
+
+[`any_join_distinct_right_table_keys`](/ko/reference/settings/session-settings/other#any_join_distinct_right_table_keys)를 활성화하면 여기에서도 `ANY`가 `RightAny` 의미 체계로 전환됩니다. 이때 왼쪽은 모든 조인 종류에서, 오른쪽은 `RIGHT`와 `FULL`에서 보고되며, `ANY INNER`는 `SEMI LEFT`로 재작성됩니다.
+
+두 알고리즘이 모두 수치를 보고하는 경우 그 수치는 서로 일치합니다. 머지 알고리즘은 더 많은 정보를 가질 뿐, 무엇을 매치로 간주하는지는 동일합니다.
 
 #### 알고리즘별 행 {#explain-analyze-join-algorithm-lines}
 
@@ -987,7 +1000,7 @@ Right: rows estimated <estimated_right_rows> · rows <right_rows> · matched <ma
 
 `direct` 조인에서는 오른쪽이 행으로 구체화되지 않고 직접 조회되는 키-값 저장소이므로 `Left:` 줄만 출력됩니다.
 
-`CROSS` 또는 `COMMA` 조인과 키 동등 조건이 없는 모든 `ON` 절에서는 `Buffer:` 줄이 오른쪽 테이블이 메모리에 보관된 방식을 설명하고, `Spill:` 줄이 디스크로 스필되었는지를 표시합니다:
+`CROSS` 또는 `COMMA` 조인과, `ON` 절에 키 동등 조건이 없는 `ALL INNER JOIN`(플래너가 해당 조건을 필터로 적용하는 `CROSS JOIN`으로 변환함)에서는 `Buffer:` 줄이 오른쪽 테이블이 메모리에 보관된 방식을 설명하고, `Spill:` 줄이 디스크로 스필되었는지를 표시합니다:
 
 ```txt
 Buffer: memory <peak_memory> · compressed <yes|no>
@@ -999,6 +1012,19 @@ Spill: yes · right spilled <right_spilled_bytes>
 * `Spill:` — `grace_hash`와 동일한 `yes`/`no` 플래그이며, `right spilled <right_spilled_bytes>`는 디스크에 기록된 압축 후 바이트 수를 보고합니다.
 
 여기서는 양쪽 모두 `matched not collected`를 보고합니다. 상수 프레디케이트는 모든 왼쪽 행을 모든 오른쪽 행과 매칭하거나 전혀 매칭하지 않으므로, 개별 행 중 어떤 행이 매칭되었는지 확인할 방법이 없습니다.
+
+키 동등 조건이 없는 나머지 `ON` 절을 모두 처리하는 블록 중첩 루프 조인(block nested loop join)도 자신이 구체화하는 오른쪽 테이블에 대해 동일한 두 줄을 출력합니다:
+
+```txt
+Buffer: memory <peak_memory> · compressed <yes|no>
+Spill: yes · right spilled <right_spilled_bytes>
+```
+
+* `memory <peak_memory>` — 저장된 오른쪽 테이블이 차지한 최대 메모리입니다. 모든 블록이 도착하는 즉시 디스크에 기록되었다면 어떤 블록도 메모리에 보관된 적이 없으므로 `0`입니다.
+* `compressed <yes|no>` — 저장된 블록 중 하나 이상이 압축되었는지 여부입니다. 압축된 경우 리더는 저장된 모든 블록의 압축을 해제합니다.
+* `Spill:` — `grace_hash`와 동일한 `yes`/`no` 플래그이며, `right spilled <right_spilled_bytes>`는 디스크에 기록된 압축 바이트 수를 나타냅니다.
+
+`CROSS`와 달리 여기서는 연산자가 검사하는 각 쌍에 대해 실제 조건을 평가하므로 양쪽 모두 `matched`를 표시할 수 있습니다. 어느 쪽이 표시하는지는 [위](#explain-analyze-matches)의 표를 참고하십시오.
 
 [`Join`](/ko/reference/engines/table-engines/special/join) 테이블 엔진을 대상으로 조인을 수행하면 사전 구축된 테이블을 설명하는 `Hash table:` 줄과 함께 양쪽 정보가 모두 표시됩니다. 오른쪽은 쿼리별 빌드의 행 수가 아니라 엔진에 저장된 행 수를 나타냅니다.
 

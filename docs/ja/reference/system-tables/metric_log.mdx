@@ -348,9 +348,9 @@ import SystemTableCloud from '/snippets/ja/_system_table_cloud.mdx';
 * `ProfileEvent_ObsoleteReplicatedParts` ([UInt64](/ja/reference/data-types/int-uint)) — データパーツが、レプリカから取得した別のデータパーツに包含されていた回数 (つまり、包含されたデータパーツを廃止されたものとしてマークし、不要と判断した回数) 。
 * `ProfileEvent_ReplicatedPartMerges` ([UInt64](/ja/reference/data-types/int-uint)) — ReplicatedMergeTree テーブルのデータパーツが正常にマージされた回数。
 * `ProfileEvent_ReplicatedPartFetchesOfMerged` ([UInt64](/ja/reference/data-types/int-uint)) — 自分でマージを実行する代わりに、ReplicatedMergeTree テーブルのレプリカから、すでにマージ済みのパーツをダウンロードすることを選んだ回数 (通常はネットワークトラフィックを節約するため、自分でマージする方を優先します) 。これは、マージに必要な元パーツがすべてそろっていない場合や、データパーツが十分古い場合に発生します。
-* `ProfileEvent_ReplicatedPartMutations` ([UInt64](/ja/reference/data-types/int-uint)) — ReplicatedMergeTree テーブルのデータパーツに mutation が正常に適用された回数。
-* `ProfileEvent_ReplicatedPartChecks` ([UInt64](/ja/reference/data-types/int-uint)) — レプリカ上のデータパーツに対して高度な検索を実行したり、既存のデータパーツが必要かどうかを確認したりする必要があった回数。
-* `ProfileEvent_ReplicatedPartChecksFailed` ([UInt64](/ja/reference/data-types/int-uint)) — レプリカ上のデータパーツに対する高度な検索で結果が得られなかった回数、または想定外のパーツが見つかって移動された回数。
+* `ProfileEvent_ReplicatedPartMutations` ([UInt64](/ja/reference/data-types/int-uint)) — ReplicatedMergeTree テーブルのデータパーツにミューテーションが正常に適用された回数。
+* `ProfileEvent_ReplicatedPartChecks` ([UInt64](/ja/reference/data-types/int-uint)) — レプリカ上のデータパーツに対して advanced search を実行したり、既存のデータパーツが必要かどうかを確認したりする必要があった回数。
+* `ProfileEvent_ReplicatedPartChecksFailed` ([UInt64](/ja/reference/data-types/int-uint)) — レプリカ上のデータパーツに対する advanced search で結果が得られなかった回数、または想定外のパーツが見つかって移動された回数。
 * `ProfileEvent_ReplicatedDataLoss` ([UInt64](/ja/reference/data-types/int-uint)) — 必要としていたデータパーツがどのレプリカにも存在しなかった回数 (現在オフラインのレプリカを含む) 。そのデータパーツは確実に失われています。これは非同期レプリケーションでは (クォーラム INSERT が有効でない場合) 正常に起こりうることで、そのデータパーツが書き込まれたレプリカで障害が発生し、復旧してオンラインに戻った後もそのデータパーツを保持していない場合に発生します。
 * `ProfileEvent_ReplicatedCoveredPartsInZooKeeperOnStart` ([UInt64](/ja/reference/data-types/int-uint)) — デバッグ用です。ZooKeeper 内には包含元のパーツがあるものの、ディスク上には存在しないパーツの数。サーバー起動時に確認されます。
 * `ProfileEvent_QuorumParts` ([UInt64](/ja/reference/data-types/int-uint)) — クォーラム付きで書き込まれたデータパーツ数。同期 INSERT では 1 パーツとして数えられ、非同期 INSERT を flush する INSERT では最大で非同期 INSERT の件数まで数えられる場合があります。
@@ -361,9 +361,9 @@ import SystemTableCloud from '/snippets/ja/_system_table_cloud.mdx';
 * `ProfileEvent_DelayedInserts` ([UInt64](/ja/reference/data-types/int-uint)) — パーティション内のアクティブなデータパーツ数が多いため、MergeTree テーブルへの block の INSERT がレート制限された回数。
 * `ProfileEvent_RejectedInserts` ([UInt64](/ja/reference/data-types/int-uint)) — パーティション内のアクティブなデータパーツ数が多いため、MergeTree テーブルへの block の INSERT が &#39;パーツが多すぎる&#39; 例外で拒否された回数。
 * `ProfileEvent_DelayedInsertsMilliseconds` ([UInt64](/ja/reference/data-types/int-uint)) — パーティション内のアクティブなデータパーツ数が多いため、MergeTree テーブルへの block の INSERT がレート制限されていた間に費やした合計ミリ秒数。
-* `ProfileEvent_DelayedMutations` ([UInt64](/ja/reference/data-types/int-uint)) — テーブル内の未完了 mutation 数が多いために、MergeTree テーブルの mutation がスロットリングされた回数。
-* `ProfileEvent_RejectedMutations` ([UInt64](/ja/reference/data-types/int-uint)) — テーブル内の未完了 mutation 数が多いために、MergeTree テーブルの mutation が &#39;Too many mutations&#39; 例外で拒否された回数。
-* `ProfileEvent_DelayedMutationsMilliseconds` ([UInt64](/ja/reference/data-types/int-uint)) — テーブル内の未完了 mutation 数が多いために、MergeTree テーブルの mutation がスロットリングされていた合計 Milliseconds。
+* `ProfileEvent_DelayedMutations` ([UInt64](/ja/reference/data-types/int-uint)) — テーブル内の未完了ミューテーション数が多いために、MergeTree テーブルのミューテーションがスロットリングされた回数。
+* `ProfileEvent_RejectedMutations` ([UInt64](/ja/reference/data-types/int-uint)) — テーブル内の未完了ミューテーション数が多いために、MergeTree テーブルのミューテーションが &#39;Too many mutations&#39; 例外で拒否された回数。
+* `ProfileEvent_DelayedMutationsMilliseconds` ([UInt64](/ja/reference/data-types/int-uint)) — テーブル内の未完了ミューテーション数が多いために、MergeTree テーブルのミューテーションがスロットリングされていた合計 Milliseconds。
 * `ProfileEvent_RejectedLightweightUpdates` ([UInt64](/ja/reference/data-types/int-uint)) — Patches の非圧縮バイト数が多すぎるために、論理更新が拒否された回数。
 * `ProfileEvent_DistributedDelayedInserts` ([UInt64](/ja/reference/data-types/int-uint)) — 保留中のバイト数が多いために、Distributed テーブルへの block の INSERT がスロットリングされた回数。
 * `ProfileEvent_DistributedRejectedInserts` ([UInt64](/ja/reference/data-types/int-uint)) — 保留中のバイト数が多いために、Distributed テーブルへの block の INSERT が &#39;Too many bytes&#39; 例外で拒否された回数。
@@ -513,6 +513,10 @@ import SystemTableCloud from '/snippets/ja/_system_table_cloud.mdx';
 * `ProfileEvent_MarkCacheEvictedBytes` ([UInt64](/ja/reference/data-types/int-uint)) — マーク cache から追い出されたバイト数。
 * `ProfileEvent_MarkCacheEvictedMarks` ([UInt64](/ja/reference/data-types/int-uint)) — マーク cache から追い出されたマーク数。
 * `ProfileEvent_MarkCacheEvictedFiles` ([UInt64](/ja/reference/data-types/int-uint)) — マーク cache から追い出されたマークファイル数。
+* `ProfileEvent_ColumnsCacheHits` ([UInt64](/ja/reference/data-types/int-uint)) — デシリアライズ済みのカラムがカラム cache 内で見つかった回数。
+* `ProfileEvent_ColumnsCacheMisses` ([UInt64](/ja/reference/data-types/int-uint)) — デシリアライズ済みのカラムが columns cache 内で見つからなかった回数。
+* `ProfileEvent_ColumnsCacheEvictedBytes` ([UInt64](/ja/reference/data-types/int-uint)) — columns cache から追い出されたバイト数。
+* `ProfileEvent_ColumnsCacheEvictedEntries` ([UInt64](/ja/reference/data-types/int-uint)) — columns cache から追い出されたエントリ数。
 * `ProfileEvent_LoadedPrimaryIndexFiles` ([UInt64](/ja/reference/data-types/int-uint)) — 読み込まれたプライマリインデックスファイル数。
 * `ProfileEvent_LoadedPrimaryIndexRows` ([UInt64](/ja/reference/data-types/int-uint)) — 読み込まれた主キーの行数。
 * `ProfileEvent_LoadedPrimaryIndexBytes` ([UInt64](/ja/reference/data-types/int-uint)) — 読み込まれた主キーのバイト数。
@@ -1532,12 +1536,12 @@ import SystemTableCloud from '/snippets/ja/_system_table_cloud.mdx';
 * `ProfileEvent_WasmTotalExecuteMicroseconds` ([UInt64](/ja/reference/data-types/int-uint)) — WebAssembly コードの実行に費やされた時間
 * `ProfileEvent_WasmModuleInstatiate` ([UInt64](/ja/reference/data-types/int-uint)) — 作成された WebAssembly コンパートメントの数
 * `ProfileEvent_ExecutableUserDefinedFunctionInvocations` ([UInt64](/ja/reference/data-types/int-uint)) — executable および executable&#95;pool ユーザー定義関数の呼び出し回数。
-* `ProfileEvent_ExecutableUserDefinedFunctionElapsedMicroseconds` ([UInt64](/ja/reference/data-types/int-uint)) — 実行可能および executable&#95;pool ユーザー定義関数の実行に費やされた実時間 (マイクロ秒) 。
-* `ProfileEvent_ExecutableUserDefinedFunctionUserTimeMicroseconds` ([UInt64](/ja/reference/data-types/int-uint)) — 実行可能および executable&#95;pool ユーザー定義関数の子プロセスが消費したユーザーモード CPU 時間 (マイクロ秒) 。
-* `ProfileEvent_ExecutableUserDefinedFunctionSystemTimeMicroseconds` ([UInt64](/ja/reference/data-types/int-uint)) — 実行可能および executable&#95;pool ユーザー定義関数の子プロセスが消費したカーネルモード CPU 時間 (マイクロ秒) 。
-* `ProfileEvent_ExecutableUserDefinedFunctionPeakMemoryByteSeconds` ([UInt64](/ja/reference/data-types/int-uint)) — 実行可能および executable&#95;pool ユーザー定義関数の子プロセスが使用したプロセスごとのピークメモリを、実時間で積分した値 (バイト秒) 。
-* `ProfileEvent_ExecutableUserDefinedFunctionInputBytes` ([UInt64](/ja/reference/data-types/int-uint)) — 実行可能および executable&#95;pool ユーザー定義関数の子プロセスの stdin に書き込まれた合計バイト数。
-* `ProfileEvent_ExecutableUserDefinedFunctionOutputBytes` ([UInt64](/ja/reference/data-types/int-uint)) — 実行可能および executable&#95;pool ユーザー定義関数の子プロセスの stdout から読み取られた合計バイト数。
+* `ProfileEvent_ExecutableUserDefinedFunctionElapsedMicroseconds` ([UInt64](/ja/reference/data-types/int-uint)) — executable および executable&#95;pool ユーザー定義関数の実行に費やされた実時間 (マイクロ秒) 。
+* `ProfileEvent_ExecutableUserDefinedFunctionUserTimeMicroseconds` ([UInt64](/ja/reference/data-types/int-uint)) — executable および executable&#95;pool ユーザー定義関数の子プロセスが消費したユーザーモード CPU 時間 (マイクロ秒) 。
+* `ProfileEvent_ExecutableUserDefinedFunctionSystemTimeMicroseconds` ([UInt64](/ja/reference/data-types/int-uint)) — executable および executable&#95;pool ユーザー定義関数の子プロセスが消費したカーネルモード CPU 時間 (マイクロ秒) 。
+* `ProfileEvent_ExecutableUserDefinedFunctionPeakMemoryByteSeconds` ([UInt64](/ja/reference/data-types/int-uint)) — executable および executable&#95;pool ユーザー定義関数の子プロセスが使用したプロセスごとのピークメモリを、実時間で積分した値 (バイト秒) 。
+* `ProfileEvent_ExecutableUserDefinedFunctionInputBytes` ([UInt64](/ja/reference/data-types/int-uint)) — executable および executable&#95;pool ユーザー定義関数の子プロセスの stdin に書き込まれた合計バイト数。
+* `ProfileEvent_ExecutableUserDefinedFunctionOutputBytes` ([UInt64](/ja/reference/data-types/int-uint)) — executable および executable&#95;pool ユーザー定義関数の子プロセスの stdout から読み取られた合計バイト数。
 * `ProfileEvent_ExecutableUserDefinedFunctionPoolWaitMicroseconds` ([UInt64](/ja/reference/data-types/int-uint)) — executable&#95;pool ユーザー定義関数プールが枯渇した場合に tryBorrowObject で待機した時間 (マイクロ秒) 。
 * `ProfileEvent_ParquetReadRowGroups` ([UInt64](/ja/reference/data-types/int-uint)) — Parquet データから読み取られた行グループの総数
 * `ProfileEvent_ParquetPrunedRowGroups` ([UInt64](/ja/reference/data-types/int-uint)) — Parquet データからプルーニングされた行グループの総数
@@ -2065,6 +2069,9 @@ import SystemTableCloud from '/snippets/ja/_system_table_cloud.mdx';
 * `CurrentMetric_PageCacheCells` ([Int64](/ja/reference/data-types/int-uint)) — ユーザー空間ページキャッシュ内のエントリ総数
 * `CurrentMetric_UncompressedCacheBytes` ([Int64](/ja/reference/data-types/int-uint)) — 非圧縮キャッシュの合計サイズ (バイト) 。非圧縮キャッシュは通常、パフォーマンス向上に寄与しないため、基本的には使用を避けるべきです
 * `CurrentMetric_UncompressedCacheCells` ([Int64](/ja/reference/data-types/int-uint)) — 非圧縮キャッシュ内のエントリ総数。各エントリは展開済みのデータブロックを表します。非圧縮キャッシュは通常、パフォーマンス向上に寄与しないため、基本的には使用を避けるべきです
+* `CurrentMetric_ColumnsCacheBytes` ([Int64](/ja/reference/data-types/int-uint)) — カラムキャッシュの合計サイズ (バイト)。カラムキャッシュは、伸長とデシリアライズを繰り返さずに済むよう、MergeTree テーブルのデシリアライズ済みカラムを格納します。
+* `CurrentMetric_ColumnsCacheEntries` ([Int64](/ja/reference/data-types/int-uint)) — カラムキャッシュ内のエントリ総数。
+* `CurrentMetric_ColumnsCacheSizeLimit` ([Int64](/ja/reference/data-types/int-uint)) — 現在適用されているカラムキャッシュのサイズ上限 (バイト)。サーバーの他の処理でメモリが不足している間は、設定された `columns_cache_size` より低く引き下げられ、そのメモリ使用量が減少すると設定値に近づくように再び引き上げられます。`columns_cache_free_memory_ratio` を参照してください。
 * `CurrentMetric_IndexMarkCacheBytes` ([Int64](/ja/reference/data-types/int-uint)) — セカンダリ索引用マークキャッシュの合計サイズ (バイト)
 * `CurrentMetric_IndexMarkCacheFiles` ([Int64](/ja/reference/data-types/int-uint)) — セカンダリ索引用マークキャッシュにキャッシュされているマークファイルの総数
 * `CurrentMetric_IndexUncompressedCacheBytes` ([Int64](/ja/reference/data-types/int-uint)) — セカンダリ索引用の非圧縮キャッシュの合計サイズ (バイト) 。非圧縮キャッシュは通常、パフォーマンス向上に寄与しないため、基本的には使用を避けるべきです

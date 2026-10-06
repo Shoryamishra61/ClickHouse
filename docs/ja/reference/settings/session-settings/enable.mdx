@@ -398,6 +398,16 @@ true の場合、テーブルから取得したシリアライゼーションの
 
 `Quantized`圧縮コーデックを有効にします。
 
+## enable_reads_from_columns_cache {#enable_reads_from_columns_cache}
+
+<BetaBadge />
+
+<SettingsInfoBlock type="Bool" default_value="1" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1"},{"label": "カラムキャッシュからの読み取りを制御する新しい設定"}]}]} />
+
+`use_columns_cache` が有効な場合に、カラムキャッシュから読み取るかどうかを指定します。0 または 1 を指定できます。デフォルトは 1 (有効) です。
+
 ## enable_reads_from_query_cache {#enable_reads_from_query_cache}
 
 <SettingsInfoBlock type="Bool" default_value="1" />
@@ -578,6 +588,16 @@ MergeTree ファミリーのエンジンで `UNIQUE KEY` 句を使用したテ�
 <VersionHistory rows={[{"id": "row-1","items": [{"label": "24.6"},{"label": "1"},{"label": "バグ修正後、再びデフォルトで vertical final を有効化"}]}, {"id": "row-2","items": [{"label": "24.1"},{"label": "1"},{"label": "デフォルトで vertical final を使用"}]}]} />
 
 有効にすると、FINAL 時の重複した行は、行をマージする代わりに削除済みとしてマークし、後でフィルタリングして除外します
+
+## enable_writes_to_columns_cache {#enable_writes_to_columns_cache}
+
+<BetaBadge />
+
+<SettingsInfoBlock type="Bool" default_value="1" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1"},{"label": "カラムキャッシュへの書き込みを制御する新しい設定"}]}]} />
+
+`use_columns_cache` が有効な場合に、カラムキャッシュへ書き込むかどうかを指定します。0 または 1 を指定できます。デフォルトは 1 (有効) です。
 
 ## enable_writes_to_query_cache {#enable_writes_to_query_cache}
 

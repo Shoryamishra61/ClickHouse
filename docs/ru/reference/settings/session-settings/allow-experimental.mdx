@@ -112,6 +112,16 @@ import { ExperimentalBadge } from "/snippets/ru/components/ExperimentalBadge/Exp
 
 Включает диалект Kusto Query Language (KQL) — альтернативу SQL.
 
+## allow_experimental_lateral_join {#allow_experimental_lateral_join}
+
+<ExperimentalBadge />
+
+<SettingsInfoBlock type="Bool" default_value="0" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "0"},{"label": "Новая настройка, разрешающая синтаксис `LATERAL JOIN`."}]}]} />
+
+Разрешает синтаксис LATERAL JOIN. Если настройка включена, подзапросы в правой части JOIN могут ссылаться на столбцы из левой части. Это позволяет использовать коррелированные подзапросы в предложении FROM (LATERAL JOIN согласно стандарту SQL).
+
 ## allow_experimental_logsql_dialect {#allow_experimental_logsql_dialect}
 
 <ExperimentalBadge />

@@ -41,7 +41,7 @@ import { VersionHistory } from "/snippets/zh/components/VersionHistory/VersionHi
 
 `grace_hash` 从第一个块起即采用外部算法：它会立即对右表进行分区，而 `hash` 和 `parallel_hash` 会先在内存中收集数据，仅在超过落盘阈值后才进行分区。如果您已知右侧数据无法容纳于内存中，并希望跳过内存阶段，请选择它。落盘阈值本身与所有哈希算法使用的阈值相同，即 [`max_bytes_before_external_join`](/zh/reference/settings/session-settings/max-bytes#max_bytes_before_external_join) / [`max_bytes_ratio_before_external_join`](/zh/reference/settings/session-settings/max-bytes#max_bytes_ratio_before_external_join)，并且两者之一必须非零，除非启用了 `legacy_join_size_limits_trigger_spilling`。如果没有阈值，`grace_hash` 会被跳过并使用列表中的下一个算法；如果它是唯一算法，则会被拒绝。
 
-grace join 的第一阶段会读取右表，并根据键列的哈希值将其拆分为 N 个桶 (初始时，N 为 `grace_hash_join_initial_buckets`) 。这样可确保每个桶都能独立处理。第一个桶中的行会添加到内存中的哈希表，其他桶则保存到磁盘。如果哈希表增长超过溢写阈值，则会增加桶的数量，并重新分配每行所属的桶。任何不属于当前桶的行都会被刷新并重新分配。
+grace join 的第一阶段会读取右表，并根据键列的哈希值将其拆分为 N 个桶 (初始时，N 为 `grace_hash_join_initial_buckets`) 。这样可确保每个桶都能独立处理。第一个桶中的行会添加到内存中的哈希表，其他桶则保存到磁盘。如果哈希表增长超过落盘阈值，则会增加桶的数量，并重新分配每行所属的桶。任何不属于当前桶的行都会被刷新并重新分配。
 
 支持 `INNER/LEFT/RIGHT/FULL ALL/ANY JOIN`。
 
@@ -63,7 +63,7 @@ grace join 的第一阶段会读取右表，并根据键列的哈希值将其拆
 
 `RIGHT JOIN` 和 `FULL JOIN` 仅支持 `ALL` 严格性 (`SEMI`、`ANTI`、`ANY` 和 `ASOF` 不受支持)。
 
-使用 `partial_merge` 算法时，ClickHouse 会对数据进行排序并将其转储到磁盘。ClickHouse 中的 `partial_merge` 算法与经典实现略有不同。首先，ClickHouse 会按连接键对右表数据进行分块排序，并为已排序的块创建 min-max 索引。然后，它会按 `连接键` 对左表的分片进行排序，并将其与右表连接。min-max 索引还用于跳过不需要的右表块。
+使用 `partial_merge` 算法时，ClickHouse 会对数据进行排序并将其转储到磁盘。ClickHouse 中的 `partial_merge` 算法与经典实现略有不同。首先，ClickHouse 会按连接键对右表数据进行分块排序，并为已排序的块创建 min-max 索引。然后，它会按 `join key` 对左表的分片进行排序，并将其与右表连接。min-max 索引还用于跳过不需要的右表块。
 
 * direct
 
@@ -86,7 +86,7 @@ grace join 的第一阶段会读取右表，并根据键列的哈希值将其拆
 
 基于排序的 [IEJoin](https://vldb.org/pvldb/vol8/p2074-khayyat.pdf) 算法，适用于其 `ON` 部分包含两个参与连接表表达式之间不等比较 (`<`、`<=`、`>`、`>=`) 的 `JOIN`。支持 `ALL INNER/LEFT/RIGHT/FULL JOIN` 和 `SEMI`/`ANTI` `LEFT/RIGHT JOIN`。
 
-在列表中的位置决定优先级：若列在其他算法之后，仅当其他算法不适用时才使用 IEJoin (即 `ON` 部分没有等值条件)；若列在首位，只要 `ON` 部分包含两个不等式条件便会使用它。对于 `ALL INNER JOIN`，其余条件 (包括等值条件) 会作为过滤器应用于连接结果；对于其他 kind，则会在 operator 内部作为影响匹配的残余条件进行评估。当 `ON` 部分包含超过两个符合条件的不等式条件时，算法使用的两个条件会根据列 min/max 统计信息估算的选择性来选定 (参见 [Column statistics](/zh/reference/engines/table-engines/mergetree-family/mergetree#column-statistics) 中的 `basic` 类型)；当估算不可用时 (没有统计信息，或禁用了 [`use_statistics`](/zh/reference/settings/session-settings/use-statistics#use_statistics))，则使用语法顺序中的前两个条件。如果列表中没有 `ie_join`，仅含不等条件的 `INNER JOIN` 会作为带过滤器的 `CROSS JOIN` 执行，其他 kind 不受支持。
+算法在列表中的位置决定其优先级。若像默认值一样列在其他算法之后，仅当 `ON` 部分没有等值条件时才使用 `ie_join`。若列在首位，只要 `ON` 部分包含两个不等式条件便会使用它，其余条件会作为过滤器应用于连接结果。当存在超过两个不等式条件时，算法使用的两个条件会根据[列统计信息](/zh/reference/engines/table-engines/mergetree-family/mergetree#column-statistics)估算的选择性来选定；没有统计信息时，则使用语法顺序中的前两个条件。如果列表中没有 `ie_join`，仅含不等式条件的 `INNER JOIN` 会作为带过滤器的 `CROSS JOIN` 执行，其他连接类型则作为[块嵌套循环连接](/zh/reference/statements/select/join#join-with-an-arbitrary-on-condition)执行。
 
 两个输入都会在连接前累积到内存中：[`max_rows_in_join`](/zh/reference/settings/session-settings/max-rows#max_rows_in_join) 和 [`max_bytes_in_join`](/zh/reference/settings/session-settings/max-bytes#max_bytes_in_join) 限制两侧累积输入的总量 (而非仅限右侧) ，溢出时的处理方式由 [`join_overflow_mode`](/zh/reference/settings/session-settings/join#join_overflow_mode) 设置；operator 在累积输入上构建的排序索引不计入该限制。join operator 本身以单线程运行；仅输入在 join 前的排序会并行执行。
 
@@ -118,7 +118,7 @@ ClickHouse 总是尽可能使用 `partial_merge` join，否则使用 `hash`。*�
 当右表中某个键对应多于一条匹配行时，此设置会更改具有 `ANY` 严格性 的 JOIN 操作行为。
 
 <Note>
-  此设置适用于 [`Join`](/zh/reference/engines/table-engines/special/join) 引擎表以及基于哈希的 JOIN 算法。
+  此设置适用于 [`Join`](/zh/reference/engines/table-engines/special/join) 引擎表以及基于哈希的 JOIN 算法。它对 [块嵌套循环连接](/zh/reference/statements/select/join#join-with-an-arbitrary-on-condition) 不起作用：由于没有连接键，也就不存在可供选取最后一行的匹配行组。
 
   如果 join 是并行构建的，行的顺序可能是非确定性的。这意味着对于 `ANY JOIN` 查询，`join_any_take_last_row = 1` 可能会返回非确定性的行。
 </Note>
@@ -130,7 +130,7 @@ ClickHouse 总是尽可能使用 `partial_merge` join，否则使用 `hash`。*�
 
 另请参阅：
 
-* [JOIN clause](/zh/reference/statements/select/join)
+* [JOIN 子句](/zh/reference/statements/select/join)
 * [Join 表引擎](/zh/reference/engines/table-engines/special/join)
 * [join&#95;default&#95;strictness](/zh/reference/settings/session-settings/join#join_default_strictness)
 

@@ -310,6 +310,18 @@ CacheDictionaries 中更新队列里的键的确切数量。
 
 等待异步加载到文件系统缓存的远程 File 段总大小。
 
+### ColumnsCacheBytes {#columnscachebytes}
+
+列缓存的总大小 (以字节为单位) 。列缓存用于存储 MergeTree 表中已反序列化的列，以避免重复进行解压缩和反序列化。
+
+### ColumnsCacheEntries {#columnscacheentries}
+
+列缓存中的条目总数。
+
+### ColumnsCacheSizeLimit {#columnscachesizelimit}
+
+当前生效的列缓存大小上限 (以字节为单位) 。当服务器其余部分内存紧张时，该上限会被调低至所配置的 `columns_cache_size` 以下；待内存占用回落后，再逐步回调至该配置值。另请参见 `columns_cache_free_memory_ratio`。
+
 ### ColumnsDescriptionsCacheSize {#columnsdescriptionscachesize}
 
 ColumnsDescriptions 缓存大小 (按表缓存)

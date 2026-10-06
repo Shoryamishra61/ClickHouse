@@ -72,6 +72,17 @@ import { VersionHistory } from "/snippets/ru/components/VersionHistory/VersionHi
 * `true`
 * `false`
 
+## enable_row_mask_update_coalescing {#enable_row_mask_update_coalescing}
+
+<SettingsInfoBlock type="Bool" default_value="1" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1"},{"label": "Объединение обновлений маски строк включено по умолчанию"}]}]} />
+
+Объединяет соседние одиночные (singleton) команды `UPDATE _row_exists = 0` при мутации
+Wide-части с форматом хранения Full. Сохранённые команды мутаций и их
+версии при этом не изменяются.
+Установите значение false, чтобы выполнять каждую команду отдельно.
+
 ## enable_the_endpoint_id_with_zookeeper_name_prefix {#enable_the_endpoint_id_with_zookeeper_name_prefix}
 
 <SettingsInfoBlock type="Bool" default_value="0" />

@@ -310,6 +310,18 @@ CacheDictionaries の更新キューにあるキーの正確な数。
 
 ファイルシステムキャッシュに非同期で読み込まれるのを待機している、リモートのファイルセグメントの合計サイズ。
 
+### ColumnsCacheBytes {#columnscachebytes}
+
+カラムキャッシュの合計サイズ (バイト単位) です。カラムキャッシュは、MergeTree テーブルから読み込んでデシリアライズしたカラムを保持することで、伸長とデシリアライズが繰り返し行われるのを防ぎます。
+
+### ColumnsCacheEntries {#columnscacheentries}
+
+カラムキャッシュ内のエントリの総数。
+
+### ColumnsCacheSizeLimit {#columnscachesizelimit}
+
+現在有効なカラムキャッシュのサイズ上限 (バイト単位) です。サーバーの他の部分でメモリが不足している間は、設定された `columns_cache_size` よりも低い値に引き下げられ、メモリ使用量が落ち着くと、再び設定値に向けて引き上げられます。詳しくは `columns_cache_free_memory_ratio` を参照してください。
+
 ### ColumnsDescriptionsCacheSize {#columnsdescriptionscachesize}
 
 ColumnsDescriptions キャッシュのサイズ (テーブル単位のキャッシュ)

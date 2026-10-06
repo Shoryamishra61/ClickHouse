@@ -520,6 +520,10 @@ Cette table peut être tronquée ou supprimée à tout moment sans risque.
 * `ProfileEvent_MarkCacheEvictedBytes` ([UInt64](/fr/reference/data-types/int-uint)) — Nombre d’octets évincés du cache des marques.
 * `ProfileEvent_MarkCacheEvictedMarks` ([UInt64](/fr/reference/data-types/int-uint)) — Nombre de marques évincées du cache des marques.
 * `ProfileEvent_MarkCacheEvictedFiles` ([UInt64](/fr/reference/data-types/int-uint)) — Nombre de fichiers de marques évincés du cache des marques.
+* `ProfileEvent_ColumnsCacheHits` ([UInt64](/fr/reference/data-types/int-uint)) — Nombre de fois où une colonne désérialisée a été trouvée dans le cache des colonnes.
+* `ProfileEvent_ColumnsCacheMisses` ([UInt64](/fr/reference/data-types/int-uint)) — Nombre de fois où une colonne désérialisée n’a pas été trouvée dans le cache des colonnes.
+* `ProfileEvent_ColumnsCacheEvictedBytes` ([UInt64](/fr/reference/data-types/int-uint)) — Nombre d’octets évincés du cache des colonnes.
+* `ProfileEvent_ColumnsCacheEvictedEntries` ([UInt64](/fr/reference/data-types/int-uint)) — Nombre d’entrées évincées du cache des colonnes.
 * `ProfileEvent_LoadedPrimaryIndexFiles` ([UInt64](/fr/reference/data-types/int-uint)) — Nombre de fichiers d&#39;index primaire chargés.
 * `ProfileEvent_LoadedPrimaryIndexRows` ([UInt64](/fr/reference/data-types/int-uint)) — Nombre de lignes de clé primaire chargées.
 * `ProfileEvent_LoadedPrimaryIndexBytes` ([UInt64](/fr/reference/data-types/int-uint)) — Nombre d&#39;octets de clé primaire chargés.

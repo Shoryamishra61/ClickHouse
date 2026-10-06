@@ -404,6 +404,16 @@ SELECT * FROM TAB ORDER BY ALL SETTINGS enable_order_by_all = 0;
 
 يُمكّن برنامج الترميز للضغط `Quantized`.
 
+## enable_reads_from_columns_cache {#enable_reads_from_columns_cache}
+
+<BetaBadge />
+
+<SettingsInfoBlock type="Bool" default_value="1" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1"},{"label": "إعداد جديد للتحكم في القراءة من ذاكرة التخزين المؤقت للعمود"}]}]} />
+
+يحدد ما إذا كانت القراءة ستتم من ذاكرة التخزين المؤقت للعمود عند تفعيل `use_columns_cache`. يقبل القيمة 0 أو 1، والقيمة الافتراضية هي 1 (مفعّل).
+
 ## enable_reads_from_query_cache {#enable_reads_from_query_cache}
 
 <SettingsInfoBlock type="Bool" default_value="1" />
@@ -589,6 +599,16 @@ ClickHouse. يظل استعلام `SET` محللًا بصيغة SQL عادية،
 <VersionHistory rows={[{"id": "row-1","items": [{"label": "24.6"},{"label": "1"},{"label": "تمكين vertical final افتراضيًا مرة أخرى بعد إصلاح الخطأ"}]}, {"id": "row-2","items": [{"label": "24.1"},{"label": "1"},{"label": "استخدام vertical final افتراضيًا"}]}]} />
 
 عند التمكين، تُزال الصفوف المكررة أثناء FINAL عبر تمييز الصفوف على أنها محذوفة ثم ترشيحها لاحقًا بدلًا من دمج الصفوف
+
+## enable_writes_to_columns_cache {#enable_writes_to_columns_cache}
+
+<BetaBadge />
+
+<SettingsInfoBlock type="Bool" default_value="1" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1"},{"label": "إعداد جديد للتحكم في الكتابة إلى ذاكرة التخزين المؤقت للعمود"}]}]} />
+
+يحدد ما إذا كانت الكتابة إلى ذاكرة التخزين المؤقت للعمود تتم عند تفعيل `use_columns_cache`. يقبل القيمة 0 أو 1، والقيمة الافتراضية هي 1 (مُفعَّل).
 
 ## enable_writes_to_query_cache {#enable_writes_to_query_cache}
 

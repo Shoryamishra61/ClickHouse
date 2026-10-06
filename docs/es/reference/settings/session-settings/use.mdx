@@ -36,6 +36,23 @@ Está habilitado de forma predeterminada.
 
 Usa la zona horaria del client para interpretar los valores de cadena DateTime, en lugar de usar la zona horaria del server.
 
+## use_columns_cache {#use_columns_cache}
+
+<ExperimentalBadge />
+
+<SettingsInfoBlock type="Bool" default_value="0" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "0"},{"label": "Nueva configuración experimental para habilitar la caché de columnas en tablas MergeTree, deshabilitada de forma predeterminada."}]}]} />
+
+Indica si se debe usar la caché de columnas. Acepta 0 o 1. De forma predeterminada, 0 (deshabilitada).
+La caché de columnas almacena columnas deserializadas de tablas `MergeTree`, lo que evita tener que descomprimir y deserializar repetidamente los datos de acceso frecuente. Esto puede reducir significativamente la latencia de las consultas que se repiten sobre los mismos datos. La clave de la caché se compone del UUID de la tabla, el nombre de la parte de datos, el nombre de la columna y un segmento (stripe) de gránulos consecutivos de aproximadamente 65536 filas.
+
+Dado que la clave de las entradas incluye el UUID de la tabla, la caché solo está activa para tablas de bases de datos que asignan UUID, como `Atomic`, `Replicated` y `Shared` (el motor de base de datos predeterminado en ClickHouse Cloud); las tablas `MergeTree` de las bases de datos `Ordinary` heredadas tienen un UUID nulo e ignoran esta configuración de forma silenciosa.
+
+Actualmente, la caché solo se aplica a las partes anchas (wide): los datos de las partes compactas no se leen de la caché de columnas ni se escriben en ella, por lo que la aceleración de una lectura depende del formato de la parte.
+
+Cada entrada contiene un rango contiguo de gránulos de un mismo segmento: un gránulo solo entra en la caché una vez que se ha leído de la primera a la última fila, las lecturas se sirven desde la caché gránulo a gránulo y los rangos escritos por distintas lecturas se fusionan, de modo que las lecturas que dividen una parte en distintos rangos de marcas comparten las mismas entradas.
+
 ## use_concurrency_control {#use_concurrency_control}
 
 <SettingsInfoBlock type="Bool" default_value="1" />

@@ -114,6 +114,47 @@ import { VersionHistory } from "/snippets/ar/components/VersionHistory/VersionHi
 
 الحد الأقصى لعدد الإسقاطات في MergeTree.
 
+## max_row_mask_update_coalescing_ast_bytes {#max_row_mask_update_coalescing_ast_bytes}
+
+<SettingsInfoBlock type="UInt64" default_value="1048576" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1048576"},{"label": "New setting"}]}]} />
+
+الحد الأقصى لمجموع أحجام `ast_text` بالبايت للأوامر الأصلية التي يمكن دمجها ضمن عملية دمج تحديثات قناع الصفوف (row-mask
+update coalescing). فالحد المفروض على عدد الأوامر وحده لا يكفي لتقييد حجم هذه النسخة عندما
+تحتوي الأوامر على قيم حرفية كبيرة. اضبط القيمة على 0 لتعطيل الدمج.
+
+## max_row_mask_update_coalescing_commands {#max_row_mask_update_coalescing_commands}
+
+<SettingsInfoBlock type="UInt64" default_value="4096" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "4096"},{"label": "New setting"}]}]} />
+
+الحد الأقصى لعدد أوامر التعديل الخاصة بجزء بيانات واحد والمؤهلة لدمج تحديثات قناع الصفوف.
+يحدّ هذا الإعداد من حجم النسخة الإضافية من قائمة الأوامر التي يُنشئها هذا التحسين؛
+فالقيمة ضمانة لحماية الموارد، وليست حدًا دلاليًا. تؤدي القيم الأقل من 2 إلى تعطيل
+الدمج.
+
+## max_row_mask_update_coalescing_key_bytes {#max_row_mask_update_coalescing_key_bytes}
+
+<SettingsInfoBlock type="UInt64" default_value="65536" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "65536"},{"label": "New setting"}]}]} />
+
+الحد الأقصى لإجمالي عدد بايتات القيم الحرفية للمفاتيح في عملية تحديث مُدمجة واحدة لأقنعة الصفوف.
+يقيّد هذا الإعداد حجم المسند `IN` المُولَّد. اضبطه على 0 لتعطيل
+الدمج.
+
+## max_row_mask_update_coalescing_keys {#max_row_mask_update_coalescing_keys}
+
+<SettingsInfoBlock type="UInt64" default_value="256" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "256"},{"label": "New setting"}]}]} />
+
+الحد الأقصى لعدد المفاتيح في عملية تحديث مدمجة واحدة لأقنعة الصفوف. ويخضع الحد الفعلي
+أيضًا لقيمة `max_rows_in_set` المحددة في إعدادات استعلامات الخلفية. وتؤدي القيم الأقل من
+2 إلى تعطيل الدمج.
+
 ## max_table_size_bytes_compressed {#max_table_size_bytes_compressed}
 
 <SettingsInfoBlock type="UInt64" default_value="0" />
