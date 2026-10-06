@@ -18,11 +18,13 @@ SET max_rows_to_group_by = 0;
 SET max_threads=4;
 
 -- The bucket-local Top-K materializes only each two-level bucket's best n groups, and is what these
--- queries are about, so it is pinned rather than left to `query_plan_enable_optimizations`
--- randomization. `optimize_aggregation_in_order` is pinned off to keep both queries on the unordered
--- pipeline, and `group_by_two_level_threshold` decides single- vs two-level aggregation, which the
--- Top-K conversion is a property of.
-SET query_plan_aggregation_bucket_top_k=1, optimize_aggregation_in_order=0, group_by_two_level_threshold=1000;
+-- queries are about, so it is pinned together with `query_plan_enable_optimizations`, which gates it
+-- and is randomized, and `query_plan_push_down_limit`, as in `04911_query_plan_aggregation_bucket_top_k`.
+-- `optimize_aggregation_in_order` is pinned off to keep both queries on the unordered pipeline, and
+-- `group_by_two_level_threshold` decides single- vs two-level aggregation, which the Top-K conversion
+-- is a property of.
+SET query_plan_enable_optimizations=1, query_plan_push_down_limit=1, query_plan_aggregation_bucket_top_k=1;
+SET optimize_aggregation_in_order=0, group_by_two_level_threshold=1000;
 
 DROP TABLE IF EXISTS obt_part;
 
