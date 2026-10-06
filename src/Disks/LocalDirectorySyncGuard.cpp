@@ -1,10 +1,12 @@
-#include <Disks/LocalDirectorySyncGuard.h>
-#include <Common/ProfileEvents.h>
-#include <Common/Exception.h>
-#include <Common/ErrnoException.h>
+#include <utility>
 #include <Disks/IDisk.h>
-#include <Common/Stopwatch.h>
+#include <Disks/LocalDirectorySyncGuard.h>
 #include <IO/PlatformFileIO.h>
+#include <base/scope_guard.h>
+#include <Common/ErrnoException.h>
+#include <Common/Exception.h>
+#include <Common/ProfileEvents.h>
+#include <Common/Stopwatch.h>
 
 namespace ProfileEvents
 {
@@ -33,18 +35,9 @@ LocalDirectorySyncGuard::LocalDirectorySyncGuard(const String & full_path)
 
 LocalDirectorySyncGuard::~LocalDirectorySyncGuard()
 {
-    ProfileEvents::increment(ProfileEvents::DirectorySync);
-
     try
     {
-        Stopwatch watch;
-
-        if (-1 == platformFDataSync(fd))
-            throw Exception(ErrorCodes::CANNOT_FSYNC, "Cannot fdatasync");
-        if (-1 == ::close(fd))
-            throw Exception(ErrorCodes::CANNOT_CLOSE_FILE, "Cannot close file");
-
-        ProfileEvents::increment(ProfileEvents::DirectorySyncElapsedMicroseconds, watch.elapsedMicroseconds());
+        sync();
     }
     catch (...)
     {
@@ -52,4 +45,27 @@ LocalDirectorySyncGuard::~LocalDirectorySyncGuard()
     }
 }
 
+void LocalDirectorySyncGuard::sync()
+{
+    if (fd < 0)
+        return;
+
+    int sync_fd = std::exchange(fd, -1);
+    SCOPE_EXIT({
+        if (sync_fd >= 0)
+        {
+            [[maybe_unused]] int result = ::close(sync_fd);
+        }
+    });
+
+    ProfileEvents::increment(ProfileEvents::DirectorySync);
+    Stopwatch watch;
+
+    if (-1 == platformFDataSync(sync_fd))
+        ErrnoException::throwWithErrno(ErrorCodes::CANNOT_FSYNC, errno, "Cannot fdatasync directory");
+    if (-1 == ::close(std::exchange(sync_fd, -1)))
+        ErrnoException::throwWithErrno(ErrorCodes::CANNOT_CLOSE_FILE, errno, "Cannot close directory");
+
+    ProfileEvents::increment(ProfileEvents::DirectorySyncElapsedMicroseconds, watch.elapsedMicroseconds());
+}
 }
