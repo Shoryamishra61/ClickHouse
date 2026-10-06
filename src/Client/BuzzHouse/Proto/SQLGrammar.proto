@@ -460,9 +460,12 @@ message ExprLike {
         LIKE = 1;
         ILIKE = 2;
         REGEXP = 3;
+        SIMILAR_TO = 4;
     }
     required PossibleKeywords keyword = 3;
     required Expr expr2 = 4;
+    /// Quoted `ESCAPE` literal, not for `REGEXP`
+    optional string escape = 5;
 }
 
 message CondExpr {

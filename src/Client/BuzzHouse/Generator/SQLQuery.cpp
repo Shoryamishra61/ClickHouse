@@ -1722,6 +1722,10 @@ void StatementGenerator::addWhereFilter(RandomGenerator & rg, const std::vector<
 
                 elike->set_keyword(static_cast<ExprLike_PossibleKeywords>(like_range(rg.generator)));
                 elike->set_not_(rg.nextBool());
+                if (rg.nextSmallNumber() < 3)
+                {
+                    elike->set_escape(generateLikeEscape(rg));
+                }
                 expr1 = elike->mutable_expr1();
                 expr2 = elike->mutable_expr2();
             }
@@ -1729,11 +1733,18 @@ void StatementGenerator::addWhereFilter(RandomGenerator & rg, const std::vector<
             {
                 /// Sometimes do the function call instead
                 SQLFuncCall * sfc = expr->mutable_comp_expr()->mutable_func_call();
-                static const auto likeFuncs = {"like", "notLike", "ilike", "notILike", "match"};
+                static const std::vector<String> likeFuncs
+                    = {"like", "notLike", "ilike", "notILike", "similarTo", "notSimilarTo", "match"};
+                const String & fname = rg.pickRandomly(likeFuncs);
 
-                sfc->mutable_func()->set_catalog_func(rg.pickRandomly(likeFuncs));
+                sfc->mutable_func()->set_catalog_func(fname);
                 expr1 = sfc->add_args()->mutable_expr();
                 expr2 = sfc->add_args()->mutable_expr();
+                if (fname != "match" && rg.nextSmallNumber() < 3)
+                {
+                    /// The optional escape character argument
+                    sfc->add_args()->mutable_expr()->mutable_lit_val()->set_no_quote_str(generateLikeEscape(rg));
+                }
             }
             refColumn(rg, gcol, expr1);
             if (rg.nextBool())

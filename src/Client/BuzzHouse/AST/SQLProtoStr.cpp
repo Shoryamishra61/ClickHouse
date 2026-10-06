@@ -1173,11 +1173,21 @@ CONV_FN(ExprLike, elike)
 {
     ExprToString(ret, elike.expr1());
     ret += " ";
-    if (elike.not_() && elike.keyword() != ExprLike_PossibleKeywords::ExprLike_PossibleKeywords_REGEXP)
+    const bool is_regexp = elike.keyword() == ExprLike_PossibleKeywords::ExprLike_PossibleKeywords_REGEXP;
+
+    if (elike.not_() && !is_regexp)
         ret += "NOT ";
-    ret += ExprLike_PossibleKeywords_Name(elike.keyword());
+    if (elike.keyword() == ExprLike_PossibleKeywords::ExprLike_PossibleKeywords_SIMILAR_TO)
+        ret += "SIMILAR TO";
+    else
+        ret += ExprLike_PossibleKeywords_Name(elike.keyword());
     ret += " ";
     ExprToString(ret, elike.expr2());
+    if (elike.has_escape() && !is_regexp)
+    {
+        ret += " ESCAPE ";
+        ret += elike.escape();
+    }
 }
 
 CONV_FN(CondExpr, econd)

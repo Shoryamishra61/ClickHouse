@@ -720,7 +720,10 @@ Field QueryFuzzer::fuzzField(Field field)
                 break;
             case 9: {
                 /// SQL/regex metacharacters — stresses match(), extract(), LIKE, escaping
-                static const Strings vals = {"'", "\\'", "\\", "\"", ";--", "%", "_", "/**/", ".*", "[a-z]", "^$", "(?i)"};
+                static const Strings vals
+                    = {"'", "\\'", "\\", "\"", ";--", "%", "_", "/**/", ".*", "[a-z]", "^$", "(?i)",
+                       /// `SIMILAR TO` patterns
+                       "(a|b)*", "%[^0-9]+_", "_{2,3}", "[[:alpha:]]%", "%(|x)?", "a{,", "[]%"};
                 str = vals[fuzz_rand() % vals.size()];
                 break;
             }
@@ -5094,9 +5097,13 @@ static const std::unordered_set<String> lambda_accepting_funcs = []
     return res;
 }();
 
+/// String pattern matching operators. All but `match` take an optional `ESCAPE 'c'` 3rd argument
+static const std::unordered_set<String> pattern_match_functions
+    = {"ilike", "like", "similarTo", "match", "notILike", "notLike", "notSimilarTo"};
+
 static const std::vector<std::unordered_set<String>> & swapFuncs
     = { /// String pattern matching operators
-        {"ilike", "like", "similarTo", "match", "notILike", "notLike", "notSimilarTo"},
+        pattern_match_functions,
         /// Set membership operators (renames an existing node, so only the infix-safe spellings)
         std::unordered_set<String>(in_infix_variants.begin(), in_infix_variants.end()),
         /// Their IgnoreSet variants; only the lambda injection below reaches these, never the rename
@@ -6688,6 +6695,23 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
             }
             else if (text_search_functions.contains(fn->name) && fn->arguments->children.size() > 2)
                 fn->arguments->children.resize(2);
+        }
+
+        /// Add, replace or drop the `ESCAPE 'c'` argument of the `LIKE` / `SIMILAR TO` family
+        if (fn->arguments && fn->name != "match" && pattern_match_functions.contains(fn->name) && fuzz_rand() % 20 == 0)
+        {
+            static const Strings escapes = {"#", "!", "\\", "%", "_", "|", "[", "'", "$", "a", "", "ab"};
+            auto & args = fn->arguments->children;
+
+            if (args.size() == 3 && fuzz_rand() % 3 == 0)
+            {
+                args.resize(2);
+            }
+            else if (args.size() == 2 || args.size() == 3)
+            {
+                args.resize(2);
+                args.push_back(make_intrusive<ASTLiteral>(escapes[fuzz_rand() % escapes.size()]));
+            }
         }
 
         /// ClickHouse HOFs accept a bare function name instead of a lambda, e.g. arrayMap(toUInt64, arr).
