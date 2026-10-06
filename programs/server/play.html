@@ -5521,11 +5521,12 @@ class QueryResultElement extends HTMLElement
         this.applyColumnColors();
     }
 
-    /// Drop the currently shown preview without waiting for the real result. Two callers:
+    /// Drop the currently shown preview without waiting for the real result. Two cases:
     /// an EMPTY `preview` packet - the intermediate result became empty (`HAVING`, `OFFSET`,
     /// `LIMIT`), which is a preview state of its own and must not leave the rows of the previous
-    /// preview on the screen - and a query that failed before any real row arrived, where the error
-    /// replaces the result and an obsolete preview must not stay next to it.
+    /// preview on the screen - and a query that failed before any real row arrived (any failure
+    /// path: `renderError` and `finalizeFailedTable`), where the error replaces the result and an
+    /// obsolete preview must not stay next to it.
     clearPreview()
     {
         /// The real result is authoritative: it is not a preview and must never be cleared here.
@@ -7281,6 +7282,9 @@ class QueryResultElement extends HTMLElement
     /// so a background tab defers them (see `applyDeferredLayout`).
     finalizeFailedTable(measureNow)
     {
+        /// Rows of a preview are not part of the result: a query that failed before its first real
+        /// row has no partial result to keep (see `clearPreview`).
+        this.clearPreview();
         if (this.rowCount > 0)
         {
             /// Render totals before coloring, so the totals row is colored too.
@@ -7435,6 +7439,9 @@ class QueryResultElement extends HTMLElement
 
     renderError(message)
     {
+        /// Every failure path ends here, including transport errors and a truncated stream after a
+        /// few previews: an obsolete preview must not stay next to the error (see `clearPreview`).
+        this.clearPreview();
         this._error.innerText = message ? message : "No response.";
         this._error.style.display = 'block';
     }
@@ -11021,10 +11028,8 @@ function makeEventStreamHandler(targetResultEl, options = {})
         }
         else if (name === 'exception')
         {
-            /// The payload is `{"exception": "..."}`, handled by `update` as an error. A query that
-            /// fails after a few previews but before the first real row would otherwise keep the
-            /// last preview on the screen next to the error message.
-            targetResultEl.clearPreview();
+            /// The payload is `{"exception": "..."}`, handled by `update` as an error (`renderError`
+            /// also drops a preview that is still on the screen).
             if (dataLines[0]) targetResultEl.update(JSON.parse(dataLines[0]));
             if (options.onException) options.onException();
         }
