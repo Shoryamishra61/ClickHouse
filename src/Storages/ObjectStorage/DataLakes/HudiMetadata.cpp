@@ -65,7 +65,7 @@ Strings HudiMetadata::getDataFilesImpl() const
 
     for (const auto & key : keys)
     {
-        auto key_file = std::filesystem::path(key);
+        auto key_file = pathFromString(key);
         Strings file_parts;
         const String stem = pathToGenericString(key_file.stem());
         splitInto<'_'>(file_parts, stem);
