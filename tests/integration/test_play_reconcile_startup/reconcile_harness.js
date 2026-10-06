@@ -1795,13 +1795,20 @@ async function main() {
     /// that tab's live state, so it must neither open the workspace database nor persist into it, and
     /// must not rewrite its own URL - otherwise just opening the docs rolls the saved workspace back to
     /// an older snapshot. A relay with a rejected target stays equally inert, and shows nothing.
+    /// A relay can be opened by a foreign page, so it must not send any request either: no connectivity
+    /// ping, no credential probe, no Web Terminal probe against the server that served `/play`.
     for (const [name, target, frames] of [
         ['docs-relay-no-playground', 'https://clickhouse.com/docs', 1],
         ['docs-relay-rejected-no-playground', 'javascript:alert(1)', 0],
     ]) {
         const href = 'https://a.example/play?docs_relay=' + encodeURIComponent(target);
+        const requests = [];
         const { sandbox, stores, stats } = makeContext({
             href,
+            fetch: async (url, opts) => {
+                requests.push({ url: String(url), method: opts && opts.method });
+                throw new TypeError('Failed to fetch');
+            },
             historyState: null,
             seedTabs: [{ id: 't1', title: 'saved', query: 'SELECT 1', params: {}, result: null }],
             seedMeta: { key: 'state', activeTabId: 't1', order: ['t1'] },
@@ -1817,6 +1824,7 @@ async function main() {
             stores.get('tabs').data.size === 1 && stores.get('tabs').data.get('t1').query === 'SELECT 1',
             [...stores.get('tabs').data.values()]);
         check(name, 'the relay keeps its own URL', sandbox.location.href === href, sandbox.location.href);
+        check(name, 'the relay sends no request', requests.length === 0, requests);
         const children = sandbox.document.body.children;
         check(name, 'the page body holds only the relay frame',
             children.length === frames && children.every(c => c.tagName === 'IFRAME'),

@@ -8728,6 +8728,14 @@ function isPageParameter(name)
     return PAGE_URL_PARAMETERS.includes(name) || name.startsWith('param_');
 }
 
+/// This window is a docs relay (`/play?docs_relay=...`, see the relay setup further below), not a
+/// playground. It is established up front, before any startup code runs: a relay can be opened by a
+/// foreign page (`window.open('/play?docs_relay=...')`), so it must stay inert - every top-level
+/// startup request (the connectivity ping with its credential probe, the Web Terminal probe) is
+/// skipped in it, otherwise such a page could make this origin send network and authentication
+/// requests, with browser-autofilled credentials, to the server that served `/play`.
+const is_docs_relay = new URLSearchParams(window.location.search).has('docs_relay');
+
 /// The endpoint-routing parameters of the served page URL: its query string minus this page's own
 /// parameters (see `PAGE_URL_PARAMETERS`).
 function routingParameters()
@@ -8936,7 +8944,8 @@ url_elem.addEventListener('input', () => checkURL(false));
 /// this page was served from (see `storeCredentials`), so probe on load only when `?url=` names that
 /// endpoint; any other target (another origin, or another path-routed backend on this one) is only
 /// pinged, and its credentials are first sent by an explicit commit or `Run`.
-checkURL(isOwnServerTarget(url_elem.value));
+/// Not in a docs relay window: see `is_docs_relay`.
+if (!is_docs_relay) checkURL(isOwnServerTarget(url_elem.value));
 
 /// The `/docs` page lives on the ClickHouse server addressed by `url_elem.value`, which may differ from
 /// the page's own origin when `/play` is opened locally (`file://`) or pointed at a remote server.
@@ -10936,7 +10945,6 @@ function applyConnectionFromHost(data) {
 /// `clickhouse-play` workspace back to `IndexedDB` and rewrite its URL, rolling back edits the real
 /// `/play` tab has not flushed yet. `is_docs_relay` short-circuits that startup below, and the relay
 /// replaces the whole page body - with the docs iframe, or with nothing when the target is rejected.
-const is_docs_relay = new URLSearchParams(window.location.search).has('docs_relay');
 {
     const docs_relay_target = new URLSearchParams(window.location.search).get('docs_relay');
     if (is_docs_relay) {
@@ -22823,7 +22831,8 @@ document.getElementById('download-button').addEventListener('click', async funct
             if (generation == terminal_probe_generation && resp.ok) terminalIcon.style.display = '';
         }).catch(function() {});
     }
-    probeTerminal();
+    /// Not in a docs relay window: see `is_docs_relay`.
+    if (!is_docs_relay) probeTerminal();
     url_elem.addEventListener('input', probeTerminal);
     user_elem.addEventListener('input', updateTerminalHref);
 
