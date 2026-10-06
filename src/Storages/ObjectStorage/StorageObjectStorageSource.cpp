@@ -215,6 +215,7 @@ namespace Setting
     extern const SettingsBool use_parquet_metadata_cache;
     extern const SettingsBool s3_validate_etag_on_read;
     extern const SettingsBool azure_validate_etag_on_read;
+    extern const SettingsBool use_query_condition_cache_for_top_k;
 }
 
 static void logIcebergFileStats(const ObjectInfoPtr & object_info, const LoggerPtr & log)
@@ -1029,7 +1030,12 @@ Chunk StorageObjectStorageSource::generate()
 
             return chunk;
         }
-        else if (format_filter_info->condition_hash)
+        /// TopN dynamic filtering makes the matched buckets threshold-dependent rather than a
+        /// predicate-only verdict: a row group can end up "unmatched" only because the running
+        /// `__topKFilter` threshold had already excluded its rows. The cache key encodes just the
+        /// predicate and the object, so such an entry would poison a later plain read or a read with
+        /// a different `LIMIT` or sort direction. Never write cache entries for TopK reads.
+        else if (format_filter_info->condition_hash && !format_filter_info->top_k_filter)
         {
             const auto & object_info = reader.getObjectInfo();
             const auto query_condition_cache_key = makeQueryConditionCacheKey(*configuration, *object_info, storage_id.uuid);
@@ -1174,8 +1180,12 @@ StorageObjectStorageSource::ReaderHolder StorageObjectStorageSource::createReade
     ObjectInfoPtr object_info;
     auto query_settings = configuration->getQuerySettings(context_);
 
+    /// A TopN read consults the cache only while `use_query_condition_cache_for_top_k` is on.
+    /// Entries are only ever written by threshold-oblivious reads (see `generate`), so applying
+    /// them to a TopK read is sound.
     QueryConditionCachePtr query_condition_cache;
-    if (format_filter_info && format_filter_info->condition_hash)
+    if (format_filter_info && format_filter_info->condition_hash
+        && (!format_filter_info->top_k_filter || context_->getSettingsRef()[Setting::use_query_condition_cache_for_top_k]))
         query_condition_cache = Context::getGlobalContextInstance()->getQueryConditionCache();
 
     while (true)
