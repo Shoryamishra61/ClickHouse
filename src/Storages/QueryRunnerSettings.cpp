@@ -21,7 +21,7 @@ namespace ErrorCodes
     DECLARE(QueryRunnerScheduler, scheduler, QueryRunnerScheduler::THREADS, "If 'threads', the queries run on a thread pool. If 'fibers', the queries run on fibers; requires the cluster mode, a build with silk, and the 'enable_silk_runtime' server setting - otherwise an error is thrown.", 0) \
     DECLARE(NonZeroUInt64, threads, 4, "Number of background threads executing the queries. Threads only.", 0) \
     DECLARE(UInt64, max_concurrent_remote_queries, 1000, "Maximum number of concurrently executing queries, 0 means unlimited. When it is exceeded, newly inserted queries are discarded, and an error is logged. Fibers only.", 0) \
-    DECLARE(UInt64, max_concurrent_remote_queries_per_replica, 100, "Maximum number of queries executing concurrently on each replica. It is the size of the connection pool of each replica.", 0) \
+    DECLARE(UInt64, max_concurrent_remote_queries_per_replica, 100, "Maximum number of queries executing concurrently on each replica. It is the size of the connection pool of each replica. Fibers only.", 0) \
     DECLARE(UInt64, max_queue_size, 1000, "Maximum number of queued queries. When the queue is full, newly inserted queries are discarded, and an error is logged. Threads only.", 0) \
 
 DECLARE_SETTINGS_TRAITS(QueryRunnerSettingsTraits, QUERY_RUNNER_SETTINGS, QUERY_RUNNER_SETTINGS_SUPPORTED_TYPES)

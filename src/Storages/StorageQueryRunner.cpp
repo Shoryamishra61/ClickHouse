@@ -353,12 +353,10 @@ public:
         ContextPtr global_context_,
         const String & cluster_name_,
         ShardSelector shard_selector_,
-        UInt64 max_concurrent_remote_queries_per_replica_,
         LoggerPtr log_)
         : WithContext(global_context_)
         , cluster_name(cluster_name_)
         , shard_selector(shard_selector_)
-        , max_concurrent_remote_queries_per_replica(max_concurrent_remote_queries_per_replica_)
         , log(log_)
     {
         client_info.client_name = String(client_name);
@@ -657,7 +655,6 @@ private:
 protected:
     static constexpr std::string_view client_name = "QueryRunner";
 
-    const UInt64 max_concurrent_remote_queries_per_replica;
     LoggerPtr log;
 
     std::atomic<bool> shutdown_called = false;
@@ -672,9 +669,9 @@ public:
         ShardSelector shard_selector_,
         UInt64 num_threads_,
         UInt64 max_queue_size_,
-        UInt64 max_concurrent_remote_queries_per_replica_,
         LoggerPtr log_)
-        : QueryRunnerDispatcher(global_context_, cluster_name_, shard_selector_, max_concurrent_remote_queries_per_replica_, log_)
+        : QueryRunnerDispatcher(global_context_, cluster_name_, shard_selector_, log_)
+        , num_threads(num_threads_)
         , max_queue_size(max_queue_size_)
         , pool(
               CurrentMetrics::QueryRunnerThreads,
@@ -711,7 +708,7 @@ private:
     ConnectionPoolPtr createConnectionPool(const Cluster::Address & address, const String & database) override
     {
         return ConnectionPoolFactory::instance().get(
-            static_cast<unsigned>(max_concurrent_remote_queries_per_replica),
+            static_cast<unsigned>(num_threads),
             address.host_name,
             address.port,
             database.empty() ? address.default_database : database,
@@ -729,6 +726,7 @@ private:
             address.priority);
     }
 
+    const size_t num_threads;
     const size_t max_queue_size;
     ThreadPool pool;
 };
@@ -745,8 +743,9 @@ public:
         UInt64 max_concurrent_remote_queries_,
         UInt64 max_concurrent_remote_queries_per_replica_,
         LoggerPtr log_)
-        : QueryRunnerDispatcher(global_context_, cluster_name_, shard_selector_, max_concurrent_remote_queries_per_replica_, log_)
+        : QueryRunnerDispatcher(global_context_, cluster_name_, shard_selector_, log_)
         , max_concurrent_remote_queries(max_concurrent_remote_queries_)
+        , max_concurrent_remote_queries_per_replica(max_concurrent_remote_queries_per_replica_)
     {
     }
 
@@ -835,6 +834,7 @@ private:
     }
 
     const UInt64 max_concurrent_remote_queries;
+    const UInt64 max_concurrent_remote_queries_per_replica;
 
     std::mutex futures_mutex;
     std::list<silk::FiberFuture> futures TSA_GUARDED_BY(futures_mutex);
@@ -994,7 +994,6 @@ StorageQueryRunner::StorageQueryRunner(
             parseShardSelector(settings[QueryRunnerSetting::shard]),
             settings[QueryRunnerSetting::threads],
             settings[QueryRunnerSetting::max_queue_size],
-            settings[QueryRunnerSetting::max_concurrent_remote_queries_per_replica],
             log);
 }
 
@@ -1181,10 +1180,18 @@ void registerStorageQueryRunner(StorageFactory & factory)
             if (settings[QueryRunnerSetting::max_queue_size].changed)
                 throw Exception(ErrorCodes::BAD_ARGUMENTS, "The 'max_queue_size' setting of the QueryRunner engine does not apply to the 'fibers' scheduler");
         }
-        else if (settings[QueryRunnerSetting::max_concurrent_remote_queries].changed)
-            throw Exception(
-                ErrorCodes::BAD_ARGUMENTS,
-                "The 'max_concurrent_remote_queries' setting of the QueryRunner engine applies only to the 'fibers' scheduler");
+        else
+        {
+            if (settings[QueryRunnerSetting::max_concurrent_remote_queries].changed)
+                throw Exception(
+                    ErrorCodes::BAD_ARGUMENTS,
+                    "The 'max_concurrent_remote_queries' setting of the QueryRunner engine applies only to the 'fibers' scheduler");
+
+            if (settings[QueryRunnerSetting::max_concurrent_remote_queries_per_replica].changed)
+                throw Exception(
+                    ErrorCodes::BAD_ARGUMENTS,
+                    "The 'max_concurrent_remote_queries_per_replica' setting of the QueryRunner engine applies only to the 'fibers' scheduler");
+        }
 
         validateColumns(args.columns);
 
