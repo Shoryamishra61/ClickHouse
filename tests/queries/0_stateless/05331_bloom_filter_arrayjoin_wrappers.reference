@@ -21,6 +21,10 @@ globalNullIn NULL-free RHS prunes at transform_null_in=0	1
 globalNullIn NULL-free RHS prunes at transform_null_in=1	1
 globalNullIn NULL RHS prunes after transform_null_in=0 filters NULL	1
 globalNullIn effective NULL RHS declines at transform_null_in=1	1
+plain GLOBAL IN with NULL RHS declines Bloom pruning without emptyArrayToSingle	1
+plain GLOBAL IN NULL-free RHS prunes without emptyArrayToSingle	1
+plain GLOBAL IN with NULL RHS preserves tuple multiset	1
+plain GLOBAL IN NULL-free RHS preserves tuple multiset	1
 type-changing Dynamic path declines Bloom pruning	1
 tuple generated-default hit declines Bloom pruning	1
 bare GLOBAL IN preserves tuple multiset	1

@@ -287,7 +287,7 @@ bool resolveArrayJoinIndexInput(const RPNBuilderTreeNode & input, const Block & 
 
             result.has_empty_array_to_single = true;
             result.generated_default_type = input_array_type->getNestedType();
-            result.array_cast_targets = std::move(casts_above_default);
+            result.array_cast_targets.swap(casts_above_default);
             current = argument;
             continue;
         }
