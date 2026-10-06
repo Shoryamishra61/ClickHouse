@@ -82,31 +82,42 @@ check_reuse true
 echo "plain PREWHERE entries reused by top k: ${reuse}"
 
 # The same with an explicit `PREWHERE`: the TopK read composes `__topKFilter` into it, so it probes the
-# plain entries under the derived condition of the user `PREWHERE` alone.
-${CLICKHOUSE_CLIENT} --query "SYSTEM CLEAR QUERY CONDITION CACHE"
-for _ in 1 2 3; do
-    ${CLICKHOUSE_CLIENT} --query "
-        SELECT sum(x) FROM tab PREWHERE time >= today() - 100
-        SETTINGS ${settings} FORMAT Null"
-    ${CLICKHOUSE_CLIENT} --query "
-        SELECT x FROM tab PREWHERE time >= today() - 100 ORDER BY time DESC LIMIT 5
-        SETTINGS ${settings} FORMAT Null -- probe reuse explicit prewhere"
-    ${CLICKHOUSE_CLIENT} --query "SYSTEM FLUSH LOGS query_log"
-    reuse=$(${CLICKHOUSE_CLIENT} --query "
-        SELECT ProfileEvents['QueryConditionCacheHits'] > 0
-        FROM system.query_log
-        WHERE event_date >= yesterday() AND event_time >= now() - 600
-            AND type = 'QueryFinish'
-            AND current_database = currentDatabase()
-            AND endsWith(query, '-- probe reuse explicit prewhere')
-        ORDER BY event_time_microseconds DESC
-        LIMIT 1")
-    if [ "${reuse}" == "1" ]; then
-        break
-    fi
+# plain entries under the derived condition of the user `PREWHERE` alone. A multi-conjunct `PREWHERE`
+# is flattened into `and(__topKFilter(...), a, b)`, so the TopK read rebuilds the `and(a, b)` key. It
+# has a `WHERE` too: otherwise the `WHERE` probe (whose filter DAG then holds the `PREWHERE` alone)
+# would hit the entry under the same key and hide a miss of the `PREWHERE` probe.
+check_explicit_prewhere_reuse()
+{
+    local condition=$1
+    local tag=$2
     ${CLICKHOUSE_CLIENT} --query "SYSTEM CLEAR QUERY CONDITION CACHE"
-done
+    for _ in 1 2 3; do
+        ${CLICKHOUSE_CLIENT} --query "
+            SELECT sum(x) FROM tab PREWHERE ${condition}
+            SETTINGS ${settings} FORMAT Null"
+        ${CLICKHOUSE_CLIENT} --query "
+            SELECT x FROM tab PREWHERE ${condition} ORDER BY time DESC LIMIT 5
+            SETTINGS ${settings} FORMAT Null -- probe reuse ${tag}"
+        ${CLICKHOUSE_CLIENT} --query "SYSTEM FLUSH LOGS query_log"
+        reuse=$(${CLICKHOUSE_CLIENT} --query "
+            SELECT ProfileEvents['QueryConditionCacheHits'] > 0
+            FROM system.query_log
+            WHERE event_date >= yesterday() AND event_time >= now() - 600
+                AND type = 'QueryFinish'
+                AND current_database = currentDatabase()
+                AND endsWith(query, '-- probe reuse ${tag}')
+            ORDER BY event_time_microseconds DESC
+            LIMIT 1")
+        if [ "${reuse}" == "1" ]; then
+            break
+        fi
+        ${CLICKHOUSE_CLIENT} --query "SYSTEM CLEAR QUERY CONDITION CACHE"
+    done
+}
+check_explicit_prewhere_reuse "time >= today() - 100" "explicit prewhere"
 echo "plain explicit PREWHERE entries reused by top k: ${reuse}"
+check_explicit_prewhere_reuse "time >= today() - 100 AND x != 7 WHERE x != 9" "explicit multi-conjunct prewhere"
+echo "plain explicit multi-conjunct PREWHERE entries reused by top k: ${reuse}"
 echo -n "explicit PREWHERE top k, same result as without the cache: "
 ${CLICKHOUSE_CLIENT} --query "
     SELECT (SELECT groupArray(x) FROM (SELECT x FROM tab PREWHERE time >= today() - 100 ORDER BY time DESC, x LIMIT 5 SETTINGS ${settings}))

@@ -53,6 +53,8 @@
 #include <DataTypes/DataTypeLowCardinality.h>
 #include <DataTypes/DataTypesNumber.h>
 #include <Functions/FunctionFactory.h>
+#include <Functions/FunctionsLogical.h>
+#include <Functions/IFunctionAdaptors.h>
 #include <Common/logger_useful.h>
 #include <Common/setThreadName.h>
 #include <Common/LoggingFormatStringHelpers.h>
@@ -1642,8 +1644,8 @@ static bool isTopKFilterFunction(const ActionsDAG::Node * node)
 /// in the PREWHERE, `buildTopKDynamicFilterPrewhere` produces `and(__topKFilter(...), <user PREWHERE>)`.
 /// Returns the predicate-only node; the caller turns it into a cache key (which, for a condition
 /// involving the current time, is the hash of the derived deterministic condition, not the node's
-/// own hash).
-static const ActionsDAG::Node * getTopKReusePredicateOnlyNode(const ActionsDAG::Node * node)
+/// own hash). The returned node may be owned by `scratch`, which must outlive its use.
+static const ActionsDAG::Node * getTopKReusePredicateOnlyNode(const ActionsDAG::Node * node, ActionsDAG & scratch)
 {
     if (!node)
         return nullptr;
@@ -1667,14 +1669,17 @@ static const ActionsDAG::Node * getTopKReusePredicateOnlyNode(const ActionsDAG::
 
         /// The common TopK shape is `and(__topKFilter(...), <WHERE-root>)`, where the WHERE root is a
         /// single (possibly nested `and`) node, so stripping the internal `__topKFilter` leaves exactly
-        /// one child whose hash reproduces the key a plain `SELECT ... WHERE <predicate>` wrote. But the
-        /// top-level `and` can also be flattened (`and(__topKFilter, a, b, ...)`), leaving several
-        /// children with no single node to hash; in that case we cannot reproduce a plain-WHERE key, so
-        /// skip the cross-query reuse (a plain multi-conjunct `WHERE` is keyed on its own single
-        /// `and(a, b, ...)` node, which we do not have here).
-        if (where_children.size() != 1)
-            return nullptr;
-        return where_children.front();
+        /// one child whose hash reproduces the key a plain `SELECT ... WHERE <predicate>` wrote.
+        if (where_children.size() == 1)
+            return where_children.front();
+
+        /// The top-level `and` can also be flattened (`buildTopKDynamicFilterPrewhere` turns an explicit
+        /// `PREWHERE a AND b` into `and(__topKFilter(...), a, b)`). A plain read keys its entries on its
+        /// own `and(a, b)` node, so rebuild that node from the remaining children. It gets the default
+        /// name `and(a, b)`, built from the names of the children, like the plain read's conjunction.
+        FunctionOverloadResolverPtr func_builder_and
+            = std::make_unique<FunctionToOverloadResolverAdaptor>(std::make_shared<FunctionAnd>());
+        return &scratch.addFunction(func_builder_and, std::move(where_children), {});
     }
 
     if (isTopKFilterFunction(node))
@@ -1802,7 +1807,8 @@ void MergeTreeDataSelectExecutor::filterPartsByQueryConditionCache(
             /// Only reuse when stripping actually recovered a predicate-only hash. Otherwise the hash
             /// would still carry `__topKFilter` (matching neither a plain `WHERE` entry nor the salted
             /// TopK entry), so probing it would just be wasted cache lookups per part.
-            if (const auto * stripped = getTopKReusePredicateOnlyNode(dag))
+            ActionsDAG scratch;
+            if (const auto * stripped = getTopKReusePredicateOnlyNode(dag, scratch))
             {
                 /// Key the stripped predicate the same way a plain `SELECT ... WHERE` would: through
                 /// the derived deterministic condition when it involves the current time.
@@ -2001,9 +2007,10 @@ void MergeTreeDataSelectExecutor::filterPartsByQueryConditionCache(
                 /// only record granules with no row matching that predicate, so they stay sound for any
                 /// TopK read, also when the TopK-salted entries above cannot be consulted.
                 const ActionsDAG::Node * prewhere_node = outputs;
+                ActionsDAG scratch;
                 if (apply_top_k_salt && !consult_salted)
                 {
-                    prewhere_node = getTopKReusePredicateOnlyNode(outputs);
+                    prewhere_node = getTopKReusePredicateOnlyNode(outputs, scratch);
                     if (!prewhere_node)
                         break;
                 }
