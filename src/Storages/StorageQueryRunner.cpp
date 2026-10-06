@@ -388,9 +388,18 @@ public:
 protected:
     void runJob(const QueryRunnerJob & job)
     {
+        if (shutdown_called)
+            return;
+
         try
         {
-            executeJob(job);
+            auto job_context = makeJobContext(job);
+            QueryScope query_scope = QueryScope::create(job_context);
+
+            if (cluster_name.empty())
+                executeLocally(job, job_context);
+            else
+                executeOnCluster(job, job_context);
         }
         catch (...)
         {
@@ -398,24 +407,10 @@ protected:
         }
     }
 
-    virtual ConnectionPoolPtr createReplicaPool(const Cluster::Address & address, const String & database) = 0;
+    virtual ConnectionPoolPtr createConnectionPool(const Cluster::Address & address, const String & database) = 0;
 
 private:
     virtual void shutdownImpl() = 0;
-
-    void executeJob(const QueryRunnerJob & job)
-    {
-        if (shutdown_called)
-            return;
-
-        auto job_context = makeJobContext(job);
-        QueryScope query_scope = QueryScope::create(job_context);
-
-        if (cluster_name.empty())
-            executeLocally(job, job_context);
-        else
-            executeOnCluster(job, job_context);
-    }
 
     ContextMutablePtr makeJobContext(const QueryRunnerJob & job) const
     {
@@ -533,7 +528,7 @@ private:
         ConnectionPoolPtrs replica_pools;
         replica_pools.reserve(addresses.size());
         for (const auto & address : addresses)
-            replica_pools.push_back(createReplicaPool(address, database));
+            replica_pools.push_back(createConnectionPool(address, database));
 
         const auto connection_pool = std::make_shared<ConnectionPoolWithFailover>(std::move(replica_pools), settings[Setting::load_balancing]);
         pools.emplace(std::pair{shard_num, database}, connection_pool);
@@ -713,7 +708,7 @@ private:
         pool.wait();
     }
 
-    ConnectionPoolPtr createReplicaPool(const Cluster::Address & address, const String & database) override
+    ConnectionPoolPtr createConnectionPool(const Cluster::Address & address, const String & database) override
     {
         return ConnectionPoolFactory::instance().get(
             static_cast<unsigned>(max_concurrent_remote_queries_per_replica),
@@ -757,7 +752,7 @@ public:
 
     void submit(QueryRunnerJob job) override
     {
-        std::lock_guard lock(fibers_mutex);
+        std::lock_guard lock(futures_mutex);
 
         if (fibers_finished)
         {
@@ -766,12 +761,12 @@ public:
         }
 
         /// Reap finished fibers.
-        for (auto it = fibers.begin(); it != fibers.end();)
+        for (auto it = futures.begin(); it != futures.end();)
         {
             int error = 0;
             if (it->isSet(&error))
             {
-                it = fibers.erase(it);
+                it = futures.erase(it);
                 if (error)
                     LOG_ERROR(LogFrequencyLimiter(log, 5), "QueryRunner fiber finished with error code {}.", error);
             }
@@ -781,13 +776,13 @@ public:
             }
         }
 
-        if (max_concurrent_remote_queries && fibers.size() >= max_concurrent_remote_queries)
+        if (max_concurrent_remote_queries && futures.size() >= max_concurrent_remote_queries)
         {
             LOG_ERROR(LogFrequencyLimiter(log, 5), "Too many concurrent queries (max_concurrent_remote_queries = {}), discarding the query", max_concurrent_remote_queries);
             return;
         }
 
-        auto & future = fibers.emplace_back();
+        auto & future = futures.emplace_back();
         try
         {
             const int error = Silk::spawn(
@@ -802,7 +797,7 @@ public:
         }
         catch (...)
         {
-            fibers.pop_back();
+            futures.pop_back();
             throw;
         }
     }
@@ -810,14 +805,14 @@ public:
 private:
     void shutdownImpl() override
     {
-        std::lock_guard lock(fibers_mutex);
+        std::lock_guard lock(futures_mutex);
         fibers_finished = true;
-        for (auto & future : fibers)
+        for (auto & future : futures)
             future.wait();
-        fibers.clear();
+        futures.clear();
     }
 
-    ConnectionPoolPtr createReplicaPool(const Cluster::Address & address, const String & database) override
+    ConnectionPoolPtr createConnectionPool(const Cluster::Address & address, const String & database) override
     {
         return std::make_shared<Silk::ConnectionPool>(
             static_cast<unsigned>(max_concurrent_remote_queries_per_replica),
@@ -841,9 +836,9 @@ private:
 
     const UInt64 max_concurrent_remote_queries;
 
-    std::mutex fibers_mutex;
-    std::list<silk::FiberFuture> fibers TSA_GUARDED_BY(fibers_mutex);
-    bool fibers_finished TSA_GUARDED_BY(fibers_mutex) = false;
+    std::mutex futures_mutex;
+    std::list<silk::FiberFuture> futures TSA_GUARDED_BY(futures_mutex);
+    bool fibers_finished TSA_GUARDED_BY(futures_mutex) = false;
 };
 
 #endif
@@ -979,7 +974,7 @@ StorageQueryRunner::StorageQueryRunner(
         if (!Silk::isFiberSchedulerInitialized())
             throw Exception(
                 ErrorCodes::SUPPORT_IS_DISABLED,
-                "The 'fibers' scheduler of the QueryRunner engine requires the 'allow_experimental_silk_runtime' server setting");
+                "The 'fibers' scheduler of the QueryRunner engine requires the 'enable_silk_runtime' server setting");
 
         dispatcher = std::make_unique<QueryRunnerFiberDispatcher>(
             getContext(),
