@@ -139,9 +139,9 @@ private:
     Chunk takePendingPiece();
 
     /// Runs the queued tasks of `queue`, and of the other queue too when both share a thread pool,
-    /// until nothing is left to run. This is the body of a driver task. `shutdown_` is passed by
-    /// value because the task may still be waiting in the pool when the reader is destroyed.
-    void driveQueue(FFI_VortexTaskQueue queue, std::shared_ptr<ShutdownHelper> shutdown_) noexcept;
+    /// until nothing is left to run. This is the body of a driver task; the caller holds the shared
+    /// lock of `tasks_shutdown`.
+    void driveQueue(FFI_VortexTaskQueue queue) noexcept;
 
     /// How many drivers of `queue` this reader may have running at once.
     size_t maxDrivers(FFI_VortexTaskQueue queue) const;

@@ -190,7 +190,19 @@ void VortexBlockInputFormat::onNotify(FFI_VortexTaskQueue queue) noexcept
 
         try
         {
-            runnerFor(queue)([this, queue, shutdown = tasks_shutdown] { driveQueue(queue, shutdown); });
+            runnerFor(queue)([this, queue, shutdown = tasks_shutdown]
+            {
+                /// After a long wait in the pool the reader may already have been destroyed, so
+                /// `this` is not touched until the shutdown is ruled out. The lock is held for the
+                /// whole run, which is what `stopTasks` waits for.
+                std::shared_lock shutdown_lock(*shutdown, std::try_to_lock);
+                if (!shutdown_lock.owns_lock())
+                {
+                    /// `running_drivers` is left alone: nothing reads it after the shutdown.
+                    return;
+                }
+                driveQueue(queue);
+            });
         }
         catch (...)
         {
@@ -204,16 +216,8 @@ void VortexBlockInputFormat::onNotify(FFI_VortexTaskQueue queue) noexcept
     }
 }
 
-void VortexBlockInputFormat::driveQueue(FFI_VortexTaskQueue queue, std::shared_ptr<ShutdownHelper> shutdown_) noexcept
+void VortexBlockInputFormat::driveQueue(FFI_VortexTaskQueue queue) noexcept
 {
-    /// After a long wait in the pool the reader may already have been destroyed.
-    std::shared_lock shutdown_lock(*shutdown_, std::try_to_lock);
-    if (!shutdown_lock.owns_lock())
-    {
-        /// `running_drivers` is left alone: nothing reads it after the shutdown.
-        return;
-    }
-
     /// With one shared pool the CPU drivers run the reads as well; otherwise a file that got no
     /// I/O drivers of its own would wait for bytes nobody is fetching.
     const bool drive_io = queue == FFI_VortexTaskQueue::IO || !hasSeparateIORunner();
