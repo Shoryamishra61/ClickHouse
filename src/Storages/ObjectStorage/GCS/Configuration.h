@@ -35,6 +35,7 @@ public:
     /// rather than reused.
     void fromDisk(const String & disk_name, ASTs & args, ContextPtr context, bool with_structure) override;
 
+protected:
     /// The inherited parser silently ignores the key-value arguments that only matter to the native
     /// backend (`google_adc_*` and `use_environment_credentials`), which named collections do carry.
     /// Read them on top of it, so that the bare-URL form authenticates the same way.
