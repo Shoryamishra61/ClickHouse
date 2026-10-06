@@ -1479,13 +1479,31 @@ ColumnsStatistics IMergeTreeDataPart::loadStatistics(const NameSet & required_co
                 files_to_load.emplace_back(std::move(filename), column_desc);
     }
 
+    /// `clearCaches` is one-shot: once it has run, nothing evicts the entries of this part again,
+    /// so a part whose caches are cleared must not fill the cache any more.
+    if (cleared_data_in_caches)
+        cache = nullptr;
+
     const String part_path = cache ? getPathForCacheKey() : "";
 
     ColumnsStatistics result;
     for (const auto & [filename, column_desc] : files_to_load)
     {
         auto load = [&] { return loadStatisticsFile(packed_reader, filename, *column_desc); };
-        auto cell = cache ? cache->getOrSet(StatisticsCache::hash(part_path, column_desc->name), load) : load();
+        StatisticsCache::MappedPtr cell;
+        if (cache)
+        {
+            const auto key = StatisticsCache::hash(part_path, column_desc->name);
+            cell = cache->getOrSet(key, load);
+            /// `clearCaches` sets the flag before it removes the entries, so if it ran concurrently
+            /// with the insertion above, either its removal comes after the insertion or the flag is
+            /// already visible here.
+            if (cleared_data_in_caches)
+                cache->remove(key);
+        }
+        else
+            cell = load();
+
         if (cell->stats)
             result.emplace(column_desc->name, cell->stats);
     }
