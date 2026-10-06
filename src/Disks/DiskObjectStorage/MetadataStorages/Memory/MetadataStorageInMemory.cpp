@@ -22,6 +22,7 @@ namespace ErrorCodes
     extern const int DIRECTORY_DOESNT_EXIST;
     extern const int CANNOT_RMDIR;
     extern const int LOGICAL_ERROR;
+    extern const int NOT_IMPLEMENTED;
 }
 
 MetadataStorageInMemory::MetadataStorageInMemory(
@@ -986,7 +987,16 @@ void MetadataStorageInMemoryTransaction::addBlobToMetadata(const std::string & p
         /// later read of the file would fail with `FILE_DOESNT_EXIST`. The file entry itself is
         /// still created above: the first append must materialize the file even when it is empty.
         if (object.bytes_size > 0)
+        {
+            /// Inline data and backing objects are mutually exclusive representations of the file
+            /// content (`DiskObjectStorage::prepareRead` asserts this). The inline payload cannot be
+            /// moved into a blob from the metadata layer, and keeping both would make reads return
+            /// only the stale inline prefix, so reject appending to an inline-backed file.
+            if (!entry->blob_group->inline_data.empty())
+                throw Exception(ErrorCodes::NOT_IMPLEMENTED,
+                    "Cannot append to file {}: its content is stored inline in the metadata", path);
             entry->blob_group->objects.push_back(object);
+        }
         entry->blob_group->last_modified = Poco::Timestamp();
     });
 }

@@ -825,3 +825,27 @@ TEST_F(DiskObjectStorageOverInMemoryMetadataTest, SmallRewriteIsInlined)
     EXPECT_EQ(readThroughDisk("big.bin"), "short");
     EXPECT_EQ(disk->getFileSize("big.bin"), 5u);
 }
+
+/// Appending to an inline-backed file would leave both the inline payload and a blob as the file
+/// content, so the append is rejected and the file keeps its inline content.
+TEST_F(DiskObjectStorageOverInMemoryMetadataTest, AppendToInlinedFileIsRejected)
+{
+    DB::WriteSettings settings;
+    settings.inline_file_max_bytes = 16;
+
+    {
+        auto buf = disk->writeFile("small.txt", 4096, DB::WriteMode::Rewrite, settings);
+        DB::writeString("tiny", *buf);
+        buf->finalize();
+    }
+    ASSERT_EQ(metadata->readInlineDataToString("small.txt"), "tiny");
+
+    EXPECT_ANY_THROW({
+        auto buf = disk->writeFile("small.txt", 4096, DB::WriteMode::Append, settings);
+        DB::writeString("-more", *buf);
+        buf->finalize();
+    });
+
+    EXPECT_TRUE(metadata->getStorageObjects("small.txt").empty());
+    EXPECT_EQ(readThroughDisk("small.txt"), "tiny");
+}
