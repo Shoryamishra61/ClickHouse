@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Tags: no-fasttest
 # Avro has a single `uuid` logical type for both `UUID` and `UUID2`, so the writer records the paths of the
 # `UUID2` values in the file metadata, and schema inference reads them back as `UUID2` without an explicit structure.
 
