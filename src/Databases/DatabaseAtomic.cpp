@@ -218,7 +218,7 @@ void DatabaseAtomic::dropTableImpl(ContextPtr local_context, const String & tabl
         table = getTableUnlocked(table_name);
         table_metadata_path_drop = DatabaseCatalog::instance().getPathForDroppedMetadata(table->getStorageID());
 
-        db_disk->createDirectories(pathToGenericString(fs::path(table_metadata_path_drop).parent_path()));
+        db_disk->createDirectories(pathToGenericString(pathFromString(table_metadata_path_drop).parent_path()));
 
         auto txn = local_context->getZooKeeperMetadataTransaction();
         if (txn && !local_context->isInternalSubquery())
@@ -570,7 +570,7 @@ void DatabaseAtomic::beforeLoadingMetadata(ContextMutablePtr /*context*/, Loadin
     /// Recreate symlinks to table data dirs in case of force restore, because some of them may be broken
     for (const auto it = db_disk->iterateDirectory(pathToGenericString(path_to_table_symlinks)); it->isValid(); it->next())
     {
-        auto table_path = fs::path(it->path());
+        auto table_path = pathFromString(it->path());
         if (table_path.filename().empty())
             table_path = table_path.parent_path();
         if (!db_disk->isSymlink(pathToGenericString(table_path)))
@@ -652,7 +652,7 @@ void DatabaseAtomic::tryCreateSymlink(const StoragePtr & table, bool if_data_pat
     if (table->getDataPaths().empty())
         return;
 
-    const auto table_data_path = fs::path(table->getDataPaths().front()).lexically_normal();
+    const auto table_data_path = pathFromString(table->getDataPaths().front()).lexically_normal();
 
     try
     {

@@ -771,7 +771,7 @@ void DatabaseOnDisk::iterateMetadataFiles(const IteratingFunction & process_meta
         static const char * tmp_drop_ext = ".sql.tmp_drop";
         const std::string object_name = file_name.substr(0, file_name.size() - strlen(tmp_drop_ext));
 
-        if (db_disk->existsFileOrDirectory(pathToGenericString(fs::path(data_path) / object_name)))
+        if (db_disk->existsFileOrDirectory(pathToGenericString(pathFromString(data_path) / pathFromString(object_name))))
         {
             db_disk->replaceFile(getMetadataPath() + file_name, getMetadataPath() + object_name + ".sql");
             LOG_WARNING(log, "Object {} was not dropped previously and will be restored", backQuote(object_name));
@@ -789,7 +789,7 @@ void DatabaseOnDisk::iterateMetadataFiles(const IteratingFunction & process_meta
 
     for (const auto it = db_disk->iterateDirectory(metadata_path); it->isValid(); it->next())
     {
-        auto sub_path = fs::path(it->path());
+        auto sub_path = pathFromString(it->path());
         String file_name = it->name();
         /// For '.svn', '.gitignore' directory and similar.
         if (!file_name.empty() && file_name.at(0) == '.')
@@ -811,13 +811,13 @@ void DatabaseOnDisk::iterateMetadataFiles(const IteratingFunction & process_meta
         else if (endsWith(file_name, ".tmp_move_from") || endsWith(file_name, ".tmp_move_to"))
         {
             /// There are temp files generated in MetadataStorageFromPlainObjectStorageMoveFileOperation
-            LOG_INFO(log, "Removing file {}", sub_path.string());
+            LOG_INFO(log, "Removing file {}", pathToString(sub_path));
             db_disk->removeFileIfExists(pathToGenericString(sub_path));
         }
         else if (endsWith(file_name, ".sql.tmp"))
         {
             /// There are files .sql.tmp - delete
-            LOG_INFO(log, "Removing file {}", sub_path.string());
+            LOG_INFO(log, "Removing file {}", pathToString(sub_path));
             db_disk->removeFileIfExists(pathToGenericString(sub_path));
         }
         else if (endsWith(file_name, ".sql"))
@@ -922,7 +922,7 @@ ASTPtr DatabaseOnDisk::parseQueryFromMetadata(
     auto & create = ast->as<ASTCreateQuery &>();
     if (create.table && create.uuid != UUIDHelpers::Nil)
     {
-        String table_name = unescapeForFileName(pathToGenericString(fs::path(metadata_file_path).stem()));
+        String table_name = unescapeForFileName(pathToGenericString(pathFromString(metadata_file_path).stem()));
 
         if (create.getTable() != TABLE_WITH_UUID_NAME_PLACEHOLDER && logger)
             LOG_WARNING(

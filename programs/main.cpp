@@ -1,3 +1,4 @@
+#include <base/pathToString.h>
 #include <base/phdr_cache.h>
 #include <base/scope_guard.h>
 #include <base/defines.h>
@@ -540,7 +541,7 @@ int main(int argc_, char ** argv_)
     if (main_func == printHelpOnError && !argv.empty()
         && (argv.size() < 2 || argv[1] != std::string_view("--help"))
         && (argv.size() == 1 || argv[1][0] == '-' || std::string_view(argv[1]).contains(' ')
-            || std::filesystem::is_regular_file(std::filesystem::path{argv[1]}, ec)))
+            || std::filesystem::is_regular_file(pathFromString(argv[1]), ec)))
     {
         main_func = mainEntryClickHouseLocal;
     }
