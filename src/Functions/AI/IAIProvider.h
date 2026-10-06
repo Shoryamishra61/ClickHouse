@@ -69,6 +69,10 @@ struct AIRequest
     /// `current_query_id` of the query (or the background mutation task) that produced this request.
     /// Emitted by OpenAIProvider as the `X-ClickHouse-Query-Id` header when non-empty; ignored by other providers.
     String query_id;
+
+    /// `initial_query_id` of the query that produced this request. Same on every shard of a distributed query; empty for a background mutation.
+    /// Emitted by OpenAIProvider as the `X-ClickHouse-Initial-Query-Id` header when non-empty; ignored by other providers.
+    String initial_query_id;
 };
 
 /// Canonical, provider-independent reason the model stopped generating. Each provider maps its
@@ -125,6 +129,10 @@ struct AIEmbeddingRequest
     /// `current_query_id` of the query (or the background mutation task) that produced this request.
     /// Emitted by OpenAIProvider as the `X-ClickHouse-Query-Id` header when non-empty; ignored by other providers.
     String query_id;
+
+    /// `initial_query_id` of the query that produced this request. Same on every shard of a distributed query; empty for a background mutation.
+    /// Emitted by OpenAIProvider as the `X-ClickHouse-Initial-Query-Id` header when non-empty; ignored by other providers.
+    String initial_query_id;
 };
 
 /// Response from a single embedding request. `embeddings` is aligned 1:1 with `AIEmbeddingRequest::inputs`.

@@ -1792,8 +1792,9 @@ def test_function_name_header(started_cluster):
 
 def test_query_id_header(started_cluster):
     """The OpenAI provider sends the `query_id` of the query that makes the request as the
-    `X-ClickHouse-Query-Id` header: on a remote shard it is the shard's own query id, whose
-    `initial_query_id` is the initiator's one. Covers the chat and the embedding paths."""
+    `X-ClickHouse-Query-Id` header and its `initial_query_id` as the `X-ClickHouse-Initial-Query-Id` header:
+    on a remote shard the first is the shard's own query id, the second is the initiator's one.
+    Covers the chat and the embedding paths."""
     local_cases = [
         "SELECT aiGenerate('hi', map('credentials', 'ai_mock'))",
         "SELECT aiEmbed('hi', 'test-embed-model', map('credentials', 'ai_embed'))",
@@ -1801,7 +1802,9 @@ def test_query_id_header(started_cluster):
     for i, query in enumerate(local_cases):
         qid = unique_query_id(f"query_id_header_{i}")
         instance.query(query, query_id=qid)
-        assert last_request()["headers"].get("x-clickhouse-query-id") == qid
+        headers = last_request()["headers"]
+        assert headers.get("x-clickhouse-query-id") == qid
+        assert headers.get("x-clickhouse-initial-query-id") == qid
 
     remote_cases = [
         "SELECT aiGenerate(toString(dummy), map('credentials', 'ai_mock')) FROM remote('127.0.0.2', system.one)",
@@ -1810,8 +1813,10 @@ def test_query_id_header(started_cluster):
     for i, query in enumerate(remote_cases):
         qid = unique_query_id(f"query_id_header_remote_{i}")
         instance.query(query, query_id=qid)
-        sent_query_id = last_request()["headers"].get("x-clickhouse-query-id")
+        headers = last_request()["headers"]
+        sent_query_id = headers.get("x-clickhouse-query-id")
         assert sent_query_id and sent_query_id != qid
+        assert headers.get("x-clickhouse-initial-query-id") == qid
         instance.query("SYSTEM FLUSH LOGS query_log")
         assert (
             instance.query(
@@ -1829,8 +1834,29 @@ def test_query_id_header(started_cluster):
         settings={"mutations_sync": 2, "allow_nondeterministic_mutations": 1},
     )
     table_uuid = instance.query("SELECT uuid FROM system.tables WHERE database = 'default' AND name = 'query_id_header'").strip()
-    assert last_request()["headers"].get("x-clickhouse-query-id") == f"{table_uuid}::all_1_1_0_2"
+    headers = last_request()["headers"]
+    assert headers.get("x-clickhouse-query-id") == f"{table_uuid}::all_1_1_0_2"
+    assert "x-clickhouse-initial-query-id" not in headers
     instance.query("DROP TABLE query_id_header SYNC")
+
+
+def test_query_id_header_control_characters(started_cluster):
+    """A query id from the native protocol can contain control characters. They are removed from the
+    `X-ClickHouse-Query-Id` and `X-ClickHouse-Initial-Query-Id` headers, so no extra header is injected."""
+    suffix = uuid.uuid4().hex[:8]
+    qid = f"query_id_crlf_{suffix}\r\nX-Injected: 1"
+    instance.query("SELECT aiGenerate('hi', map('credentials', 'ai_mock'))", query_id=qid)
+    instance.query("SYSTEM FLUSH LOGS query_log")
+    assert (
+        instance.query(
+            f"SELECT count() FROM system.query_log WHERE query_id = 'query_id_crlf_{suffix}\\r\\nX-Injected: 1' AND type = 'QueryFinish'"
+        ).strip()
+        == "1"
+    )
+    headers = last_request()["headers"]
+    assert headers.get("x-clickhouse-query-id") == f"query_id_crlf_{suffix}X-Injected: 1"
+    assert headers.get("x-clickhouse-initial-query-id") == f"query_id_crlf_{suffix}X-Injected: 1"
+    assert "x-injected" not in headers
 
 
 def test_embed_retry_respects_api_call_quota(started_cluster):
