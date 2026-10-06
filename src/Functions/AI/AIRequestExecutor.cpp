@@ -104,6 +104,7 @@ bool isThrottledProviderError(std::exception_ptr exception)
     }
     catch (...)
     {
+        /// Ok: any other exception is not a rate limit.
         return false;
     }
 }
