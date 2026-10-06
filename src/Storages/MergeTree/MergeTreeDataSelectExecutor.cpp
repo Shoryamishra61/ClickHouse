@@ -1636,9 +1636,10 @@ static bool isTopKFilterFunction(const ActionsDAG::Node * node)
         && node->function_base->getName() == "__topKFilter";
 }
 
-/// Plain `SELECT ... WHERE <predicate>` entries are keyed on `<predicate>` alone, so strip internal
-/// TopK nodes before probing reuse. `__topKFilter` is merged into the PREWHERE after the pass that
-/// builds this DAG, so the shapes stripped here no longer originate from that optimizer path.
+/// Plain `SELECT ... WHERE <predicate>` (or `PREWHERE <predicate>`) entries are keyed on `<predicate>`
+/// alone, so strip internal TopK nodes before probing reuse. In the WHERE DAG, `__topKFilter` no longer
+/// originates from the optimizer (it is merged into the PREWHERE after the pass that builds that DAG);
+/// in the PREWHERE, `buildTopKDynamicFilterPrewhere` produces `and(__topKFilter(...), <user PREWHERE>)`.
 /// Returns the predicate-only node; the caller turns it into a cache key (which, for a condition
 /// involving the current time, is the hash of the derived deterministic condition, not the node's
 /// own hash).
@@ -1793,7 +1794,10 @@ void MergeTreeDataSelectExecutor::filterPartsByQueryConditionCache(
         size_t condition_hash = queryConditionCacheHash(derived ? derived->hash : dag->getHash(), settings_salt);
         size_t topk_reuse_predicate_only_hash = 0;
         bool has_topk_reuse_predicate_only_hash = false;
-        if (apply_top_k_salt && !prewhere_top_k_salt && top_k_filter_info && top_k_filter_info->where_clause)
+        /// The same applies to a TopK-salted PREWHERE: `buildTopKDynamicFilterPrewhere` rewrites an explicit
+        /// user PREWHERE to `and(__topKFilter(...), <user predicate>)`, while a plain read of the same
+        /// PREWHERE records its entries under `<user predicate>` alone.
+        if (apply_top_k_salt && top_k_filter_info && (prewhere_top_k_salt || top_k_filter_info->where_clause))
         {
             /// Only reuse when stripping actually recovered a predicate-only hash. Otherwise the hash
             /// would still carry `__topKFilter` (matching neither a plain `WHERE` entry nor the salted
@@ -1978,20 +1982,32 @@ void MergeTreeDataSelectExecutor::filterPartsByQueryConditionCache(
                 /// The threshold is derived from rows passing the post-PREWHERE filter. It cannot
                 /// be reused when that filter is non-deterministic, even if its structural hash is
                 /// unchanged between executions.
+                bool consult_salted = apply_top_k_salt;
                 if (apply_top_k_salt && (!allow_top_k_prewhere_query_condition_cache
                     || (select_query_info.filter_actions_dag
                     && !VirtualColumnUtils::isDeterministicAllowingTopKFilter(select_query_info.filter_actions_dag->getOutputs().front()))
                     ))
-                    break;
+                    consult_salted = false;
                 /// The dynamic `TopK` threshold is computed after row policies are applied, but these
                 /// `PREWHERE` cache entries are shared across users. The write path already avoids
                 /// recording row-policy-filtered marks; also avoid reusing marks recorded by an
                 /// unrestricted user before a restrictive policy gets a chance to filter rows.
                 if (apply_top_k_salt && select_query_info.row_level_filter)
-                    break;
+                    consult_salted = false;
                 if (apply_top_k_salt && !consult_top_k_entries)
-                    break;
-                auto stats = drop_mark_ranges(outputs, apply_top_k_salt, /*prewhere_top_k_salt=*/apply_top_k_salt);
+                    consult_salted = false;
+
+                /// Entries written by plain reads of the user PREWHERE predicate (without `__topKFilter`)
+                /// only record granules with no row matching that predicate, so they stay sound for any
+                /// TopK read, also when the TopK-salted entries above cannot be consulted.
+                const ActionsDAG::Node * prewhere_node = outputs;
+                if (apply_top_k_salt && !consult_salted)
+                {
+                    prewhere_node = getTopKReusePredicateOnlyNode(outputs);
+                    if (!prewhere_node)
+                        break;
+                }
+                auto stats = drop_mark_ranges(prewhere_node, consult_salted, /*prewhere_top_k_salt=*/consult_salted);
                 LOG_DEBUG(log,
                         "Query condition cache has dropped {}/{} granules for PREWHERE condition {}.",
                         stats.granules_dropped,

@@ -81,6 +81,37 @@ echo "plain WHERE entries reused by top k: ${reuse}"
 check_reuse true
 echo "plain PREWHERE entries reused by top k: ${reuse}"
 
+# The same with an explicit `PREWHERE`: the TopK read composes `__topKFilter` into it, so it probes the
+# plain entries under the derived condition of the user `PREWHERE` alone.
+${CLICKHOUSE_CLIENT} --query "SYSTEM CLEAR QUERY CONDITION CACHE"
+for _ in 1 2 3; do
+    ${CLICKHOUSE_CLIENT} --query "
+        SELECT sum(x) FROM tab PREWHERE time >= today() - 100
+        SETTINGS ${settings} FORMAT Null"
+    ${CLICKHOUSE_CLIENT} --query "
+        SELECT x FROM tab PREWHERE time >= today() - 100 ORDER BY time DESC LIMIT 5
+        SETTINGS ${settings} FORMAT Null -- probe reuse explicit prewhere"
+    ${CLICKHOUSE_CLIENT} --query "SYSTEM FLUSH LOGS query_log"
+    reuse=$(${CLICKHOUSE_CLIENT} --query "
+        SELECT ProfileEvents['QueryConditionCacheHits'] > 0
+        FROM system.query_log
+        WHERE event_date >= yesterday() AND event_time >= now() - 600
+            AND type = 'QueryFinish'
+            AND current_database = currentDatabase()
+            AND endsWith(query, '-- probe reuse explicit prewhere')
+        ORDER BY event_time_microseconds DESC
+        LIMIT 1")
+    if [ "${reuse}" == "1" ]; then
+        break
+    fi
+    ${CLICKHOUSE_CLIENT} --query "SYSTEM CLEAR QUERY CONDITION CACHE"
+done
+echo "plain explicit PREWHERE entries reused by top k: ${reuse}"
+echo -n "explicit PREWHERE top k, same result as without the cache: "
+${CLICKHOUSE_CLIENT} --query "
+    SELECT (SELECT groupArray(x) FROM (SELECT x FROM tab PREWHERE time >= today() - 100 ORDER BY time DESC, x LIMIT 5 SETTINGS ${settings}))
+        = (SELECT groupArray(x) FROM (SELECT x FROM tab PREWHERE time >= today() - 100 ORDER BY time DESC, x LIMIT 5 SETTINGS use_query_condition_cache = 0))"
+
 # With the setting disabled, a TopK read of a condition involving the current time is not cached.
 ${CLICKHOUSE_CLIENT} --query "SYSTEM CLEAR QUERY CONDITION CACHE"
 ${CLICKHOUSE_CLIENT} --query "
