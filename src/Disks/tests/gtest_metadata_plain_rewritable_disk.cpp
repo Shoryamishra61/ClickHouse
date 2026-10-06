@@ -39,6 +39,7 @@ namespace ProfileEvents
 {
     extern const Event MetadataTransactionRollbacks;
     extern const Event MetadataTransactionRollbacksFailed;
+    extern const Event DiskPlainRewritableUndoStageRetries;
 }
 
 class MetadataPlainRewritableDiskTest : public testing::Test
@@ -3643,7 +3644,7 @@ public:
         const WriteSettings & write_settings,
         std::optional<ObjectAttributes> object_to_attributes) override
     {
-        if (object_from.remote_path == before_copy_of)
+        if (!before_copy_of.empty() && object_from.remote_path.starts_with(before_copy_of))
             before_copy();
         if (!exists(object_from))
             throw std::runtime_error("The source object does not exist");
@@ -3671,7 +3672,7 @@ public:
     /// The removal of this key fails.
     std::string fail_remove_of;
 
-    /// Runs before the copy of this key, as an outside deleter does.
+    /// Runs before a copy from a key with this prefix, as an outside deleter does.
     std::string before_copy_of;
     std::function<void()> before_copy;
 };
@@ -3860,4 +3861,53 @@ TEST_F(MetadataPlainRewritableDiskTest, MoveTargetBackupRemovedDuringTransaction
 
     /// The error is foreign, so the report of the rollback goes only to the log; the counter says that it stopped.
     EXPECT_EQ(ProfileEvents::global_counters[ProfileEvents::MetadataTransactionRollbacksFailed] - failed_rollbacks_before, 1u);
+}
+
+/// The temporary key goes between the probe of a restore stage and its copy: the next attempt probes again and stops.
+TEST_F(MetadataPlainRewritableDiskTest, TemporaryKeyRemovedDuringUndo)
+{
+    thread_local_rng.seed(42);
+
+    const std::string key_prefix = "TemporaryKeyRemovedDuringUndo";
+    fs::remove_all("./" + key_prefix);
+    SCOPE_EXIT(fs::remove_all("./" + key_prefix));
+
+    auto object_storage = std::make_shared<LocalObjectStorageWithForeignErrors>(
+        LocalObjectStorageSettings("test", "./" + key_prefix, /*read_only_=*/false));
+    auto metadata = std::make_shared<MetadataStorageFromPlainRewritableObjectStorage>(object_storage, "", /*hard_links_enabled_=*/ false);
+    SCOPE_EXIT(object_storage->shutdown());
+    SCOPE_EXIT(metadata->shutdown());
+
+    {
+        auto tx = metadata->createTransaction();
+        tx->createDirectory("/A");
+        auto a_size = writeObject(object_storage, tx->generateObjectKeyForPath("/A/a").serialize(), "file a");
+        tx->createMetadataFile("/A/a", {StoredObject("/A/a", "a", a_size)});
+        auto b_size = writeObject(object_storage, tx->generateObjectKeyForPath("/A/b").serialize(), "file b");
+        tx->createMetadataFile("/A/b", {StoredObject("/A/b", "b", b_size)});
+        tx->commit(DB::NoCommitOptions{});
+    }
+
+    /// The unlink of `b` fails, so the unlink of `a` restores its blob from the temporary key, which goes right before the copy.
+    object_storage->removeObjectIfExists(StoredObject(metadata->getStorageObjects("/A/b").front().remote_path));
+    object_storage->before_copy_of = "./" + key_prefix + "/__root/";
+    object_storage->before_copy = [&] { for (const auto & blob : listAllBlobs(key_prefix + "/__root")) fs::remove(blob); };
+    const auto retries_before = ProfileEvents::global_counters[ProfileEvents::DiskPlainRewritableUndoStageRetries];
+
+    auto tx = metadata->createTransaction();
+    tx->unlinkFile("/A/a", /*if_exists=*/false, /*should_remove_objects=*/true);
+    tx->unlinkFile("/A/b", /*if_exists=*/false, /*should_remove_objects=*/true);
+    try
+    {
+        tx->commit(DB::NoCommitOptions{});
+        ADD_FAILURE() << "The commit of a transaction that needs a missing blob succeeded";
+    }
+    catch (const Exception & e)
+    {
+        EXPECT_EQ(e.code(), ErrorCodes::CORRUPTED_DATA) << e.message();
+        EXPECT_THAT(e.message(), testing::HasSubstr("Cannot restore the blob of the file '/A/a'"));
+        EXPECT_THAT(e.message(), testing::HasSubstr("did not complete"));
+    }
+
+    EXPECT_EQ(ProfileEvents::global_counters[ProfileEvents::DiskPlainRewritableUndoStageRetries] - retries_before, 1u);
 }
