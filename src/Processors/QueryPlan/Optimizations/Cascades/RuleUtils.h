@@ -21,11 +21,8 @@ struct OptimizerContext;
 
 /// Helpers shared by the optimization rules.
 
-/// Whether a group's result may be copied to every node under the context's byte budget: its
-/// estimated rows when they are known, its proven bound when they are not, times the row width.
-/// A replication that repeats the scan on every node (a replicated read or subplan) also has to
-/// fit the bytes it scans; a broadcast reads once and ships the result, so it does not. Logs the
-/// decision with its inputs under `rule_name`.
+/// `decideReplication` for a group's result under the context's byte budget; a replication that
+/// repeats the scan on every node also has to fit the bytes it scans. Logs the decision under `rule_name`.
 ReplicationDecision decideReplicationOf(const Group & group, const OptimizerContext & context, const String & rule_name, bool repeats_scan);
 
 /// A Full sort with a limit is a top-N: it reduces rows, so it stays in the memo as an operator

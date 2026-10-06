@@ -11,45 +11,31 @@
 namespace DB::QueryPlanOptimizations
 {
 
-GroupCountEstimate estimateGroupCount(
-    const std::vector<UInt64> & key_distinct_values, std::optional<UInt64> rows, std::optional<UInt64> max_rows, bool damped_product)
+GroupCountEstimate estimateGroupCount(const std::vector<UInt64> & key_distinct_values, std::optional<UInt64> rows, std::optional<UInt64> max_rows)
 {
-    /// No keys: one group.
     if (key_distinct_values.empty())
         return GroupCountEstimate{.estimated_rows = 1, .max_rows = 1};
 
-    std::vector<UInt64> known;
-    for (UInt64 distinct_values : key_distinct_values)
-        if (distinct_values != 0)
-            known.push_back(distinct_values);
-
     GroupCountEstimate result;
-    if (!known.empty())
-    {
-        std::sort(known.begin(), known.end(), std::greater<>());
-        if (damped_product)
-        {
-            double damped = 1.0;
-            double exponent = 1.0;
-            for (UInt64 distinct_values : known)
-            {
-                damped *= std::pow(static_cast<double>(distinct_values), exponent);
-                exponent /= 2;
-            }
-            result.estimated_rows = roundToRowCount(damped);
-        }
-        else
-        {
-            result.estimated_rows = known.front();
-        }
-    }
-    if (result.estimated_rows && rows)
-        result.estimated_rows = std::min(*result.estimated_rows, *rows);
-    /// The NDVs are sketches and models, not proofs, so their product does not tighten the bound:
-    /// a group count can exceed it when a sketch undercounts, and the bound is what admits a
-    /// replication.
+    const UInt64 largest = *std::max_element(key_distinct_values.begin(), key_distinct_values.end());
+    if (largest != 0)
+        result.estimated_rows = rows ? std::min(largest, *rows) : largest;
     result.max_rows = max_rows;
     return result;
+}
+
+UInt64 keyDistinctValuesOrRows(const RelationStats & relation, const String & column)
+{
+    if (auto it = relation.column_stats.find(column); it != relation.column_stats.end() && it->second.num_distinct_values > 0)
+        return it->second.num_distinct_values;
+    return relation.estimated_rows.value_or(0);
+}
+
+UInt64 keyDomain(const RelationStats & relation, const String & column)
+{
+    if (auto it = relation.column_stats.find(column); it != relation.column_stats.end())
+        return it->second.domain_distinct_values;
+    return 0;
 }
 
 void addUnionColumnStats(
@@ -67,10 +53,9 @@ void addUnionColumnStats(
         const UInt64 other_distinct_values = other_column == other.end() ? 0 : other_column->second.num_distinct_values;
         auto & stats = result_column->second;
         /// The values of the union are at most the values of the inputs together; unknown when an input's are.
-        if (stats.num_distinct_values == 0 || other_distinct_values == 0)
-            stats.num_distinct_values = 0;
-        else if (__builtin_add_overflow(stats.num_distinct_values, other_distinct_values, &stats.num_distinct_values))
-            stats.num_distinct_values = std::numeric_limits<UInt64>::max();
+        stats.num_distinct_values = stats.num_distinct_values == 0 || other_distinct_values == 0
+            ? 0
+            : saturatingAdd(stats.num_distinct_values, other_distinct_values);
         if (other_column != other.end())
             stats.domain_distinct_values = std::max(stats.domain_distinct_values, other_column->second.domain_distinct_values);
     }
@@ -108,24 +93,6 @@ std::optional<double> keyContainment(UInt64 side_distinct_values, UInt64 other_d
     if (domain_distinct_values >= other_distinct_values)
         return static_cast<double>(other_distinct_values) / static_cast<double>(domain_distinct_values);
     return 1.0;
-}
-
-double combineKeySelectivities(std::vector<double> selectivities, bool exponential_backoff)
-{
-    if (selectivities.empty())
-        return 1.0;
-    if (!exponential_backoff)
-        return *std::min_element(selectivities.begin(), selectivities.end());
-    std::sort(selectivities.begin(), selectivities.end());
-
-    double result = 1.0;
-    double exponent = 1.0;
-    for (size_t i = 0; i < selectivities.size() && i < 4; ++i)
-    {
-        result *= std::pow(selectivities[i], exponent);
-        exponent /= 2;
-    }
-    return result;
 }
 
 void updateJoinKeyDistinctCounts(

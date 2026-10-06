@@ -102,8 +102,8 @@ JoinKeyEstimate computeSelectivity(
     const BitSet & left,
     const BitSet & right)
 {
-    JoinKeyFactors factors;
-    collectEdgeFactors(query_graph, dp_table, expression_selectivity, edges, left, factors);
+    JoinKeyEstimate keys;
+    collectEdgeKeys(query_graph, dp_table, expression_selectivity, edges, left, keys);
 
     /// One factor per equivalence class with members on both sides: the maximum NDV over the
     /// members of each side, as evaluating every (left member, right member) pair and taking the
@@ -145,10 +145,10 @@ JoinKeyEstimate computeSelectivity(
             }
         }
         if (has_left && has_right && std::max(left_distinct_values, right_distinct_values) > 0)
-            factors.add(left_distinct_values, right_distinct_values, domain_distinct_values);
+            keys.add(left_distinct_values, right_distinct_values, domain_distinct_values);
     }
 
-    return JoinKeyEstimate::combine(std::move(factors), query_graph.join_selectivity_exponential_backoff);
+    return keys;
 }
 
 }

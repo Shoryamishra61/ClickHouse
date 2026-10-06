@@ -38,24 +38,4 @@ TEST(GroupCountEstimate, SharedFormula)
     EXPECT_EQ(unknown_rows.estimated_rows, 100);
     EXPECT_EQ(unknown_rows.max_rows, std::nullopt);
 
-    /// Huge NDVs saturate the estimate instead of wrapping.
-    constexpr UInt64 big = UInt64(1) << 40;
-    auto saturated = estimateGroupCount({big, big}, std::nullopt, std::nullopt, true);
-    EXPECT_EQ(saturated.estimated_rows, UInt64(1) << 60);
-    EXPECT_EQ(saturated.max_rows, std::nullopt);
-}
-
-TEST(GroupCountEstimate, DampedProduct)
-{
-    /// Sorted from the largest NDV, the keys take the exponents 1, 1/2, 1/4, ...; unknown keys
-    /// contribute nothing; the rows cap the result.
-    EXPECT_EQ(estimateGroupCount({100}, 100000, 100000, true).estimated_rows, 100);
-    EXPECT_EQ(estimateGroupCount({50, 100}, 100000, 100000, true).estimated_rows, 707);
-    EXPECT_EQ(estimateGroupCount({100, 50}, 100000, 100000, true).estimated_rows, 707);
-    EXPECT_EQ(estimateGroupCount({16, 16, 16}, 100000, 100000, true).estimated_rows, 128);
-    EXPECT_EQ(estimateGroupCount({0, 100, 50}, 100000, 100000, true).estimated_rows, 707);
-    EXPECT_EQ(estimateGroupCount({100, 50}, 300, 300, true).estimated_rows, 300);
-    EXPECT_EQ(estimateGroupCount({0, 0}, 100000, 100000, true).estimated_rows, std::nullopt);
-    /// The bound does not depend on the model.
-    EXPECT_EQ(estimateGroupCount({100, 50}, 100000, 100000, true).max_rows, 100000);
 }

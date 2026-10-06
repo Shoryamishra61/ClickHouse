@@ -1,8 +1,6 @@
 #include <gtest/gtest.h>
 
-#include <cmath>
-
-#include <Processors/QueryPlan/Optimizations/RelationStatistics.h>
+#include <Processors/QueryPlan/Optimizations/joinOrderCommon.h>
 
 using namespace DB;
 using namespace DB::QueryPlanOptimizations;
@@ -16,19 +14,20 @@ TEST(KeySelectivity, EqualityFromKnownDistinctValues)
     EXPECT_DOUBLE_EQ(*equalitySelectivity(100, 1000), 0.001);
 }
 
-TEST(KeySelectivity, CombineMostSelectiveOrExponentialBackoff)
+TEST(KeySelectivity, MostSelectiveKeyDecides)
 {
-    EXPECT_DOUBLE_EQ(combineKeySelectivities({}, false), 1.0);
-    EXPECT_DOUBLE_EQ(combineKeySelectivities({}, true), 1.0);
-    EXPECT_DOUBLE_EQ(combineKeySelectivities({0.1}, true), 0.1);
+    /// No predicates: everything matches. Several keys: the most selective one decides, and the
+    /// smallest containment of each side.
+    JoinKeyEstimate none;
+    EXPECT_DOUBLE_EQ(none.selectivity, 1.0);
+    EXPECT_DOUBLE_EQ(none.left_match_fraction, 1.0);
 
-    /// Without backoff the most selective key decides alone.
-    EXPECT_DOUBLE_EQ(combineKeySelectivities({0.5, 0.1}, false), 0.1);
-
-    /// With backoff the keys are sorted from the most selective and take the exponents 1, 1/2, 1/4, 1/8.
-    EXPECT_DOUBLE_EQ(combineKeySelectivities({0.5, 0.1}, true), 0.1 * std::sqrt(0.5));
-    EXPECT_DOUBLE_EQ(combineKeySelectivities({0.1, 0.5}, true), 0.1 * std::sqrt(0.5));
-    EXPECT_DOUBLE_EQ(
-        combineKeySelectivities({0.5, 0.4, 0.3, 0.2, 0.1}, true),
-        0.1 * std::pow(0.2, 0.5) * std::pow(0.3, 0.25) * std::pow(0.4, 0.125));
+    JoinKeyEstimate keys;
+    keys.add(10, 10, 0);
+    keys.add(1000, 100, 0);
+    keys.add(0, 0, 0);  /// Both NDVs unknown: not a key.
+    EXPECT_DOUBLE_EQ(keys.selectivity, 0.001);
+    /// 100 right values lie within the 1000 left values: a tenth of the left side matches.
+    EXPECT_DOUBLE_EQ(keys.left_match_fraction, 0.1);
+    EXPECT_DOUBLE_EQ(keys.right_match_fraction, 1.0);
 }

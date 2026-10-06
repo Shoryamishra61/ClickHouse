@@ -5,32 +5,22 @@
 
 namespace DB
 {
-struct QueryPlanOptimizationSettings;
 class AggregatingStep;
 }
 
 namespace DB::QueryPlanOptimizations
 {
 
-/// The query settings the estimate depends on.
-struct RelationEstimationSettings
-{
-    RelationEstimationSettings() = default;
-    explicit RelationEstimationSettings(const QueryPlanOptimizationSettings & optimization_settings);
-
-    /// See `estimateGroupCount`.
-    bool group_count_damped_product = false;
-};
-
 /// Estimate the number of rows and per-column statistics of the relation produced by the subtree
 /// rooted at `node`, keyed by the subtree's output column names. `filter` is an optional predicate
 /// over these columns to account for.
-RelationStats estimateReadRowsCount(
-    QueryPlan::Node & node, const ActionsDAG::Node * filter = nullptr, const RelationEstimationSettings & settings = {});
+RelationStats estimateReadRowsCount(QueryPlan::Node & node, const ActionsDAG::Node * filter = nullptr);
 
-/// Rows and key statistics of an aggregation over `input_stats`, by the shared group count formula;
-/// unknown for `GROUPING SETS`.
-RelationStats estimateAggregatingStepStats(
-    const AggregatingStep & aggregating_step, const RelationStats & input_stats, const RelationEstimationSettings & settings);
+/// Rows of an aggregation or a `DISTINCT` over `keys`, by the shared group count formula; the output
+/// columns are the keys with their NDVs, zero for a key without one.
+RelationStats estimateGroupStats(const Names & keys, const RelationStats & input_stats);
+
+/// The same for an aggregating step; `GROUPING SETS` count the groups of every set.
+RelationStats estimateAggregatingStepStats(const AggregatingStep & aggregating_step, const RelationStats & input_stats);
 
 }

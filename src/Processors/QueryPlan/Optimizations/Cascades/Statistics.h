@@ -56,6 +56,16 @@ struct ExpressionStatistics
     /// Classes of output columns that hold equal values on every row.
     EquivalenceClasses<String> equivalences;
 
+    /// The rows as the shared estimator sees them: none when unknown.
+    std::optional<UInt64> knownRows() const;
+    /// The bound as the shared estimator sees it: none when unbounded.
+    std::optional<UInt64> knownBound() const;
+    /// The statistics as a relation for the shared estimator.
+    RelationStats toRelationStats() const;
+    /// Takes the rows, the bound, the column statistics and the flags of a relation estimate; a
+    /// missing estimate leaves the bound as the search value.
+    void applyRelationStats(const RelationStats & relation_stats);
+
     void dump(WriteBuffer & out) const;
     String dump() const;
 };
@@ -97,7 +107,7 @@ Float64 estimateRowWidthFromHeader(const Block & header);
 /// over the type-based estimate.
 Float64 estimateRowWidth(const Block & header, const std::unordered_map<String, ColumnStats> & column_statistics);
 
-std::optional<ExpressionStatistics> estimateStatistics(QueryPlan::Node & node, const QueryPlanOptimizations::RelationEstimationSettings & settings);
+std::optional<ExpressionStatistics> estimateStatistics(QueryPlan::Node & node);
 
 /// Sets `physical_read_bytes` from the rows the primary key keeps (`physical_selected_rows`,
 /// from the index analysis): a filter off the sorting key prunes no granules, and each

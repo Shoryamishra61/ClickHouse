@@ -75,12 +75,3 @@ TEST(ReplicationEligibility, NoLimits)
     EXPECT_TRUE(decideReplication({.estimated_rows = 100, .bytes_per_row = 1000000}, rows_only).allowed);
     EXPECT_FALSE(decideReplication({.estimated_rows = 101, .bytes_per_row = 1}, rows_only).allowed);
 }
-
-TEST(ReplicationEligibility, Describe)
-{
-    const auto decision = decideReplication({.estimated_rows = 200, .bytes_per_row = 10}, bytes_only);
-    const auto text = decision.describe({.estimated_rows = 200, .bytes_per_row = 10}, bytes_only);
-    EXPECT_NE(text.find("replication declined"), String::npos);
-    EXPECT_NE(text.find("modeled 2000 bytes"), String::npos);
-    EXPECT_NE(text.find("budget 1000 bytes"), String::npos);
-}

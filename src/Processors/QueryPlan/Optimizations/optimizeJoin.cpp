@@ -191,7 +191,7 @@ struct RuntimeHashStatisticsContext
     }
 };
 
-bool optimizeJoinLegacy(QueryPlan::Node & node, QueryPlan::Nodes & /*nodes*/, const QueryPlanOptimizationSettings & optimization_settings)
+bool optimizeJoinLegacy(QueryPlan::Node & node, QueryPlan::Nodes & /*nodes*/, const QueryPlanOptimizationSettings & /*optimization_settings*/)
 {
     auto * join_step = typeid_cast<JoinStep *>(node.step.get());
     if (!join_step || node.children.size() != 2 || join_step->isOptimized())
@@ -218,9 +218,8 @@ bool optimizeJoinLegacy(QueryPlan::Node & node, QueryPlan::Nodes & /*nodes*/, co
     bool need_swap = false;
     if (!join_step->swap_join_tables.has_value())
     {
-        const RelationEstimationSettings estimation_settings(optimization_settings);
-        auto lhs_extimation = estimateReadRowsCount(*node.children[0], nullptr, estimation_settings).estimated_rows;
-        auto rhs_extimation = estimateReadRowsCount(*node.children[1], nullptr, estimation_settings).estimated_rows;
+        auto lhs_extimation = estimateReadRowsCount(*node.children[0]).estimated_rows;
+        auto rhs_extimation = estimateReadRowsCount(*node.children[1]).estimated_rows;
         LOG_TRACE(getLogger("optimizeJoinLegacy"), "Left table estimation: {}, right table estimation: {}",
             lhs_extimation ? toString(lhs_extimation.value()) : "unknown",
             rhs_extimation ? toString(rhs_extimation.value()) : "unknown");
@@ -433,76 +432,28 @@ static void estimateJoinInPlace(JoinStepLogical & join_step, QueryPlan::Node & n
     for (auto * child : node.children)
         optimizeJoinsBelow(child, nodes, optimization_settings);
 
-    const RelationEstimationSettings estimation_settings(optimization_settings);
-    const RelationStats left_stats = estimateReadRowsCount(*node.children[0], nullptr, estimation_settings);
-    const RelationStats right_stats = estimateReadRowsCount(*node.children[1], nullptr, estimation_settings);
-    auto left_entry = std::make_shared<DPJoinEntry>(0, left_stats);
-    auto right_entry = std::make_shared<DPJoinEntry>(1, right_stats);
+    const RelationStats left_stats = estimateReadRowsCount(*node.children[0]);
+    const RelationStats right_stats = estimateReadRowsCount(*node.children[1]);
+    const auto join = estimateJoin(left_stats, right_stats, join_step.getJoinOperator());
 
-    /// A key without an NDV counts its relation's rows, as `getColumnStats` does.
-    auto key_distinct_values = [](const RelationStats & side, const String & column) -> UInt64
-    {
-        if (auto it = side.column_stats.find(column); it != side.column_stats.end() && it->second.num_distinct_values > 0)
-            return it->second.num_distinct_values;
-        return side.estimated_rows.value_or(0);
-    };
-    auto key_domain = [](const RelationStats & side, const String & column) -> UInt64
-    {
-        if (auto it = side.column_stats.find(column); it != side.column_stats.end())
-            return it->second.domain_distinct_values;
-        return 0;
-    };
-
-    const auto & join_operator = join_step.getJoinOperator();
-    JoinKeyFactors factors;
-    for (const auto & predicate : join_operator.expression)
-    {
-        auto [op, lhs, rhs] = predicate.asBinaryPredicate();
-        if (op != JoinConditionOperator::Equals && op != JoinConditionOperator::NullSafeEquals)
-            continue;
-        if (lhs.fromRight() && rhs.fromLeft())
-            std::swap(lhs, rhs);
-        if (!lhs.fromLeft() || !rhs.fromRight())
-            continue;
-        const UInt64 left_distinct_values = key_distinct_values(left_stats, lhs.getColumnName());
-        const UInt64 right_distinct_values = key_distinct_values(right_stats, rhs.getColumnName());
-        if (std::max(left_distinct_values, right_distinct_values) == 0)
-            continue;
-        factors.add(left_distinct_values, right_distinct_values,
-            std::max(key_domain(left_stats, lhs.getColumnName()), key_domain(right_stats, rhs.getColumnName())));
-    }
-    const auto keys = JoinKeyEstimate::combine(std::move(factors), optimization_settings.join_selectivity_exponential_backoff);
-    const auto rows = estimateJoinCardinality(left_entry, right_entry, keys, join_operator.kind, join_operator.strictness);
-    DPJoinEntry joined(left_entry, right_entry, /*cost*/ 0.0, keys.selectivity, rows, join_operator);
-
-    const bool imprecise_estimate = left_stats.imprecise_estimate || right_stats.imprecise_estimate;
     join_step.setInPlaceEstimation(
-        joined.estimated_rows,
-        joined.column_stats,
-        imprecise_estimate,
-        keys.selectivity,
-        joined.max_rows,
+        join.rows,
+        join.column_stats,
+        left_stats.imprecise_estimate || right_stats.imprecise_estimate,
+        join.selectivity,
+        join.max_rows,
         left_stats.estimate_from_defaults || right_stats.estimate_from_defaults);
 
     /// Annotate the plan nodes like the join-order path does, so that `EXPLAIN estimates` and the
     /// profile log see the estimate. An input that already carries an annotation keeps it.
-    auto annotate_input = [](QueryPlan::Node & input, const RelationStats & stats)
-    {
-        if (input.cost_estimation)
-            return;
-        input.cost_estimation = CostEstimationInfo{
-            .rows = stats.estimated_rows ? std::optional<Float64>(Float64(*stats.estimated_rows)) : std::nullopt,
-            .cost = std::nullopt,
-            .source = stats.source,
-            .imprecise = stats.imprecise_estimate};
-    };
-    annotate_input(*node.children[0], left_stats);
-    annotate_input(*node.children[1], right_stats);
+    if (!node.children[0]->cost_estimation)
+        node.children[0]->cost_estimation = toCostEstimationInfo(left_stats);
+    if (!node.children[1]->cost_estimation)
+        node.children[1]->cost_estimation = toCostEstimationInfo(right_stats);
     node.cost_estimation = CostEstimationInfo{
-        .rows = joined.estimated_rows ? std::optional<Float64>(Float64(*joined.estimated_rows)) : std::nullopt,
+        .rows = join.rows ? std::optional<Float64>(Float64(*join.rows)) : std::nullopt,
         .cost = std::nullopt,
-        .source = RowEstimateSource::NoSource,
-        .imprecise = imprecise_estimate};
+        .source = RowEstimateSource::NoSource};
 }
 
 static String dumpStatsForLogs(const RelationStats & stats)
@@ -644,7 +595,7 @@ static size_t addChildQueryGraph(QueryGraphBuilder & graph, QueryPlan::Node * no
     optimizeJoinsBelow(node, nodes, graph.context->optimization_settings);
 
     graph.inputs.push_back(node);
-    RelationStats stats = estimateReadRowsCount(*node, nullptr, RelationEstimationSettings(graph.context->optimization_settings));
+    RelationStats stats = estimateReadRowsCount(*node);
 
     std::optional<size_t> num_rows_from_cache = graph.context->statistics_context.getCachedHint(node);
     if (graph.context->join_settings.use_hash_table_stats_for_join_reordering && num_rows_from_cache
@@ -1053,7 +1004,6 @@ static QueryPlan::Node chooseJoinOrder(QueryGraphBuilder query_graph_builder, Qu
     query_graph.join_kinds = std::move(query_graph_builder.join_kinds);
     query_graph.outer_join_conditions = std::move(query_graph_builder.outer_join_conditions);
     query_graph.conflict_ops = std::move(query_graph_builder.conflict_ops);
-    query_graph.join_selectivity_exponential_backoff = query_graph_builder.context->optimization_settings.join_selectivity_exponential_backoff;
     query_graph.join_strictness = join_strictness;
     for (size_t i = 0; i < query_graph_builder.inputs.size(); ++i)
     {
@@ -1066,10 +1016,12 @@ static QueryPlan::Node chooseJoinOrder(QueryGraphBuilder query_graph_builder, Qu
     std::unordered_map<BitSet, RelationEstimateInfo> relation_infos;
     Strings relations_without_statistics;
     std::vector<UInt8> leaf_imprecise(query_graph.relation_stats.size());
+    std::vector<UInt8> leaf_without_estimate(query_graph.relation_stats.size());
     for (size_t i = 0; i < query_graph.relation_stats.size(); ++i)
     {
         const auto & rel = query_graph.relation_stats[i];
         leaf_imprecise[i] = rel.imprecise_estimate;
+        leaf_without_estimate[i] = !rel.estimated_rows;
 
         relation_infos[BitSet().set(i)] = RelationEstimateInfo{
             .name = rel.table_name.empty() ? fmt::format("R{}", i) : rel.table_name,
@@ -1199,8 +1151,7 @@ static QueryPlan::Node chooseJoinOrder(QueryGraphBuilder query_graph_builder, Qu
             input_nodes[relation_id]->cost_estimation = CostEstimationInfo{
                 .rows = leaf_info.estimated_rows ? std::optional<Float64>(Float64(*leaf_info.estimated_rows)) : std::nullopt,
                 .cost = std::nullopt,
-                .source = leaf_info.source,
-                .imprecise = leaf_info.imprecise_estimate};
+                .source = leaf_info.source};
             node_stack.push(input_nodes[relation_id]);
         }
         else
@@ -1419,13 +1370,18 @@ static QueryPlan::Node chooseJoinOrder(QueryGraphBuilder query_graph_builder, Qu
                 join_settings,
                 sorting_settings);
 
-            /// Diagnostic only: a join is imprecise if any of its leaves was (see `leaf_imprecise` above)
-            /// or if its cost stood on a bound or a placeholder instead of an estimate.
-            bool imprecise_estimate = entry->cost_from_unknown_rows;
+            /// Diagnostic only: a join is imprecise if any of its leaves was, or had no estimate at
+            /// all, in which case its cost stood on a bound or a placeholder.
+            bool imprecise_estimate = false;
+            bool costed_without_estimate = false;
             for (size_t i = 0; i < leaf_imprecise.size(); ++i)
-                if (entry->relations.test(i))
-                    imprecise_estimate |= leaf_imprecise[i];
-            if (entry->cost_from_unknown_rows)
+            {
+                if (!entry->relations.test(i))
+                    continue;
+                imprecise_estimate |= leaf_imprecise[i] || leaf_without_estimate[i];
+                costed_without_estimate |= leaf_without_estimate[i];
+            }
+            if (costed_without_estimate)
                 ProfileEvents::increment(ProfileEvents::JoinOrderJoinsCostedWithoutRowEstimate);
 
             join_step->setInputRelations(relation_infos[left_rels], relation_infos[right_rels]);
@@ -1453,8 +1409,7 @@ static QueryPlan::Node chooseJoinOrder(QueryGraphBuilder query_graph_builder, Qu
             new_node.cost_estimation = CostEstimationInfo{
                 .rows = entry->estimated_rows ? std::optional<Float64>(Float64(*entry->estimated_rows)) : std::nullopt,
                 .cost = entry->cost,
-                .source = RowEstimateSource::NoSource,
-                .imprecise = imprecise_estimate};
+                .source = RowEstimateSource::NoSource};
             node_stack.push(&new_node);
         }
     }

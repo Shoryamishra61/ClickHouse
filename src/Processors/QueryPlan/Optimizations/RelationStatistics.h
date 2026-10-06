@@ -44,8 +44,7 @@ inline CostEstimationInfo toCostEstimationInfo(const RelationStats & stats)
     return CostEstimationInfo{
         .rows = stats.estimated_rows ? std::optional<Float64>(Float64(*stats.estimated_rows)) : std::nullopt,
         .cost = std::nullopt,
-        .source = stats.source,
-        .imprecise = stats.imprecise_estimate};
+        .source = stats.source};
 }
 
 namespace QueryPlanOptimizations
@@ -60,13 +59,9 @@ void remapColumnStats(std::unordered_map<String, ColumnStats> & mapped, const Ac
 /// `DISTINCT` over them.
 struct GroupCountEstimate
 {
-    /// Capped by the rows; unknown when no key has an NDV. Every planner uses this one formula, so
-    /// an aggregation is the same relation wherever it is estimated. By default the largest known
-    /// key NDV (the groups are at least that many when the NDV is exact). With `damped_product`
-    /// the keys count as partially correlated: sorted from the largest NDV, they take the
-    /// exponents 1, 1/2, 1/4, ... .
+    /// Unknown when no key has an NDV.
     std::optional<UInt64> estimated_rows;
-    /// The rows the input cannot exceed. The key NDVs are estimates and do not tighten it.
+    /// The rows the input cannot exceed; the key NDVs are estimates and do not tighten it.
     std::optional<UInt64> max_rows;
 };
 
@@ -78,9 +73,16 @@ void addUnionColumnStats(
     const std::unordered_map<String, ColumnStats> & other,
     const Names & other_columns);
 
-/// `key_distinct_values` holds one NDV per key, zero for a key without one.
-GroupCountEstimate estimateGroupCount(
-    const std::vector<UInt64> & key_distinct_values, std::optional<UInt64> rows, std::optional<UInt64> max_rows, bool damped_product = false);
+/// The largest known key NDV, capped by the rows: the groups are at least that many when the NDV is
+/// exact, and real keys are correlated more often than not. `key_distinct_values` holds one NDV per
+/// key, zero for a key without one. No keys: one group.
+GroupCountEstimate estimateGroupCount(const std::vector<UInt64> & key_distinct_values, std::optional<UInt64> rows, std::optional<UInt64> max_rows);
+
+/// NDV of a key for a join selectivity: the column's NDV, else the relation's rows (the key counts
+/// as unique), else zero for unknown.
+UInt64 keyDistinctValuesOrRows(const RelationStats & relation, const String & column);
+/// NDV of the whole base column the key comes from; zero when unknown.
+UInt64 keyDomain(const RelationStats & relation, const String & column);
 
 /// Selectivity of one equality predicate from the NDVs of its sides (zero = unknown): one over
 /// the larger known NDV, nothing when neither is known.
@@ -97,12 +99,6 @@ UInt64 distinctValuesAfterFilter(UInt64 distinct_values, UInt64 rows_before, UIn
 /// side's values in proportion to their share of the domain, or all of them when the domain is
 /// unknown. Nothing when either NDV is unknown.
 std::optional<double> keyContainment(UInt64 side_distinct_values, UInt64 other_distinct_values, UInt64 domain_distinct_values = 0);
-
-/// Selectivity of a conjunction of equality predicates from the selectivity of each. Without
-/// `exponential_backoff` the most selective decides alone. With it the keys count as partially
-/// correlated: sorted from the most selective, they take the exponents 1, 1/2, 1/4 and 1/8, and
-/// further keys are dropped. No predicates: 1.
-double combineKeySelectivities(std::vector<double> selectivities, bool exponential_backoff);
 
 /// Tighten equi-join key NDVs to their minimum, respecting which side each join kind preserves.
 /// Anti joins and full joins leave both inputs unchanged. A zero NDV is unknown: it is bounded by

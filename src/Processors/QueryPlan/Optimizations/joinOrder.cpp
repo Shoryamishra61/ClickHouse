@@ -67,7 +67,6 @@ DPJoinEntry::DPJoinEntry(DPJoinEntryPtr lhs,
     , selectivity(selectivity_)
     , estimated_rows(cardinality_)
     , max_rows(estimateJoinRowsUpperBound(left->max_rows, right->max_rows, join_operator_.kind, join_operator_.strictness))
-    , cost_from_unknown_rows(!left->estimated_rows || !right->estimated_rows || left->cost_from_unknown_rows || right->cost_from_unknown_rows)
     , estimate_from_defaults(left->estimate_from_defaults || right->estimate_from_defaults)
     , join_operator(std::move(join_operator_))
     , join_method(join_method_)

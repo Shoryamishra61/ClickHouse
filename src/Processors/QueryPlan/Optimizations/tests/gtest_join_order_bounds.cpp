@@ -63,6 +63,11 @@ TEST(JoinOrderBounds, KeyContainment)
     EXPECT_DOUBLE_EQ(*QueryPlanOptimizations::keyContainment(1363, 100000, 50000), 1.0);
     EXPECT_EQ(QueryPlanOptimizations::keyContainment(0, 1000), std::nullopt);
     EXPECT_EQ(QueryPlanOptimizations::keyContainment(1000, 0), std::nullopt);
+    /// Two sides with equally many values out of a larger domain overlap in proportion, as the
+    /// NDV update models it, instead of one side counting as contained in the other.
+    EXPECT_DOUBLE_EQ(*QueryPlanOptimizations::keyContainment(500, 500, 1000), 0.5);
+    EXPECT_DOUBLE_EQ(*QueryPlanOptimizations::keyContainment(500, 500), 1.0);
+    EXPECT_DOUBLE_EQ(*QueryPlanOptimizations::keyContainment(500, 501, 1000), 0.501);
 }
 
 TEST(JoinOrderBounds, DistinctValuesAfterFilter)
@@ -145,16 +150,6 @@ TEST(JoinOrderBounds, PasteAnyAsof)
     EXPECT_EQ(estimateJoinRowsUpperBound(100, 1000, Inner, right_any), 1000);
     EXPECT_EQ(estimateJoinRowsUpperBound(100, 0, Inner, any), 0);
     EXPECT_EQ(estimateJoinRowsUpperBound(100, 0, Left, any), 100);
-}
-
-TEST(JoinOrderBounds, ContainmentOfEqualValueCounts)
-{
-    /// Two sides with equally many values out of a larger domain overlap in proportion, as the
-    /// NDV update models it, instead of one side counting as contained in the other.
-    EXPECT_DOUBLE_EQ(*keyContainment(500, 500, 1000), 0.5);
-    EXPECT_DOUBLE_EQ(*keyContainment(500, 500), 1.0);
-    EXPECT_DOUBLE_EQ(*keyContainment(500, 501, 1000), 0.501);
-    EXPECT_DOUBLE_EQ(*keyContainment(500, 499, 1000), 0.998);
 }
 
 TEST(JoinOrderBounds, SaturatingConversions)

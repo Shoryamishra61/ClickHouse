@@ -17,7 +17,6 @@
 #include <Processors/QueryPlan/JoinStepLogical.h>
 #include <Processors/QueryPlan/LimitStep.h>
 #include <Processors/QueryPlan/LogicalExchangeStep.h>
-#include <Processors/QueryPlan/Optimizations/QueryPlanOptimizationSettings.h>
 #include <Processors/QueryPlan/Optimizations/RelationStatisticsUtils.h>
 #include <Processors/QueryPlan/ReadFromCommonBufferStep.h>
 #include <Processors/QueryPlan/ReadFromMemoryStorageStep.h>
@@ -58,9 +57,39 @@ String dumpStatsForLogs(const RelationStats & stats)
             ", "));
 }
 
-/// Rows of an aggregation or a `DISTINCT` over `keys`, by the shared group count formula; the output
-/// columns are the keys with their NDVs, zero for a key without one.
-RelationStats estimateGroupStats(const Names & keys, const RelationStats & input_stats, const RelationEstimationSettings & settings)
+/// Sum of two row counts, unknown when either is; saturates instead of wrapping.
+std::optional<UInt64> addRows(std::optional<UInt64> left, std::optional<UInt64> right)
+{
+    if (!left || !right)
+        return {};
+    return saturatingAdd(*left, *right);
+}
+
+/// A row count times a factor, unknown when the count is; saturates instead of wrapping.
+std::optional<UInt64> multiplyRows(std::optional<UInt64> rows, UInt64 factor)
+{
+    if (!rows)
+        return {};
+    return saturatingMul(*rows, factor);
+}
+
+/// Rows dropped by a limit are not a value-uniform sample (e.g. a TopN keeps one end of the
+/// sorted range), so the child's value ranges and NULL fraction do not describe the output.
+/// Applied whenever a limit is present: the row estimate cannot prove the limit does not
+/// truncate (e.g. a TopN read is already scaled down by its `__topKFilter` prewhere).
+void clearColumnValueRanges(std::unordered_map<String, ColumnStats> & column_stats)
+{
+    for (auto & [_, stats] : column_stats)
+    {
+        stats.min_value.reset();
+        stats.max_value.reset();
+        stats.null_fraction.reset();
+    }
+}
+
+}
+
+RelationStats estimateGroupStats(const Names & keys, const RelationStats & input_stats)
 {
     RelationStats aggregation_stats;
     /// Carry imprecision, defaults and source from the input, or the annotation is lost for aggregation subqueries.
@@ -89,58 +118,15 @@ RelationStats estimateGroupStats(const Names & keys, const RelationStats & input
         key_distinct_values.push_back(distinct_values);
     }
 
-    auto groups = estimateGroupCount(key_distinct_values, input_stats.estimated_rows, input_stats.max_rows, settings.group_count_damped_product);
+    auto groups = estimateGroupCount(key_distinct_values, input_stats.estimated_rows, input_stats.max_rows);
     aggregation_stats.estimated_rows = groups.estimated_rows;
     aggregation_stats.max_rows = groups.max_rows;
     return aggregation_stats;
 }
 
-/// Sum of two row counts, unknown when either is; saturates instead of wrapping.
-std::optional<UInt64> addRows(std::optional<UInt64> left, std::optional<UInt64> right)
+RelationStats estimateAggregatingStepStats(const AggregatingStep & aggregating_step, const RelationStats & input_stats)
 {
-    if (!left || !right)
-        return {};
-    UInt64 sum = 0;
-    if (__builtin_add_overflow(*left, *right, &sum))
-        return std::numeric_limits<UInt64>::max();
-    return sum;
-}
-
-/// A row count times a factor, unknown when the count is; saturates instead of wrapping.
-std::optional<UInt64> multiplyRows(std::optional<UInt64> rows, UInt64 factor)
-{
-    if (!rows)
-        return {};
-    UInt64 product = 0;
-    if (__builtin_mul_overflow(*rows, factor, &product))
-        return std::numeric_limits<UInt64>::max();
-    return product;
-}
-
-/// Rows dropped by a limit are not a value-uniform sample (e.g. a TopN keeps one end of the
-/// sorted range), so the child's value ranges and NULL fraction do not describe the output.
-/// Applied whenever a limit is present: the row estimate cannot prove the limit does not
-/// truncate (e.g. a TopN read is already scaled down by its `__topKFilter` prewhere).
-void clearColumnValueRanges(std::unordered_map<String, ColumnStats> & column_stats)
-{
-    for (auto & [_, stats] : column_stats)
-    {
-        stats.min_value.reset();
-        stats.max_value.reset();
-        stats.null_fraction.reset();
-    }
-}
-
-}
-
-RelationEstimationSettings::RelationEstimationSettings(const QueryPlanOptimizationSettings & optimization_settings)
-    : group_count_damped_product(optimization_settings.group_count_damped_product)
-{
-}
-
-RelationStats estimateAggregatingStepStats(const AggregatingStep & aggregating_step, const RelationStats & input_stats, const RelationEstimationSettings & settings)
-{
-    auto stats = estimateGroupStats(aggregating_step.getAggregatorParameters().keys, input_stats, settings);
+    auto stats = estimateGroupStats(aggregating_step.getAggregatorParameters().keys, input_stats);
     /// `GROUPING SETS` emits the groups of every set: at most the groups of all the keys per set,
     /// and at most the input rows per set, which can exceed the input.
     if (aggregating_step.isGroupingSets())
@@ -153,7 +139,7 @@ RelationStats estimateAggregatingStepStats(const AggregatingStep & aggregating_s
     return stats;
 }
 
-RelationStats estimateReadRowsCount(QueryPlan::Node & node, const ActionsDAG::Node * filter, const RelationEstimationSettings & estimation_settings)
+RelationStats estimateReadRowsCount(QueryPlan::Node & node, const ActionsDAG::Node * filter)
 {
     IQueryPlanStep * step = node.step.get();
     if (const auto * reading = typeid_cast<const ReadFromMergeTree *>(step))
@@ -293,13 +279,13 @@ RelationStats estimateReadRowsCount(QueryPlan::Node & node, const ActionsDAG::No
 
     if (const auto * reading = typeid_cast<const CommonSubplanReferenceStep *>(step))
     {
-        return estimateReadRowsCount(*reading->getSubplanReferenceRoot(), filter, estimation_settings);
+        return estimateReadRowsCount(*reading->getSubplanReferenceRoot(), filter);
     }
 
     /// A buffered subquery result has the rows of the subplan that fills the buffer.
     if (const auto * reading = typeid_cast<const ReadFromCommonBufferStep *>(step))
     {
-        return estimateReadRowsCount(*reading->getSubplanRoot(), filter, estimation_settings);
+        return estimateReadRowsCount(*reading->getSubplanRoot(), filter);
     }
 
     if (const auto * join_step = typeid_cast<const JoinStepLogical *>(step); join_step && join_step->isOptimized())
@@ -325,7 +311,7 @@ RelationStats estimateReadRowsCount(QueryPlan::Node & node, const ActionsDAG::No
         const auto & input_headers = union_step->getInputHeaders();
         for (size_t child_index = 0; child_index < node.children.size(); ++child_index)
         {
-            auto child_stats = estimateReadRowsCount(*node.children[child_index], filter, estimation_settings);
+            auto child_stats = estimateReadRowsCount(*node.children[child_index], filter);
             stats.estimated_rows = addRows(stats.estimated_rows, child_stats.estimated_rows);
             stats.max_rows = addRows(stats.max_rows, child_stats.max_rows);
             stats.imprecise_estimate |= child_stats.imprecise_estimate;
@@ -345,15 +331,15 @@ RelationStats estimateReadRowsCount(QueryPlan::Node & node, const ActionsDAG::No
     {
         /// A preliminary `DISTINCT` only reduces the rows the final one sees; the estimate is the
         /// final one's.
-        auto stats = estimateReadRowsCount(*node.children.front(), filter, estimation_settings);
+        auto stats = estimateReadRowsCount(*node.children.front(), filter);
         if (distinct_step->isPreliminary())
             return stats;
-        return estimateGroupStats(distinct_step->getColumnNames(), stats, estimation_settings);
+        return estimateGroupStats(distinct_step->getColumnNames(), stats);
     }
 
     if (const auto * limit_step = typeid_cast<const LimitStep *>(step))
     {
-        auto estimated = estimateReadRowsCount(*node.children.front(), filter, estimation_settings);
+        auto estimated = estimateReadRowsCount(*node.children.front(), filter);
         /// `WITH TIES` can keep every row equal to the last one, so the limit bounds nothing then. A
         /// missing estimate stays missing: the limit is a bound, not an estimate of the rows below it.
         if (!limit_step->withTies())
@@ -371,7 +357,7 @@ RelationStats estimateReadRowsCount(QueryPlan::Node & node, const ActionsDAG::No
     if (const auto * expression_step = typeid_cast<const ExpressionStep *>(step);
         expression_step && !expression_step->getExpression().hasArrayJoin())
     {
-        auto stats = estimateReadRowsCount(*node.children.front(), filter, estimation_settings);
+        auto stats = estimateReadRowsCount(*node.children.front(), filter);
         remapColumnStats(stats.column_stats, expression_step->getExpression());
         return stats;
     }
@@ -380,21 +366,21 @@ RelationStats estimateReadRowsCount(QueryPlan::Node & node, const ActionsDAG::No
     {
         const auto & dag = filter_step->getExpression();
         const auto * predicate = static_cast<const ActionsDAG::Node *>(dag.tryFindInOutputs(filter_step->getFilterColumnName()));
-        auto stats = estimateReadRowsCount(*node.children.front(), predicate, estimation_settings);
+        auto stats = estimateReadRowsCount(*node.children.front(), predicate);
         remapColumnStats(stats.column_stats, filter_step->getExpression());
         return stats;
     }
 
     if (const auto * aggregating_step = typeid_cast<const AggregatingStep *>(step))
     {
-        auto stats = estimateReadRowsCount(*node.children.front(), filter, estimation_settings);
-        auto aggregation_stats = estimateAggregatingStepStats(*aggregating_step, stats, estimation_settings);
+        auto stats = estimateReadRowsCount(*node.children.front(), filter);
+        auto aggregation_stats = estimateAggregatingStepStats(*aggregating_step, stats);
         return aggregation_stats;
     }
 
     if (const auto * sorting_step = typeid_cast<const SortingStep *>(step))
     {
-        auto stats = estimateReadRowsCount(*node.children.front(), filter, estimation_settings);
+        auto stats = estimateReadRowsCount(*node.children.front(), filter);
         if (sorting_step->getLimit())
         {
             /// A missing estimate stays missing: the limit is a bound, not an estimate.
@@ -411,11 +397,11 @@ RelationStats estimateReadRowsCount(QueryPlan::Node & node, const ActionsDAG::No
     /// already-distributed subtree would otherwise report unknown cardinality, degrading
     /// broadcast-vs-shuffle and join order decisions.
     if (dynamic_cast<LogicalExchangeStep *>(step))
-        return estimateReadRowsCount(*node.children.front(), filter, estimation_settings);
+        return estimateReadRowsCount(*node.children.front(), filter);
 
     if (const auto * transform = dynamic_cast<const ITransformingStep *>(step);
         transform && transform->getTransformTraits().preserves_number_of_rows)
-        return estimateReadRowsCount(*node.children.front(), filter, estimation_settings);
+        return estimateReadRowsCount(*node.children.front(), filter);
 
     return {};
 }

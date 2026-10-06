@@ -113,7 +113,7 @@ CascadesOptimizer::CascadesOptimizer(QueryPlan & query_plan_, const QueryPlanOpt
     , optimization_settings(optimization_settings_)
     , statistics(createOptimizerStatistics(getQueryContextOrThrow()))
     , cost_estimator(memo)
-    , statistics_derivation(memo, *statistics, optimization_settings_.join_selectivity_exponential_backoff, optimization_settings_.group_count_damped_product)
+    , statistics_derivation(memo, *statistics)
 {
     memo.setContext(buildContext(getQueryContextOrThrow(), optimization_settings));
 
@@ -175,8 +175,7 @@ std::pair<GroupId, ExpressionProperties> CascadesOptimizer::addGroup(QueryPlan::
         return {child_group_id, stripped_props};
     }
 
-    std::optional<ExpressionStatistics> prepopulated_statistics
-        = estimateStatistics(node, QueryPlanOptimizations::RelationEstimationSettings(optimization_settings));
+    std::optional<ExpressionStatistics> prepopulated_statistics = estimateStatistics(node);
 
     auto group_expression = std::make_shared<GroupExpression>(std::move(node.step));
     auto group_id = memo.addGroup(group_expression);
@@ -483,7 +482,6 @@ QueryPlanPtr CascadesOptimizer::buildBestPlan(GroupId subtree_root_group_id, Exp
                 .rows = group_statistics.rows_unknown ? std::nullopt : std::optional<Float64>(group_statistics.estimated_row_count),
                 .cost = frame.expression->cost->subtree_cost.total(cost_config),
                 .source = RowEstimateSource::NoSource,
-                .imprecise = group_statistics.rows_unknown,
             };
         LOG_TEST(getLogger("buildBestPlan"), "Plan for group #{}:\n{}", frame.group_id, dumpQueryPlanShort(*result));
 

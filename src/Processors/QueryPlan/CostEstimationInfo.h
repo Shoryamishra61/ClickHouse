@@ -6,9 +6,8 @@
 namespace DB
 {
 
-/// Defined in `RelationEstimateInfo.h` together with its name and tag helpers. Declared opaque here
-/// so that every plan step and processor, which carry a `CostEstimationInfo`, does not depend on
-/// that header: a new estimate source then rebuilds the optimizer, not the whole tree.
+/// Defined in `RelationEstimateInfo.h`; declared opaque here so that the plan steps and processors
+/// carrying a `CostEstimationInfo` do not depend on that header. Zero is `NoSource`.
 enum class RowEstimateSource : UInt8;
 
 /// The estimate an optimizer attached to a plan step, whichever planner decided the step.
@@ -16,15 +15,11 @@ enum class RowEstimateSource : UInt8;
 /// `system.processors_profile_log` next to the rows they produced.
 struct CostEstimationInfo
 {
-    /// Absent when the optimizer had no estimate for the step. A missing estimate stays missing
-    /// here; it is never replaced by a default.
+    /// Absent when the optimizer had no estimate for the step.
     std::optional<Float64> rows;
     /// Absent when the optimizer has no cost for the step; the unit is that optimizer's own.
     std::optional<Float64> cost;
-    /// Zero is `RowEstimateSource::NoSource`: the origin was not tracked.
     RowEstimateSource source{};
-    /// Some input of the estimate was a default rather than a measurement.
-    bool imprecise = false;
 };
 
 }

@@ -34,8 +34,21 @@ inline UInt64 ceilToRowCount(Float64 value)
     return static_cast<UInt64>(rounded);
 }
 
-/// Where the row count estimate used by join reordering came from. `CostEstimationInfo.h` declares
-/// the enum opaque and relies on zero being `NoSource`, so `NoSource` stays first.
+/// Row arithmetic that saturates at the largest integer instead of wrapping.
+inline UInt64 saturatingAdd(UInt64 a, UInt64 b)
+{
+    UInt64 result = 0;
+    return __builtin_add_overflow(a, b, &result) ? std::numeric_limits<UInt64>::max() : result;
+}
+
+inline UInt64 saturatingMul(UInt64 a, UInt64 b)
+{
+    UInt64 result = 0;
+    return __builtin_mul_overflow(a, b, &result) ? std::numeric_limits<UInt64>::max() : result;
+}
+
+/// Where the row count estimate used by join reordering came from. `NoSource` stays first:
+/// `CostEstimationInfo.h` declares the enum opaque with zero as its default.
 enum class RowEstimateSource : UInt8
 {
     /// The origin of the estimate was not tracked (e.g. it was produced by an already-optimized sub-plan).

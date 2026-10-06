@@ -122,9 +122,8 @@ public:
     /// It won't do any validation of new streams, so it is your responsibility to ensure that this update doesn't break anything
     String getUniqID() const;
 
-    /// The estimate the optimizer attached to this step's plan node. `QueryPlan::buildQueryPipeline`
-    /// copies it here right before the step creates its processors, which copy it in turn for
-    /// `system.processors_profile_log`.
+    /// The estimate the optimizer attached to this step's plan node, copied here when the pipeline is
+    /// built so that the processors can record it in `system.processors_profile_log`.
     void setEstimation(const std::optional<CostEstimationInfo> & estimation_) { estimation = estimation_; }
     const std::optional<CostEstimationInfo> & getEstimation() const { return estimation; }
 

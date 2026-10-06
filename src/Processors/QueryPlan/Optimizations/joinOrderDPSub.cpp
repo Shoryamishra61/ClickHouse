@@ -476,8 +476,8 @@ const std::vector<JoinActionRef *> & DPSubJoinOrderOptimizer::collectJoinEdgesMa
 JoinKeyEstimate DPSubJoinOrderOptimizer::computeSelectivityMask(
     const std::vector<JoinActionRef *> & edges, UInt32 left_mask, UInt32 right_mask)
 {
-    JoinKeyFactors factors;
-    collectEdgeFactors(query_graph, dp_table, expression_selectivity, edges, BitSet::fromUInt(left_mask), factors);
+    JoinKeyEstimate keys;
+    collectEdgeKeys(query_graph, dp_table, expression_selectivity, edges, BitSet::fromUInt(left_mask), keys);
 
     /// Account for transitively-equivalent columns spanning both sides, visiting only the classes
     /// incident to the left relations. A generation stamp deduplicates classes without allocating
@@ -519,11 +519,11 @@ JoinKeyEstimate DPSubJoinOrderOptimizer::computeSelectivityMask(
                 }
             }
             if (has_left && has_right && std::max(left_distinct_values, right_distinct_values) > 0)
-                factors.add(left_distinct_values, right_distinct_values, domain_distinct_values);
+                keys.add(left_distinct_values, right_distinct_values, domain_distinct_values);
         }
     }
 
-    return JoinKeyEstimate::combine(std::move(factors), query_graph.join_selectivity_exponential_backoff);
+    return keys;
 }
 
 template <typename DPTable, std::unsigned_integral TUInt>

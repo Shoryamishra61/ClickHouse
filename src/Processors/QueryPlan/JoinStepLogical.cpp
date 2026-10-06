@@ -2804,13 +2804,12 @@ QueryPlanStepPtr JoinStepLogical::clone() const
     result_step->runtime_filter_declined_small_probe = runtime_filter_declined_small_probe;
     result_step->result_rows_estimation = result_rows_estimation;
     result_step->result_rows_upper_bound = result_rows_upper_bound;
-    result_step->estimated_by_join_order = estimated_by_join_order;
+    result_step->estimation_origin = estimation_origin;
     result_step->estimated_cost = estimated_cost;
     result_step->estimated_selectivity = estimated_selectivity;
     result_step->cluster_id = cluster_id;
     result_step->imprecise_estimate = imprecise_estimate;
     result_step->estimate_from_defaults = estimate_from_defaults;
-    result_step->rows_estimated = rows_estimated;
     result_step->result_column_stats = result_column_stats;
     result_step->right_hash_table_cache_key = right_hash_table_cache_key;
     result_step->join_output_cache_key = join_output_cache_key;

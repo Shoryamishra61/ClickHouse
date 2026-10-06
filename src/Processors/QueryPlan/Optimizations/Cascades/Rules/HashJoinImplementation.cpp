@@ -457,10 +457,8 @@ std::vector<GroupExpressionPtr> HashJoinImplementation::applyImpl(GroupExpressio
     if (!allowsHashFamilyAlgorithm(join_step.getJoinSettings().join_algorithms))
         return result;
 
-    /// Broadcast replicates the right side: it has to fit the byte budget, on its estimate when
-    /// the rows are known and on its proven bound when they are not. The enforcer applies the
-    /// same budget, so a variant that asked for an oversized replication would get no plan;
-    /// skipping it here saves the search.
+    /// The enforcer applies the same byte budget to the broadcast, so a variant that asked for an
+    /// oversized replication would get no plan; skipping it here saves the search.
     const bool broadcast_within_budget = decideReplicationOf(
         *memo.getGroup(expression->inputs[1].group_id), memo.getContext(), getName(), /*repeats_scan*/ false).allowed;
 

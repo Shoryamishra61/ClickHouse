@@ -10,6 +10,7 @@
 #include <Processors/QueryPlan/FilterStep.h>
 #include <Processors/QueryPlan/Optimizations/Cascades/OptimizerDefaults.h>
 #include <Processors/QueryPlan/Optimizations/Cascades/Statistics.h>
+#include <Processors/QueryPlan/RelationEstimateInfo.h>
 #include <Processors/QueryPlan/Optimizations/RelationStatisticsEstimator.h>
 #include <Processors/QueryPlan/Optimizations/RelationStatisticsUtils.h>
 #include <Processors/QueryPlan/QueryPlan.h>
@@ -264,7 +265,42 @@ void fillPhysicalReadBytes(ExpressionStatistics & statistics, Float64 physical_s
     statistics.physical_read_bytes = physical_rows * statistics.estimated_bytes_per_row;
 }
 
-std::optional<ExpressionStatistics> estimateStatistics(QueryPlan::Node & node, const QueryPlanOptimizations::RelationEstimationSettings & settings)
+std::optional<UInt64> ExpressionStatistics::knownRows() const
+{
+    if (rows_unknown)
+        return std::nullopt;
+    return roundToRowCount(estimated_row_count);
+}
+
+std::optional<UInt64> ExpressionStatistics::knownBound() const
+{
+    if (max_row_count >= Float64(std::numeric_limits<UInt64>::max()))
+        return std::nullopt;
+    return roundToRowCount(max_row_count);
+}
+
+RelationStats ExpressionStatistics::toRelationStats() const
+{
+    RelationStats relation_stats;
+    relation_stats.estimated_rows = knownRows();
+    relation_stats.max_rows = knownBound();
+    relation_stats.avg_row_bytes = estimated_bytes_per_row;
+    relation_stats.column_stats = column_statistics;
+    relation_stats.estimate_from_defaults = estimate_from_defaults;
+    return relation_stats;
+}
+
+void ExpressionStatistics::applyRelationStats(const RelationStats & relation_stats)
+{
+    rows_unknown = !relation_stats.estimated_rows;
+    estimate_from_defaults = relation_stats.estimate_from_defaults;
+    estimated_row_count = Float64(relation_stats.estimated_rows ? *relation_stats.estimated_rows : relation_stats.max_rows.value_or(0));
+    if (relation_stats.max_rows)
+        max_row_count = Float64(*relation_stats.max_rows);
+    column_statistics = relation_stats.column_stats;
+}
+
+std::optional<ExpressionStatistics> estimateStatistics(QueryPlan::Node & node)
 {
     std::optional<ExpressionStatistics> stats;
 
@@ -280,14 +316,11 @@ std::optional<ExpressionStatistics> estimateStatistics(QueryPlan::Node & node, c
         /// `estimateReadRowsCount` handles `FilterStep` and `PREWHERE` sampling internally.
         /// Without a point estimate the rows the read cannot exceed still give the cost model a
         /// search value; the result is marked unknown.
-        auto relation_stats = QueryPlanOptimizations::estimateReadRowsCount(node, nullptr, settings);
+        auto relation_stats = QueryPlanOptimizations::estimateReadRowsCount(node);
         if (relation_stats.estimated_rows || relation_stats.max_rows)
         {
             stats.emplace();
-            stats->rows_unknown = !relation_stats.estimated_rows;
-            stats->estimate_from_defaults = relation_stats.estimate_from_defaults;
-            stats->estimated_row_count = Float64(relation_stats.estimated_rows ? *relation_stats.estimated_rows : *relation_stats.max_rows);
-            stats->column_statistics = relation_stats.column_stats;
+            stats->applyRelationStats(relation_stats);
             /// Hinted column widths are already in the stats; fill the rest so downstream width
             /// estimates (join, aggregation) know every column's size. A table-level width hint
             /// marks the parts as stand-ins, so it beats their real sizes.
@@ -323,15 +356,13 @@ std::optional<ExpressionStatistics> estimateStatistics(QueryPlan::Node & node, c
         /// Other sources go through the same shared estimator, which knows `system.one`, `Memory`
         /// tables and the hints; a source it does not know stays without statistics here and is
         /// marked unknown when its group is derived.
-        auto relation_stats = QueryPlanOptimizations::estimateReadRowsCount(node, nullptr, settings);
+        auto relation_stats = QueryPlanOptimizations::estimateReadRowsCount(node);
         if (relation_stats.estimated_rows || relation_stats.max_rows)
         {
             stats.emplace();
-            stats->rows_unknown = !relation_stats.estimated_rows;
-            stats->estimate_from_defaults = relation_stats.estimate_from_defaults;
-            stats->estimated_row_count = Float64(relation_stats.estimated_rows ? *relation_stats.estimated_rows : *relation_stats.max_rows);
-            stats->max_row_count = relation_stats.max_rows ? Float64(*relation_stats.max_rows) : stats->estimated_row_count;
-            stats->column_statistics = relation_stats.column_stats;
+            stats->applyRelationStats(relation_stats);
+            if (!relation_stats.max_rows)
+                stats->max_row_count = stats->estimated_row_count;
             stats->estimated_bytes_per_row = relation_stats.avg_row_bytes
                 ? *relation_stats.avg_row_bytes
                 : estimateRowWidth(*node.step->getOutputHeader(), stats->column_statistics);

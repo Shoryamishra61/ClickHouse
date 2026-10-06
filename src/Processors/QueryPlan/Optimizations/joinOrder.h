@@ -41,9 +41,6 @@ struct DPJoinEntry
     std::optional<UInt64> estimated_rows = {};
     /// Rows the result cannot exceed; see `RelationStats::max_rows` and `estimateJoinRowsUpperBound`.
     std::optional<UInt64> max_rows = {};
-    /// The cost of this entry or of a sub-plan used a search value for a missing row estimate
-    /// (`searchRows`), so the plan was ranked on a bound or a placeholder, not on an estimate.
-    bool cost_from_unknown_rows = false;
     /// A default selectivity stood in for a predicate in some relation of this entry.
     bool estimate_from_defaults = false;
     std::unordered_map<String, ColumnStats> column_stats = {};
@@ -113,9 +110,6 @@ struct QueryGraph
     /// restrictions. Set from settings in `optimizeJoinOrder`; affects only the DPsub algorithm.
     JoinOrderConflictDetector conflict_detector = JoinOrderConflictDetector::NONE;
 
-    /// How the selectivities of several equality predicates of one join combine; see
-    /// `combineKeySelectivities`.
-    bool join_selectivity_exponential_backoff = false;
 
     /// Strictness of every join of this graph (a graph mixes strictnesses only under a conflict
     /// detector, which carries the strictness per operator). A semi or anti join estimated as an

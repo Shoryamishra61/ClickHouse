@@ -16,6 +16,7 @@
 #include <Processors/QueryPlan/Optimizations/Cascades/OptimizerDefaults.h>
 #include <Processors/QueryPlan/Optimizations/Cascades/StatisticsDerivation.h>
 #include <Processors/QueryPlan/Optimizations/RelationStatistics.h>
+#include <Processors/QueryPlan/RelationEstimateInfo.h>
 #include <Processors/QueryPlan/Optimizations/joinOrderCommon.h>
 #include <Processors/QueryPlan/ReadFromMergeTree.h>
 #include <Processors/QueryPlan/SortingStep.h>
@@ -37,14 +38,6 @@ namespace ErrorCodes
 namespace Setting
 {
     extern const SettingsBool allow_statistics_optimize;
-}
-
-/// A `Float64` row count as an integer; the unbounded value stays the largest integer.
-static UInt64 toRowCount(Float64 rows)
-{
-    if (!(rows < Float64(std::numeric_limits<UInt64>::max())))
-        return std::numeric_limits<UInt64>::max();
-    return rows <= 0 ? 0 : UInt64(rows);
 }
 
 void StatisticsDerivation::deriveStatistics(GroupId group_id)
@@ -200,7 +193,7 @@ void StatisticsDerivation::deriveGroupStatistics(GroupId group_id)
             /// Without the clamp a row-count reduction could leave a column NDV above the row count.
             for (auto & [column_name, column_stats] : result.column_statistics)
                 column_stats.num_distinct_values = std::min(column_stats.num_distinct_values,
-                    static_cast<UInt64>(std::max(result.estimated_row_count, 1.0)));
+                    roundToRowCount(std::max(result.estimated_row_count, 1.0)));
         }
         result.min_row_count = 0;
         group->statistics = std::move(result);
@@ -260,167 +253,46 @@ ExpressionStatistics StatisticsDerivation::deriveJoinStatistics(
     const ExpressionStatistics & left_statistics,
     const ExpressionStatistics & right_statistics)
 {
+    const auto & join_operator = join_step.getJoinOperator();
+
+    /// The shared estimate of every planner, from the inputs as relations: an unknown side stays
+    /// unknown, an empty side decides, the key NDVs of the output narrow by the join.
+    const auto join = estimateJoin(left_statistics.toRelationStats(), right_statistics.toRelationStats(), join_operator);
+
     ExpressionStatistics statistics;
     statistics.min_row_count = 0;
-    statistics.max_row_count = left_statistics.max_row_count * right_statistics.max_row_count;
+    statistics.estimate_from_defaults = left_statistics.estimate_from_defaults || right_statistics.estimate_from_defaults;
+    statistics.column_statistics = join.column_stats;
+    statistics.max_row_count = join.max_rows ? Float64(*join.max_rows) : Float64(std::numeric_limits<UInt64>::max());
 
-    statistics.column_statistics.insert(left_statistics.column_statistics.begin(), left_statistics.column_statistics.end());
-    statistics.column_statistics.insert(right_statistics.column_statistics.begin(), right_statistics.column_statistics.end());
-
-    /// One selectivity per distinct pair of key classes: a predicate between columns that other
-    /// predicates already relate (through the inputs' equivalences) restricts nothing more. The
-    /// class of a column is named by its first member.
-    auto class_representative = [](const EquivalenceClasses<String> & classes, const String & column) -> String
+    /// The join order optimizer's estimate wins when it built this join from the same inputs. An
+    /// unknown result keeps a search value: the join order optimizer's bound, else the product.
+    const Float64 join_selectivity = join.selectivity;
+    const auto join_order_estimate = join_step.isEstimatedByJoinOrder() ? join_step.getResultRowsEstimation() : std::nullopt;
+    if (join_order_estimate)
+        statistics.estimated_row_count = Float64(*join_order_estimate);
+    else if (join.rows)
+        statistics.estimated_row_count = Float64(*join.rows);
+    else
     {
-        auto equivalence_class = classes.getClass(column);
-        return equivalence_class && !equivalence_class->empty() ? equivalence_class->front() : column;
-    };
-    std::vector<std::pair<String, String>> key_pairs;
-    std::vector<double> key_selectivities;
-    /// Fraction of each side's key values the other side also has, per key pair.
-    std::vector<double> left_in_right;
-    std::vector<double> right_in_left;
+        statistics.rows_unknown = true;
+        const auto upper_bound = join_step.isEstimatedByJoinOrder() ? join_step.getResultRowsUpperBound() : std::nullopt;
+        statistics.estimated_row_count = upper_bound
+            ? Float64(*upper_bound)
+            : left_statistics.estimated_row_count * right_statistics.estimated_row_count * join_selectivity;
+    }
 
     /// Equality key pairs, for the output column equivalences.
     std::vector<std::pair<String, String>> equi_pairs;
-    const auto & join_operator = join_step.getJoinOperator();
-
     for (const auto & predicate_expression : join_operator.expression)
     {
-        const auto & predicate = predicate_expression.asBinaryPredicate();
-        auto left_column_actions = get<1>(predicate);
-        auto right_column_actions = get<2>(predicate);
-
-        if (get<0>(predicate) != JoinConditionOperator::Equals || !left_column_actions || !right_column_actions)
-        {
-            /// TODO: add support for non-equality operators
-            LOG_TEST(log, "Skipping predicate '{}'", predicate_expression.dump());
+        auto [op, left_column_actions, right_column_actions] = predicate_expression.asBinaryPredicate();
+        if (op != JoinConditionOperator::Equals || !left_column_actions || !right_column_actions)
             continue;
-        }
-
         if (left_column_actions.fromRight() && right_column_actions.fromLeft())
             std::swap(left_column_actions, right_column_actions);
-        const auto & left_column = left_column_actions.getColumnName();
-        const auto & right_column = right_column_actions.getColumnName();
-
-        equi_pairs.emplace_back(left_column, right_column);
-
-        auto left_column_statistics = left_statistics.column_statistics.find(left_column);
-        auto right_column_statistics = right_statistics.column_statistics.find(right_column);
-
-        /// A key without an NDV (no entry, or an entry with a zero NDV that only carries the column's
-        /// width) counts its relation's rows as its NDV for the selectivity, as the join order
-        /// optimizer does in `getColumnStats`; both planners must give the same join the same
-        /// selectivity. The result keeps such a key without an NDV: the stand-in written as an NDV
-        /// would make an aggregation above the join estimate one group per row.
-        auto known_distinct_values = [](const auto & found, const auto & end, const ExpressionStatistics & side) -> std::optional<UInt64>
-        {
-            if (found != end && found->second.num_distinct_values > 0)
-                return std::min(found->second.num_distinct_values, toRowCount(side.estimated_row_count));
-            return std::nullopt;
-        };
-        const auto left_known_distinct_values = known_distinct_values(left_column_statistics, left_statistics.column_statistics.end(), left_statistics);
-        const auto right_known_distinct_values = known_distinct_values(right_column_statistics, right_statistics.column_statistics.end(), right_statistics);
-
-        const UInt64 left_distinct_values = left_known_distinct_values.value_or(toRowCount(left_statistics.estimated_row_count));
-        const UInt64 right_distinct_values = right_known_distinct_values.value_or(toRowCount(right_statistics.estimated_row_count));
-        const auto predicate_selectivity = QueryPlanOptimizations::equalitySelectivity(left_distinct_values, right_distinct_values);
-
-        /// The shared update then narrows only sides whose rows can be filtered by this join; a side
-        /// without an NDV takes the other side's NDV when the join bounds it, else stays without one.
-        statistics.column_statistics[left_column].num_distinct_values = left_known_distinct_values.value_or(0);
-        statistics.column_statistics[right_column].num_distinct_values = right_known_distinct_values.value_or(0);
-        QueryPlanOptimizations::updateJoinKeyDistinctCounts(
-            statistics.column_statistics.at(left_column),
-            statistics.column_statistics.at(right_column),
-            join_operator.kind,
-            join_operator.strictness);
-
-        if (!predicate_selectivity)
-        {
-            LOG_TEST(log, "Predicate '{} = {}' has no NDV and no rows on either side", left_column, right_column);
-            continue;
-        }
-        LOG_TEST(log, "Predicate '{} = {}' selectivity: 1 / {}", left_column, right_column, 1.0 / *predicate_selectivity);
-
-        std::pair<String, String> key_pair{
-            class_representative(left_statistics.equivalences, left_column),
-            class_representative(right_statistics.equivalences, right_column)};
-        const UInt64 key_domain = std::max(
-            left_column_statistics != left_statistics.column_statistics.end() ? left_column_statistics->second.domain_distinct_values : 0,
-            right_column_statistics != right_statistics.column_statistics.end() ? right_column_statistics->second.domain_distinct_values : 0);
-        const double left_contained = QueryPlanOptimizations::keyContainment(left_distinct_values, right_distinct_values, key_domain).value_or(1.0);
-        const double right_contained = QueryPlanOptimizations::keyContainment(right_distinct_values, left_distinct_values, key_domain).value_or(1.0);
-        auto found = std::find(key_pairs.begin(), key_pairs.end(), key_pair);
-        if (found == key_pairs.end())
-        {
-            key_pairs.push_back(key_pair);
-            key_selectivities.push_back(*predicate_selectivity);
-            left_in_right.push_back(left_contained);
-            right_in_left.push_back(right_contained);
-        }
-        else
-        {
-            const size_t index = found - key_pairs.begin();
-            key_selectivities[index] = std::min(key_selectivities[index], *predicate_selectivity);
-            left_in_right[index] = std::min(left_in_right[index], left_contained);
-            right_in_left[index] = std::min(right_in_left[index], right_contained);
-        }
+        equi_pairs.emplace_back(left_column_actions.getColumnName(), right_column_actions.getColumnName());
     }
-
-    const Float64 join_selectivity = QueryPlanOptimizations::combineKeySelectivities(std::move(key_selectivities), join_selectivity_exponential_backoff);
-    /// What a semi join keeps and an anti join drops: the preserved side's rows whose keys the other
-    /// side has.
-    const Float64 preserved_match_fraction = QueryPlanOptimizations::combineKeySelectivities(
-        isRight(join_operator.kind) ? std::move(right_in_left) : std::move(left_in_right), join_selectivity_exponential_backoff);
-
-    /// The multiplicative value is the search value when no estimate exists.
-    const Float64 search_value = left_statistics.estimated_row_count * right_statistics.estimated_row_count * join_selectivity;
-    statistics.estimate_from_defaults = left_statistics.estimate_from_defaults || right_statistics.estimate_from_defaults;
-
-    /// The one formula of every planner, with an unknown side given as unknown: it decides the
-    /// result an empty side determines and leaves the rest unknown.
-    const auto side_rows = [](const ExpressionStatistics & side) -> std::optional<UInt64>
-    {
-        if (side.rows_unknown)
-            return std::nullopt;
-        return toRowCount(side.estimated_row_count);
-    };
-    const auto shared_estimate = estimateJoinCardinality(
-        side_rows(left_statistics), side_rows(right_statistics), join_selectivity, join_operator.kind, join_operator.strictness, preserved_match_fraction);
-
-    const auto join_order_estimate = join_step.isEstimatedByJoinOrder() ? join_step.getResultRowsEstimation() : std::nullopt;
-    if (join_order_estimate)
-    {
-        /// The join order optimizer decided this join from the same inputs, and its estimate is the one
-        /// estimate of this result.
-        statistics.estimated_row_count = Float64(*join_order_estimate);
-    }
-    else if (shared_estimate)
-    {
-        /// The join order optimizer did not see this join, or could not estimate an input this derivation
-        /// can (its estimator knows fewer operators, `Distinct` for one).
-        statistics.estimated_row_count = Float64(*shared_estimate);
-    }
-    else
-    {
-        /// An input is unknown, so the result is unknown. The join order optimizer's bound is the search
-        /// value when it computed one.
-        statistics.rows_unknown = true;
-        const auto upper_bound = join_step.isEstimatedByJoinOrder() ? join_step.getResultRowsUpperBound() : std::nullopt;
-        statistics.estimated_row_count = upper_bound ? Float64(*upper_bound) : search_value;
-    }
-
-    /// The bound follows the join semantics from the input bounds, by the shared rule.
-    const auto side_bound = [](const ExpressionStatistics & side) -> std::optional<UInt64>
-    {
-        if (side.max_row_count >= Float64(std::numeric_limits<UInt64>::max()))
-            return std::nullopt;
-        return toRowCount(side.max_row_count);
-    };
-    const auto bound = estimateJoinRowsUpperBound(
-        side_bound(left_statistics), side_bound(right_statistics), join_operator.kind, join_operator.strictness);
-    statistics.max_row_count = bound ? Float64(*bound) : Float64(std::numeric_limits<UInt64>::max());
 
     /// Column equivalences: both inputs' classes survive (the sides do not share column names).
     /// An inner join also makes its equality keys equal on every output row, so each key pair
@@ -439,7 +311,7 @@ ExpressionStatistics StatisticsDerivation::deriveJoinStatistics(
 
     for (auto & column_statistics : statistics.column_statistics)
         if (Float64(column_statistics.second.num_distinct_values) > statistics.estimated_row_count)
-            column_statistics.second.num_distinct_values = toRowCount(statistics.estimated_row_count);
+            column_statistics.second.num_distinct_values = roundToRowCount(statistics.estimated_row_count);
 
     if (statistics.estimated_row_count < 0.01)
     {
@@ -747,7 +619,7 @@ ExpressionStatistics StatisticsDerivation::deriveFilterStatistics(const FilterSt
         /// A value survives the filter when any of its rows does.
         for (auto & [column_name, column_stats] : result_statistics.column_statistics)
             column_stats.num_distinct_values = QueryPlanOptimizations::distinctValuesAfterFilter(
-                column_stats.num_distinct_values, toRowCount(input_statistics.estimated_row_count), toRowCount(result_statistics.estimated_row_count));
+                column_stats.num_distinct_values, roundToRowCount(input_statistics.estimated_row_count), roundToRowCount(result_statistics.estimated_row_count));
         LOG_TEST(getLogger("StatisticsDerivation"), "Filter '{}' selectivity: {}", filter_step.getFilterColumnName(), selectivity);
     }
 
@@ -777,79 +649,24 @@ ExpressionStatistics StatisticsDerivation::deriveExpressionStatistics(const Expr
 /// group count the statistics do not determine.
 static constexpr Float64 DEFAULT_DISTINCT_VALUES_RATIO = 0.1;
 
-/// NDV of a group key in the input, capped by the input's bound; nothing without statistics (an
-/// entry with a zero NDV only carries the column's width).
-static std::optional<UInt64> keyDistinctValues(const String & column, const ExpressionStatistics & input_statistics)
-{
-    auto column_stats = input_statistics.column_statistics.find(column);
-    if (column_stats == input_statistics.column_statistics.end() || column_stats->second.num_distinct_values == 0)
-        return std::nullopt;
-    return std::min(column_stats->second.num_distinct_values, toRowCount(input_statistics.max_row_count));
-}
-
-struct GroupCount
-{
-    Float64 estimated_rows;
-    Float64 max_rows;
-    /// No key has an NDV: `estimated_rows` is the default fraction of the input, a search value.
-    bool unknown;
-};
-
-/// Distinct value combinations of the columns by the shared group count formula (the largest key
-/// NDV, bounded by the product): the output rows of an aggregation on the columns and of a
-/// `DISTINCT` over them.
-static GroupCount estimateGroupCount(const Names & columns, const ExpressionStatistics & input_statistics, bool damped_product)
-{
-    std::vector<UInt64> key_distinct_values;
-    for (const auto & column : columns)
-        key_distinct_values.push_back(keyDistinctValues(column, input_statistics).value_or(0));
-    const auto shared = QueryPlanOptimizations::estimateGroupCount(
-        key_distinct_values, toRowCount(input_statistics.estimated_row_count), toRowCount(input_statistics.max_row_count), damped_product);
-
-    GroupCount result;
-    result.unknown = !shared.estimated_rows;
-    result.estimated_rows = shared.estimated_rows
-        ? Float64(*shared.estimated_rows)
-        : std::min(DEFAULT_DISTINCT_VALUES_RATIO * input_statistics.estimated_row_count, input_statistics.max_row_count);
-    result.max_rows = shared.max_rows ? Float64(*shared.max_rows) : input_statistics.max_row_count;
-    return result;
-}
-
 ExpressionStatistics StatisticsDerivation::deriveAggregatingStatistics(const AggregatingStep & aggregating_step, const ExpressionStatistics & input_statistics)
 {
     const auto & aggregator_params = aggregating_step.getAggregatorParameters();
-    ExpressionStatistics aggregation_statistics;
-    aggregation_statistics.estimate_from_defaults = input_statistics.estimate_from_defaults;
-    /// A key without an NDV stays without one in the output.
-    for (const auto & key : aggregator_params.keys)
-        aggregation_statistics.column_statistics[key].num_distinct_values = keyDistinctValues(key, input_statistics).value_or(0);
+    const auto shared = QueryPlanOptimizations::estimateAggregatingStepStats(aggregating_step, input_statistics.toRelationStats());
 
+    ExpressionStatistics aggregation_statistics;
+    aggregation_statistics.estimate_from_defaults = shared.estimate_from_defaults;
+    /// The keys with their NDVs, value sizes and domains.
+    aggregation_statistics.column_statistics = shared.column_stats;
     aggregation_statistics.min_row_count = 0;
-    const auto groups = estimateGroupCount(aggregator_params.keys, input_statistics, group_count_damped_product);
-    aggregation_statistics.estimated_row_count = groups.estimated_rows;
-    aggregation_statistics.max_row_count = groups.max_rows;
     /// Groups counted from the key NDVs alone do not depend on the input rows; a keyed aggregation of
-    /// an unknown input is unknown all the same, a keyless one is its one row.
-    aggregation_statistics.rows_unknown = groups.unknown || (!aggregator_params.keys.empty() && input_statistics.rows_unknown);
-    /// `GROUPING SETS` emits the groups of every set: at most the groups of all the keys per set,
-    /// and at most the input rows per set, which can exceed the input.
-    if (aggregating_step.isGroupingSets())
-    {
-        const Float64 sets = Float64(aggregating_step.getGroupingSetsParamsList().size());
-        const Float64 unbounded = Float64(std::numeric_limits<UInt64>::max());
-        aggregation_statistics.estimated_row_count = std::min(aggregation_statistics.estimated_row_count * sets, unbounded);
-        aggregation_statistics.max_row_count = std::min(input_statistics.max_row_count * sets, unbounded);
-    }
-    /// Group-by keys pass through with their input value sizes and domains.
-    for (auto & [column_name, column_stats] : aggregation_statistics.column_statistics)
-    {
-        auto input_column_statistics = input_statistics.column_statistics.find(column_name);
-        if (input_column_statistics != input_statistics.column_statistics.end())
-        {
-            column_stats.avg_bytes = input_column_statistics->second.avg_bytes;
-            column_stats.domain_distinct_values = input_column_statistics->second.domain_distinct_values;
-        }
-    }
+    /// an unknown input is unknown all the same, a keyless one is its one row. Without a group count
+    /// the search value is a fraction of the input.
+    aggregation_statistics.rows_unknown = !shared.estimated_rows || (!aggregator_params.keys.empty() && input_statistics.rows_unknown);
+    aggregation_statistics.estimated_row_count = shared.estimated_rows
+        ? Float64(*shared.estimated_rows)
+        : std::min(DEFAULT_DISTINCT_VALUES_RATIO * input_statistics.estimated_row_count, input_statistics.max_row_count);
+    aggregation_statistics.max_row_count = shared.max_rows ? Float64(*shared.max_rows) : Float64(std::numeric_limits<UInt64>::max());
     /// Aggregation changes the schema (group-by keys + aggregate states), recompute from output
     /// header with the keys' known value sizes.
     aggregation_statistics.estimated_bytes_per_row = estimateRowWidth(*aggregating_step.getOutputHeader(), aggregation_statistics.column_statistics);
@@ -878,7 +695,7 @@ static void trimStatisticsByLimit(ExpressionStatistics & statistics, UInt64 limi
     statistics.max_row_count = std::min(statistics.max_row_count, Float64(limit));
     for (auto & column_statistics : statistics.column_statistics)
         if (Float64(column_statistics.second.num_distinct_values) > statistics.estimated_row_count)
-            column_statistics.second.num_distinct_values = toRowCount(statistics.estimated_row_count);
+            column_statistics.second.num_distinct_values = roundToRowCount(statistics.estimated_row_count);
 }
 
 ExpressionStatistics StatisticsDerivation::deriveSortingStatistics(const SortingStep & sorting_step, const ExpressionStatistics & input_statistics)
@@ -932,19 +749,22 @@ ExpressionStatistics StatisticsDerivation::deriveDistinctStatistics(const Distin
 {
     /// One output row per distinct value combination.
     ExpressionStatistics result = input_statistics;
-    const auto groups = estimateGroupCount(distinct_step.getColumnNames(), input_statistics, group_count_damped_product);
-    result.estimated_row_count = std::min(groups.estimated_rows, input_statistics.estimated_distinct_bound);
-    result.max_row_count = groups.max_rows;
-    /// Without a key NDV the distinct rows are unknown, unless the input bounds its distinct rows
-    /// below the search value: that bound is then the estimate.
-    result.rows_unknown = groups.unknown && !(input_statistics.estimated_distinct_bound < groups.estimated_rows);
+    const auto shared = QueryPlanOptimizations::estimateGroupStats(distinct_step.getColumnNames(), input_statistics.toRelationStats());
+    const Float64 groups = shared.estimated_rows
+        ? Float64(*shared.estimated_rows)
+        : std::min(DEFAULT_DISTINCT_VALUES_RATIO * input_statistics.estimated_row_count, input_statistics.max_row_count);
+    result.estimated_row_count = std::min(groups, input_statistics.estimated_distinct_bound);
+    result.max_row_count = shared.max_rows ? Float64(*shared.max_rows) : input_statistics.max_row_count;
+    /// Without a key NDV, or over an unknown input, the distinct rows are unknown, unless the input
+    /// bounds its distinct rows below the search value: that bound is then the estimate.
+    result.rows_unknown = (!shared.estimated_rows || input_statistics.rows_unknown) && !(input_statistics.estimated_distinct_bound < groups);
     result.min_row_count = input_statistics.min_row_count > 0 ? 1 : 0;
     /// Every output row is distinct.
     result.estimated_distinct_bound = result.estimated_row_count;
     /// Without the clamp the row-count reduction could leave a column NDV above the row count.
     for (auto & [column_name, column_stats] : result.column_statistics)
         column_stats.num_distinct_values = std::min(column_stats.num_distinct_values,
-            static_cast<UInt64>(std::max(result.estimated_row_count, 1.0)));
+            roundToRowCount(std::max(result.estimated_row_count, 1.0)));
     return result;
 }
 

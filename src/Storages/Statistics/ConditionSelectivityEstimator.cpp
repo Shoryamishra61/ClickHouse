@@ -366,10 +366,9 @@ bool ConditionSelectivityEstimator::extractAtomFromTree(const StorageMetadataPtr
 
         String func_name = func.getFunctionName();
 
-        /// `x = x`, as the decorrelation of a subquery leaves it after renaming the outer column to
-        /// the inner one it equals: true on every row, not an unknown predicate. Not for a floating
-        /// point value, where NaN is not equal to itself, and not for `equals` on a Nullable value,
-        /// where a NULL row gives NULL; those stay unknown predicates.
+        /// `x = x` (left behind by the decorrelation of a subquery) is true on every row, not an
+        /// unknown predicate. Not for a floating point value, where NaN is not equal to itself, nor
+        /// for `equals` on a Nullable value, where a NULL row gives NULL; those stay unknown.
         if (num_args == 2 && (func_name == "equals" || func_name == "isNotDistinctFrom"))
         {
             const auto * first = func.getArgumentAt(0).getDAGNode();

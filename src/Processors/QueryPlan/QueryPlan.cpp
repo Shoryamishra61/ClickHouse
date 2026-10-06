@@ -280,7 +280,6 @@ QueryPipelineBuilderPtr QueryPlan::buildQueryPipeline(
         if (next_child == frame.node->children.size())
         {
             bool limit_max_threads = frame.pipelines.empty();
-            /// The processors created below copy the step's estimate for `system.processors_profile_log`.
             frame.node->step->setEstimation(frame.node->cost_estimation);
             last_pipeline = frame.node->step->updatePipeline(std::move(frame.pipelines), build_pipeline_settings);
 
