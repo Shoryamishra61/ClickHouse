@@ -1691,7 +1691,9 @@ ColumnMapperPtr IcebergMetadata::getColumnMapperForObject(ObjectInfoPtr object_i
     if (!iceberg_object_info)
         return nullptr;
     chassert(object_info->getFileFormat().has_value());
-    if (Poco::toLower(*object_info->getFileFormat()) != "parquet")
+    /// Only these readers resolve columns through a mapper: `Parquet` for the columns it reads
+    /// and for its filters, `Vortex` for the filters it pushes into the scan.
+    if (const auto format = Poco::toLower(*object_info->getFileFormat()); format != "parquet" && format != "vortex")
         return nullptr;
 
     return persistent_components.schema_processor->getColumnMapperById(iceberg_object_info->info.underlying_format_read_schema_id);
@@ -1700,7 +1702,7 @@ ColumnMapperPtr IcebergMetadata::getColumnMapperForObject(ObjectInfoPtr object_i
 // (TODO): usage of this function is wrong and should be removed completely (it was done as a temporary workaround for a bug which occurred during supporting concurrent SELECTs).
 ColumnMapperPtr IcebergMetadata::getColumnMapperForCurrentSchema(StorageMetadataPtr storage_metadata_snapshot, ContextPtr context) const
 {
-    if (Poco::toLower(write_format) != "parquet")
+    if (const auto format = Poco::toLower(write_format); format != "parquet" && format != "vortex")
         return nullptr;
     auto iceberg_table_state = extractIcebergSnapshotIdFromMetadataObject(storage_metadata_snapshot);
     // This is a temporary cludge for cluster functions because now the state on replicas is not synchronized with the primary state on the coordinator

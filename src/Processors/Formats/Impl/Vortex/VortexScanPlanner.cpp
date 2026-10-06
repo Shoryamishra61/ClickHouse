@@ -74,7 +74,20 @@ VortexExpressionPtr buildFilter(
         conjuncts.push_back(node);
     }
 
-    VortexExpressionConverter converter(header, file_schema, format_settings);
+    /// With a per-file column mapper (data lake schema evolution) the header and the file use the
+    /// names of the schema the file was written under, while the filter uses the current names.
+    /// Both mappers know the field ids, which is how a current name finds the file's one.
+    std::optional<std::unordered_map<String, String>> file_column_names;
+    if (filter_info.current_schema_column_mapper && filter_info.column_mapper)
+    {
+        file_column_names.emplace();
+        const auto & file_names_by_field_id = filter_info.column_mapper->getFieldIdToClickHouseName();
+        for (const auto & [name, field_id] : filter_info.current_schema_column_mapper->getStorageColumnEncoding())
+            if (auto it = file_names_by_field_id.find(field_id); it != file_names_by_field_id.end())
+                file_column_names->emplace(name, it->second);
+    }
+
+    VortexExpressionConverter converter(header, file_schema, format_settings, file_column_names ? &*file_column_names : nullptr);
     VortexExpressionPtr filter;
     for (const auto * conjunct : conjuncts)
     {

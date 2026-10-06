@@ -91,10 +91,14 @@ FFI_VortexComparisonOperator mirrorComparisonOperator(FFI_VortexComparisonOperat
 }
 
 VortexExpressionConverter::VortexExpressionConverter(
-    const Block & header_, const arrow::Schema & file_schema_, const FormatSettings & format_settings_)
+    const Block & header_,
+    const arrow::Schema & file_schema_,
+    const FormatSettings & format_settings_,
+    const std::unordered_map<String, String> * file_column_names_)
     : header(header_)
     , file_schema(file_schema_)
     , format_settings(format_settings_)
+    , file_column_names(file_column_names_)
 {
 }
 
@@ -166,7 +170,16 @@ VortexExpressionConverter::resolveColumn(const RPNBuilderTreeNode & node, TypeMa
     if (node.isFunction() || node.isConstant())
         return std::nullopt;
 
-    const String column_name = node.getColumnName();
+    String column_name = node.getColumnName();
+    if (file_column_names)
+    {
+        /// A name the file does not know may still be in it, as another column: after a column was
+        /// renamed, a new one can take its old name.
+        auto it = file_column_names->find(column_name);
+        if (it == file_column_names->end())
+            return std::nullopt;
+        column_name = it->second;
+    }
     auto arrow_field = file_schema.GetFieldByName(column_name);
     const auto * header_column = header.findByName(column_name);
     if (!arrow_field || !header_column)

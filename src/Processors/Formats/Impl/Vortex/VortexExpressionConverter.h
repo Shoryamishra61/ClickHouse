@@ -50,7 +50,15 @@ namespace DB::Vortex
 class VortexExpressionConverter
 {
 public:
-    VortexExpressionConverter(const Block & header_, const arrow::Schema & file_schema_, const FormatSettings & format_settings_);
+    /// `file_column_names` translates the filter's column names into the names the file and the
+    /// header use, when the two differ (data lake schema evolution, e.g. after an Iceberg
+    /// `RENAME COLUMN`). A filter column that is not in it is not in the file either. Null means the
+    /// filter uses the file's names.
+    VortexExpressionConverter(
+        const Block & header_,
+        const arrow::Schema & file_schema_,
+        const FormatSettings & format_settings_,
+        const std::unordered_map<String, String> * file_column_names_ = nullptr);
 
     /// Translates the subtree rooted at `node`, exactly or - in the positions where
     /// `allow_widening` permits - keeping at least every matching row. Returns null when the
@@ -124,6 +132,7 @@ private:
     const Block & header;
     const arrow::Schema & file_schema;
     const FormatSettings & format_settings;
+    const std::unordered_map<String, String> * file_column_names;
 };
 
 }
