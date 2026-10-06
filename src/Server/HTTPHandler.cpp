@@ -608,7 +608,7 @@ void HTTPHandler::processQuery(
                 throw;
             }
         }
-}
+    }
 
     /// Initialize query scope, once query_id is initialized.
     /// (To track as much allocations as possible)
