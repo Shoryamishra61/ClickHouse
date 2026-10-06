@@ -320,6 +320,9 @@ size_t rawFloatValueWidth(const IColumn & column)
         /// A value of an array of fixed size values is represented as the sequence of the values.
         case TypeIndex::Array:
             return rawFloatValueWidth(assert_cast<const ColumnArray &>(column).getData());
+        /// A non-NULL value of a `Nullable` column is represented as the value of its nested column.
+        case TypeIndex::Nullable:
+            return rawFloatValueWidth(assert_cast<const ColumnNullable &>(column).getNestedColumn());
         /// A value of a `LowCardinality` column is represented as the value in its dictionary.
         case TypeIndex::LowCardinality:
             return rawFloatValueWidth(*assert_cast<const ColumnLowCardinality &>(column).getDictionary().getNestedColumn());
