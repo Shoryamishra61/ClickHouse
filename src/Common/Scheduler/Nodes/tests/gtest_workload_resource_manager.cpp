@@ -92,6 +92,12 @@ public:
         WorkloadEntityStorageBase::loadEntities(config);
     }
 
+    // Expose the protected config/Keeper load path for tests.
+    void loadLocalEntitiesForTest(const std::vector<std::pair<String, ASTPtr>> & entities)
+    {
+        setLocalEntities(entities);
+    }
+
     void executeQuery(const String & query)
     {
         ParserCreateWorkloadQuery create_workload_p;
@@ -2502,11 +2508,11 @@ TEST(SchedulerWorkloadResourceManager, ServerLimitReservedResourceNamesRejectedO
 
     ASTPtr cpu = parse_resource("CREATE RESOURCE __server_cpu__ (MASTER THREAD, WORKER THREAD)");
     ASSERT_TRUE(cpu != nullptr);
-    EXPECT_ANY_THROW(t.storage.setLocalEntities({{"__server_cpu__", cpu}}));
+    EXPECT_ANY_THROW(t.storage.loadLocalEntitiesForTest({{"__server_cpu__", cpu}}));
 
     ASTPtr mem = parse_resource("CREATE RESOURCE __server_memory__ (MEMORY RESERVATION)");
     ASSERT_TRUE(mem != nullptr);
-    EXPECT_ANY_THROW(t.storage.setLocalEntities({{"__server_memory__", mem}}));
+    EXPECT_ANY_THROW(t.storage.loadLocalEntitiesForTest({{"__server_memory__", mem}}));
 }
 
 // The server memory limit is mirrored onto the per-resource implicit root workload. When enabled and
