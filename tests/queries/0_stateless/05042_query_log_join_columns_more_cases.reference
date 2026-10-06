@@ -40,7 +40,6 @@ direct join with a dictionary
 05042_join_algorithms_direct_d_semi_left	1	['DIRECT']	['LEFT']	['SEMI']	[]
 05042_join_algorithms_direct_e_anti_left	1	['DIRECT']	['LEFT']	['ANTI']	[]
 algorithms that were asked for but not executed
-05042_join_algorithms_declined_a_parallel_hash_disjuncts	1	['HASH']	['INNER']	['ALL']	[]
 05042_join_algorithms_declined_b_parallel_hash_special_storage	1	['HASH']	['LEFT']	['ANY']	[]
 05042_join_algorithms_declined_c_direct_right	1	['HASH']	['RIGHT']	['ALL']	[]
 05042_join_algorithms_declined_d_direct_mixed_condition	1	['HASH']	['LEFT']	['ALL']	[]
