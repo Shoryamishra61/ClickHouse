@@ -64,6 +64,25 @@ std::optional<DiskObjectStorageMetadata> tryReadMetadataFile(const std::string &
     return object_metadata;
 }
 
+/// `fs::relative(leaf, root)` in string space, for a `leaf` found by walking the directory `root`. Both are
+/// `/`-separated virtual paths of the disk; going through `std::filesystem` would treat `\` as a separator
+/// and decode the bytes through the active code page on Windows.
+std::string relativeVirtualPath(std::string_view leaf, std::string_view root)
+{
+    std::string_view rest = leaf;
+    while (root.ends_with('/'))
+        root.remove_suffix(1);
+
+    if (!rest.starts_with(root) || (rest.size() > root.size() && !root.empty() && rest[root.size()] != '/'))
+        throw Exception(ErrorCodes::LOGICAL_ERROR, "Path {} is not inside the directory {}", leaf, root);
+
+    rest.remove_prefix(root.size());
+    while (rest.starts_with('/'))
+        rest.remove_prefix(1);
+
+    return rest.empty() ? "." : std::string(rest);
+}
+
 }
 
 SetLastModifiedOperation::SetLastModifiedOperation(std::string path_, Poco::Timestamp new_timestamp_, IDisk & disk_)
@@ -294,7 +313,7 @@ void RemoveRecursiveOperation::traverseFile(const std::string & leaf)
     }
 
     if (ref_count == 0)
-        if (!should_remove_objects || should_remove_objects(pathToGenericString(fs::relative(leaf, path))))
+        if (!should_remove_objects || should_remove_objects(relativeVirtualPath(leaf, path)))
             removed_objects.append_range(object_metadata->objects);
 }
 
