@@ -5392,7 +5392,16 @@ static const std::vector<std::unordered_set<String>> & swapFuncs
         /// Array construction from a length and a value (n, value -> Array)
         {"arrayWithConstant", "range"},
         /// Array scalar reductions (array → scalar)
-        {"arrayMin", "arrayMax", "arraySum", "arrayProduct", "arrayAvg", "arrayUniq", "arrayFlattenedLength", "arrayAutocorrelation"},
+        {"arrayMin",
+         "arrayMinIndex",
+         "arrayMax",
+         "arrayMaxIndex",
+         "arraySum",
+         "arrayProduct",
+         "arrayAvg",
+         "arrayUniq",
+         "arrayFlattenedLength",
+         "arrayAutocorrelation"},
         /// Array transform functions (array → array, no lambda)
         {"arrayReverse",
          "arrayShuffle",
@@ -6034,6 +6043,8 @@ static const std::vector<std::unordered_set<String>> & swapFuncs
          "normalizeQueryKeepNames",
          "obfuscateQuery",
          "parseQueryToJSON"},
+        /// Literal-insensitive hashes of a query string (query → UInt64)
+        {"normalizedQueryHash", "normalizedQueryHashKeepNames", "normalizedQueryHashUnordered"},
         /// Iceberg partition transforms over a date/time (date → integer)
         {"icebergDay", "icebergHour", "icebergMonth", "icebergYear"},
         /// Iceberg partition transforms taking a width (value, n → bucket/truncated value)
