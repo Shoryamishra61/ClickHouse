@@ -2,6 +2,7 @@
 
 #include <Columns/ColumnSet.h>
 #include <Columns/IColumn.h>
+#include <DataTypes/IDataType.h>
 #include <Functions/FunctionHelpers.h>
 #include <Functions/IFunction.h>
 #include <Processors/QueryPlan/ExpressionStep.h>
@@ -115,17 +116,15 @@ bool dagContainsNonDeterministicFunction(const ActionsDAG & dag)
 
 bool isSensitiveToEvaluationCount(const ActionsDAG & dag)
 {
-    auto is_insensitive = [](const IFunctionBase & function)
-    {
-        return function.isDeterministicInScopeOfQuery() && !function.isStateful() && !function.hasObservableSideEffects();
-    };
-
-    /// A lambda without captures is constant-folded into a `COLUMN` node holding a `ColumnFunction`, which
-    /// hides the functions of its body from a plain scan over the function nodes; `allNodeFunctions`
-    /// descends into it.
+    /// `sleep` and `sleepEachRow` are the functions with observable side effects. A lambda hides the
+    /// functions of its body, so it counts as sensitive.
     for (const auto & node : dag.getNodes())
     {
-        if (!allNodeFunctions(node, is_insensitive))
+        if (node.result_type && WhichDataType(node.result_type).isFunction())
+            return true;
+        if (node.type == ActionsDAG::ActionType::FUNCTION && node.function_base
+            && (!node.function_base->isDeterministicInScopeOfQuery() || node.function_base->isStateful()
+                || node.function_base->getName() == "sleep" || node.function_base->getName() == "sleepEachRow"))
             return true;
     }
 
