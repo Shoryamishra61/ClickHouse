@@ -547,9 +547,36 @@ void MergeTreeDataPartWide::doCheckConsistency(bool require_part_metadata) const
         else
         {
             /// Fallback: check that all marks are nonempty and have the same size.
+            std::optional<UInt64> marks_size;
+            NameSet checked_marks_files;
+            auto check_marks_file = [&](const String & file_path)
+            {
+                if (!checked_marks_files.insert(file_path).second)
+                    return;
+
+                UInt64 file_size = getDataPartStorage().getFileSize(file_path);
+
+                if (!file_size)
+                    throw Exception(
+                        ErrorCodes::BAD_SIZE_OF_FILE_IN_DATA_PART,
+                        "Part {} is broken: {} is empty.",
+                        getDataPartStorage().getFullPath(),
+                        std::string(fs::path(getDataPartStorage().getFullPath()) / file_path));
+
+                /// Compressed marks of different streams compress to different sizes, so compare their
+                /// decompressed sizes. Reading them through also proves that each one is complete.
+                UInt64 marks_payload_size = index_granularity_info.mark_type.compressed ? readFile(file_path)->ignoreAll() : file_size;
+
+                if (!marks_size)
+                    marks_size = marks_payload_size;
+                else if (marks_payload_size != *marks_size)
+                    throw Exception(
+                        ErrorCodes::BAD_SIZE_OF_FILE_IN_DATA_PART,
+                        "Part {} is broken: marks have different sizes.", getDataPartStorage().getFullPath());
+            };
+
             ISerialization::EnumerateStreamsSettings settings;
             settings.enumerate_dynamic_streams = false;
-            std::optional<UInt64> marks_size;
             for (const auto & name_type : getColumns())
             {
                 auto serialization = getSerialization(name_type.name);
@@ -564,27 +591,24 @@ void MergeTreeDataPartWide::doCheckConsistency(bool require_part_metadata) const
                     if (!stream_name)
                         return;
 
-                    auto file_path = *stream_name + marks_file_extension;
-                    UInt64 file_size = getDataPartStorage().getFileSize(file_path);
-
-                    if (!file_size)
-                        throw Exception(
-                            ErrorCodes::BAD_SIZE_OF_FILE_IN_DATA_PART,
-                            "Part {} is broken: {} is empty.",
-                            getDataPartStorage().getFullPath(),
-                            std::string(fs::path(getDataPartStorage().getFullPath()) / file_path));
-
-                    /// Compressed marks of different streams compress to different sizes, so compare their
-                    /// decompressed sizes. Reading them through also proves that each one is complete.
-                    UInt64 marks_payload_size = index_granularity_info.mark_type.compressed ? readFile(file_path)->ignoreAll() : file_size;
-
-                    if (!marks_size)
-                        marks_size = marks_payload_size;
-                    else if (marks_payload_size != *marks_size)
-                        throw Exception(
-                            ErrorCodes::BAD_SIZE_OF_FILE_IN_DATA_PART,
-                            "Part {} is broken: marks have different sizes.", getDataPartStorage().getFullPath());
+                    check_marks_file(*stream_name + marks_file_extension);
                 }, data);
+            }
+
+            /// Dynamic streams (`JSON`, `Dynamic`) cannot be enumerated without the deserialization state,
+            /// but regenerated checksums list every file of the part, so check the marks of every stream
+            /// that has a data file. Marks of skip indices have no `.bin` peer and are left out.
+            if (checksums_were_regenerated)
+            {
+                for (const auto & [file_name, _] : checksums.files)
+                {
+                    if (!file_name.ends_with(marks_file_extension))
+                        continue;
+
+                    String stream_name = file_name.substr(0, file_name.size() - marks_file_extension.size());
+                    if (checksums.files.contains(stream_name + DATA_FILE_EXTENSION))
+                        check_marks_file(file_name);
+                }
             }
         }
     }

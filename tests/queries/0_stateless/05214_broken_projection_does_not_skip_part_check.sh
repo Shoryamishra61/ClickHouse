@@ -32,6 +32,8 @@ TABLES="
     compact_torn_no_checksums
     wide_several_blocks_no_checksums
     compact_several_blocks_no_checksums
+    wide_dynamic_no_substreams_no_checksums
+    wide_torn_dynamic_no_substreams_no_checksums
 "
 
 table_settings()
@@ -44,15 +46,32 @@ table_settings()
     esac
 }
 
+# A `Dynamic` column has streams that cannot be enumerated without the deserialization state.
+table_columns()
+{
+    case "$1" in
+        *_dynamic_*) echo "id UInt64, v UInt64, d Dynamic" ;;
+        *) echo "id UInt64, v UInt64" ;;
+    esac
+}
+
+table_values()
+{
+    case "$1" in
+        *_dynamic_*) echo "number, number % 10, number" ;;
+        *) echo "number, number % 10" ;;
+    esac
+}
+
 create_queries=""
 for table in ${TABLES}
 do
     create_queries+="
-        CREATE TABLE ${table} (id UInt64, v UInt64, PROJECTION p (SELECT v, count() GROUP BY v))
+        CREATE TABLE ${table} ($(table_columns "${table}"), PROJECTION p (SELECT v, count() GROUP BY v))
         ENGINE = MergeTree ORDER BY id
         SETTINGS $(table_settings "${table}"), compress_marks = 1,
             ratio_of_defaults_for_sparse_serialization = 1, replace_long_file_name_to_hash = 0;
-        INSERT INTO ${table} SELECT number, number % 10 FROM numbers(5000);"
+        INSERT INTO ${table} SELECT $(table_values "${table}") FROM numbers(5000);"
 done
 
 ${CLICKHOUSE_LOCAL} --path "${WORKING_DIR}" --multiquery -q "
@@ -64,9 +83,20 @@ PART_PATHS="${WORKING_DIR}.paths"
 ${CLICKHOUSE_LOCAL} --path "${WORKING_DIR}" -q "
     SELECT table, path FROM system.parts WHERE database = currentDatabase()" </dev/null > "${PART_PATHS}"
 
+# A case-insensitive disk (macOS) stores every stream under the hash of its name.
+COLUMN_FILES="${WORKING_DIR}.files"
+${CLICKHOUSE_LOCAL} --path "${WORKING_DIR}" -q "
+    SELECT table, substream, filename FROM system.parts_columns ARRAY JOIN substreams AS substream, filenames AS filename
+    WHERE database = currentDatabase()" </dev/null > "${COLUMN_FILES}"
+
 part_path()
 {
     awk -F '\t' -v table="$1" '$1 == table { print $2 }' "${PART_PATHS}"
+}
+
+column_file()
+{
+    awk -F '\t' -v table="$1" -v substream="$2" '$1 == table && $2 == substream { print $3 }' "${COLUMN_FILES}"
 }
 
 # A compressed marks file cut by a crash right after its first compressed block still decompresses,
@@ -104,9 +134,20 @@ truncate -s 0 "$(part_path projection_only_no_checksums)/p.proj/data.cmrk4"
 # checksums bless it too. First the marks of the column that the part's granularity is loaded from:
 # they cover fewer rows than the part has. Then the marks of another column: they have fewer marks than
 # the part's granularity.
-truncate_to_first_block "$(part_path wide_torn_first_column_no_checksums)/id.cmrk2"
-truncate_to_first_block "$(part_path wide_torn_second_column_no_checksums)/v.cmrk2"
+truncate_to_first_block "$(part_path wide_torn_first_column_no_checksums)/$(column_file wide_torn_first_column_no_checksums id).cmrk2"
+truncate_to_first_block "$(part_path wide_torn_second_column_no_checksums)/$(column_file wide_torn_second_column_no_checksums v).cmrk2"
 truncate_to_first_block "$(part_path compact_torn_no_checksums)/data.cmrk4"
+
+# Without `columns_substreams.txt` the dynamic streams are not enumerated, but the marks of every stream
+# with a data file are checked when the checksums are regenerated.
+truncate_to_first_block "$(part_path wide_torn_dynamic_no_substreams_no_checksums)/$(column_file wide_torn_dynamic_no_substreams_no_checksums d.UInt64).cmrk2"
+for table in ${TABLES}
+do
+    if [[ ${table} == *_no_substreams_* ]]
+    then
+        rm "$(part_path "${table}")/columns_substreams.txt"
+    fi
+done
 
 # Intact compressed marks of a regenerated part, also of several compressed blocks, are not mistaken
 # for broken ones.
@@ -131,4 +172,4 @@ done
 
 ${CLICKHOUSE_LOCAL} --path "${WORKING_DIR}" --multiquery -q "${report_queries}" </dev/null
 
-rm -rf "${WORKING_DIR}" "${PART_PATHS}"
+rm -rf "${WORKING_DIR}" "${PART_PATHS}" "${COLUMN_FILES}"
