@@ -166,9 +166,12 @@ BlockIO InterpreterDropQuery::executeToTable(ASTDropQuery & query)
 /// so is a materialized view with a `TO` table: its rows belong to the target table, which its
 /// drop does not touch. Likewise, dropping or detaching an `Alias` only removes the alias itself,
 /// so it holds no rows of its own; `TRUNCATE` of an alias truncates its target, so it is judged
-/// by the target's row count.
-bool InterpreterDropQuery::isTableEmpty(const StoragePtr & table, ASTDropQuery::Kind kind) const
+/// by the target's row count. A `lazy_load_tables` database hands out a `StorageTableProxy`, which
+/// reports no row count until it is loaded, so the stand-in is loaded first: otherwise `IF EMPTY`
+/// would refuse to drop an empty table that nobody has touched since the database was attached.
+bool InterpreterDropQuery::isTableEmpty(const StoragePtr & table_or_proxy, ASTDropQuery::Kind kind) const
 {
+    const StoragePtr table = resolveStorageProxyLoading(table_or_proxy);
     if (kind != ASTDropQuery::Kind::Truncate && dynamic_cast<const StorageAlias *>(table.get()))
         return true;
     if (table->isView())
