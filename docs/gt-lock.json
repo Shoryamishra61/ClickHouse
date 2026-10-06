@@ -7,42 +7,42 @@
       "versionId": "ae00ec2598472ccb8856e4f1f4020869cb1221d8279c1e05e1753221f38f987b",
       "translations": {
         "ar": {
-          "updatedAt": "2026-10-06T15:00:07.400Z",
+          "updatedAt": "2026-10-06T15:44:48.044Z",
           "fileName": "docs.json",
           "postProcessHash": "6e44c0b22925425a78125ad7a0844e1830c6b4c3e0400c9935df402202bfd9bf"
         },
         "fr": {
-          "updatedAt": "2026-10-06T15:00:07.611Z",
+          "updatedAt": "2026-10-06T15:44:48.234Z",
           "fileName": "docs.json",
           "postProcessHash": "6e44c0b22925425a78125ad7a0844e1830c6b4c3e0400c9935df402202bfd9bf"
         },
         "ja": {
-          "updatedAt": "2026-10-06T15:00:06.341Z",
+          "updatedAt": "2026-10-06T15:44:47.085Z",
           "fileName": "docs.json",
           "postProcessHash": "6e44c0b22925425a78125ad7a0844e1830c6b4c3e0400c9935df402202bfd9bf"
         },
         "es": {
-          "updatedAt": "2026-10-06T15:00:06.126Z",
+          "updatedAt": "2026-10-06T15:44:46.825Z",
           "fileName": "docs.json",
           "postProcessHash": "6e44c0b22925425a78125ad7a0844e1830c6b4c3e0400c9935df402202bfd9bf"
         },
         "zh": {
-          "updatedAt": "2026-10-06T15:00:07.184Z",
+          "updatedAt": "2026-10-06T15:44:47.858Z",
           "fileName": "docs.json",
           "postProcessHash": "6e44c0b22925425a78125ad7a0844e1830c6b4c3e0400c9935df402202bfd9bf"
         },
         "pt-BR": {
-          "updatedAt": "2026-10-06T15:00:06.761Z",
+          "updatedAt": "2026-10-06T15:44:47.469Z",
           "fileName": "docs.json",
           "postProcessHash": "6e44c0b22925425a78125ad7a0844e1830c6b4c3e0400c9935df402202bfd9bf"
         },
         "ko": {
-          "updatedAt": "2026-10-06T15:00:06.546Z",
+          "updatedAt": "2026-10-06T15:44:47.283Z",
           "fileName": "docs.json",
           "postProcessHash": "6e44c0b22925425a78125ad7a0844e1830c6b4c3e0400c9935df402202bfd9bf"
         },
         "ru": {
-          "updatedAt": "2026-10-06T15:00:06.976Z",
+          "updatedAt": "2026-10-06T15:44:47.673Z",
           "fileName": "docs.json",
           "postProcessHash": "6e44c0b22925425a78125ad7a0844e1830c6b4c3e0400c9935df402202bfd9bf"
         }
@@ -23497,6 +23497,11 @@
           "updatedAt": "2026-10-06T15:00:11.352Z",
           "fileName": "ar/reference/system-tables/metric_log.mdx",
           "postProcessHash": "fd492606372086670aa5a32e4b998d3f2b7134bf83df262a3ac6b20a9d71ea6c"
+        },
+        "pt-BR": {
+          "updatedAt": "2026-10-06T15:44:48.787Z",
+          "fileName": "pt-BR/reference/system-tables/metric_log.mdx",
+          "postProcessHash": "535198cd3dd20da02ef0db7b60e9ace508b16cf04c1bba54d5ac1fb8a7229f44"
         }
       },
       "fileName": "reference/system-tables/metric_log.mdx"
