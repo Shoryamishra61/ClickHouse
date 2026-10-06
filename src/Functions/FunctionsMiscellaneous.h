@@ -12,6 +12,7 @@
 #include <Interpreters/ExpressionActions.h>
 #include <Interpreters/PreparedSets.h>
 
+#include "config.h"
 
 namespace DB
 {
@@ -47,11 +48,33 @@ struct LambdaExpressionActions
     UncompiledActionsDAGPtr uncompiled_actions_dag;
 };
 
+#if USE_EMBEDDED_COMPILER
+/// Whether JIT may compile anything in the DAG. `ActionsDAG::compileFunctions` compiles only a function
+/// with `isCompilable` that has a direct child function with `isCompilable`, so a DAG without such a pair
+/// is never rewritten. The converse does not hold: JIT may still decline, e.g. below
+/// `min_count_to_compile_expression`.
+inline bool mayBeJITCompiled(const ActionsDAG & actions_dag)
+{
+    auto is_compilable_function = [](const ActionsDAG::Node & node)
+    { return node.type == ActionsDAG::ActionType::FUNCTION && node.function_base->isCompilable(); };
+
+    for (const auto & node : actions_dag.getNodes())
+        if (is_compilable_function(node))
+            for (const auto * child : node.children)
+                if (is_compilable_function(*child))
+                    return true;
+    return false;
+}
+#endif
+
 inline LambdaExpressionActions buildLambdaExpressionActions(ActionsDAG actions_dag, const ExpressionActionsSettings & actions_settings)
 {
     UncompiledActionsDAGPtr uncompiled_actions_dag;
-    if (actions_settings.can_compile_expressions && actions_settings.compile_expressions == CompileExpressions::yes)
+#if USE_EMBEDDED_COMPILER
+    if (actions_settings.can_compile_expressions && actions_settings.compile_expressions == CompileExpressions::yes
+        && mayBeJITCompiled(actions_dag))
         uncompiled_actions_dag = std::make_shared<const ActionsDAG>(actions_dag.clone());
+#endif
 
     auto expression_actions = std::make_shared<ExpressionActions>(std::move(actions_dag), actions_settings);
 
