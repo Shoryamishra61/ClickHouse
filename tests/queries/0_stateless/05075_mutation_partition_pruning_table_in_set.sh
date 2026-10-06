@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# Tags: zookeeper, no-replicated-database
+# Tags: zookeeper, no-replicated-database, no-shared-merge-tree
 # no-replicated-database: the mutations must stay pending, but `SYSTEM STOP REPLICATION QUEUES` stops
 # only the local replica, and executing `DELETE WHERE is_hit` on another one hits the `Not-ready Set`
 # exception of https://github.com/ClickHouse/ClickHouse/issues/117276
+# no-shared-merge-tree: `SYSTEM STOP REPLICATION QUEUES` does not keep the mutations of a `SharedMergeTree`
+# pending, so `DELETE WHERE is_hit` executes and hits the same exception
 #
 # A `.sh` test, so the targeted AST fuzzer, which takes only `.sql` files, does not pick up its queries,
 # and the server-side AST fuzzer is disabled with `ast_fuzzer_runs = 0`: fuzzed mutations over the
