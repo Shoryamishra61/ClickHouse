@@ -979,6 +979,15 @@ static ColumnPtr createColumnFromConstantArray(
         if (converted.isNull())
             return nullptr;
 
+        /// `has(<constant array>, <indexed scalar>)` compares the `Field`s without a cast, and an
+        /// `Enum` element is converted to its name, which can be wider than the indexed
+        /// `FixedString(N)` - the name is not truncated to it. Such a value cannot match a narrower
+        /// `FixedString` scalar, but `ColumnFixedString::insert` would throw `TOO_LARGE_STRING_SIZE`
+        /// while preparing the index. Decline the index and let the function evaluate normally
+        /// instead. The `coerce` branch rejects an over-wide value on its own.
+        if (fixed_string_type && converted.getType() == Field::Types::String
+            && converted.safeGet<String>().size() > fixed_string_type->getN())
+        {
             return nullptr;
         }
 
@@ -1271,6 +1280,7 @@ bool MergeTreeIndexConditionBloomFilter::traverseTreeEquals(
 
         out.function = RPNElement::FUNCTION_HAS;
         const DataTypePtr actual_type = BloomFilter::getPrimitiveType(array_type->getNestedType());
+
         /// Without the `Map` type the padded and the coerced form cannot be told apart.
         if (!element_type && searchFunctionCoercesConstant(value_type, actual_type))
             return false;
