@@ -13,6 +13,9 @@ set -u
 # the materialized view's `modification_hash` and invalidate a `REFRESH ... IF CHANGED` watermark.
 # The limits used here are far above what the views return, so nothing fails and only the change of
 # the definer's settings is observed.
+# The limits are `CONST`: `getSQLSecurityOverriddenContext` applies the invoker's changed settings on
+# top of the definer's profile, and the test server's default profile already sets both limits, so a
+# plain definer value would be overridden and would rightly leave the hash unmoved.
 
 # Users are server-wide, so make the name unique per run.
 definer="definer_05331_${CLICKHOUSE_DATABASE}"
@@ -42,10 +45,10 @@ hash_of_mv()
 baseline=$(hash_of_mv)
 [ -n "${baseline}" ] && echo 'hash is computed'
 
-$CLICKHOUSE_CLIENT -q "ALTER USER ${definer} SETTINGS max_result_rows = 1000"
+$CLICKHOUSE_CLIENT -q "ALTER USER ${definer} SETTINGS max_result_rows = 1000 CONST"
 [ "${baseline}" != "$(hash_of_mv)" ] && echo 'max_result_rows in the definer profile changes the hash'
 
-$CLICKHOUSE_CLIENT -q "ALTER USER ${definer} SETTINGS max_result_bytes = 1000000"
+$CLICKHOUSE_CLIENT -q "ALTER USER ${definer} SETTINGS max_result_bytes = 1000000 CONST"
 [ "${baseline}" != "$(hash_of_mv)" ] && echo 'max_result_bytes in the definer profile changes the hash'
 
 $CLICKHOUSE_CLIENT -q "ALTER USER ${definer} SETTINGS NONE"
@@ -67,7 +70,7 @@ do
     sleep 0.5
 done
 
-$CLICKHOUSE_CLIENT -q "ALTER USER ${definer} SETTINGS max_result_rows = 1000"
+$CLICKHOUSE_CLIENT -q "ALTER USER ${definer} SETTINGS max_result_rows = 1000 CONST"
 
 for _ in {1..30}
 do
