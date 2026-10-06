@@ -695,7 +695,7 @@ bool IdentifierResolver::tryBindIdentifierToTableExpression(const IdentifierLook
     if (identifier_lookup.isTableExpressionLookup())
     {
         size_t parts_size = identifier_lookup.identifier.getPartsSize();
-        if (parts_size != 1 && parts_size != 2)
+        if (parts_size != 1 && parts_size != 2 && !scope.context->getSettingsRef()[Setting::allow_experimental_table_namespaces])
             throw Exception(ErrorCodes::INVALID_IDENTIFIER,
                 "Expected identifier '{}' to contain 1 or 2 parts to be resolved as table expression. In scope {}",
                 identifier_lookup.identifier.getFullName(),
@@ -705,8 +705,13 @@ bool IdentifierResolver::tryBindIdentifierToTableExpression(const IdentifierLook
             return true;
         if (parts_size == 1 && !materialized_cte_name.empty() && path_start == materialized_cte_name)
             return true;
-        if (parts_size == 2 && path_start == database_name && identifier[1] == table_name)
-            return true;
+        if (parts_size > 1)
+        {
+            IdentifierView identifier_view = identifier;
+            identifier_view.popFirst();
+            if (identifier[0] == database_name && identifier_view.getFullName() == table_name)
+                return true;
+        }
         return false;
     }
 
@@ -716,7 +721,18 @@ bool IdentifierResolver::tryBindIdentifierToTableExpression(const IdentifierLook
     if (identifier.getPartsSize() == 1)
         return false;
 
-    if ((!table_name.empty() && path_start == table_name) || (table_expression_node->hasAlias() && path_start == table_expression_node->getAlias()))
+    auto starts_with_table_name_part = [](const IdentifierView & identifier_view, const String & table_name_part) {
+        if (table_name_part.empty())
+            return false;
+
+        auto full_name = identifier_view.getFullName();
+        return full_name.starts_with(table_name_part) && full_name.size() > table_name_part.size() && full_name[table_name_part.size()] == '.';
+    };
+
+    if (starts_with_table_name_part(IdentifierView(identifier), table_name))
+        return true;
+
+    if (table_expression_node->hasAlias() && path_start == table_expression_node->getAlias())
         return true;
 
     if (!materialized_cte_name.empty() && path_start == materialized_cte_name)
@@ -725,10 +741,24 @@ bool IdentifierResolver::tryBindIdentifierToTableExpression(const IdentifierLook
     if (identifier.getPartsSize() == 2)
         return false;
 
-    if (!database_name.empty() && path_start == database_name && identifier[1] == table_name)
-        return true;
+    // Check database name
+    IdentifierView identifier_view(identifier);
+    if (!starts_with_table_name_part(identifier_view, database_name))
+        return false;
+    identifier_view.popFirst();
 
-    return false;
+    // Check table name
+    if (!starts_with_table_name_part(identifier_view, table_name))
+        return false;
+
+    size_t skipped_length = 0;
+    while (skipped_length < table_name.length() && !identifier_view.empty())
+    {
+        skipped_length += identifier_view[0].length() + 1;
+        identifier_view.popFirst();
+    }
+
+    return (skipped_length == (table_name.length() + 1)) && !identifier_view.empty();
 }
 
 bool IdentifierResolver::tryBindIdentifierToTableExpressions(const IdentifierLookup & identifier_lookup,
