@@ -685,10 +685,12 @@ std::shared_ptr<DPJoinEntry> DPSubJoinOrderOptimizer::solve()
     /// and its subcomponents S1, S2
     initDPsubScratch();
 
-    /// Turn down a graph that only cross products hold together, before enumerating anything: DPsub
-    /// cannot stitch its components, so the next algorithm in the chain plans the query instead.
-    /// Not a graph no other algorithm may plan: the conflict detector seeds a link for each cross
-    /// product (see `initDPTable`), and the acceptor reports such a join as `Cross`.
+    /// Turn down a disconnected graph before enumerating anything: DPsub cannot stitch its
+    /// components, so the next algorithm in the chain plans the query instead. Cross products do not
+    /// disconnect a graph: each one links its two sides (see `QueryGraph::cross_product_links`),
+    /// whatever the conflict detector, and the acceptor reports such a join as `Cross`. What is left
+    /// is a join whose condition does not span its sides without a conflict detector to link it.
+    /// A graph only DPsub may plan is never turned down.
     if (dpsub_data.disconnected_graph && !query_graph.requires_conflict_detector)
     {
         LOG_TRACE(log, "Join graph is disconnected apart from cross products, leaving it to the next algorithm");
