@@ -226,7 +226,13 @@ The query type of an HTTP request is taken from the first `query` URL parameter;
 request body is the query, and the proxy reads the beginning of the body (the first chunk of a
 chunked body, up to 64 KiB) to classify it. A body that is compressed (`Content-Encoding`, or the
 `decompress` URL parameter) is not inspected, so such a request has no query type and matches only
-the rules without `query_type`.
+the rules without `query_type`. The same holds when the inspected beginning of the body ends before
+the first keyword of the query, for example within a long leading comment.
+A rule without `protocol` applies only to the protocols whose connections can have the attributes it
+matches on: `query_type` is known only for `http`, `authorized_key` only for `ssh`, and `host` only for
+`http`, `native` (the SNI of a secure listener) and `tls`. Such a rule does not make the proxy parse the
+credentials of other protocols (e.g. downgrade the TLS negotiation of PostgreSQL), and it is not taken
+into account when choosing the health check port of the backends of its pool for them.
 Hostnames are matched case-insensitively, as DNS names are case-insensitive: the incoming value is
 lowercased before matching, exact `host` values are compared after lowercasing, and a `host_regexp`
 is compiled as case-insensitive (regexp captures substituted into a `backend_template` are therefore

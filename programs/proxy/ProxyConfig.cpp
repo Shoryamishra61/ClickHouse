@@ -66,6 +66,28 @@ ListenerProtocol parseListenerProtocol(const String & name)
         "Unknown listener protocol '{}'. Supported protocols: http, native, mysql, postgresql, ssh, tls, stream", name);
 }
 
+bool ruleCanMatchProtocol(const RuleConfig & rule, ListenerProtocol protocol)
+{
+    if (!rule.protocol.empty())
+    {
+        std::vector<String> names;
+        boost::split(names, rule.protocol, boost::is_any_of(","));
+        if (!std::ranges::any_of(names, [&](String & name) { boost::trim(name); return parseListenerProtocol(name) == protocol; }))
+            return false;
+    }
+    /// A specified matcher never matches an attribute that the frontend does not fill: the query type is
+    /// known only for HTTP, the offered public key only for SSH, and the host only for HTTP (the `Host`
+    /// header) and for the SNI of `native` and `tls` connections.
+    if (!rule.query_type.empty() && protocol != ListenerProtocol::HTTP)
+        return false;
+    if ((!rule.authorized_key.empty() || !rule.authorized_key_file.empty()) && protocol != ListenerProtocol::SSH)
+        return false;
+    if ((!rule.host.empty() || !rule.host_regexp.empty())
+        && protocol != ListenerProtocol::HTTP && protocol != ListenerProtocol::Native && protocol != ListenerProtocol::TLS)
+        return false;
+    return true;
+}
+
 UInt16 backendPortFor(ListenerProtocol protocol, const BackendConfig & backend, UInt16 listener_port)
 {
     switch (protocol)
@@ -381,23 +403,8 @@ ProxyConfiguration ProxyConfiguration::load(const Poco::Util::AbstractConfigurat
         {
             if (!std::ranges::any_of(res.listeners, [&](const auto & l) { return l.protocol == protocol; }))
                 continue;
-            if (rule.protocol.empty())
-            {
-                /// A rule without `protocol` applies to every listener, unless it matches on an attribute that
-                /// MySQL and PostgreSQL sessions do not have: the query type (HTTP only), an SSH key, or the
-                /// host (not known for these protocols; a host regexp that accepts an empty value is still
-                /// refused by `connectToBackend`).
-                if (!rule.query_type.empty() || !rule.authorized_key.empty() || !rule.authorized_key_file.empty()
-                    || !rule.host.empty() || !rule.host_regexp.empty())
-                    continue;
-            }
-            else
-            {
-                std::vector<String> names;
-                boost::split(names, rule.protocol, boost::is_any_of(","));
-                if (!std::ranges::any_of(names, [&](String & name) { boost::trim(name); return parseListenerProtocol(name) == protocol; }))
-                    continue;
-            }
+            if (!ruleCanMatchProtocol(rule, protocol))
+                continue;
             if (!rule.pool.empty())
                 check_no_secure_backends(protocol, res.pools.at(rule.pool));
             else if (rule.backend_template && rule.backend_template->secure)
@@ -419,15 +426,8 @@ ProxyConfiguration ProxyConfiguration::load(const Poco::Util::AbstractConfigurat
             pool_listeners[listener.default_pool].insert(i);
         for (const auto & rule : res.rules)
         {
-            if (rule.pool.empty())
+            if (rule.pool.empty() || !ruleCanMatchProtocol(rule, listener.protocol))
                 continue;
-            if (!rule.protocol.empty())
-            {
-                std::vector<String> names;
-                boost::split(names, rule.protocol, boost::is_any_of(","));
-                if (!std::ranges::any_of(names, [&](String & name) { boost::trim(name); return parseListenerProtocol(name) == listener.protocol; }))
-                    continue;
-            }
             pool_listeners[rule.pool].insert(i);
         }
     }

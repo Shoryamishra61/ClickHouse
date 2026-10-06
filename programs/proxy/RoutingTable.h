@@ -72,6 +72,9 @@ private:
         Matcher database;
         std::vector<String> query_types;
         std::vector<ListenerProtocol> protocols;
+        /// The protocols whose sessions can match the rule: those it is not restricted from, excluding the ones
+        /// that never have an attribute it matches on (see `ruleCanMatchProtocol`).
+        std::vector<ListenerProtocol> matchable_protocols;
         std::unordered_set<String> authorized_keys;   /// Canonical "<type> <base64>" keys; empty means unspecified.
         Target target;
     };

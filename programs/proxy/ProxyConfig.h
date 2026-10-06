@@ -100,6 +100,10 @@ struct RuleConfig
                                                     /// with regexp captures (numbered across host, user, database matchers).
 };
 
+/// Whether a session of this protocol can match the rule: the rule is not restricted to other protocols
+/// and does not match on an attribute that sessions of this protocol never have.
+bool ruleCanMatchProtocol(const RuleConfig & rule, ListenerProtocol protocol);
+
 struct HooksConfig
 {
     /// Every hook is a shell command run as: command KIND PROTOCOL HOST USER DATABASE.

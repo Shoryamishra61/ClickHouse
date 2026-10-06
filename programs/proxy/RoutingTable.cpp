@@ -254,6 +254,11 @@ ConfigRoutingTable::ConfigRoutingTable(const std::vector<RuleConfig> & rules_)
         for (const auto & name : splitList(rule_config.protocol))
             rule.protocols.push_back(parseListenerProtocol(name));
 
+        for (const auto protocol : {ListenerProtocol::HTTP, ListenerProtocol::Native, ListenerProtocol::MySQL,
+                                    ListenerProtocol::PostgreSQL, ListenerProtocol::SSH, ListenerProtocol::TLS, ListenerProtocol::Stream})
+            if (ruleCanMatchProtocol(rule_config, protocol))
+                rule.matchable_protocols.push_back(protocol);
+
         rule.authorized_keys = loadAuthorizedKeys(rule_config.authorized_key, rule_config.authorized_key_file);
 
         rule.target.pool_name = rule_config.pool;
@@ -289,9 +294,7 @@ ConfigRoutingTable::ConfigRoutingTable(const std::vector<RuleConfig> & rules_)
 
 bool ConfigRoutingTable::appliesToProtocol(const Rule & rule, ListenerProtocol protocol)
 {
-    if (rule.protocols.empty())
-        return true;
-    return std::find(rule.protocols.begin(), rule.protocols.end(), protocol) != rule.protocols.end();
+    return std::find(rule.matchable_protocols.begin(), rule.matchable_protocols.end(), protocol) != rule.matchable_protocols.end();
 }
 
 std::optional<IRoutingTable::Target> ConfigRoutingTable::resolve(const RouteAttributes & attributes) const
