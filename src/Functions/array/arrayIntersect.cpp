@@ -65,10 +65,10 @@ public:
 
     /// `arrayIntersect` uses `mostSubtype` to narrow the element types so that
     /// the same value can fit in every input array. `arrayUnion` and
-    /// `arraySymmetricDifference` widen instead via `leastSupertype`. The
-    /// runtime additionally rejects mixing Decimal with non-Decimal in the
-    /// widening modes; the DSL surfaces a similar error via the underlying
-    /// resolver throwing `NO_COMMON_TYPE` on incompatible inputs.
+    /// `arraySymmetricDifference` widen instead via `leastSupertype`.
+    /// The signature is documentation-only: `arrayUnion` additionally rejects mixing
+    /// `Decimal` with non-`Decimal` elements, which `leastSupertype` accepts, so both
+    /// entry points resolve through the handwritten `getReturnTypeImpl` below.
     String getSignatureString() const override
     {
         if (mode == ArraySetMode::Intersect)
@@ -77,6 +77,15 @@ public:
     }
 
     DataTypePtr getReturnTypeImpl(const DataTypes & arguments) const override;
+
+    DataTypePtr getReturnTypeImpl(const ColumnsWithTypeAndName & arguments) const override
+    {
+        DataTypes types;
+        types.reserve(arguments.size());
+        for (const auto & argument : arguments)
+            types.push_back(argument.type);
+        return getReturnTypeImpl(types);
+    }
 
     ColumnPtr executeImpl(const ColumnsWithTypeAndName & arguments, const DataTypePtr & result_type, size_t input_rows_count) const override;
 

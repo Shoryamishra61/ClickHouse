@@ -90,6 +90,18 @@ public:
 
     String getSignatureString() const override { return "(Array, Array) -> Float64"; }
 
+    /// Route the types-only entry point through the resolver below as well, so it
+    /// rejects element types without a common subtype instead of applying the bare
+    /// signature. That resolver only looks at the argument types.
+    DataTypePtr getReturnTypeImpl(const DataTypes & arguments) const override
+    {
+        ColumnsWithTypeAndName columns;
+        columns.reserve(arguments.size());
+        for (const auto & type : arguments)
+            columns.emplace_back(nullptr, type, String{});
+        return getReturnTypeImpl(columns);
+    }
+
     /// The DSL signature accepts any array element types, but the implementation
     /// builds `arrayIntersect`, whose element type is the most common subtype of
     /// the element types. Resolve it here so calls like

@@ -240,6 +240,18 @@ public:
         return "(A : Array, Array) -> A";
     }
 
+    /// The signature above is documentation-only, so the types-only entry point must not
+    /// apply it directly: route it through the authoritative resolver below, which only
+    /// looks at the argument types.
+    DataTypePtr getReturnTypeImpl(const DataTypes & arguments) const override
+    {
+        ColumnsWithTypeAndName columns;
+        columns.reserve(arguments.size());
+        for (const auto & type : arguments)
+            columns.emplace_back(nullptr, type, String{});
+        return getReturnTypeImpl(columns);
+    }
+
     DataTypePtr getReturnTypeImpl(const ColumnsWithTypeAndName & arguments) const override
     {
         auto mandatory_args = FunctionArgumentDescriptors{

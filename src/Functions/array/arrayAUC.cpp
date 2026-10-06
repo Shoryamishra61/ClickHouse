@@ -15,6 +15,7 @@ namespace ErrorCodes
 extern const int BAD_ARGUMENTS;
 extern const int ILLEGAL_COLUMN;
 extern const int ILLEGAL_TYPE_OF_ARGUMENT;
+extern const int NOT_IMPLEMENTED;
 extern const int NUMBER_OF_ARGUMENTS_DOESNT_MATCH;
 }
 
@@ -156,6 +157,19 @@ public:
         return "(Array, Array) -> Float64"
                " OR (Array, Array, const Bool) -> Float64"
                " OR (Array, Array, const Bool, Array) -> Float64";
+    }
+
+    /// The signature above does not spell the element types of the arrays, and the `scale`
+    /// argument must be a constant, which cannot be checked from the types alone. Decline this
+    /// entry point (as it behaved before the signature was added) instead of letting it accept
+    /// shapes the authoritative resolver below rejects.
+    DataTypePtr getReturnTypeImpl(const DataTypes & /*arguments*/) const override
+    {
+        throw Exception(
+            ErrorCodes::NOT_IMPLEMENTED,
+            "getReturnType is not implemented for {}: the constness of the arguments can only be validated "
+            "when the columns are known",
+            getName());
     }
 
     DataTypePtr getReturnTypeImpl(const ColumnsWithTypeAndName & arguments) const override
