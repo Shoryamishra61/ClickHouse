@@ -1025,9 +1025,6 @@ NameSet MergeTreeReadersChain::applyPatches(
 
             for (const auto & patch_result : patch_results)
                 patch_read_results.push_back(PatchReadResultToApply{patch, patch_result, updated_columns});
-
-            if (!patch_results.empty())
-                patched_columns.insert(updated_columns.begin(), updated_columns.end());
         }
     }
 
@@ -1035,7 +1032,9 @@ NameSet MergeTreeReadersChain::applyPatches(
     if (min_version.has_value())
         source_data_version = std::max(source_data_version, *min_version);
 
-    applyPatchesToBlock(result_block, versions_block, additional_columns, patch_read_results, source_data_version);
+    /// A patch block read for this range may still update none of its rows, so the patched
+    /// columns are the ones in which a row was actually updated, not the ones a patch covers.
+    applyPatchesToBlock(result_block, versions_block, additional_columns, patch_read_results, source_data_version, &patched_columns);
 
     result_columns = result_block.getColumns();
     result_columns.resize(result_header.columns());
