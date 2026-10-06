@@ -285,7 +285,7 @@ UInt64 ActionsDAG::Node::getHash() const
     return hash_state.get64();
 }
 
-void ActionsDAG::Node::updateHash(SipHash & hash_state) const
+void ActionsDAG::Node::updateHash(SipHash & hash_state, bool with_variable_size_constant_values) const
 {
     hash_state.update(type);
 
@@ -296,7 +296,13 @@ void ActionsDAG::Node::updateHash(SipHash & hash_state) const
         hash_state.update(result_type->getName());
 
     if (function_base)
+    {
         hash_state.update(function_base->getName());
+        /// The name says nothing about the settings a function captured when it was built (a
+        /// conversion captures how it parses), and two expressions that differ only in those are not
+        /// the same expression.
+        function_base->updateHash(hash_state);
+    }
 
     if (function)
         hash_state.update(function->getName());
@@ -319,12 +325,12 @@ void ActionsDAG::Node::updateHash(SipHash & hash_state) const
         /// hashed above. Skipping only its value keeps the single-replica and parallel-replicas plan
         /// builds matching without dropping any other constant's value (it still serializes normally
         /// for distributed propagation).
-        if (!is_runtime_filter_id)
+        if (!is_runtime_filter_id && (with_variable_size_constant_values || column->valuesHaveFixedSize()))
             column->updateHashWithValue(0, hash_state);
     }
 
     for (const auto & child : children)
-        child->updateHash(hash_state);
+        child->updateHash(hash_state, with_variable_size_constant_values);
 }
 
 UInt64 ActionsDAG::getHash() const
@@ -334,7 +340,7 @@ UInt64 ActionsDAG::getHash() const
     return hash.get64();
 }
 
-void ActionsDAG::updateHash(SipHash & hash_state) const
+void ActionsDAG::updateHash(SipHash & hash_state, bool with_variable_size_constant_values) const
 {
     struct Frame
     {
@@ -351,7 +357,7 @@ void ActionsDAG::updateHash(SipHash & hash_state) const
         auto & frame = stack.top();
         if (frame.next_child == frame.node->children.size())
         {
-            frame.node->updateHash(hash_state);
+            frame.node->updateHash(hash_state, with_variable_size_constant_values);
             stack.pop();
         }
         else
@@ -2427,6 +2433,16 @@ static bool isNonDeterministicOrStateful(const ActionsDAG::Node & node)
         node, [](const IFunctionBase & function) { return function.isDeterministicInScopeOfQuery() && !function.isStateful(); });
 }
 
+/// A higher-order call runs its lambda body, so it counts as non-deterministic when the body is. The lambda itself does not move alone.
+static bool isNonDeterministicOrStatefulCall(const ActionsDAG::Node & node)
+{
+    auto is_lambda = [](const ActionsDAG::Node & n) { return WhichDataType(n.result_type).isFunction(); };
+    if (is_lambda(node))
+        return false;
+    return isNonDeterministicOrStateful(node)
+        || std::ranges::any_of(node.children, [&](const ActionsDAG::Node * child) { return is_lambda(*child) && isNonDeterministicOrStateful(*child); });
+}
+
 bool ActionsDAG::hasStatefulFunctions() const
 {
     for (const auto & node : nodes)
@@ -3216,7 +3232,7 @@ ActionsDAG::SplitResult ActionsDAG::split(std::unordered_set<const Node *> split
     return {std::move(first_actions), std::move(second_actions), std::move(split_nodes_mapping)};
 }
 
-std::optional<ActionsDAG::SplitArrayJoinResult> ActionsDAG::extractFirstArrayJoin() const
+std::optional<ActionsDAG::SplitArrayJoinResult> ActionsDAG::extractFirstArrayJoin(bool nondeterministic_before_expansion) const
 {
     const Node * array_join = nullptr;
     for (const auto & node : nodes)
@@ -3229,7 +3245,26 @@ std::optional<ActionsDAG::SplitArrayJoinResult> ActionsDAG::extractFirstArrayJoi
         return {};
 
     /// ARRAY_JOIN and its argument go to `before`, the rest to `after`; the crossing columns get unique names.
-    auto split_res = split({array_join}, /*create_split_nodes_mapping=*/true, /*avoid_duplicate_inputs=*/true);
+    std::unordered_set<const Node *> split_nodes{array_join};
+    if (nondeterministic_before_expansion)
+    {
+        /// Anything under a later array join stays in `after`, or the joins would swap order.
+        std::unordered_set<const Node *> depends_on_join;
+        for (const auto & node : nodes)
+            if (node.type == ActionType::ARRAY_JOIN)
+                depends_on_join.insert(&node);
+        for (bool changed = true; changed;)
+        {
+            changed = false;
+            for (const auto & node : nodes)
+                if (!depends_on_join.contains(&node) && std::ranges::any_of(node.children, [&](const Node * child) { return depends_on_join.contains(child); }))
+                    changed = depends_on_join.insert(&node).second || changed;
+        }
+        for (const auto & node : nodes)
+            if (!depends_on_join.contains(&node) && isNonDeterministicOrStatefulCall(node))
+                split_nodes.insert(&node);
+    }
+    auto split_res = split(split_nodes, /*create_split_nodes_mapping=*/true, /*avoid_duplicate_inputs=*/true);
     ActionsDAG before = std::move(split_res.first);
     ActionsDAG after = std::move(split_res.second);
     const Node * aj_before = split_res.split_nodes_mapping.at(array_join);
@@ -4943,14 +4978,14 @@ void ActionsDAG::serialize(WriteBuffer & out, SerializedSetsRegistry & registry)
 
         writeIntBinary(column_flags, out);
 
-        /// When computing a cache key (`registry.for_cache_key`), skip the VALUE of the runtime-filter
-        /// id carrier only: it is a volatile per-plan-build rendezvous key, not a stable key component,
-        /// while its `result_name`/`column_flags` (already written) carry the stable structural id.
-        /// Every other constant's value — including a folded `now()`/`randConstant` — must stay in the
-        /// key, otherwise semantically different queries would share statistics. This output is
-        /// hash-only and never deserialized, so omitting the carrier value is safe; the transmission
-        /// path (`for_cache_key == false`) always writes it.
-        if (has_column && !(registry.for_cache_key && node.is_runtime_filter_id))
+        /// A cache key (`registry.for_cache_key`) leaves out a constant's value when it has no fixed
+        /// size, with the same contract as `updateHash` with `with_variable_size_constant_values = false`:
+        /// such a value can be arbitrarily large (a folded scalar subquery), and hashing it on every
+        /// execution costs more than the rest of planning. It also leaves out the value of the
+        /// runtime-filter id carrier, a volatile per-plan-build rendezvous key whose `result_name` is its
+        /// stable identity. This output is hash-only and never deserialized; the transmission path
+        /// (`for_cache_key == false`) always writes the value.
+        if (has_column && !(registry.for_cache_key && (node.is_runtime_filter_id || !node.column->valuesHaveFixedSize())))
             serializeConstant(*node.result_type, *node.column, out, registry);
 
         if (node.type == ActionType::INPUT)
@@ -4968,6 +5003,15 @@ void ActionsDAG::serialize(WriteBuffer & out, SerializedSetsRegistry & registry)
         else if (node.type == ActionType::FUNCTION)
         {
             writeStringBinary(node.function_base->getName(), out);
+            /// A cache key has to tell apart two functions of one name that captured different settings
+            /// (see `Node::updateHash`), so it also carries the hash of what the function captured. The
+            /// transmission path leaves it out: the receiver rebuilds the function from its own settings.
+            if (registry.for_cache_key)
+            {
+                SipHash function_state;
+                node.function_base->updateHash(function_state);
+                writeBinaryLittleEndian(function_state.get128(), out);
+            }
             if (function_capture)
             {
                 serializeCapture(function_capture->getCapture(), out);
