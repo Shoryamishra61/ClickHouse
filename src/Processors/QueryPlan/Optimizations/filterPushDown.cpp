@@ -1203,7 +1203,7 @@ static bool mayFixColumn(const ActionsDAG::Node * condition, bool only_those_the
     return false;
 }
 
-size_t tryPushDownFilter(QueryPlan::Node * parent_node, QueryPlan::Nodes & nodes, const Optimization::ExtraSettings &)
+size_t tryPushDownFilter(QueryPlan::Node * parent_node, QueryPlan::Nodes & nodes, const Optimization::ExtraSettings & settings)
 {
     if (parent_node->children.size() != 1)
         return 0;
