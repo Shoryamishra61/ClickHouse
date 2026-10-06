@@ -35,6 +35,11 @@ public:
     /// rather than reused.
     void fromDisk(const String & disk_name, ASTs & args, ContextPtr context, bool with_structure) override;
 
+    /// The inherited parser silently ignores the key-value arguments that only matter to the native
+    /// backend (`google_adc_*` and `use_environment_credentials`), which named collections do carry.
+    /// Read them on top of it, so that the bare-URL form authenticates the same way.
+    void fromAST(ASTs & args, ContextPtr context, bool with_structure) override;
+
 private:
     /// Set only by `fromDisk`: the settings of the disk that backs this configuration. They already
     /// carry the endpoint and the credentials, so `createObjectStorage` uses them as they are instead

@@ -89,6 +89,28 @@ void StorageGCSConfiguration::fromDisk(const String & disk_name, ASTs & args, Co
     keys = {key};
 }
 
+void StorageGCSConfiguration::fromAST(ASTs & args, ContextPtr context, bool with_structure)
+{
+    StorageS3Configuration::fromAST(args, context, with_structure);
+
+    /// `parseKeyValueArguments` skips everything but the `key = value` pairs, so the positional
+    /// arguments, `headers(...)` and `extra_credentials(...)` left in `args` do not get in the way.
+    const auto key_value_args = parseKeyValueArguments(args, context);
+    auto & auth = s3_settings->auth_settings;
+
+    for (const auto & [name, setting] : {
+             std::pair{"google_adc_client_id", S3AuthSetting::google_adc_client_id},
+             std::pair{"google_adc_client_secret", S3AuthSetting::google_adc_client_secret},
+             std::pair{"google_adc_refresh_token", S3AuthSetting::google_adc_refresh_token}})
+    {
+        if (auto it = key_value_args.find(name); it != key_value_args.end())
+            auth[setting] = it->second.safeGet<String>();
+    }
+
+    if (auto it = key_value_args.find("use_environment_credentials"); it != key_value_args.end())
+        auth[S3AuthSetting::use_environment_credentials] = it->second.safeGet<UInt64>() != 0;
+}
+
 ObjectStoragePtr StorageGCSConfiguration::createObjectStorage(
     ContextPtr context, bool /* is_readonly */, CredentialsConfigurationCallback /* refresh_credentials_callback */)
 {
