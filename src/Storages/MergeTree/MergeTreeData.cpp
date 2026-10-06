@@ -7985,17 +7985,18 @@ void MergeTreeData::forcefullyMovePartToDetachedAndRemoveFromMemory(const MergeT
         }
     }
 
+    /// The caches are keyed by the path of the active part, and a later part with the same name on the
+    /// same disk (for example, fetched again after `SYSTEM RESTORE REPLICA`) must not see the entries of
+    /// this one. The keys are derived from the root path of the part storage, which `renameToDetached`
+    /// changes to the `detached` directory, so the entries must be evicted before the rename: afterwards
+    /// the keys no longer match and the entries would stay in the caches. The part is already `Deleting`
+    /// here, so even if the rename throws, it is not returned to the working set with its caches cleared.
+    asMutableDeletingPart(part)->clearCaches();
+
     asMutableDeletingPart(part)->renameToDetached(prefix, /*ignore_error=*/ replicated);
 
     LOG_TEST(log, "forcefullyMovePartToDetachedAndRemoveFromMemory: removing {} from data_parts_indexes", part->getNameWithState());
     data_parts_indexes.erase(it_part);
-
-    /// The caches are keyed by the path of the active part, which does not change when the part is
-    /// renamed to detached, and a later part with the same name on the same disk (for example, fetched
-    /// again after `SYSTEM RESTORE REPLICA`) must not see the entries of this one. Otherwise they would
-    /// be cleared only by `removeIfNeeded` when the last reference to this part is gone.
-    /// This is done after the part has left the working set, so that an exception cannot leave it half-detached.
-    asMutableDeletingPart(part)->clearCaches();
 
     /// This path skips `removePartsFinally`, so it owes the reclaim itself. Safe under the parts
     /// lock: forgetting an index entry resolves no part.
