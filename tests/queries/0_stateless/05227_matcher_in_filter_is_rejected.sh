@@ -44,6 +44,20 @@ CREATE ROW POLICY OR REPLACE p_05227 ON t_05227 USING a IN (SELECT * FROM allowe
 SELECT 'subquery in a row policy', count() FROM t_05227;
 DROP ROW POLICY p_05227 ON t_05227;
 
+-- A qualified matcher over a Tuple column expands into its elements, not into table columns, and keeps working.
+DROP TABLE IF EXISTS tup_05227;
+CREATE TABLE tup_05227 (id UInt32, tup Tuple(x UInt8, y UInt8)) ENGINE = MergeTree ORDER BY id;
+INSERT INTO tup_05227 VALUES (1, (1, 2)), (2, (0, 0)), (3, (0, 3));
+SELECT 'tuple matcher in a filter', groupArray(id) FROM tup_05227 SETTINGS additional_table_filters = {'tup_05227': 'greatest(tup.*) > 0'};
+SELECT count() FROM tup_05227 SETTINGS additional_table_filters = {'tup_05227': 'not ignore(tup_05227.*)'}; -- { serverError BAD_ARGUMENTS }
+CREATE ROW POLICY OR REPLACE p_05227 ON tup_05227 USING greatest(tup.*) > 0 TO ALL;
+SELECT 'tuple matcher in a row policy', groupArray(id) FROM tup_05227;
+-- A qualified matcher can be checked against the table columns only on the read.
+CREATE ROW POLICY OR REPLACE p_05227 ON tup_05227 USING not ignore(tup_05227.*) TO ALL;
+SELECT count() FROM tup_05227; -- { serverError BAD_ARGUMENTS }
+DROP ROW POLICY p_05227 ON tup_05227;
+DROP TABLE tup_05227;
+
 -- A matcher-free filter keeps working.
 SELECT 'plain filter', count() FROM t_05227 WHERE 1 SETTINGS additional_table_filters = {'t_05227': 'b > 5'};
 -- additional_result_filter is applied on top of the rows the LIMIT has already selected.

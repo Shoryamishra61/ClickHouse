@@ -3,6 +3,7 @@
 #include <Common/quoteString.h>
 #include <Interpreters/ExpressionContainsArrayJoin.h>
 #include <Interpreters/ExpressionContainsColumnMatcher.h>
+#include <Parsers/ASTIdentifier.h>
 #include <Parsers/IAST.h>
 #include <boost/range/algorithm/equal.hpp>
 
@@ -24,9 +25,11 @@ void checkRowPolicyFilterExpression(const ASTPtr & expression)
 
     /// A row policy filter is a predicate over the rows of one table, so a column matcher has no meaning in it.
     /// Reject it here, when the policy is created or altered, rather than only on the next read of the table.
+    /// The columns of the table are not known here, so a qualified matcher is let through: its qualifier may be a
+    /// `Tuple` column, as in `tup.*`, and otherwise it is rejected on the read, when the columns are known.
     if (expression)
     {
-        if (const auto * matcher = findColumnMatcherInExpression(*expression))
+        if (const auto * matcher = findColumnMatcherInExpression(*expression, [](const ASTIdentifier &) { return true; }))
             throw Exception(ErrorCodes::BAD_ARGUMENTS,
                 "Column matcher {} is not allowed in a row policy filter expression; list the columns explicitly. In filter {}",
                 matcher->formatForErrorMessage(),

@@ -1,5 +1,6 @@
 #include <Planner/Utils.h>
 
+#include <Parsers/ASTIdentifier.h>
 #include <Parsers/ASTSelectWithUnionQuery.h>
 #include <Parsers/ASTSelectQuery.h>
 #include <Parsers/ASTSubquery.h>
@@ -26,6 +27,7 @@
 
 #include <Storages/StorageAlias.h>
 #include <Storages/StorageDummy.h>
+#include <Storages/StorageSnapshot.h>
 
 #include <Interpreters/Context.h>
 #include <Interpreters/ExpressionContainsColumnMatcher.h>
@@ -718,8 +720,21 @@ QueryTreeNodePtr buildFilterQueryTree(ASTPtr filter_expression,
     /// only ever expand into the argument list of a function such as `ignore(*)`. Reject it deliberately, with a
     /// clear diagnostic, instead of letting the analyzer fail on the missing table sources of such a scope. The
     /// check descends into SQL UDF bodies, and skips subqueries, e.g. `x IN (SELECT * FROM allowed)`, which resolve
-    /// against their own tables.
-    if (const auto * matcher = findColumnMatcherInExpression(*filter_expression))
+    /// against their own tables. A qualified matcher over a column of the table, e.g. `tup.*` for a `Tuple` column
+    /// `tup`, expands into the elements of that column and is fine.
+    StorageSnapshotPtr storage_snapshot;
+    if (const auto * table_node = table_expression->as<TableNode>())
+        storage_snapshot = table_node->getStorageSnapshot();
+    else if (const auto * table_function_node = table_expression->as<TableFunctionNode>())
+        storage_snapshot = table_function_node->getStorageSnapshot();
+
+    auto is_column_qualifier = [&](const ASTIdentifier & qualifier)
+    {
+        return storage_snapshot
+            && storage_snapshot->tryGetColumn(GetColumnsOptions(GetColumnsOptions::All).withSubcolumns(), qualifier.name());
+    };
+
+    if (const auto * matcher = findColumnMatcherInExpression(*filter_expression, is_column_qualifier))
         throw Exception(ErrorCodes::BAD_ARGUMENTS,
             "Column matcher {} is not allowed in an expression over a single table (a row policy, `additional_table_filters`, "
             "`additional_result_filter` or `parallel_replicas_custom_key`); list the columns explicitly. In expression {}",
