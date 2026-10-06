@@ -403,9 +403,10 @@ private:
         bool enqueued = false; /// True if the next request is already enqueued to the scheduler
         bool request_master_slot = true; /// The next request should use (true) master_link or (false) worker_link
 
-        // Cancellation of enqueued request
+        // Cancellation of an enqueued request. Multiple threads can wait here at once (parking workers
+        // all cancel), so a detach is signalled by bumping this generation rather than a single flag.
         std::condition_variable cancel_cv;
-        bool wait_cancel = false;
+        UInt64 cancel_generation = 0;
     } requests;
 
     std::exception_ptr exception; /// Exception from the scheduler

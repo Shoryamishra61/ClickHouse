@@ -198,9 +198,10 @@ bool CPULeaseAllocation::RequestChain::cancel(std::unique_lock<std::mutex> & loc
         bool canceled = queue->cancelRequest(&*head);
         if (!canceled) // Request is currently processed by the scheduler thread, we have to wait
         {
-            wait_cancel = true;
-            cancel_cv.wait(lock, [this] { return !enqueued; });
-            wait_cancel = false;
+            // Multiple threads may wait here concurrently (parking workers), so wait for a detach
+            // generation change, not the reusable `enqueued` flag, so scheduled() can wake them all.
+            const UInt64 gen = cancel_generation;
+            cancel_cv.wait(lock, [this, gen] { return cancel_generation != gen; });
         }
         else
         {
@@ -220,9 +221,10 @@ void CPULeaseAllocation::RequestChain::scheduled()
     // It is either executed (granted) or failed, but it is not enqueued anymore
     enqueued = false;
 
-    // Notify cancel() that pending request is detached from the scheduler
-    if (wait_cancel)
-        cancel_cv.notify_one();
+    // Detach: bump the generation and wake all cancel() waiters. notify_one() + a single flag would
+    // strand all but one concurrent waiter (lost completion -> hung query).
+    ++cancel_generation;
+    cancel_cv.notify_all();
 }
 
 CPULeaseAllocation::CPULeaseAllocation(SlotCount max_threads_, ResourceLink master_link_, ResourceLink worker_link_, CPULeaseSettings settings_, SlotCount initial_max_slots_)
