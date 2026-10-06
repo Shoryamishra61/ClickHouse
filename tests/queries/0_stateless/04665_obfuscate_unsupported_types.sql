@@ -41,3 +41,16 @@ SELECT count() FROM (
         FROM numbers(4)
     ) LIMIT 4
 );
+
+-- The pieces preserved exactly: `Date` values pass through unchanged, `Nullable` keeps the original null
+-- map, and `Array` keeps the original sizes. The first pass of generation transforms the source rows in
+-- order, so the source and the obfuscated rows are compared one by one.
+SELECT
+    (SELECT groupArray((d, isNull(n), length(arr))) FROM (
+        SELECT toDate('2020-01-01') + number AS d, if(number % 2 = 0, NULL, number) AS n, range(number % 3) AS arr FROM numbers(6)))
+    =
+    (SELECT groupArray((d, isNull(n), length(arr))) FROM (
+        SELECT * FROM obfuscate(
+            SELECT toDate('2020-01-01') + number AS d, if(number % 2 = 0, NULL, number) AS n, range(number % 3) AS arr FROM numbers(6)
+        ) LIMIT 6))
+SETTINGS max_threads = 1;

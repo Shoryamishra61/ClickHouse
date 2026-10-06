@@ -4,9 +4,10 @@ CUR_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=../shell_config.sh
 . "$CUR_DIR"/../shell_config.sh
 
-# `obfuscate` has two user-visible entrypoints that interpret its inner query independently:
+# `obfuscate` has several user-visible entrypoints that interpret its inner query independently:
 # `DESCRIBE obfuscate(...)` derives the structure (`TableFunctionObfuscate::getActualTableStructure`),
-# and `SELECT ... FROM obfuscate(...)` reads it (`StorageObfuscate::read`). Both have to enforce the
+# `SELECT ... FROM obfuscate(...)` reads it (`StorageObfuscate::read`), and `EXPLAIN PLAN` builds the
+# query plan without executing it. All of them have to enforce the
 # `SELECT` privilege on the tables of the inner query; table-function regressions over other ClickHouse
 # objects have repeatedly shown up on only one of the two paths.
 
@@ -24,9 +25,10 @@ GRANT CREATE TEMPORARY TABLE ON *.* TO ${USER};
 
 CLIENT_AS_USER="${CLICKHOUSE_CLIENT} --user ${USER}"
 
-echo '-- without SELECT on the source table, both entrypoints are denied'
+echo '-- without SELECT on the source table, all entrypoints are denied'
 $CLIENT_AS_USER --query "SELECT * FROM obfuscate(SELECT * FROM ${TABLE}) LIMIT 3" 2>&1 | grep -o -m1 'ACCESS_DENIED'
 $CLIENT_AS_USER --query "DESCRIBE obfuscate(SELECT * FROM ${TABLE})" 2>&1 | grep -o -m1 'ACCESS_DENIED'
+$CLIENT_AS_USER --query "EXPLAIN PLAN SELECT * FROM obfuscate(SELECT * FROM ${TABLE}) LIMIT 1" 2>&1 | grep -o -m1 'ACCESS_DENIED'
 
 echo '-- a column-level grant admits exactly the granted column on both entrypoints'
 $CLICKHOUSE_CLIENT --query "GRANT SELECT(n) ON ${TABLE} TO ${USER}"
@@ -35,10 +37,11 @@ $CLIENT_AS_USER --query "DESCRIBE obfuscate(SELECT n FROM ${TABLE})" | cut -f1,2
 $CLIENT_AS_USER --query "SELECT * FROM obfuscate(SELECT * FROM ${TABLE}) LIMIT 3" 2>&1 | grep -o -m1 'ACCESS_DENIED'
 $CLIENT_AS_USER --query "DESCRIBE obfuscate(SELECT * FROM ${TABLE})" 2>&1 | grep -o -m1 'ACCESS_DENIED'
 
-echo '-- with SELECT on the source table, both entrypoints succeed'
+echo '-- with SELECT on the source table, all entrypoints succeed'
 $CLICKHOUSE_CLIENT --query "GRANT SELECT ON ${TABLE} TO ${USER}"
 $CLIENT_AS_USER --query "SELECT count() FROM (SELECT * FROM obfuscate(SELECT * FROM ${TABLE}) LIMIT 3)"
 $CLIENT_AS_USER --query "DESCRIBE obfuscate(SELECT * FROM ${TABLE})" | cut -f1,2
+$CLIENT_AS_USER --query "EXPLAIN PLAN SELECT * FROM obfuscate(SELECT * FROM ${TABLE}) LIMIT 1" > /dev/null && echo 'EXPLAIN PLAN OK'
 
 $CLICKHOUSE_CLIENT --query "
 DROP USER IF EXISTS ${USER};
