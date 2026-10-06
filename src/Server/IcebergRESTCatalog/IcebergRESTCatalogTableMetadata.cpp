@@ -1,5 +1,7 @@
 #include <Server/IcebergRESTCatalog/IcebergRESTCatalogTableMetadata.h>
 
+#include "config.h"
+
 #include <Common/Exception.h>
 #include <Storages/ObjectStorage/DataLakes/Iceberg/Constant.h>
 #include <Storages/ObjectStorage/DataLakes/Iceberg/SchemaProcessor.h>
@@ -17,6 +19,7 @@ namespace DB
 namespace ErrorCodes
 {
     extern const int BAD_ARGUMENTS;
+    extern const int SUPPORT_IS_DISABLED;
 }
 
 using namespace Iceberg;
@@ -109,6 +112,17 @@ void checkString(const Poco::JSON::Object & object, const String & key, const St
         throw Exception(ErrorCodes::BAD_ARGUMENTS, "{} must have a non-empty string '{}'", what, key);
 }
 
+/// Reuse the reader's parser so that every persisted transform can be read back.
+void checkTransform(const String & transform, const String & what)
+{
+#if USE_AVRO
+    if (!parseTransformAndArgument(transform))
+        throw Exception(ErrorCodes::BAD_ARGUMENTS, "Unknown transform '{}' in {}", transform, what);
+#else
+    throw Exception(ErrorCodes::SUPPORT_IS_DISABLED, "Cannot validate transform '{}' in {}: ClickHouse was built without Avro support", transform, what);
+#endif
+}
+
 /// `required_strings` are the mandatory string members of every field besides `source-id`.
 std::vector<Poco::JSON::Object::Ptr> getSpecFields(
     const Poco::JSON::Object & spec, const String & spec_name, const std::set<Int64> & schema_ids, const std::vector<String> & required_strings)
@@ -127,10 +141,7 @@ std::vector<Poco::JSON::Object::Ptr> getSpecFields(
             throw Exception(ErrorCodes::BAD_ARGUMENTS, "{} references unknown source-id {}", what, source_id);
         for (const auto & key : required_strings)
             checkString(*field_object, key, what + " field");
-        /// Reuse the reader's parser so that every persisted transform can be read back.
-        const auto transform = field_object->getValue<String>(f_transform);
-        if (!parseTransformAndArgument(transform))
-            throw Exception(ErrorCodes::BAD_ARGUMENTS, "Unknown transform '{}' in {}", transform, what);
+        checkTransform(field_object->getValue<String>(f_transform), what);
         fields.push_back(field_object);
     }
     return fields;
