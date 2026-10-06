@@ -8,6 +8,54 @@ keywords: ['ClickHouse Observability', 'fully managed', 'architecture']
 sidebarTitle: 'Architecture'
 ---
 
-<Note>
-The architecture guide for fully managed ClickHouse Observability is coming soon.
-</Note>
+import { Image } from "/snippets/components/Image.jsx";
+
+ClickHouse Observability runs entirely within **ClickHouse Cloud**, providing a fully managed observability backend while preserving the same ClickStack data model and user experience.
+
+In this model, **ClickHouse, the ClickStack UI (HyperDX), and the OpenTelemetry (OTel) ingestion collector** are hosted, operated, and secured by ClickHouse Cloud. Users are responsible for instrumenting their applications and sending telemetry from their environment to the managed service.
+
+<Image img="/images/use-cases/observability/clickstack-fully-managed-architecture.png" alt="Fully managed architecture with the OpenTelemetry collector, ClickHouse, and HyperDX operated by ClickHouse Cloud" size="lg"/>
+
+### ClickHouse Cloud: the engine {#clickhouse-cloud}
+
+At the heart of ClickHouse Observability is ClickHouse Cloud, a serverless version of ClickHouse - a column-oriented database designed for real-time analytics at scale. It powers the ingestion and querying of observability data, enabling:
+
+- Sub-second search across terabytes of events
+- Ingestion of billions of high-cardinality records per day
+- High compression rates of at least 10x on observability data
+- Native support for semi-structured JSON data, allowing dynamic schema evolution
+- A powerful SQL engine with hundreds of built-in analytical functions
+
+ClickHouse Cloud handles observability data as wide events, allowing for deep correlation across logs, metrics, and traces in a single unified structure.
+
+In addition to ClickHouse Open Source, it provides a number of benefits for observability:
+
+- Automatic scaling of compute independent of storage
+- Low-cost and effectively unlimited retention based on object storage
+- Integrated authentication
+- Automated backups
+- Security and compliance features
+- Seamless upgrades
+
+### OpenTelemetry collector: data ingestion {#open-telemetry-collector-managed}
+
+ClickHouse Observability includes a managed OpenTelemetry (OTel) collector to ingest telemetry in an open, standardized way. In your service, open **Team Settings → Managed Telemetry** to copy the OTLP endpoint and API key used to send data.
+
+The collector exports telemetry to ClickHouse Cloud in efficient batches. It supports optimized table schemas per data source, ensuring scalable performance across all signal types.
+
+The ingestion collector is managed by ClickHouse Cloud. You may still need collectors in your own environment to gather telemetry such as host metrics or Kubernetes logs and forward it to the managed endpoint.
+
+### ClickStack UI (HyperDX): the interface {#hyperdx}
+
+ClickStack UI (HyperDX) is the user interface for ClickStack. It offers:
+
+- Natural language and Lucene-style search
+- Live tailing for real-time debugging
+- Unified views of logs, metrics, and traces
+- Session replay for frontend observability
+- Dashboard creation and alert configuration
+- SQL query interface for advanced analysis
+
+Designed specifically for ClickHouse, HyperDX combines powerful search with intuitive workflows, enabling you to spot anomalies, investigate issues, and gain insights fast.
+
+In ClickHouse Observability, the UI is integrated into the ClickHouse Cloud console authentication system.
