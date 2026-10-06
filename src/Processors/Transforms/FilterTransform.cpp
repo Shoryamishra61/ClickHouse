@@ -283,6 +283,21 @@ void updateRowNumbersInfo(const Chunk & chunk, const IColumn::Filter & filter)
     }
 }
 
+/// After this filter removes some rows, the rows of the chunk are no longer at the positions given by
+/// `MarkRangesInfo::rows_per_mark`, e.g. for the next filter of a split `AND` chain (`FilterStep`).
+void markRangesInfoPartiallyFiltered(Chunk & chunk)
+{
+    auto mark_ranges_info = chunk.getChunkInfos().get<MarkRangesInfo>();
+    if (!mark_ranges_info || !mark_ranges_info->rows_per_mark)
+        return;
+
+    /// `ChunkInfo` objects are held by `shared_ptr` and may be aliased, so don't mutate in place.
+    auto updated_info = std::static_pointer_cast<MarkRangesInfo>(mark_ranges_info->clone());
+    updated_info->rows_per_mark = 0;
+    chunk.getChunkInfos().extract<MarkRangesInfo>();
+    chunk.getChunkInfos().add(std::move(updated_info));
+}
+
 }
 
 void FilterTransform::doTransform(Chunk & chunk)
@@ -389,7 +404,10 @@ void FilterTransform::doTransform(Chunk & chunk)
     }
 
     if (num_filtered_rows != num_rows_before_filtration)
+    {
         writeMarksWithoutMatchesIntoQueryConditionCache(chunk.getChunkInfos().get<MarkRangesInfo>(), *filter_description);
+        markRangesInfoPartiallyFiltered(chunk);
+    }
 
     /// If all the rows pass through the filter.
     if (num_filtered_rows == num_rows_before_filtration)
