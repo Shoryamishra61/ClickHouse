@@ -2046,28 +2046,7 @@ curl 127.0.0.1:9363/metrics
 
 ## use_minimalistic_part_header_in_zookeeper {#use_minimalistic_part_header_in_zookeeper}
 
-在 ZooKeeper 中存储数据分区片段头部的方式。此设置仅适用于 [`MergeTree`](/zh/reference/engines/table-engines/mergetree-family/index) 家族。可以按以下方式指定：
-
-**在 `config.xml` 文件的 [merge&#95;tree](#merge_tree) 部分中全局设置**
-
-ClickHouse 会将此设置应用于服务器上的所有表。你可以随时更改该设置。设置变更后，现有表的行为也会随之改变。
-
-**为每个表单独设置**
-
-创建表时，指定相应的[表引擎设置](/zh/reference/engines/table-engines/mergetree-family/mergetree#table_engine-mergetree-creating-a-table)。对于已设置该选项的现有表，即使全局设置发生变化，其行为也不会改变。
-
-**可能的值**
-
-* `0` — 功能关闭。
-* `1` — 功能开启。
-
-如果设置 [`use_minimalistic_part_header_in_zookeeper = 1`](#use_minimalistic_part_header_in_zookeeper)，则[复制表](/zh/reference/engines/table-engines/mergetree-family/replication)会使用单个 `znode` 以紧凑方式存储数据分区片段的头部。如果表包含很多列，这种存储方式可以显著减少 ZooKeeper 中存储的数据量。
-
-<Note>
-  应用 `use_minimalistic_part_header_in_zookeeper = 1` 后，你将无法把 ClickHouse server 降级到不支持此设置的版本。在集群中的服务器上升级 ClickHouse 时请务必小心。不要一次性升级所有服务器。更安全的做法是先在测试环境中，或仅在集群中的少量服务器上测试 ClickHouse 的新版本。
-
-  已使用此设置存储的数据分区片段头部，无法恢复为之前的 (非紧凑) 表示形式。
-</Note>
+已废弃的设置，不起任何作用。[复制表](/zh/reference/engines/table-engines/mergetree-family/replication)始终使用单个 `znode` 以紧凑方式存储数据分区片段的头部。对于旧版本写入的、通过独立的 `columns` 和 `checksums` 子 `znodes` 存储的分区片段头部，仍然可以正常读取。
 
 ## distributed_ddl {#distributed_ddl}
 

@@ -2046,28 +2046,7 @@ ClickHouse가 [ZooKeeper](http://zookeeper.apache.org/) 클러스터와 상호 �
 
 ## use_minimalistic_part_header_in_zookeeper {#use_minimalistic_part_header_in_zookeeper}
 
-ZooKeeper에서 데이터 파트 헤더를 저장하는 방식입니다. 이 설정은 [`MergeTree`](/ko/reference/engines/table-engines/mergetree-family/index) 계열에만 적용됩니다. 다음과 같이 지정할 수 있습니다.
-
-**`config.xml` 파일의 [merge&#95;tree](#merge_tree) 섹션에서 전역으로**
-
-ClickHouse는 서버의 모든 테이블에 이 설정을 사용합니다. 이 설정은 언제든지 변경할 수 있습니다. 기존 테이블도 설정이 변경되면 동작 방식이 바뀝니다.
-
-**각 테이블별로**
-
-테이블을 생성할 때 해당 [엔진 설정](/ko/reference/engines/table-engines/mergetree-family/mergetree#table_engine-mergetree-creating-a-table)을 지정하십시오. 이 설정이 지정된 기존 테이블의 동작은 전역 설정이 변경되더라도 바뀌지 않습니다.
-
-**가능한 값**
-
-* `0` — 기능이 비활성화됩니다.
-* `1` — 기능이 활성화됩니다.
-
-[`use_minimalistic_part_header_in_zookeeper = 1`](#use_minimalistic_part_header_in_zookeeper)인 경우, [복제된](/ko/reference/engines/table-engines/mergetree-family/replication) 테이블은 데이터 파트 헤더를 단일 `znode`를 사용해 간결한 형태로 저장합니다. 테이블에 컬럼이 많을수록 이 저장 방식은 ZooKeeper에 저장되는 데이터의 양을 크게 줄여 줍니다.
-
-<Note>
-  `use_minimalistic_part_header_in_zookeeper = 1`을 적용한 후에는 이 설정을 지원하지 않는 버전으로 ClickHouse 서버를 다운그레이드할 수 없습니다. 클러스터의 서버에서 ClickHouse를 업그레이드할 때는 주의하십시오. 모든 서버를 한 번에 업그레이드하지 마십시오. 테스트 환경이나 클러스터의 일부 서버에서만 새 ClickHouse 버전을 먼저 테스트하는 것이 더 안전합니다.
-
-  이 설정으로 이미 저장된 데이터 파트 헤더는 이전의 비컴팩트 표현으로 복원할 수 없습니다.
-</Note>
+더 이상 사용되지 않는 설정으로, 아무런 효과가 없습니다. [복제된](/ko/reference/engines/table-engines/mergetree-family/replication) 테이블은 항상 데이터 파트 헤더를 단일 `znode`를 사용해 간결한 형태로 저장합니다. 이전 버전에서 별도의 `columns` 및 `checksums` 하위 `znodes`로 기록된 파트 헤더도 여전히 읽을 수 있습니다.
 
 ## distributed_ddl {#distributed_ddl}
 

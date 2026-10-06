@@ -102,14 +102,14 @@ graph LR
   oth --> all
 ```
 
-Le nom d’une charge de travail feuille sans enfants peut être utilisé dans les paramètres de requête `SETTINGS workload = 'name'`. Consultez [Charge de travail markup](#workload-markup) pour plus de détails.
+Le nom d’une charge de travail feuille sans enfants peut être utilisé dans les paramètres de requête `SETTINGS workload = 'name'`. Consultez [Marquage des workloads](#workload-markup) pour plus de détails.
 
 Pour personnaliser une charge de travail, les paramètres suivants peuvent être utilisés :
 
-* `priority` - (time-shared uniquement) les charges de travail sœurs sont servies selon des valeurs statiques (une valeur plus faible signifie une priorité plus élevée). Détermine la préemption.
-* `precedence` - (space-shared uniquement) les charges de travail sœurs sont admises selon des valeurs statiques (une valeur plus faible signifie une préséance plus élevée). Détermine l’éviction et l’admission.
+* `priority` - (partagé dans le temps uniquement) les charges de travail sœurs sont servies selon des valeurs statiques (une valeur plus faible signifie une priorité plus élevée). Détermine la préemption.
+* `precedence` - (partagé dans l’espace uniquement) les charges de travail sœurs sont admises selon des valeurs statiques (une valeur plus faible signifie une préséance plus élevée). Détermine l’éviction et l’admission.
 * `weight` - les charges de travail sœurs ayant la même priorité statique ou la même préséance se partagent les ressources en fonction de leurs poids, de manière équitable. Affecte la préemption, l’éviction et l’admission.
-* `max_io_requests` - la limite du nombre de requêtes d’E/S concurrentes dans cette charge de travail.
+* `max_io_requests` - la limite du nombre de requêtes d’IO concurrentes dans cette charge de travail.
 * `max_bytes_inflight` - la limite du nombre total d’octets en cours de traitement pour les requêtes concurrentes dans cette charge de travail.
 * `max_bytes_per_second` - la limite du débit en octets en lecture ou en écriture de cette charge de travail.
 * `max_burst_bytes` - le nombre maximal d’octets pouvant être traités par la charge de travail sans être bridée (pour chaque ressource indépendamment).
@@ -118,9 +118,10 @@ Pour personnaliser une charge de travail, les paramètres suivants peuvent être
 * `max_cpus` - la limite du nombre de cœurs CPU pour servir les requêtes dans cette charge de travail.
 * `max_cpu_share` - identique à `max_cpus`, mais normalisé par rapport au nombre de cœurs CPU disponibles.
 * `max_burst_cpu_seconds` - le nombre maximal de secondes CPU pouvant être consommées par la charge de travail sans être bridée en raison de `max_cpus`.
+* `scheduler` - (partagé dans le temps uniquement) l’algorithme d’ordonnancement appliqué aux requêtes de cette charge de travail : `fifo` (par défaut, premier arrivé, premier servi), `fair` (mise en file d’attente équitable pondérée), `las` (least-attained-service) ou `priority` (ordre strict selon le paramètre de requête `workload_priority`). Consultez [Ordonnancement tenant compte des requêtes](#query_aware_scheduling).
 * `max_memory` - la limite de la mémoire totale réservée à cette charge de travail.
 
-Toutes les limites définies via les paramètres de la charge de travail s’appliquent indépendamment à chaque ressource. Par exemple, une charge de travail avec `max_bytes_per_second = '10Mi'` aura une limite de débit de 10 Mo/s pour chaque ressource de lecture et d’écriture, de manière indépendante. Si vous avez besoin d’une limite commune pour la lecture et l’écriture, envisagez d’utiliser la même ressource pour les accès READ et WRITE.
+Toutes les limites définies via les paramètres de charge de travail s’appliquent indépendamment à chaque ressource. Par exemple, une charge de travail avec `max_bytes_per_second = '10Mi'` disposera d’une limite de débit de 10 Mo/s pour chaque ressource de lecture et d’écriture, de manière indépendante. Si une limite commune à la lecture et à l’écriture est nécessaire, envisagez d’utiliser la même ressource pour les accès READ et WRITE.
 
 Il n’est pas possible de définir des hiérarchies de charges de travail différentes selon les ressources. Il est toutefois possible de définir une valeur de paramètre de charge de travail différente pour une ressource donnée :
 
@@ -131,7 +132,7 @@ CREATE OR REPLACE WORKLOAD all SETTINGS max_io_requests = 100, max_bytes_per_sec
 Notez également qu’une charge de travail ou une ressource ne peut pas être supprimée si elle est référencée par une autre charge de travail. Pour mettre à jour la définition d’une charge de travail, utilisez la requête `CREATE OR REPLACE WORKLOAD`.
 
 <Note>
-  Les paramètres de la charge de travail sont convertis en un ensemble approprié de nœuds d’ordonnancement. Pour plus de détails sur les mécanismes sous-jacents, consultez la description des [types et options](#hierarchy) des nœuds d’ordonnancement.
+  Les paramètres de charge de travail sont convertis en un ensemble approprié de nœuds d’ordonnancement. Pour des détails de plus bas niveau, consultez la description des [types et options](#hierarchy) des nœuds d’ordonnancement.
 </Note>
 
 ## Marquage des workloads {#workload-markup}
@@ -203,6 +204,41 @@ Pour garantir des allocations équitables entre les workloads, il est nécessair
 <Note>
   La déclaration d’une ressource CPU désactive l’effet des paramètres [`concurrent_threads_soft_limit_num`](/fr/reference/settings/server-settings/settings/concurrent-threads#concurrent_threads_soft_limit_num) et [`concurrent_threads_soft_limit_ratio_to_cores`](/fr/reference/settings/server-settings/settings/concurrent-threads#concurrent_threads_soft_limit_ratio_to_cores). À la place, le workload setting `max_concurrent_threads` est utilisé pour limiter le nombre de CPU alloués à une charge de travail spécifique. Pour retrouver le comportement précédent, créez uniquement la ressource WORKER THREAD, définissez `max_concurrent_threads` pour la charge de travail `all` sur la même valeur que `concurrent_threads_soft_limit_num`, puis utilisez le paramètre de requête `workload = "all"`. Cette configuration correspond au paramètre [`concurrent_threads_scheduler`](/fr/reference/settings/server-settings/settings/concurrent-threads#concurrent_threads_scheduler) défini sur la valeur &quot;fair&#95;round&#95;robin&quot;.
 </Note>
+
+## Ordonnancement tenant compte des requêtes {#query_aware_scheduling}
+
+Les paramètres de charge de travail `weight` et `priority` répartissent les ressources *entre* les charges de travail. Pour contrôler la manière dont les requêtes *au sein d&#39;une même charge de travail* se partagent une ressource partagée dans le temps, choisissez le `scheduler` de la charge de travail :
+
+```sql
+CREATE WORKLOAD all SETTINGS scheduler = 'fair'
+```
+
+* **`fifo`** (par défaut) — premier arrivé, premier servi, ce qui préserve le comportement historique. Ce mode exclut toute famine, mais n’offre aucune équité et ignore `weight` ainsi que les paramètres par requête associés.
+* **`fair`** — mise en file d’attente équitable pondérée : chaque requête reçoit une part de la ressource proportionnelle à son `weight` (un paramètre de requête, `1` par défaut), et aucune requête n’est privée de ressources.
+* **`las`** — least-attained-service : la requête ayant consommé le moins de cette ressource jusqu’à présent est servie en premier (avec un regroupement par niveaux, de sorte qu’une requête descend d’un niveau chaque fois que sa consommation double). Ce mode minimise la latence des requêtes courtes dans les charges de travail mixtes, mais une requête de longue durée peut être privée de ressources par un flux continu de requêtes courtes. Privilégiez `fair` lorsqu’une garantie d’absence de famine est requise.
+* **`priority`** — priorité stricte selon le paramètre `workload_priority` de la requête (un `Int64` ; plus la valeur est faible, plus la priorité est élevée). Les requêtes sont servies par ordre de priorité, en FIFO à priorité égale. La valeur par défaut `0` sert de référence neutre ; une valeur négative fait passer une requête au-dessus de la priorité par défaut, une valeur positive la fait passer en dessous. Comme tout mécanisme à priorité stricte, ce mode peut priver de ressources les requêtes de faible priorité.
+
+Le `scheduler` s’applique uniquement aux ressources partagées dans le temps (CPU et IO) et peut être défini par ressource avec la clause `FOR <resource>`. Le modifier sur une charge de travail existante remplace l’algorithme à chaud, sans interrompre les autres ressources.
+
+Pour les ressources CPU, le `scheduler` et les paramètres par requête ci-dessous n’ont de sens qu’avec la préemption des slots CPU (`cpu_slot_preemption = 1`, valeur par défaut). Sans préemption, chaque slot CPU correspond à un coût fixe plutôt qu’à un temps CPU réel ; ces paramètres ne reflètent donc plus la consommation CPU effective.
+
+Avec le scheduler `fair`, le poids effectif d’une requête peut être **abaissé au fil de son exécution**, afin que les requêtes plus courtes ou plus récentes obtiennent une part plus importante. Ce comportement est contrôlé par des paramètres par requête (tous désactivés par défaut) :
+
+| Paramètre de requête          | Effet                                                                                                                                                                                                                                    |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `weight`                      | Poids de base de la requête pour l’ordonnancement équitable (`1.0` par défaut).                                                                                                                                                          |
+| `weight_lowering_age_seconds` | Dès que le temps écoulé depuis le lancement de la requête dépasse cette valeur, son poids est abaissé. `0` désactive ce mécanisme.                                                                                                       |
+| `weight_lowering_cpu_seconds` | Dès que la requête a consommé ce nombre de secondes CPU, son poids est abaissé (ressources CPU). `0` désactive ce mécanisme.                                                                                                             |
+| `weight_lowering_io_bytes`    | Dès que la requête a consommé ce nombre d’octets d’IO, son poids est abaissé (ressources IO). `0` désactive ce mécanisme.                                                                                                                |
+| `weight_lowering_factor`      | Facteur par lequel le poids est multiplié lorsqu’un seuil est franchi (p. ex. `0.25`). Le premier seuil atteint applique l’abaissement complet ; les seuils ne se cumulent pas. `1.0` désactive l’abaissement. Valeur bornée à `[0, 1]`. |
+
+```sql
+-- Enable fair scheduling for the workload (once):
+CREATE OR REPLACE WORKLOAD all SETTINGS scheduler = 'fair';
+
+-- Then, per query: keep full weight until it burns 10 CPU-seconds, after which it is de-prioritised.
+SELECT ... SETTINGS workload = 'all', weight_lowering_cpu_seconds = 10, weight_lowering_factor = 0.1;
+```
 
 ## Threads vs. CPU {#threads_vs_cpus}
 
@@ -405,10 +441,10 @@ graph TD
     -->nw_semp[\"semaphore"/]
     -->|100 concurrent requests| nw_fair("p0_fair")
     -->|75% bandwidth| nw_prod{{"production"}}
-    -->nw_prod_q["fifo"]
+    -->nw_prod_q["queue"]
     nw_fair
     -->|25% bandwidth| nw_dev{{"development"}}
-    -->nw_dev_q["fifo"]
+    -->nw_dev_q["queue"]
 
     mem_root(["memory"])
     -->mem_all{{"all"}}
@@ -421,19 +457,19 @@ graph TD
     -->mem_dev_q["queue"]
 ```
 
-**Types de nœuds à temps partagé :**
+**Types de nœuds à temps partagé :**
 
-* `inflight_limit` (contrainte) - bloque si le nombre de requêtes simultanément en vol dépasse `max_requests`, ou si leur coût total dépasse `max_cost` ; doit avoir un seul enfant.
-* `bandwidth_limit` (contrainte) - bloque si le débit actuel dépasse `max_speed` (0 signifie illimité) ou si la rafale dépasse `max_burst` (par défaut, égal à `max_speed`) ; doit avoir un seul enfant.
-* `fair` (politique) - sélectionne la prochaine requête à traiter dans l’un de ses nœuds enfants selon l’équité max-min ; les nœuds enfants peuvent spécifier `weight` (la valeur par défaut est 1).
-* `priority` (politique) - sélectionne la prochaine requête à traiter dans l’un de ses nœuds enfants selon des priorités statiques (une valeur plus faible signifie une priorité plus élevée) ; les nœuds enfants doivent spécifier `priority` (la valeur par défaut est 0).
-* `fifo` (file d’attente) - feuille de la hiérarchie capable de contenir des requêtes qui dépassent la capacité des ressources.
+* `inflight_limit` (contrainte) - bloque si le nombre de requêtes simultanément en vol dépasse `max_requests`, ou si leur coût total dépasse `max_cost` ; doit avoir un seul enfant.
+* `bandwidth_limit` (contrainte) - bloque si le débit actuel dépasse `max_speed` (0 signifie illimité) ou si la rafale dépasse `max_burst` (par défaut, égal à `max_speed`) ; doit avoir un seul enfant.
+* `fair` (politique) - sélectionne la prochaine requête à traiter dans l’un de ses nœuds enfants selon l’équité max-min ; les nœuds enfants peuvent spécifier `weight` (la valeur par défaut est 1).
+* `priority` (politique) - sélectionne la prochaine requête à traiter dans l’un de ses nœuds enfants selon des priorités statiques (une valeur plus faible signifie une priorité plus élevée) ; les nœuds enfants doivent spécifier `priority` (la valeur par défaut est 0).
+* `queue` - feuille de la hiérarchie capable de contenir des requêtes qui dépassent la capacité des ressources.
 
-**Types de nœuds à espace partagé :**
+**Types de nœuds à espace partagé :**
 
-* `limit` - garantit que l’allocation totale de l’enfant ne dépasse jamais une limite et déclenche, si nécessaire, une procédure d’éviction dans un sous-arbre ; doit avoir un seul enfant.
-* `fair_allocation` - applique l’éviction selon l’équité max-min ; une allocation en attente n’évince jamais une allocation en cours d’exécution ; les nœuds enfants peuvent spécifier `weight` (la valeur par défaut est 1).
-* `precedence_allocation` - applique l’éviction selon une précédence statique (une valeur plus faible signifie une précédence plus élevée) ; une allocation en attente de précédence plus élevée évince les allocations de précédence plus faible ; les nœuds enfants doivent spécifier `precedence` (la valeur par défaut est 0).
+* `limit` - garantit que l’allocation totale de l’enfant ne dépasse jamais une limite et déclenche, si nécessaire, une procédure d’éviction dans un sous-arbre ; doit avoir un seul enfant.
+* `fair_allocation` - applique l’éviction selon l’équité max-min ; une allocation en attente n’évince jamais une allocation en cours d’exécution ; les nœuds enfants peuvent spécifier `weight` (la valeur par défaut est 1).
+* `precedence_allocation` - applique l’éviction selon une préséance statique (une valeur plus faible signifie une préséance plus élevée) ; une allocation en attente de préséance plus élevée évince les allocations de préséance plus faible ; les nœuds enfants doivent spécifier `precedence` (la valeur par défaut est 0).
 * `queue` - feuille de la hiérarchie capable de contenir des allocations en cours d’exécution et en attente.
 
 ## Sauvegarde et restauration {#backup-restore}

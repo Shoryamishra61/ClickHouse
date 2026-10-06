@@ -2046,28 +2046,7 @@ Também existe a configuração `zookeeper_load_balancing` (opcional), que permi
 
 ## use_minimalistic_part_header_in_zookeeper {#use_minimalistic_part_header_in_zookeeper}
 
-Método de armazenamento dos cabeçalhos das partes de dados no ZooKeeper. Essa configuração se aplica apenas à família [`MergeTree`](/pt-BR/reference/engines/table-engines/mergetree-family/index). Ela pode ser especificada:
-
-**Globalmente na seção [merge&#95;tree](#merge_tree) do arquivo `config.xml`**
-
-O ClickHouse usa essa configuração para todas as tabelas do servidor. Você pode alterá-la a qualquer momento. As tabelas existentes mudam de comportamento quando a configuração é alterada.
-
-**Para cada tabela**
-
-Ao criar uma tabela, especifique a [configuração do motor](/pt-BR/reference/engines/table-engines/mergetree-family/mergetree#table_engine-mergetree-creating-a-table) correspondente. O comportamento de uma tabela existente com essa configuração não muda, mesmo que a configuração global seja alterada.
-
-**Valores possíveis**
-
-* `0` — A funcionalidade está desativada.
-* `1` — A funcionalidade está ativada.
-
-Se [`use_minimalistic_part_header_in_zookeeper = 1`](#use_minimalistic_part_header_in_zookeeper), as tabelas [replicadas](/pt-BR/reference/engines/table-engines/mergetree-family/replication) armazenam os cabeçalhos das partes de dados de forma compacta, usando um único `znode`. Se a tabela contiver muitas colunas, esse método de armazenamento reduz significativamente o volume de dados armazenados no ZooKeeper.
-
-<Note>
-  Depois de aplicar `use_minimalistic_part_header_in_zookeeper = 1`, você não pode fazer downgrade do servidor ClickHouse para uma versão que não ofereça suporte a essa configuração. Tenha cuidado ao atualizar o ClickHouse em servidores de um cluster. Não atualize todos os servidores de uma só vez. É mais seguro testar novas versões do ClickHouse em um ambiente de teste ou em apenas alguns servidores do cluster.
-
-  Os cabeçalhos das partes de dados já armazenados com essa configuração não podem ser restaurados para a representação anterior (não compacta).
-</Note>
+Configuração obsoleta, não tem efeito. As tabelas [replicadas](/pt-BR/reference/engines/table-engines/mergetree-family/replication) sempre armazenam o cabeçalho de uma parte de dados de forma compacta, em um único `znode`. Os cabeçalhos de partes gravados por versões mais antigas, com `znodes` filhos separados para `columns` e `checksums`, continuam sendo lidos.
 
 ## distributed_ddl {#distributed_ddl}
 

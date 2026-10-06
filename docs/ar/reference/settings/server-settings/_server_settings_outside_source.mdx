@@ -2046,28 +2046,7 @@ curl 127.0.0.1:9363/metrics
 
 ## use_minimalistic_part_header_in_zookeeper {#use_minimalistic_part_header_in_zookeeper}
 
-طريقة تخزين رؤوس أجزاء البيانات في ZooKeeper. لا ينطبق هذا الإعداد إلا على عائلة [`MergeTree`](/ar/reference/engines/table-engines/mergetree-family/index). ويمكن تحديده كما يلي:
-
-**عموميًا في قسم [merge&#95;tree](#merge_tree) ضمن ملف `config.xml`**
-
-يستخدم ClickHouse هذا الإعداد لجميع الجداول على الخادم. ويمكنك تغيير الإعداد في أي وقت. وتتغير سلوكيات الجداول الحالية عند تغيير الإعداد.
-
-**لكل جدول**
-
-عند إنشاء جدول، حدِّد [إعداد المحرك](/ar/reference/engines/table-engines/mergetree-family/mergetree#table_engine-mergetree-creating-a-table) المقابل. ولا يتغير سلوك جدول موجود يستخدم هذا الإعداد، حتى إذا تغيّر الإعداد العام.
-
-**القيم الممكنة**
-
-* `0` — تكون الوظيفة معطّلة.
-* `1` — تكون الوظيفة مفعّلة.
-
-إذا كانت قيمة [`use_minimalistic_part_header_in_zookeeper = 1`](#use_minimalistic_part_header_in_zookeeper)، فإن الجداول [المكررة](/ar/reference/engines/table-engines/mergetree-family/replication) تخزّن رؤوس أجزاء البيانات بشكل مضغوط باستخدام `znode` واحد. وإذا كان الجدول يحتوي على عدد كبير من الأعمدة، فإن طريقة التخزين هذه تقلّل بدرجة كبيرة حجم البيانات المخزّنة في ZooKeeper.
-
-<Note>
-  بعد تطبيق `use_minimalistic_part_header_in_zookeeper = 1`، لا يمكنك خفض إصدار ClickHouse server إلى إصدار لا يدعم هذا الإعداد. توخَّ الحذر عند ترقية ClickHouse على خوادم ضمن cluster. لا تُرقِّ جميع الخوادم دفعة واحدة. ومن الأكثر أمانًا اختبار الإصدارات الجديدة من ClickHouse في بيئة اختبار، أو على عدد قليل فقط من خوادم cluster.
-
-  كما لا يمكن استعادة رؤوس أجزاء البيانات المخزّنة مسبقًا باستخدام هذا الإعداد إلى تمثيلها السابق (غير المضغوط).
-</Note>
+إعداد متقادم، ولا يؤدي أي وظيفة. تخزّن الجداول [المتماثلة](/ar/reference/engines/table-engines/mergetree-family/replication) دائمًا رأس جزء البيانات بشكل مضغوط في `znode` واحد. ولا يزال بالإمكان قراءة رؤوس أجزاء البيانات التي كتبتها إصدارات أقدم باستخدام عُقد `znodes` فرعية منفصلة لـ `columns` و`checksums`.
 
 ## distributed_ddl {#distributed_ddl}
 

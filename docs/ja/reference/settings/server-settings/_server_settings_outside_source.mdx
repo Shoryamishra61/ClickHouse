@@ -2045,28 +2045,7 @@ PostgreSQL プロトコルでクライアントと通信するためのポート
 
 ## use_minimalistic_part_header_in_zookeeper {#use_minimalistic_part_header_in_zookeeper}
 
-ZooKeeper におけるデータパーツヘッダーの保存方式です。この設定は [`MergeTree`](/ja/reference/engines/table-engines/mergetree-family/index) ファミリーにのみ適用されます。指定方法は次のとおりです。
-
-**`config.xml` ファイルの [merge&#95;tree](#merge_tree) セクションでグローバルに指定**
-
-ClickHouse は、この設定をサーバー上のすべてのテーブルに適用します。この設定はいつでも変更できます。既存のテーブルの動作も、設定の変更に応じて変わります。
-
-**各テーブルごとに指定**
-
-テーブルの作成時に、対応する[エンジン設定](/ja/reference/engines/table-engines/mergetree-family/mergetree#table_engine-mergetree-creating-a-table)を指定します。この設定を持つ既存のテーブルの動作は、グローバル設定が変更されても変わりません。
-
-**設定可能な値**
-
-* `0` — 機能は無効です。
-* `1` — 機能は有効です。
-
-[`use_minimalistic_part_header_in_zookeeper = 1`](#use_minimalistic_part_header_in_zookeeper) の場合、[レプリケート](/ja/reference/engines/table-engines/mergetree-family/replication) テーブルは、データパーツのヘッダーを 1 つの `znode` を使ってコンパクトに保存します。テーブルに多数のカラムがある場合、この保存方式により ZooKeeper に格納されるデータ量を大幅に削減できます。
-
-<Note>
-  `use_minimalistic_part_header_in_zookeeper = 1` を適用すると、この設定をサポートしていないバージョンへ ClickHouse サーバー をダウングレードすることはできません。クラスター内のサーバーで ClickHouse をアップグレードする際は注意してください。すべてのサーバーを一度にアップグレードしないでください。新しいバージョンの ClickHouse は、テスト環境またはクラスター内の一部のサーバーで検証してから導入するほうが安全です。
-
-  この設定で保存済みのデータパーツヘッダーは、以前の (compact ではない) 形式には戻せません。
-</Note>
+廃止された設定で、何の効果もありません。[Replicated](/ja/reference/engines/table-engines/mergetree-family/replication) テーブルは、常にデータパーツのヘッダーを 1 つの `znode` にコンパクトに保存します。古いバージョンで `columns` と `checksums` の子 `znodes` に分けて書き込まれたパーツヘッダーも、引き続き読み取ることができます。
 
 ## distributed_ddl {#distributed_ddl}
 
