@@ -128,7 +128,7 @@ void MergeTreeMutationEntry::writeCSN(CSN csn_)
 }
 
 MergeTreeMutationEntry::MergeTreeMutationEntry(
-    DiskPtr disk_, const String & path_prefix_, const String & file_name_, StorageMergeTree * storage_, ContextPtr context_)
+    DiskPtr disk_, const String & path_prefix_, const String & file_name_, const StorageMergeTree * storage_, ContextPtr context_)
     : commands(std::make_shared<MutationCommands>())
     , disk(std::move(disk_))
     , path_prefix(path_prefix_)

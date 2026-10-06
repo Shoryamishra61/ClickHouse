@@ -108,7 +108,7 @@ struct MergeTreeMutationEntry
         DiskPtr disk_,
         const String & path_prefix_,
         const String & file_name_,
-        StorageMergeTree * storage_,
+        const StorageMergeTree * storage_,
         ContextPtr context_);
 
     ~MergeTreeMutationEntry();
