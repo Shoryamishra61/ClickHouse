@@ -32,3 +32,13 @@ SET max_expanded_ast_elements = 150;
 EXPLAIN AST optimize = 1 WITH (SELECT 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10) AS v0 SELECT (SELECT v0 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1); -- { serverError TOO_BIG_AST }
 SET max_expanded_ast_elements = 1000;
 SELECT (WITH (SELECT 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10) AS v0 SELECT (SELECT v0 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1)) FORMAT Null;
+
+-- The same for `ALTER TABLE ... MODIFY QUERY`.
+SET max_expanded_ast_elements = 100;
+CREATE TABLE t_expansion_src (x UInt8) ENGINE = Memory;
+CREATE MATERIALIZED VIEW mv_modify_expansion ENGINE = Memory AS SELECT x FROM t_expansion_src;
+ALTER TABLE mv_modify_expansion MODIFY QUERY WITH c0 AS (SELECT x FROM t_expansion_src), c1 AS (SELECT a.x FROM c0 AS a, c0 AS b), c2 AS (SELECT a.x FROM c1 AS a, c1 AS b), c3 AS (SELECT a.x FROM c2 AS a, c2 AS b) SELECT x FROM c3; -- { serverError TOO_BIG_AST }
+SET max_expanded_ast_elements = 10000;
+ALTER TABLE mv_modify_expansion MODIFY QUERY WITH c0 AS (SELECT x FROM t_expansion_src), c1 AS (SELECT a.x FROM c0 AS a, c0 AS b) SELECT x FROM c1;
+DROP VIEW mv_modify_expansion;
+DROP TABLE t_expansion_src;
