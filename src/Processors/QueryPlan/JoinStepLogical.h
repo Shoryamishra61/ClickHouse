@@ -181,18 +181,23 @@ public:
         estimate_from_defaults = estimate_from_defaults_;
     }
 
-    /// Called for a join the join order optimizer leaves in place, estimated from its inputs.
+    /// Called for a join the join order optimizer leaves in place, estimated from its inputs. The
+    /// input estimates are reported next to the join's own; the inputs keep their labels.
     void setInPlaceEstimation(
         std::optional<UInt64> estimated_rows_,
         std::unordered_map<String, ColumnStats> column_stats_,
         bool imprecise_estimate_,
         std::optional<double> estimated_selectivity_,
         std::optional<UInt64> rows_upper_bound_,
-        bool estimate_from_defaults_)
+        bool estimate_from_defaults_,
+        const RelationEstimateInfo & left_estimate_,
+        const RelationEstimateInfo & right_estimate_)
     {
         setOptimized(estimated_rows_, std::move(column_stats_), imprecise_estimate_, std::nullopt, estimated_selectivity_, 0, rows_upper_bound_);
         estimation_origin = EstimationOrigin::InPlace;
         estimate_from_defaults = estimate_from_defaults_;
+        setRelationEstimate(left_relation, left_estimate_);
+        setRelationEstimate(right_relation, right_estimate_);
     }
     std::optional<double> getEstimatedCost() const { return estimated_cost; }
     std::optional<double> getEstimatedSelectivity() const { return estimated_selectivity; }
@@ -310,6 +315,13 @@ protected:
 
     RelationEstimateInfo left_relation;
     RelationEstimateInfo right_relation;
+
+    static void setRelationEstimate(RelationEstimateInfo & relation, const RelationEstimateInfo & estimate)
+    {
+        relation.estimated_rows = estimate.estimated_rows;
+        relation.source = estimate.source;
+        relation.imprecise_estimate = estimate.imprecise_estimate;
+    }
 
     /// Table statistics hint passed via query parameter, consumed by the Cascades optimizer.
     String table_stats_hint;

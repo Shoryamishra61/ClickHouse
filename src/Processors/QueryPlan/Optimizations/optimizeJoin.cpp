@@ -436,13 +436,23 @@ static void estimateJoinInPlace(JoinStepLogical & join_step, QueryPlan::Node & n
     const RelationStats right_stats = estimateReadRowsCount(*node.children[1]);
     const auto join = estimateJoin(left_stats, right_stats, join_step.getJoinOperator());
 
+    auto input_estimate = [](const RelationStats & stats)
+    {
+        RelationEstimateInfo estimate;
+        estimate.estimated_rows = stats.estimated_rows;
+        estimate.source = stats.source;
+        estimate.imprecise_estimate = stats.imprecise_estimate;
+        return estimate;
+    };
     join_step.setInPlaceEstimation(
         join.rows,
         join.column_stats,
         left_stats.imprecise_estimate || right_stats.imprecise_estimate,
         join.selectivity,
         join.max_rows,
-        left_stats.estimate_from_defaults || right_stats.estimate_from_defaults);
+        left_stats.estimate_from_defaults || right_stats.estimate_from_defaults,
+        input_estimate(left_stats),
+        input_estimate(right_stats));
 
     /// Annotate the plan nodes like the join-order path does, so that `EXPLAIN estimates` and the
     /// profile log see the estimate. An input that already carries an annotation keeps it.
