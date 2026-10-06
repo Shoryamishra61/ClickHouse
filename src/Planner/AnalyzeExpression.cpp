@@ -9,6 +9,7 @@
 #include <Analyzer/QueryTreeBuilder.h>
 #include <Analyzer/Resolve/QueryAnalyzer.h>
 #include <Analyzer/TableNode.h>
+#include <base/find_symbols.h>
 #include <Columns/IColumn.h>
 #include <Columns/ColumnConst.h>
 #include <Common/checkStackSize.h>
@@ -68,9 +69,12 @@ struct CoreAnalysisResult
 };
 
 /// Collect every name an identifier of the expression may resolve through: each dot-joined run of
-/// the parts of a compound identifier, also with up to two leading parts dropped (a `table.column`
-/// or `db.table.column` qualifier). Returns false if the expression contains a wildcard, a column
-/// matcher, or a parameterized identifier - those may reference columns not named in the AST.
+/// the parts of a compound identifier, also with leading parts dropped (a `table.column` or
+/// `db.table.column` qualifier). The parts are split on dots again, because an identifier built from
+/// a column name (e.g. `my.json.b` for a subcolumn of the column `my.json`) may keep the dots inside a
+/// single part, while the analyzer resolves it part by part. Returns false if the expression contains
+/// a wildcard, a column matcher, or a parameterized identifier - those may reference columns not
+/// named in the AST.
 static bool collectReferencedNames(const IAST & ast, NameSet & prefixes, NameSet & full_names)
 {
     checkStackSize();
@@ -85,8 +89,11 @@ static bool collectReferencedNames(const IAST & ast, NameSet & prefixes, NameSet
         if (identifier->isParam())
             return false;
 
-        const auto & parts = identifier->name_parts;
-        for (size_t begin = 0; begin < std::min<size_t>(parts.size(), 3); ++begin)
+        std::vector<String> parts;
+        for (const auto & name_part : identifier->name_parts)
+            splitInto<'.'>(parts, name_part);
+
+        for (size_t begin = 0; begin < parts.size(); ++begin)
         {
             String name;
             for (size_t end = begin; end < parts.size(); ++end)
