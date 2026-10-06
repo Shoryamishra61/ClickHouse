@@ -43,6 +43,7 @@ void writePlainRewritableSnapshot(const PlainRewritableRemoteLayout & layout, Wr
             writeStringBinary(info.remote_path, compressed);
             writeStringBinary(info.etag, compressed);
             writeIntBinary(static_cast<Int64>(info.last_modified), compressed);
+            writeBinary(static_cast<UInt8>(info.has_explicit_file_list), compressed);
 
             std::vector<const std::pair<const std::string, FileRemoteInfo> *> files;
             files.reserve(info.files.size());
@@ -57,6 +58,7 @@ void writePlainRewritableSnapshot(const PlainRewritableRemoteLayout & layout, Wr
                 writeStringBinary(name, compressed);
                 writeVarUInt(file_info.bytes_size, compressed);
                 writeIntBinary(static_cast<Int64>(file_info.last_modified), compressed);
+                writeStringBinary(file_info.blob_key, compressed);
             }
         }
 
@@ -97,6 +99,11 @@ PlainRewritableRemoteLayout readPlainRewritableSnapshot(ReadBuffer & in)
         Int64 last_modified = 0;
         readIntBinary(last_modified, compressed);
         info.last_modified = static_cast<time_t>(last_modified);
+        UInt8 has_explicit_file_list = 0;
+        readBinary(has_explicit_file_list, compressed);
+        if (has_explicit_file_list > 1)
+            throw Exception(ErrorCodes::INCORRECT_DATA, "Invalid flag of the directory '{}' in the plain_rewritable snapshot file", path);
+        info.has_explicit_file_list = has_explicit_file_list;
 
         UInt64 files_count = 0;
         readVarUInt(files_count, compressed);
@@ -110,6 +117,7 @@ PlainRewritableRemoteLayout readPlainRewritableSnapshot(ReadBuffer & in)
             Int64 file_last_modified = 0;
             readIntBinary(file_last_modified, compressed);
             file_info.last_modified = static_cast<time_t>(file_last_modified);
+            readStringBinary(file_info.blob_key, compressed);
 
             if (!info.files.emplace(std::move(name), file_info).second)
                 throw Exception(ErrorCodes::INCORRECT_DATA, "Duplicate file in the directory '{}' of the plain_rewritable snapshot file", path);

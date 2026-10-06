@@ -29,9 +29,10 @@ using PlainRewritableRemoteLayout = std::unordered_map<std::string, DirectoryRem
   *   (`CompressedWriteBuffer`, checksummed blocks) and contains:
   *   - `VarUInt` number of directories, then for every directory, ordered by path:
   *     - `String` logical path (normalized, `""` for the root), `String` remote path, `String` ETag of `prefix.path`,
-  *       `Int64` last modification time;
+  *       `Int64` last modification time, `UInt8` whether `prefix.path` lists the files explicitly (see `PrefixPath.h`);
   *     - `VarUInt` number of files, then for every file, ordered by name:
-  *       - `String` name, `VarUInt` size in bytes, `Int64` last modification time.
+  *       - `String` name, `VarUInt` size in bytes, `Int64` last modification time,
+  *         `String` key of the blob (empty if the blob is at the default location, see `FileRemoteInfo::blob_key`).
   *
   * The snapshot describes the state at some moment in the past and is not guaranteed to be consistent with
   * the objects present in the storage at the moment of reading. This is acceptable for the way `MergeTree`
