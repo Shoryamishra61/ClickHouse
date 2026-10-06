@@ -1333,6 +1333,12 @@ static std::unique_ptr<IInterpreter> tryInterpretWithQueryPlanCache(
                 /// so restore the info to keep system.query_log populated.
                 addQueryAccessInfoForQueryPlanCacheHit(*cached_entry, context);
 
+                /// Like any deserialized plan, a materialized cache entry has no planner-registered
+                /// contexts, and its steps captured this query context. Register it so that a fallback
+                /// from `make_distributed_plan` in `buildQueryPipeline` reaches the set and CTE builders,
+                /// which read the setting live from it (see the deserialized-plan path in `executeQuery`).
+                plan.addDistributedPlanDecisionContext(context);
+
                 ProfileEvents::increment(ProfileEvents::QueryPlanCacheHits);
                 return std::make_unique<InterpreterSelectQueryFromPlan>(std::move(plan), context, select_query_options);
             }
