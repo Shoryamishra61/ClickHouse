@@ -25,23 +25,6 @@ String normalizeKey(const String & key)
     return key.substr(pos);
 }
 
-/// `Poco::Util::AbstractConfiguration::keys` escapes the dots inside a name, because a dot is the
-/// separator of the path. Such a name appears when a disk is defined in a query as
-/// `disk(..., a.b = 1)`: it is a single element named `a.b`, not a section `a` with an element `b`.
-/// The escaping is an implementation detail of the path syntax, and it is removed before reporting.
-String unescapeDots(const String & key)
-{
-    String result;
-    result.reserve(key.size());
-    for (size_t i = 0; i < key.size(); ++i)
-    {
-        if (key[i] == '\\' && i + 1 < key.size() && key[i + 1] == '.')
-            continue;
-        result += key[i];
-    }
-    return result;
-}
-
 /// The position of the last component of `key` (the name of the element inside its section),
 /// skipping the escaped dots (see `unescapeDots`).
 size_t getNamePosition(const String & key)
@@ -91,6 +74,19 @@ bool matchesNameReadInSection(const String & key, const std::unordered_set<Strin
     return false;
 }
 
+}
+
+String ConfigurationWithUsageTracking::unescapeDots(const String & key)
+{
+    String result;
+    result.reserve(key.size());
+    for (size_t i = 0; i < key.size(); ++i)
+    {
+        if (key[i] == '\\' && i + 1 < key.size() && key[i + 1] == '.')
+            continue;
+        result += key[i];
+    }
+    return result;
 }
 
 ConfigurationWithUsageTracking::ConfigurationWithUsageTracking(const Poco::Util::AbstractConfiguration & config_)
@@ -160,19 +156,19 @@ bool ConfigurationWithUsageTracking::isUsed(const String & key) const
 Strings ConfigurationWithUsageTracking::getUnusedKeys(const String & prefix) const
 {
     Strings result;
-    collectUnusedKeys(prefix, "", nullptr, result);
+    collectUnusedKeys(prefix, "", nullptr, result, nullptr);
     return result;
 }
 
-Strings ConfigurationWithUsageTracking::getUnknownKeys(const String & prefix, const Usage & previous) const
+Strings ConfigurationWithUsageTracking::getUnknownKeys(const String & prefix, const Usage & previous, Strings * deferred_sections) const
 {
     Strings result;
-    collectUnusedKeys(prefix, "", &previous, result);
+    collectUnusedKeys(prefix, "", &previous, result, deferred_sections);
     return result;
 }
 
 void ConfigurationWithUsageTracking::collectUnusedKeys(
-    const String & prefix, const String & relative_key, const Usage * previous, Strings & result) const
+    const String & prefix, const String & relative_key, const Usage * previous, Strings & result, Strings * deferred_sections) const
 {
     String key;
     if (relative_key.empty())
@@ -208,10 +204,14 @@ void ConfigurationWithUsageTracking::collectUnusedKeys(
     }
 
     if (previous && !relative_key.empty() && !previous->present.contains(normalizeKey(key)) && (in_enumerated_section || isUsed(key)))
+    {
+        if (deferred_sections)
+            deferred_sections->push_back(relative_key);
         return;
+    }
 
     for (const auto & child : children)
-        collectUnusedKeys(prefix, relative_key.empty() ? child : relative_key + "." + child, previous, result);
+        collectUnusedKeys(prefix, relative_key.empty() ? child : relative_key + "." + child, previous, result, deferred_sections);
 }
 
 }

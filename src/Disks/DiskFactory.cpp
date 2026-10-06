@@ -2,6 +2,7 @@
 #include <Disks/loadLocalDiskConfig.h>
 
 #include <Common/Config/ConfigurationWithUsageTracking.h>
+#include <Common/ProxyConfigurationResolverProvider.h>
 #include <Interpreters/Context.h>
 
 #include <fmt/ranges.h>
@@ -127,11 +128,35 @@ void DiskFactory::applyNewSettings(
     /// `applyNewSettings` changes the live disk, so a definition with an unknown element has to be
     /// rejected before it, otherwise a failed reload leaves a part of the rejected definition applied.
     /// Only what `applyNewSettings` may read cannot be judged yet: a new section that the creation of
-    /// the disk has looked at (such as `proxy`) or a new entry of an enumerated section (such as a new
-    /// location), and the elements of an enumerated section, which can be read by a pattern of their
-    /// names (such as `key[1]` of an `encrypted` disk). They are checked after it.
+    /// the disk has looked at (except `proxy`, which is read in advance, see below) or a new entry of
+    /// an enumerated section (such as a new location), and the elements of an enumerated section, which
+    /// can be read by a pattern of their names (such as `key[1]` of an `encrypted` disk). They are checked after it.
     if (creation_config)
-        checkForUnknownKeys(tracked_config->getUnknownKeys(config_prefix, creation_usage), name, disk_type, context);
+    {
+        Strings deferred_sections;
+        Strings unknown_keys = tracked_config->getUnknownKeys(config_prefix, creation_usage, &deferred_sections);
+
+        /// A new `proxy` section of an object storage is the one that `applyNewSettings` puts to use
+        /// right away: it rebuilds the client of the storage from it. It is read without side effects,
+        /// so read it here in advance, the same way the object storage reads it (see `S3Settings`),
+        /// and judge its elements before the disk is changed.
+        for (const auto & section : deferred_sections)
+        {
+            const String section_prefix = config_prefix + "." + section;
+            static constexpr std::string_view proxy_suffix = ".proxy";
+            if (!section_prefix.ends_with(proxy_suffix))
+                continue;
+
+            const String parent_prefix = section_prefix.substr(0, section_prefix.size() - proxy_suffix.size());
+            auto probe_config = std::make_shared<ConfigurationWithUsageTracking>(config);
+            ProxyConfigurationResolverProvider::getFromOldSettingsFormat(ProxyConfiguration::Protocol::HTTP, parent_prefix, *probe_config);
+
+            for (const auto & key : probe_config->getUnusedKeys(section_prefix))
+                unknown_keys.push_back(ConfigurationWithUsageTracking::unescapeDots(section) + "." + key);
+        }
+
+        checkForUnknownKeys(unknown_keys, name, disk_type, context);
+    }
 
     /// Unlike the creation of a disk, `applyNewSettings` does not keep a reference to the
     /// configuration anywhere: it reads the settings it supports and returns, so this proxy is not

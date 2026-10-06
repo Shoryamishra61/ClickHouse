@@ -24,6 +24,14 @@
                 <path>encrypted/</path>
                 <key>firstfirstfirstf</key>
             </encrypted_disk>
+            <s3_disk>
+                <type>s3</type>
+                <endpoint>http://127.0.0.1:1/bucket/data/</endpoint>
+                <access_key_id>a</access_key_id>
+                <secret_access_key>b</secret_access_key>
+                <metadata_path>/var/lib/clickhouse/disks/s3_disk_metadata/</metadata_path>
+                <skip_access_check>1</skip_access_check>
+            </s3_disk>
         </disks>
     </storage_configuration>
 </clickhouse>

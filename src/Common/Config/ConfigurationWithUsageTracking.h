@@ -75,7 +75,15 @@ public:
     /// - the inside of a section that was not present before but was looked at (such as `proxy`) or listed
     ///   in an enumerated section (such as a new location): nothing has read its keys yet.
     /// The keys used through this object (including the ones marked from `previous`) count as read.
-    Strings getUnknownKeys(const String & prefix, const Usage & previous) const;
+    /// The sections that are skipped for the latter reason are added to `deferred_sections` (if it is not null),
+    /// relative to `prefix` and with the dots inside the names escaped, to be read in advance by the caller if it can.
+    Strings getUnknownKeys(const String & prefix, const Usage & previous, Strings * deferred_sections = nullptr) const;
+
+    /// `Poco::Util::AbstractConfiguration::keys` escapes the dots inside a name, because a dot is the
+    /// separator of the path. Such a name appears when a disk is defined in a query as
+    /// `disk(..., a.b = 1)`: it is a single element named `a.b`, not a section `a` with an element `b`.
+    /// The escaping is an implementation detail of the path syntax, and it is removed before reporting.
+    static String unescapeDots(const String & key);
 
 protected:
     bool getRaw(const std::string & key, std::string & value) const override;
@@ -90,7 +98,8 @@ private:
     mutable Usage usage;
 
     bool isUsed(const String & key) const;
-    void collectUnusedKeys(const String & prefix, const String & relative_key, const Usage * previous, Strings & result) const;
+    void collectUnusedKeys(
+        const String & prefix, const String & relative_key, const Usage * previous, Strings & result, Strings * deferred_sections) const;
 };
 
 }

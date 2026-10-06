@@ -35,6 +35,15 @@ CONFIG_TEMPLATE = """<clickhouse>
                 <path>encrypted/</path>
                 {encrypted_keys}
             </encrypted_disk>
+            <s3_disk>
+                <type>s3</type>
+                <endpoint>http://127.0.0.1:1/bucket/data/</endpoint>
+                <access_key_id>a</access_key_id>
+                <secret_access_key>b</secret_access_key>
+                <metadata_path>/var/lib/clickhouse/disks/s3_disk_metadata/</metadata_path>
+                <skip_access_check>1</skip_access_check>
+                {s3_extra}
+            </s3_disk>
         </disks>
     </storage_configuration>
 </clickhouse>
@@ -64,6 +73,7 @@ def write_disk_configuration(
     default_disk="",
     location_extra="",
     encrypted_keys=DEFAULT_ENCRYPTED_KEYS,
+    s3_extra="",
 ):
     node.exec_in_container(
         [
@@ -76,6 +86,7 @@ def write_disk_configuration(
                     default_disk=default_disk,
                     location_extra=location_extra,
                     encrypted_keys=encrypted_keys,
+                    s3_extra=s3_extra,
                 ),
             ),
         ]
@@ -217,6 +228,36 @@ def test_unknown_element_next_to_encryption_keys(start_cluster):
     )
     node.query("SYSTEM RELOAD CONFIG")
     assert "encrypted_disk" in node.query("SELECT name FROM system.disks")
+
+    write_disk_configuration(
+        node, "<keep_free_space_bytes>1024</keep_free_space_bytes>"
+    )
+    node.query("SYSTEM RELOAD CONFIG")
+
+
+def test_unknown_element_in_new_proxy_section(start_cluster):
+    node = cluster.instances["node"]
+    assert "s3_disk" in node.query("SELECT name FROM system.disks")
+
+    # The disk was created without a `proxy` section. A new one rebuilds the client of the disk
+    # right away, so an unknown element inside it is reported before the reload is applied.
+    write_disk_configuration(
+        node,
+        "<keep_free_space_bytes>1024</keep_free_space_bytes>",
+        s3_extra="<proxy><uri>http://proxy1:3128</uri><bad>1</bad></proxy>",
+    )
+    error = node.query_and_get_error("SYSTEM RELOAD CONFIG")
+    assert "UNKNOWN_ELEMENT_IN_CONFIG" in error
+    assert "proxy.bad" in error
+
+    # A valid `proxy` section is accepted.
+    write_disk_configuration(
+        node,
+        "<keep_free_space_bytes>1024</keep_free_space_bytes>",
+        s3_extra="<proxy><uri>http://proxy1:3128</uri></proxy>",
+    )
+    node.query("SYSTEM RELOAD CONFIG")
+    assert "s3_disk" in node.query("SELECT name FROM system.disks")
 
     write_disk_configuration(
         node, "<keep_free_space_bytes>1024</keep_free_space_bytes>"
