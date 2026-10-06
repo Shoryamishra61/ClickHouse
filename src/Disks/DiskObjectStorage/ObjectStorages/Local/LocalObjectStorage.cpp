@@ -92,6 +92,11 @@ ObjectMetadata makeObjectMetadata(const struct stat & file_stat)
     ObjectMetadata object_metadata;
     object_metadata.size_bytes = file_stat.st_size;
     object_metadata.etag = makeETag(file_stat);
+#if defined(OS_WINDOWS)
+    /// The token has whole-second `mtime` and a zero `st_ino` there (see `getMTime`), so a same-size
+    /// rewrite within one second keeps it unchanged: it must not identify the content to the caches.
+    object_metadata.etag_is_strong = false;
+#endif
     object_metadata.last_modified = Poco::Timestamp::fromEpochTime(file_stat.st_mtime);
     return object_metadata;
 }
