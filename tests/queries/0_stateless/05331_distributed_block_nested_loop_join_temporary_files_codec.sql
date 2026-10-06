@@ -9,6 +9,10 @@ SET enable_analyzer = 1;
 SET allow_block_nested_loop_join = 1;
 SET max_bytes_before_external_join = '100K';
 SET max_bytes_ratio_before_external_join = 0;
+-- Keep `numbers(300000)` as the build side: with the sides swapped the join builds from the ten rows
+-- and never spills, so the codec would never be checked.
+SET query_plan_join_swap_table = 0;
+SET query_plan_optimize_join_order_randomize = 0;
 
 CREATE TEMPORARY TABLE start_ts AS ( SELECT now() AS ts );
 
