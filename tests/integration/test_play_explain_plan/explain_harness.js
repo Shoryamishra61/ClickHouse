@@ -7,8 +7,9 @@
 /// arguments and need no DOM - plus `fallbackTokenize` and `TT` to build their token input. The
 /// contracts pinned here:
 ///
-///  - `explainPlanRequest` decides, from the tokens alone, whether a statement's response will be an
-///    `EXPLAIN PLAN json = 1` payload, and where to splice `json = 1` in to make it so. `PLAN` (or an
+///  - `explainPlanRequest` decides, from the tokens alone, whether a statement's plan can be drawn, and
+///    where to splice `json = 1` in to make the Plan view's second call (the statement itself runs as
+///    written). `PLAN` (or an
 ///    absent kind) is the only kind in scope, because it is the only one the server accepts `json`
 ///    for - every other kind is rejected with `UNKNOWN_SETTING`, so rewriting one would turn a
 ///    working query into an error;
@@ -68,6 +69,7 @@ const RANGES = [
 const HELPERS = [
     'fallbackTokenize', 'explainSettingName', 'explainSettingIsOn',
     'explainPlanRequest', 'applyExplainPlanInsertion', 'parseExplainPlan',
+    'executedPlanStatement', 'executedPlanUrl', 'typedExplainPlanStatement',
 ];
 
 function extractHelpers(js) {
@@ -112,8 +114,8 @@ function main() {
 function run(html) {
     const H = extractHelpers(extractScript(html));
 
-    /// One statement as the request path sees it: whether its response will be a JSON plan, and the
-    /// exact text that goes on the wire.
+    /// One statement as the Plan view sees it: whether its plan can be drawn, and the text of the second
+    /// call that fetches it (the statement as written when it sets `json` itself).
     const wire = (query) => {
         const request = H.explainPlanRequest(H.fallbackTokenize(query));
         return { plan: request.plan_json, sent: H.applyExplainPlanInsertion(query, request.insertion) };
@@ -273,6 +275,56 @@ function run(html) {
     ]) {
         check('parse', `${what} is not a plan`, H.parseExplainPlan(value), null);
     }
+
+    /// The `EXPLAIN` sent for an executed statement. The `FORMAT` span is what `detectExplicitFormatClause`
+    /// reports in the page; here it is located by hand.
+    const P = 'EXPLAIN PLAN json = 1, indexes = 1, header = 1, actions = 1 ';
+    const executed = (query, format = null) => H.executedPlanStatement(H.fallbackTokenize(query),
+        format === null ? null : { start: query.indexOf(format), end: query.indexOf(format) + format.length });
+    check('executed', 'a SELECT is explained as written', executed('SELECT 1'), P + 'SELECT 1');
+    check('executed', 'WITH', executed('WITH 1 AS x SELECT x'), P + 'WITH 1 AS x SELECT x');
+    check('executed', 'FROM before SELECT', executed('FROM t SELECT a'), P + 'FROM t SELECT a');
+    check('executed', 'a parenthesized UNION', executed('(SELECT 1) UNION ALL (SELECT 2)'), P + '(SELECT 1) UNION ALL (SELECT 2)');
+    check('executed', 'case is irrelevant', executed('select 1'), P + 'select 1');
+    check('executed', 'a trailing semicolon stays', executed('SELECT 1;'), P + 'SELECT 1;');
+    check('executed', 'a leading comment stays', executed('/* c */ SELECT 1'), P + '/* c */ SELECT 1');
+    check('executed', 'the FORMAT clause is removed', executed('SELECT 1 FORMAT JSON', 'FORMAT JSON'), P + 'SELECT 1 ');
+    check('executed', 'a backquoted format name too', executed('SELECT 1 FORMAT `JSON`', 'FORMAT `JSON`'), P + 'SELECT 1 ');
+    check('executed', 'a SETTINGS list after FORMAT stays',
+        executed('SELECT 1 FORMAT JSON SETTINGS max_threads = 1', 'FORMAT JSON'), P + 'SELECT 1  SETTINGS max_threads = 1');
+    check('executed', 'multi-byte text before FORMAT', executed("SELECT '✓é' FORMAT JSON", 'FORMAT JSON'), P + "SELECT '✓é' ");
+    for (const query of ['INSERT INTO t SELECT 1', 'CREATE TABLE t AS SELECT 1', 'SHOW TABLES', 'SET max_threads = 1',
+                         'SYSTEM FLUSH LOGS', 'EXPLAIN SELECT 1', 'DESCRIBE TABLE t', "SELECT 1 INTO OUTFILE 'x.tsv'", '', '-- c'])
+        check('executed', `no plan for ${JSON.stringify(query)}`, executed(query), null);
+
+    /// The URL of the plan request carries what changes the plan, and no query cache.
+    const source = { url: 'http://h:8123/', user: 'u', database: 'db', params: { p: 'a b' }, shape: '&limit=10&page=2', extremes: true };
+    check('executed url', 'the run context', H.executedPlanUrl(source, 'pw'),
+        'http://h:8123/?add_http_cors_header=1&default_format=JSON&framing_output_format=None&user=u&password=pw&database=db'
+        + '&limit=10&page=2&param_p=a%20b&extremes=1');
+    check('executed url', 'empty parts are left out',
+        H.executedPlanUrl({ url: 'http://h/', user: '', database: '', params: {}, shape: '', extremes: false }, ''),
+        'http://h/?add_http_cors_header=1&default_format=JSON&framing_output_format=None');
+    check('executed url', 'a server URL with a query string is continued',
+        H.executedPlanUrl({ ...source, url: 'http://h/?session_id=s', extremes: false }, '').startsWith('http://h/?session_id=s&add_http_cors_header=1'), true);
+
+    /// A typed `EXPLAIN` runs as written; its Plan view makes a second call, the rewrite above minus a trailing `FORMAT`.
+    const typed = (query, format = null) => H.typedExplainPlanStatement(H.fallbackTokenize(query),
+        format === null ? null : { start: query.indexOf(format), end: query.indexOf(format) + format.length });
+    check('typed', 'a plain EXPLAIN', typed('EXPLAIN SELECT 1'), 'EXPLAIN json = 1, indexes = 1, header = 1, actions = 1 SELECT 1');
+    check('typed', 'EXPLAIN PLAN', typed('EXPLAIN PLAN SELECT 1'), 'EXPLAIN PLAN json = 1, indexes = 1, header = 1, actions = 1 SELECT 1');
+    check('typed', 'the user\'s settings stay, behind ours', typed('EXPLAIN PLAN indexes = 0 SELECT 1'),
+        'EXPLAIN PLAN json = 1, header = 1, actions = 1, indexes = 0 SELECT 1');
+    check('typed', 'a trailing FORMAT is cut', typed('EXPLAIN SELECT 1 FORMAT TSV', 'FORMAT TSV'),
+        'EXPLAIN json = 1, indexes = 1, header = 1, actions = 1 SELECT 1 ');
+    for (const query of ['EXPLAIN PLAN json = 1 SELECT 1', 'EXPLAIN PLAN json = 0 SELECT 1', 'EXPLAIN PIPELINE SELECT 1',
+                         'EXPLAIN AST SELECT 1', 'SELECT 1', ''])
+        check('typed', `no second call for ${JSON.stringify(query)}`, typed(query), null);
+    const kind = (query) => H.explainPlanRequest(H.fallbackTokenize(query)).explain_plan;
+    check('typed', 'every EXPLAIN PLAN is reported as one, json or not',
+        ['EXPLAIN SELECT 1', 'EXPLAIN PLAN SELECT 1', 'EXPLAIN PLAN json = 1 SELECT 1', 'EXPLAIN PLAN json = 0 SELECT 1'].map(kind),
+        [true, true, true, true]);
+    check('typed', 'other statements are not', ['EXPLAIN PIPELINE SELECT 1', 'SELECT 1'].map(kind), [false, false]);
 
     console.log(failures ? `\n${failures} scenario check(s) FAILED` : '\nAll scenarios passed');
     process.exit(failures ? 1 : 0);

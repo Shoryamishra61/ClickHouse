@@ -2819,7 +2819,7 @@ class QueryProgressElement extends HTMLElement
 
         /// The Logs, Metrics and Plan toggles switch the result view between the query result and one
         /// of the streamed extras (server logs, or the extended profile-event metrics) or the query
-        /// plan of an `EXPLAIN`. The progress element only tracks which view is selected and announces
+        /// plan. The progress element only tracks which view is selected and announces
         /// changes via a `set-view` event; the page listener applies the view to the result element(s).
         this._logsToggle = this.shadowRoot.getElementById('logs-toggle');
         this._metricsToggle = this.shadowRoot.getElementById('metrics-toggle');
@@ -2877,8 +2877,8 @@ class QueryProgressElement extends HTMLElement
         this._metricsToggle.style.display = 'inline-block';
     }
 
-    /// Reveal the Plan toggle. Called once the query has produced an `EXPLAIN PLAN json = 1` tree, so
-    /// it is shown only for a result that has a plan. Idempotent (reset by `resetViewToggles`).
+    /// Reveals the Plan toggle, for a result that has a plan or can fetch one. Idempotent (reset by
+    /// `resetViewToggles`).
     showPlanToggle()
     {
         this._planToggle.style.display = 'inline-block';
@@ -4700,6 +4700,25 @@ class QueryResultElement extends HTMLElement
                     margin-bottom: 0.5rem;
                 }
 
+                #plan-caption
+                {
+                    color: var(--misc-text-color);
+                    font-size: 90%;
+                }
+
+                #plan-error
+                {
+                    background: var(--error-color);
+                    white-space: pre-wrap;
+                    padding: 0.5rem 1rem;
+                    margin-bottom: 0.5rem;
+                }
+
+                #plan-error:empty
+                {
+                    display: none;
+                }
+
                 .plan-button
                 {
                     cursor: pointer;
@@ -5136,7 +5155,9 @@ class QueryResultElement extends HTMLElement
                         <span class="plan-button" id="plan-collapse">Collapse all</span>
                     </span>
                     <span class="plan-button" id="plan-details-button"></span>
+                    <span id="plan-caption"></span>
                 </div>
+                <div id="plan-error"></div>
                 <div id="plan-body">
                     <div id="plan-tree" class="monospace"></div>
                     <div id="plan-graph"></div>
@@ -5162,6 +5183,8 @@ class QueryResultElement extends HTMLElement
         this._btnPlanGraph = this.shadowRoot.getElementById('plan-mode-graph');
         this._planDetails = this.shadowRoot.getElementById('plan-details');
         this._btnPlanDetails = this.shadowRoot.getElementById('plan-details-button');
+        this._planCaption = this.shadowRoot.getElementById('plan-caption');
+        this._planError = this.shadowRoot.getElementById('plan-error');
         this._btnPlanTree.addEventListener('click', () => this.setPlanMode('tree'));
         this._btnPlanGraph.addEventListener('click', () => this.setPlanMode('graph'));
         this._btnPlanDetails.addEventListener('click', () => this.togglePlanDetails());
@@ -5282,6 +5305,8 @@ class QueryResultElement extends HTMLElement
         this._btnPlanDetails.classList.remove('active');
         this._planDetails.style.display = 'none';
         this._planDetails.replaceChildren();
+        this._plan_request = null;
+        this._plan_source = null;
         this._column_is_number = {};
         /// Date/DateTime columns are colorable by their numeric (time) value, but are kept
         /// separate from `_column_is_number` so they stay left-aligned and unformatted.
@@ -5421,6 +5446,9 @@ class QueryResultElement extends HTMLElement
     /// being swallowed into a fallback rendering.
     set explainPlanRequested(v) { this._explain_plan_requested = v; }
     get explainPlanRequested() { return this._explain_plan_requested; }
+    /// How to plan this result's statement on demand (see `executedPlanSource`), or null.
+    set planSource(v) { this._plan_source = v; }
+    get planSource() { return this._plan_source; }
     /// Every path that shows a result in this element - a live run and both restore paths (the tab's
     /// own snapshot and a history entry) - stamps the producing query here, so this is also the one
     /// place from which the sort availability can be (re)resolved for whatever is displayed.
@@ -5506,6 +5534,15 @@ class QueryResultElement extends HTMLElement
         this._btnPlanDetails.classList.remove('active');
         this._planDetails.style.display = 'none';
         this._planDetails.replaceChildren();
+        /// A plan still being fetched for the previous statement must not land on this one.
+        if (this._plan_request) this._plan_request.abort();
+        this._plan_request = null;
+        this._plan_source = null;
+        this._planCaption.textContent = '';
+        this._planError.textContent = '';
+        /// The previous drawing goes too: an executed statement's Plan view can open before its plan exists.
+        this._planTree.replaceChildren();
+        this._planGraph.replaceChildren();
         this._table_layout_pending = false;
         this._current_selected_cell = null;
         this._emphasized_col_idx = null;
@@ -7819,6 +7856,18 @@ class QueryResultElement extends HTMLElement
         this.showView('plan');
     }
 
+    /// Offers the Plan toggle for a statement whose plan is fetched on demand, leaving the view as it is.
+    _offerPlan()
+    {
+        const cell = this._ownerCell;
+        if (cell)
+        {
+            cell.planAvailable = true;
+            if (!cellOwnsChrome(cell)) return;
+        }
+        progressEl.showPlanToggle();
+    }
+
     /// Queue a server log entry (from a framing `log` packet) for the logs view. Lines are buffered
     /// and appended in batches per animation frame (see `_flushLogs`), so streaming many lines does
     /// not do a DOM insertion, reflow and counter update per line.
@@ -7952,10 +8001,10 @@ class QueryResultElement extends HTMLElement
     /// Switch between the query result, the server logs, and the extended metrics table.
     showView(view)
     {
-        /// The Plan view needs a plan. The shared toggle applies to EVERY result element of the cell
-        /// (see the `set-view` handler), so in a multi-statement run the statements that are not
-        /// `EXPLAIN`s keep showing their own result rather than an empty Plan panel.
-        view = (view === 'plan' && this._explain_plan === null) ? 'result' : view;
+        /// The Plan view needs a plan, or a way to fetch one. The shared toggle applies to EVERY result
+        /// element of the cell (see the `set-view` handler), so in a multi-statement run the statements
+        /// without one keep showing their own result rather than an empty Plan panel.
+        view = (view === 'plan' && this._explain_plan === null && this._plan_source === null) ? 'result' : view;
         this._view = view;
         this._resultGroup.style.display = view === 'result' ? '' : 'none';
         this._logsDiv.style.display = view === 'logs' ? 'block' : 'none';
@@ -7970,7 +8019,10 @@ class QueryResultElement extends HTMLElement
         /// rendering needs. Both renderers are idempotent, so re-entering the view keeps what is
         /// already drawn - and, in the tree, the user's fold state.
         if (view === 'plan')
+        {
             this.setPlanMode(this._plan_mode);
+            this._fetchExecutedPlan();
+        }
         /// If the fixed table layout was deferred because the table was hidden (see
         /// _changeTableLayout), run it now that the result group is visible again.
         if (view === 'result' && this._table_layout_pending)
@@ -8865,6 +8917,47 @@ class QueryResultElement extends HTMLElement
             console.log(e);
             this._planGraph.replaceChildren(document.createTextNode(e.toString()));
         });
+    }
+
+    /// Fetches the plan of the executed statement and shows it; one request at a time, and a failure is
+    /// shown in the panel without being kept, so entering the view again retries.
+    async _fetchExecutedPlan()
+    {
+        const source = this._plan_source;
+        if (!source || this._explain_plan !== null || this._plan_request) return;
+        const controller = new AbortController();
+        this._plan_request = controller;
+        this._planError.textContent = '';
+        try
+        {
+            if (source.run_done)
+            {
+                this._planCaption.textContent = 'waiting for the query to finish (one query per session)';
+                await source.run_done;
+                if (this._plan_request !== controller) return;
+            }
+            this._planCaption.textContent = 'planning…';
+            const response = await fetch(executedPlanUrl(source, password_elem.value),
+                { method: 'POST', body: source.explain, signal: controller.signal, headers: { 'Authorization': 'never' } });
+            const text = await response.text();
+            if (this._plan_request !== controller) return;
+            if (!response.ok) throw new Error(text);
+            const plan = parseExplainPlan(JSON.parse(JSON.parse(text).data[0].explain));
+            if (plan === null) throw new Error('The server returned no query plan.');
+            this._explain_plan = plan;
+            this._planCaption.textContent = 'planned at ' + new Date().toLocaleTimeString();
+            if (this._view === 'plan') this.setPlanMode(this._plan_mode);
+        }
+        catch (e)
+        {
+            if (e.name === 'AbortError' || this._plan_request !== controller) return;
+            this._planCaption.textContent = '';
+            this._planError.textContent = e.message;
+        }
+        finally
+        {
+            if (this._plan_request === controller) this._plan_request = null;
+        }
     }
 
     /// The fold control of one tree row. A row with nothing to unfold still gets the element - empty
@@ -12572,22 +12665,11 @@ async function postImpl(cell, posted_request_num, query, targetResultEl, abortCo
     const explicit_format = await detectExplicitFormat(query);
     const default_format_applies = !explicit_format;
 
-    /// An `EXPLAIN` whose plan the Plan view can render is SENT with `json = 1` added, so the response
-    /// is the tree of objects `parseExplainPlan` reads instead of the indented text. The decision is
-    /// made from the lexer's tokens (`explainPlanRequest`), not a text match, so an `EXPLAIN` inside a
-    /// string literal or a comment is not mistaken for one, and a kind that rejects the setting
-    /// (`PIPELINE`, `AST`, ...) is left alone.
-    ///
-    /// Only the bytes on the wire change: `queryText` below, the tab's history and
-    /// `last_query_for_download` all keep the query as the user wrote it, so re-running from history
-    /// re-derives the same request and the Download button re-runs what the editor shows.
     const plan_request = await stampExplainPlanRequested(targetResultEl, query);
-    const wire_query = applyExplainPlanInsertion(query, plan_request.insertion);
 
-    /// Extremes are withheld from a plan request, and not merely because an `EXPLAIN` has no extremes
-    /// worth showing: `extremes = 1` puts an `Extremes` NODE in the plan, so asking for them would
-    /// show the user a plan of the page's request rather than a plan of their query.
-    if (default_format_applies && !plan_request.plan_json) url += '&extremes=1';
+    /// `extremes = 1` puts an `Extremes` node into the plan, so an `EXPLAIN PLAN` would show the page's
+    /// request instead of the user's query.
+    if (default_format_applies && !plan_request.explain_plan) url += '&extremes=1';
 
     /// Always stream progress, server logs, and profile events (metrics), regardless of the output
     /// format, by multiplexing them with the formatted data in a single response stream (the
@@ -12698,7 +12780,7 @@ async function postImpl(cell, posted_request_num, query, targetResultEl, abortCo
             throw new Error("This page requires framing to render results; it cannot run a query that sets framing_output_format = 'None' - or to a value it cannot know upfront (DEFAULT, or a query-parameter placeholder like {fmt:String}).");
         }
 
-        const fetch_options = { method: "POST", body: wire_query, signal: abortController.signal, headers: { 'Authorization': 'never' } };
+        const fetch_options = { method: "POST", body: query, signal: abortController.signal, headers: { 'Authorization': 'never' } };
         response = await fetch(use_framing ? framing_url : url, fetch_options);
 
         /// Detect image results (e.g. `FORMAT PNG`) by the response `Content-Type` rather than by
@@ -13553,7 +13635,17 @@ async function postSingle(cell, posted_request_num, query, history_query_text, p
     persistResultShape(cell);
 
     tab.controller = new AbortController();
-    const result = await postImpl(cell, posted_request_num, query, el, tab.controller, paramValuesSnapshot, query_database, connection, queryStart, shape_params);
+    const plan_source = await executedPlanSource(query,
+        { url: query_url, user: query_user, database: query_database, params: paramValuesSnapshot, shape: shape_params });
+    /// A Stop during that await has aborted this run's controller and moved `tab.reqNum` on.
+    if (posted_request_num != tab.reqNum) return;
+    el.planSource = plan_source;
+    if (plan_source) el._offerPlan();
+
+    const run = postImpl(cell, posted_request_num, query, el, tab.controller, paramValuesSnapshot, query_database, connection, queryStart, shape_params);
+    /// The server runs one query per session, so the plan request of a session waits for the run.
+    if (plan_source && plan_source.session) plan_source.run_done = run.then(() => {}, () => {});
+    const result = await run;
 
     if (result.cancelled) return;
 
@@ -14892,6 +14984,12 @@ async function materializeResult(cell) {
     cell.downloadUser = result.user ?? '';
     cell.progressPhase = 'done';
     cell.downloadVisible = download_reproducible;
+    /// A result whose producing connection is recorded can be planned again, as it can be downloaded again.
+    const plan_source = download_reproducible ? await executedPlanSource(result.query ?? '',
+        { url: result.url, user: result.user, database: result.database || '', params: result.params || {}, shape: cell.downloadShape }) : null;
+    if (matToken !== tab.reqNum) return;
+    el.planSource = plan_source;
+    if (plan_source) el._offerPlan();
     cell.copyVisible = is_raw;
     if (is_raw) {
         el.elapsedNs = result.elapsed_ns;
@@ -15137,7 +15235,7 @@ function cellRuntimeDefaults() {
         view: 'result',         /// this cell's selected view ('result' | 'logs' | 'metrics' | 'plan'), replayed by syncActiveTabChrome
         logsAvailable: false,   /// this cell produced server logs (its Logs toggle can be offered)
         metricsAvailable: false,/// this cell produced profile-event metrics (its Metrics toggle can be offered)
-        planAvailable: false,   /// this cell produced an EXPLAIN query plan (its Plan toggle can be offered)
+        planAvailable: false,   /// this cell has a query plan, or can fetch one (its Plan toggle can be offered)
         resources: null,        /// cell-owned resource-meter state (see `freshResourceState` / `readEventStream`)
         colorModes: {},         /// per-column color modes for this cell's result (shared with its element)
         pinnedColumns: {},      /// pinned columns for this cell's result (shared with its element)
@@ -19455,13 +19553,11 @@ async function tokenizeWithFallback(text)
 }
 
 /// Stamp `el` with whether the response it is about to receive - or to REPLAY - is an
-/// `EXPLAIN PLAN json = 1` payload, and hand the caller the full `explainPlanRequest` verdict so the
-/// live path can also apply its insertion.
+/// `EXPLAIN PLAN json = 1` payload, which only a `json = 1` the user wrote produces, and hand the caller
+/// the full `explainPlanRequest` verdict.
 ///
 /// Called from the live path before the request goes out and from both restore paths before a saved
-/// stream is replayed, which is what makes a restored `EXPLAIN` rebuild its Plan view exactly as the
-/// live run did: a snapshot stores the query as the USER wrote it (the `json = 1` only ever went on
-/// the wire), so the decision is recomputed from that same text and comes out the same.
+/// stream is replayed, so a restored `EXPLAIN` rebuilds its Plan view exactly as the live run did.
 ///
 /// The token walk is skipped unless the text mentions `explain` at all. An `EXPLAIN` statement always
 /// does, so this cannot miss one; it only keeps an ordinary query - already tokenized twice on the
@@ -19470,9 +19566,25 @@ async function stampExplainPlanRequested(el, query)
 {
     const request = /explain/i.test(query ?? '')
         ? explainPlanRequest(await tokenizeWithFallback(query))
-        : { plan_json: false, insertion: null };
-    el.explainPlanRequested = request.plan_json;
+        : { plan_json: false, insertion: null, explain_plan: false };
+    el.explainPlanRequested = request.plan_json && request.insertion === null;
     return request;
+}
+
+/// Returns how to plan `query` when its Plan view is opened, or null when it has no plan to offer;
+/// `context` is the run's `{url, user, database, params, shape}`.
+async function executedPlanSource(query, context)
+{
+    const format_clause = await detectExplicitFormatClause(query);
+    const tokens = await tokenizeWithFallback(query);
+    const typed = typedExplainPlanStatement(tokens, format_clause);
+    const explain = typed ?? executedPlanStatement(tokens, format_clause);
+    if (explain === null) return null;
+    const session = new URL(context.url, location.href).searchParams.has('session_id');
+    /// A typed `EXPLAIN` is planned as the user asked: the result shape and `extremes` belong to its text output.
+    if (typed !== null) return { explain, ...context, shape: '', extremes: false, session, run_done: null };
+    /// `postImpl` sends `extremes = 1` exactly when the statement has no `FORMAT` clause.
+    return { explain, ...context, extremes: format_clause === null, session, run_done: null };
 }
 
 /// `ParserInsertQuery` treats everything after `INSERT ... FORMAT <input format>` as inline input
@@ -20539,29 +20651,29 @@ function explainSettingIsOn(tok)
 
 /// What the Plan view needs to know about one statement, decided from its tokens alone:
 ///
-///   plan_json - the response will be an `EXPLAIN PLAN json = 1` payload, i.e. the tree of objects
-///               `parseExplainPlan` reads, either because the statement already asks for one or
-///               because `insertion` is about to make it;
-///   insertion - `{offset, text}` to splice into the statement text, or null to send it as written.
-///               Spells out every `EXPLAIN_PLAN_SETTINGS` entry the statement does not already
-///               mention, so the node details have their index and header sections to work from.
+///   plan_json    - the statement's plan can be drawn: from its own response when it sets `json = 1`
+///                  (`insertion` is then null), otherwise from the Plan view's second call;
+///   insertion    - `{offset, text}` that turns the statement into that second call, or null when it
+///                  makes none. Spells out every `EXPLAIN_PLAN_SETTINGS` entry the statement does not
+///                  already mention, so the node details have their index and header sections;
+///   explain_plan - the statement is an `EXPLAIN PLAN` (kind absent or `PLAN`), whatever its `json`.
 ///
 /// Takes the RAW token list, not the `significant`-only one the other request-path walks use: the
 /// tokens tile the text exactly, so an insertion offset is the sum of the token lengths before it,
 /// and filtering out the whitespace and comments would lose exactly the lengths that sum needs.
 ///
-/// A statement is out of scope - `{false, null}` - unless it is an `EXPLAIN` whose kind is absent or
+/// A statement is out of scope - `{false, null, false}` - unless it is an `EXPLAIN` whose kind is absent or
 /// `PLAN`. That kind check alone also keeps the SVG path (`renderGraph`) intact: a `digraph` response
 /// comes from `graph = 1`, which is a setting of `EXPLAIN PIPELINE` and `EXPLAIN AST` only - `PLAN`
 /// rejects it outright - so a graph query is always excluded by its kind and never reaches the walk
-/// below. A `json` setting already present is never rewritten: the user chose, and `json = 0` is the
-/// way to ask for the classic indented text back.
+/// below. A `json` the statement sets is never rewritten: `json = 1` makes its response the plan, and
+/// `json = 0` asks for the text alone.
 ///
 /// The insertion goes at the FRONT of the settings list, right after `EXPLAIN` or its `PLAN`, so the
 /// walk only has to learn whether a list is there - never where it ends.
 function explainPlanRequest(tokens)
 {
-    const nothing = { plan_json: false, insertion: null };
+    const nothing = { plan_json: false, insertion: null, explain_plan: false };
 
     /// The offset just past each token, so an insertion point can be named by the token it follows.
     const ends = [];
@@ -20608,15 +20720,15 @@ function explainPlanRequest(tokens)
         k = v + 1;
     }
 
-    /// A `json` the user wrote settles it: their query is sent exactly as written, detail settings and
-    /// all. `json = 0` is how the classic indented text is asked for back.
-    if (json_tok) return { plan_json: explainSettingIsOn(json_tok), insertion: null };
+    /// A `json` the user wrote settles it, with no second call: `json = 1` is the plan, `json = 0` the text alone.
+    if (json_tok) return { plan_json: explainSettingIsOn(json_tok), insertion: null, explain_plan: true };
 
     /// Only the settings the statement does not already mention, so an explicit `indexes = 0` is not
     /// overridden by the entry added here.
     const entries = EXPLAIN_PLAN_SETTINGS.filter((name) => !present.has(name)).map((name) => name + ' = 1').join(', ');
     /// A list already there continues after the inserted entries, so they need the separating comma.
-    return { plan_json: true, insertion: { offset: sig[at - 1].end, text: ' ' + entries + (has_settings ? ',' : '') } };
+    return { plan_json: true, insertion: { offset: sig[at - 1].end, text: ' ' + entries + (has_settings ? ',' : '') },
+             explain_plan: true };
 }
 
 /// `query` with an `explainPlanRequest` insertion applied, or `query` unchanged. Split from the
@@ -20681,6 +20793,49 @@ function parseExplainPlan(parsed)
         };
     };
     return node(root.Plan);
+}
+
+/// Returns the `EXPLAIN` the Plan view sends for an executed statement, or null when `EXPLAIN PLAN` rejects it;
+/// the `FORMAT` clause at `format_span` is cut, since inside the statement it would format the `EXPLAIN` output.
+function executedPlanStatement(tokens, format_span)
+{
+    const sig = tokens.filter((t) => t.significant);
+    const word = (t) => (t && t.type === TT.BareWord ? t.token.toLowerCase() : null);
+    if (!sig.length || !(sig[0].type === TT.OpeningRoundBracket || ['select', 'with', 'from'].includes(word(sig[0]))))
+        return null;
+    /// `INTO OUTFILE` would apply to the `EXPLAIN` output like `FORMAT`; such a statement gets no plan.
+    for (let i = 0; i + 1 < sig.length; ++i)
+        if (word(sig[i]) === 'into' && word(sig[i + 1]) === 'outfile')
+            return null;
+    const text = tokens.map((t) => t.token).join('');
+    const statement = format_span ? text.slice(0, format_span.start) + text.slice(format_span.end) : text;
+    return 'EXPLAIN PLAN ' + EXPLAIN_PLAN_SETTINGS.map((name) => name + ' = 1').join(', ') + ' ' + statement;
+}
+
+/// Returns the second call a typed `EXPLAIN` makes for its Plan view, or null when it makes none (a `json`
+/// it sets itself, another kind); the trailing `FORMAT` clause at `format_span` is cut, as for any statement.
+function typedExplainPlanStatement(tokens, format_span)
+{
+    const insertion = explainPlanRequest(tokens).insertion;
+    if (insertion === null) return null;
+    const text = tokens.map((t) => t.token).join('');
+    return applyExplainPlanInsertion(format_span ? text.slice(0, format_span.start) + text.slice(format_span.end) : text, insertion);
+}
+
+/// Returns the URL of that request: the run's server, user, database, result shape, query parameters
+/// and `extremes`, which all change the plan and its node ids. No query cache, so no plan is cached.
+function executedPlanUrl(source, password)
+{
+    let url = source.url + (source.url.indexOf('?') >= 0 ? '&' : '?')
+        + 'add_http_cors_header=1&default_format=JSON&framing_output_format=None';
+    if (source.user) url += '&user=' + encodeURIComponent(source.user);
+    if (password) url += '&password=' + encodeURIComponent(password);
+    if (source.database) url += '&database=' + encodeURIComponent(source.database);
+    url += source.shape;
+    for (const [name, value] of Object.entries(source.params))
+        url += '&param_' + encodeURIComponent(name) + '=' + encodeURIComponent(value);
+    if (source.extremes) url += '&extremes=1';
+    return url;
 }
 /// The keywords a query-level settings list may run into: the output clauses of
 /// `ParserQueryWithOutput` (`FORMAT`, `INTO OUTFILE`) and the data of an `INSERT ... SETTINGS ...
