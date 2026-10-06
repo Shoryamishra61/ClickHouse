@@ -155,6 +155,10 @@ bool parseDatabaseAndTableNameOrAsterisks(IParser::Pos & pos, Expected & expecte
                 return true;
             }
 
+            /// `db*.table` is ambiguous: a database wildcard cannot be combined with a table name.
+            if (wildcard)
+                return false;
+
             if (!identifier_parser.checkWithoutMoving(pos, expected))
             {
                 pos = pos_before_dot;
