@@ -721,7 +721,8 @@ bool IdentifierResolver::tryBindIdentifierToTableExpression(const IdentifierLook
     if (identifier.getPartsSize() == 1)
         return false;
 
-    auto starts_with_table_name_part = [](const IdentifierView & identifier_view, const String & table_name_part) {
+    auto starts_with_table_name_part = [](const IdentifierView & identifier_view, const String & table_name_part)
+    {
         if (table_name_part.empty())
             return false;
 
