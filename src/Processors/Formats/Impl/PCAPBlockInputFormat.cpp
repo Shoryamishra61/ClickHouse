@@ -603,9 +603,16 @@ Chunk PCAPBlockInputFormat::read()
             col_eth_type->insertData(name.data(), name.size());
         }
 
-        /// IP layer (v4 or v6).
-        const auto * ipv4 = pdu->find_pdu<Tins::IP>();
-        const auto * ipv6 = pdu->find_pdu<Tins::IPv6>();
+        /// IP layer (v4 or v6): the first one in the chain. Searching for each version separately
+        /// would also find the inner packet of a tunnel (`IPv4` in `IPv6` or the reverse), and the
+        /// columns would then mix the outer and the inner headers.
+        const Tins::IP * ipv4 = nullptr;
+        const Tins::IPv6 * ipv6 = nullptr;
+        for (const Tins::PDU * p = pdu; p != nullptr && ipv4 == nullptr && ipv6 == nullptr; p = p->inner_pdu())
+        {
+            ipv4 = dynamic_cast<const Tins::IP *>(p);
+            ipv6 = dynamic_cast<const Tins::IPv6 *>(p);
+        }
 
         if (need[COL_IP_VERSION])
         {

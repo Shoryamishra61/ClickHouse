@@ -137,6 +137,12 @@ SELECT
     position(raw, payload) - 1 AS payload_offset
 FROM file('$DATA_DIR/padded.pcap', PCAP) FORMAT TSV"
 
+echo "--- tunnels: IP columns describe the outer header ---"
+$CLICKHOUSE_LOCAL -q "
+SELECT number, protocols, eth_type, ip_version, src_addr, dst_addr, ip_protocol, ip_ttl, src_port, dst_port
+FROM file('$DATA_DIR/tunnel.pcap', PCAP)
+ORDER BY number FORMAT TSV"
+
 echo "--- subset of columns (only number, dst_port) ---"
 $CLICKHOUSE_LOCAL -q "
 SELECT number, dst_port FROM file('$DATA_DIR/packets.pcap', PCAP) ORDER BY number FORMAT TSV"

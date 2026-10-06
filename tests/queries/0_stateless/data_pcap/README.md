@@ -16,3 +16,5 @@ rewrite each other's files.
 - `padded.pcap` — a UDP packet with a 4-byte payload in an Ethernet frame padded
   to the 60-byte minimum, so `raw` ends with padding bytes that are not part of
   `payload`.
+- `tunnel.pcap` — IPv4 TCP tunneled in IPv6 and IPv6 UDP tunneled in IPv4, so the
+  IP columns must describe the outer header and not the tunneled packet.

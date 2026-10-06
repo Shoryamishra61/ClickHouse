@@ -138,3 +138,12 @@ write_pcap(out_dir / "truncated.pcap", truncated, snaplen=SNAPLEN)
 short = ethernet(ipv4(17, struct.pack(">HHHH", 5353, 5353, 12, 0) + b"ping"))
 padded = short + b"\xee" * (60 - len(short))
 write_pcap(out_dir / "padded.pcap", [(padded, len(padded))])
+
+# Tunnels: IPv4 in IPv6 (next header 4) and IPv6 in IPv4 (protocol 41). The IP
+# columns describe the outer header, not the tunneled packet, and the ports are
+# not taken from the inner transport layer.
+tunnels = [
+    ethernet(ipv6(4, ipv4(6, tcp)), ether_type=0x86DD),
+    ethernet(ipv4(41, ipv6(17, udp))),
+]
+write_pcap(out_dir / "tunnel.pcap", [(packet, len(packet)) for packet in tunnels])
