@@ -938,6 +938,10 @@ ColumnAggregateFunction::MutablePtr ColumnAggregateFunction::createView() const
 {
     auto res = create(func, concatArenas(foreign_arenas, my_arena), version);
     res->src = getPtr();
+    /// The view refers to the same states, so it must keep the state version:
+    /// the version affects how the states are serialized (e.g. in `groupArray` over a state column).
+    res->version = version;
+    res->type_string = type_string;
     return res;
 }
 

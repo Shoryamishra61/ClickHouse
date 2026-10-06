@@ -531,6 +531,10 @@
     M(MarkCacheEvictedBytes, "Number of bytes evicted from the mark cache.", ValueType::Bytes) \
     M(MarkCacheEvictedMarks, "Number of marks evicted from the mark cache.", ValueType::Number) \
     M(MarkCacheEvictedFiles, "Number of mark files evicted from the mark cache.", ValueType::Number) \
+    M(ColumnsCacheHits, "Number of times a deserialized column was found in the columns cache.", ValueType::Number) \
+    M(ColumnsCacheMisses, "Number of times a deserialized column was not found in the columns cache.", ValueType::Number) \
+    M(ColumnsCacheEvictedBytes, "Number of bytes evicted from the columns cache.", ValueType::Bytes) \
+    M(ColumnsCacheEvictedEntries, "Number of entries evicted from the columns cache.", ValueType::Number) \
     M(LoadedPrimaryIndexFiles, "Number of primary index files loaded.", ValueType::Number) \
     M(LoadedPrimaryIndexRows, "Number of rows of primary key loaded.", ValueType::Number) \
     M(LoadedPrimaryIndexBytes, "Number of rows of primary key loaded.", ValueType::Bytes) \
@@ -948,7 +952,8 @@ The server successfully detected this situation and will download merged part fr
     M(FilesystemCacheStateLockMicroseconds, "Lock filesystem cache time for state lock", ValueType::Microseconds) \
     M(FilesystemCacheReserveMicroseconds, "Filesystem cache space reservation time", ValueType::Microseconds) \
     M(FilesystemCacheReserveAttempts, "Filesystem cache space reservation attempt", ValueType::Number) \
-    M(FilesystemCacheFailedReserveAttempts, "Number of failed file cache space reservation attempts.", ValueType::Number) \
+    M(FilesystemCacheReserveAheadRetries, "Number of times a filesystem cache reservation with reserve-ahead did not fit and was retried with exactly the requested size", ValueType::Number) \
+    M(FilesystemCacheFailedReserveAttempts, "Number of failed file cache space reservation attempts, including reserve-ahead attempts that were retried with the exact size (see FilesystemCacheReserveAheadRetries).", ValueType::Number) \
     M(FilesystemCacheEvictMicroseconds, "Filesystem cache eviction time", ValueType::Microseconds) \
     M(FilesystemCacheGetOrSetMicroseconds, "Filesystem cache getOrSet() time", ValueType::Microseconds) \
     M(FilesystemCacheGetMicroseconds, "Filesystem cache get() time", ValueType::Microseconds) \
