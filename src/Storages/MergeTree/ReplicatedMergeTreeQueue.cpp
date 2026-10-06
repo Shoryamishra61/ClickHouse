@@ -2302,7 +2302,7 @@ std::map<std::string, MutationCommands> ReplicatedMergeTreeQueue::getUnfinishedM
     return result;
 }
 
-Strings ReplicatedMergeTreeQueue::getMutationsWithLegacyPartitionScope() const
+Strings ReplicatedMergeTreeQueue::getMutationsWithLegacyPartitionScope(const String & min_replicas_mutation_pointer) const
 {
     Strings result;
     std::lock_guard lock(state_mutex);
@@ -2310,7 +2310,9 @@ Strings ReplicatedMergeTreeQueue::getMutationsWithLegacyPartitionScope() const
     /// Not a prefix scan, see `getUnfinishedMutations`.
     for (const auto & [name, status] : mutations_by_znode)
     {
-        if (status.is_done)
+        /// `is_done` is local to this replica: a lagging replica may still have to load and execute
+        /// the entry, so it is skipped only once every replica has passed it.
+        if (status.is_done && !min_replicas_mutation_pointer.empty() && name <= min_replicas_mutation_pointer)
             continue;
 
         /// The znode keeps the original literals whatever this replica pinned in memory, so every

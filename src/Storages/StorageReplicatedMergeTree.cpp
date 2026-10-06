@@ -10877,8 +10877,30 @@ Strings StorageReplicatedMergeTree::getMutationsWithLegacyPartitionScope() const
     /// the partition key type change allowed on a stale view would make that entry undecodable once it
     /// is loaded. Load the new entries from ZooKeeper first.
     auto component_guard = Coordination::setCurrentComponent("StorageReplicatedMergeTree::getMutationsWithLegacyPartitionScope");
-    const_cast<ReplicatedMergeTreeQueue &>(queue).updateMutations(getZooKeeper());
-    return queue.getMutationsWithLegacyPartitionScope();
+    auto zookeeper = getZooKeeper();
+    const_cast<ReplicatedMergeTreeQueue &>(queue).updateMutations(zookeeper);
+
+    /// A mutation done on this replica may still be pending on a lagging one, which loads the entry
+    /// after the partition key type change. Like `ReplicatedMergeTreeCleanupThread::clearOldMutations`,
+    /// consider an entry done everywhere only if it is not greater than the `mutation_pointer` of every replica.
+    String min_replicas_mutation_pointer;
+    std::optional<UInt64> min_pointer;
+    for (const String & replica : zookeeper->getChildren(fs::path(zookeeper_path) / "replicas"))
+    {
+        String pointer;
+        zookeeper->tryGet(fs::path(zookeeper_path) / "replicas" / replica / "mutation_pointer", pointer);
+        if (pointer.empty())
+        {
+            min_pointer.reset();
+            break;
+        }
+        UInt64 value = parse<UInt64>(pointer);
+        min_pointer = min_pointer ? std::min(*min_pointer, value) : value;
+    }
+    if (min_pointer)
+        min_replicas_mutation_pointer = padIndex(*min_pointer);
+
+    return queue.getMutationsWithLegacyPartitionScope(min_replicas_mutation_pointer);
 }
 
 void StorageReplicatedMergeTree::createTableSharedID(const ZooKeeperRetriesInfo & zookeeper_retries_info)
