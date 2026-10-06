@@ -5,6 +5,8 @@
 #include <google/cloud/common_options.h>
 #include <google/cloud/credentials.h>
 #include <google/cloud/internal/curl_options.h>
+#include <google/cloud/internal/oauth2_credential_constants.h>
+#include <google/cloud/internal/oauth2_service_account_credentials.h>
 #include <google/cloud/internal/rest_options.h>
 #include <google/cloud/options.h>
 #include <google/cloud/storage/options.h>
@@ -215,6 +217,23 @@ static ProxyConfiguration::Protocol gcsProxyProtocol(const String & endpoint_ove
     return ProxyConfiguration::protocolFromString(Poco::toLower(Poco::URI(endpoint_override).getScheme()));
 }
 
+/// The REST endpoint the SDK actually sends the storage requests to. `CLOUD_STORAGE_EMULATOR_ENDPOINT`
+/// (or its legacy name `CLOUD_STORAGE_TESTBENCH_ENDPOINT`) in the server's environment takes precedence
+/// over any `RestEndpointOption`, an explicit endpoint override included (see `GetEmulator` and
+/// `MakeOptions` in `google/cloud/storage/client_options.cc`), so the host filter and the choice of the
+/// proxy have to look at the same value, or they would vet a destination the requests never go to.
+static String resolveGCSEndpoint(const String & endpoint_override)
+{
+    for (const char * name : {"CLOUD_STORAGE_EMULATOR_ENDPOINT", "CLOUD_STORAGE_TESTBENCH_ENDPOINT"})
+    {
+        if (const char * value = std::getenv(name)) // NOLINT(concurrency-mt-unsafe)
+            return value;
+    }
+    if (!endpoint_override.empty())
+        return endpoint_override;
+    return String("https://") + DEFAULT_GCS_HOST;
+}
+
 std::function<Poco::Net::HTTPClientSession::ProxyConfig()> makeGCSProxyConfigProvider(
     const std::shared_ptr<ProxyConfigurationResolver> & resolver)
 {
@@ -376,7 +395,7 @@ GCSObjectStorageSettings GCSObjectStorageSettings::loadFromConfig(
     /// The same lookup order an S3 disk uses (`S3Settings::loadFromConfigForObjectStorage`): the
     /// disk-local `<proxy>` section first, then the server-wide `<proxy>` configuration, then the
     /// `http_proxy` / `https_proxy` / `no_proxy` environment variables.
-    const auto proxy_protocol = gcsProxyProtocol(result.endpoint_override);
+    const auto proxy_protocol = gcsProxyProtocol(resolveGCSEndpoint(result.endpoint_override));
     result.proxy_resolver = ProxyConfigurationResolverProvider::getFromOldSettingsFormat(
         proxy_protocol, config_prefix, config);
     /// The token endpoint is a second destination with its own scheme (Google's default one is `https`).
@@ -523,16 +542,17 @@ static String readFileToString(const String & path)
     return contents;
 }
 
-std::shared_ptr<gc::Credentials> makeGCSCredentials(const GCSObjectStorageSettings & settings)
+std::shared_ptr<gc::Credentials> makeGCSCredentials(const GCSObjectStorageSettings & settings, gc::Options token_request_options)
 {
     switch (chooseGCSCredentialSource(settings))
     {
         case GCSCredentialSource::Anonymous:
             return gc::MakeInsecureCredentials();
         case GCSCredentialSource::ServiceAccountKey:
-            return gc::MakeServiceAccountCredentials(settings.service_account_key);
+            return gc::MakeServiceAccountCredentials(settings.service_account_key, std::move(token_request_options));
         case GCSCredentialSource::ServiceAccountKeyFile:
-            return gc::MakeServiceAccountCredentials(readFileToString(settings.service_account_key_file));
+            return gc::MakeServiceAccountCredentials(
+                readFileToString(settings.service_account_key_file), std::move(token_request_options));
         case GCSCredentialSource::AccessToken:
         {
             const auto expiry = std::chrono::system_clock::now()
@@ -560,16 +580,47 @@ std::unique_ptr<gcs::Client> getGCSClient(const GCSObjectStorageSettings & setti
     /// Fail-closed validation of the actual network destination against `remote_url_allow_hosts`,
     /// mirroring what the S3, Azure and web object storage transports do before a user-configurable
     /// endpoint is used. Throws when a filter is configured and the host is not allowed.
-    const String resolved_endpoint = settings.endpoint_override.empty()
-        ? String("https://") + DEFAULT_GCS_HOST
-        : settings.endpoint_override;
+    const String resolved_endpoint = resolveGCSEndpoint(settings.endpoint_override);
     context->getRemoteHostFilter().checkURL(Poco::URI(resolved_endpoint));
 
     gc::Options options;
 
-    options.set<gc::UnifiedCredentialsOption>(makeGCSCredentials(settings));
+    const auto credential_source = chooseGCSCredentialSource(settings);
+    gc::Options token_request_options;
+    if (credential_source == GCSCredentialSource::ServiceAccountKey || credential_source == GCSCredentialSource::ServiceAccountKeyFile)
+    {
+        /// A service-account key normally mints self-signed JWTs locally, but the SDK exchanges a signed
+        /// assertion at the key's own `token_uri` instead in some cases (e.g. a key whose
+        /// `private_key_id` is the P12 marker), and the key is a value the configuration supplies -- for a
+        /// dynamic disk, the query does. So a `token_uri` other than Google's own endpoint is a second
+        /// network destination the configuration picks, and it goes through the same filter as the
+        /// storage endpoint, exactly as `google_adc_token_uri` does below. Its requests also get a proxy
+        /// resolved for the scheme of the token endpoint, as the refresh-token exchange does. A key that
+        /// does not parse is left for the SDK to report: it then makes no request at all.
+        const String key = credential_source == GCSCredentialSource::ServiceAccountKey
+            ? settings.service_account_key
+            : readFileToString(settings.service_account_key_file);
+        const auto key_info = gc::oauth2_internal::ParseServiceAccountCredentials(key, "service_account_key");
+        if (key_info)
+        {
+            if (key_info->token_uri != gc::oauth2_internal::GoogleOAuthRefreshEndpoint())
+                context->getRemoteHostFilter().checkURL(Poco::URI(key_info->token_uri));
 
-    if (chooseGCSCredentialSource(settings) == GCSCredentialSource::RefreshToken)
+            const auto token_proxy_protocol = gcsProxyProtocol(key_info->token_uri);
+            auto token_proxy_resolver = token_proxy_protocol == gcsProxyProtocol(settings.google_adc_token_uri)
+                ? settings.token_proxy_resolver
+                : nullptr;
+            if (!token_proxy_resolver)
+                token_proxy_resolver = ProxyConfigurationResolverProvider::get(token_proxy_protocol, context->getConfigRef());
+            token_request_options.set<::ClickHouse::PocoRestProxyConfigProviderOption>(makeGCSProxyConfigProvider(token_proxy_resolver));
+            token_request_options.set<::ClickHouse::PocoRestProxyErrorReportOption>(makeGCSProxyErrorReporter(token_proxy_resolver));
+            token_request_options.set<::ClickHouse::PocoRestConnectTimeoutOption>(std::chrono::milliseconds(settings.connect_timeout_ms));
+        }
+    }
+
+    options.set<gc::UnifiedCredentialsOption>(makeGCSCredentials(settings, std::move(token_request_options)));
+
+    if (credential_source == GCSCredentialSource::RefreshToken)
     {
         /// Hand the triple itself to the transport, which builds the SDK's `AuthorizedUserCredentials`
         /// from it. That is what renews the access token, so a long-lived disk keeps working past the
@@ -677,7 +728,7 @@ std::unique_ptr<gcs::Client> getGCSClient(const GCSObjectStorageSettings & setti
     auto proxy_resolver = settings.proxy_resolver;
     if (!proxy_resolver)
         proxy_resolver = ProxyConfigurationResolverProvider::get(
-            gcsProxyProtocol(settings.endpoint_override), context->getConfigRef());
+            gcsProxyProtocol(resolved_endpoint), context->getConfigRef());
     options.set<::ClickHouse::PocoRestProxyConfigProviderOption>(makeGCSProxyConfigProvider(proxy_resolver));
     options.set<::ClickHouse::PocoRestProxyErrorReportOption>(makeGCSProxyErrorReporter(proxy_resolver));
 

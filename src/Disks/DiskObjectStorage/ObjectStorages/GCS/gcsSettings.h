@@ -54,7 +54,8 @@ struct GCSObjectStorageSettings
     /// Common object-key prefix inside the bucket (always empty or ending with '/').
     String key_prefix;
     /// Optional REST endpoint override. Empty means the default `https://storage.googleapis.com`.
-    /// Set it to point at the GCS emulator / fake-gcs-server (or `STORAGE_EMULATOR_HOST`).
+    /// Set it to point at the GCS emulator / fake-gcs-server. `CLOUD_STORAGE_EMULATOR_ENDPOINT` in the
+    /// server's environment overrides it (the SDK gives that variable precedence over any endpoint).
     String endpoint_override;
 
     /// --- Authentication (mutually resolved in getGCSClient, in this priority order) ---
@@ -228,11 +229,16 @@ void resolveGCSRequestRateLimit(
 /// `chooseGCSCredentialSource`. Exposed separately from `getGCSClient` so that a consumer which
 /// needs the credentials themselves — rather than a client built from them — cannot disagree with
 /// the client about which authentication mode the settings select.
-std::shared_ptr<google::cloud::Credentials> makeGCSCredentials(const GCSObjectStorageSettings & settings);
+/// `token_request_options` configure the requests a credential makes on its own behalf (a token
+/// exchange), separately from the storage requests.
+std::shared_ptr<google::cloud::Credentials> makeGCSCredentials(
+    const GCSObjectStorageSettings & settings, google::cloud::Options token_request_options = {});
 
 /// Build a native GCS storage client from the parsed settings. The resolved network destination
-/// (the endpoint override, or the default GCS endpoint) is validated against the context's
-/// `RemoteHostFilter` (`remote_url_allow_hosts`) before the client is constructed.
+/// (`CLOUD_STORAGE_EMULATOR_ENDPOINT` when the server's environment sets it, else the endpoint
+/// override, else the default GCS endpoint) and a token endpoint the configuration picks (a
+/// non-default `google_adc_token_uri`, or the `token_uri` of a service-account key) are validated
+/// against the context's `RemoteHostFilter` (`remote_url_allow_hosts`) before the client is constructed.
 std::unique_ptr<google::cloud::storage::Client> getGCSClient(const GCSObjectStorageSettings & settings, const ContextPtr & context);
 
 /// Build the object-storage key generator for a GCS disk (mirrors S3's getKeyGenerator, but keyed on
