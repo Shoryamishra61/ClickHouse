@@ -136,10 +136,9 @@ Block materializeHeader(Block header)
     return header;
 }
 
-std::vector<size_t> findPositions(const Block & header, const std::vector<SortDescription> & descriptions)
+std::vector<size_t> findPositions(const Block & header, const SortDescription & description)
 {
-    return descriptions
-        | std::views::join
+    return description
         | std::views::transform([&](const SortColumnDescription & column) { return header.getPositionByName(column.column_name); })
         | std::ranges::to<std::vector<size_t>>();
 }
@@ -226,9 +225,8 @@ WindowTransformParams WindowTransformParams::create(
     const std::vector<WindowFunctionDescription> & functions)
 {
     auto header = materializeHeader(input_header);
-    auto partition_by_indices = findPositions(header, {window_description.partition_by});
-    auto order_by_indices = findPositions(header, {window_description.order_by});
-    auto peer_key_indices = findPositions(header, {window_description.partition_by, window_description.order_by});
+    auto partition_by_indices = findPositions(header, window_description.partition_by);
+    auto order_by_indices = findPositions(header, window_description.order_by);
     auto should_materialize = markColumnsToMaterialize(header, window_description.partition_by, window_description.order_by, functions);
     auto frame = applyFunctionDefaultFrame(window_description.frame, functions);
     auto range_offset_comparator = chooseRangeOffsetComparator(header, frame, order_by_indices);
@@ -239,7 +237,6 @@ WindowTransformParams WindowTransformParams::create(
         std::move(description),
         std::move(partition_by_indices),
         std::move(order_by_indices),
-        std::move(peer_key_indices),
         std::move(should_materialize),
         std::move(range_offset_comparator),
     };

@@ -409,7 +409,7 @@ void WindowTransform::computeReadyRows()
 void WindowTransform::startNextPartition()
 {
     const RowNumber partition_start = partition.bounds().end;
-    partition.beginAt(partition_start);
+    partition.beginAt(blocks, partition_start);
     partition.advance(blocks);
     // We have to reset the frame and other pointers when the new partition
     // starts.
