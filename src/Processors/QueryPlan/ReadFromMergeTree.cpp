@@ -6359,9 +6359,18 @@ IStorage::ColumnSizeByName ReadFromMergeTree::getColumnSizesForPrewhere(
     /// `Compact` parts do not publish per-column sizes, so a selection made only of them measures nothing,
     /// while the wide parts that were pruned away would still describe the relative column sizes.
     /// Keep the table-wide estimate in that case, exactly as when no parts are pruned.
-    const bool nothing_measured = std::ranges::all_of(result, [](const auto & entry) { return entry.second.data_compressed == 0; });
-    if (!parts.empty() && nothing_measured)
+    /// A selection with a `Wide` part did measure: a column missing from the result is not stored in any
+    /// selected part (for example, it was added after they were written) and is served from its default,
+    /// so it must not be costed by the newer parts that do store it.
+    const bool no_part_publishes_sizes = std::ranges::none_of(parts, [](const auto & part) { return isWidePart(part.data_part); });
+    if (!parts.empty() && no_part_publishes_sizes)
         return data.getColumnSizes(columns, calculate_subcolumn_sizes);
+
+    /// Keep an entry even for a column that no selected part stores, so that an all-default selection
+    /// still reaches `MergeTreeWhereOptimizer`: `optimizePrewhere` gives up on an empty map.
+    if (!parts.empty())
+        for (const auto & column_name : columns)
+            result.try_emplace(column_name);
 
     return result;
 }
