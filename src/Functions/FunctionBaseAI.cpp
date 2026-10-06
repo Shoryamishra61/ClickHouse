@@ -497,8 +497,8 @@ ColumnPtr FunctionBaseAI::executeImpl(const ColumnsWithTypeAndName & arguments, 
 
     bool throw_on_error = settings[Setting::ai_function_throw_on_error].value;
 
-    /// Shared across every AI function call in the query
-    auto quota_tracker = getContext()->getAIQuotaTracker();
+    /// Shared across every text function call in the query; the embedding functions have their own budget
+    auto quota_tracker = getContext()->getAIQuotaTracker(AIQuotaKind::Text);
 
     auto timeouts = ConnectionTimeouts::getHTTPTimeouts(settings, getContext()->getServerSettings());
     timeouts.receive_timeout = Poco::Timespan(static_cast<int64_t>(timeout_sec) /*s*/, 0 /*us*/);

@@ -305,6 +305,8 @@ namespace Setting
     extern const SettingsUInt64 ai_function_max_input_tokens_per_query;
     extern const SettingsUInt64 ai_function_max_output_tokens_per_query;
     extern const SettingsUInt64 ai_function_max_api_calls_per_query;
+    extern const SettingsUInt64 ai_function_embedding_max_input_tokens_per_query;
+    extern const SettingsUInt64 ai_function_embedding_max_api_calls_per_query;
     extern const SettingsBool ai_function_throw_on_quota_exceeded;
     extern const SettingsUInt64 allow_experimental_parallel_reading_from_replicas;
     extern const SettingsFloat ast_fuzzer_runs;
@@ -9087,22 +9089,33 @@ ReverseLookupCache & Context::getReverseLookupCache() const
     return *query_context->reverse_lookup_cache;
 }
 
-AIQuotaTrackerPtr Context::getAIQuotaTracker() const
+AIQuotaTrackerPtr Context::getAIQuotaTracker(AIQuotaKind kind) const
 {
     auto query_context = getQueryContext();
 
     const auto & settings_ref = query_context->getSettingsRef();
 
     std::lock_guard<ContextSharedMutex> lock(query_context->mutex);
-    if (!query_context->ai_quota_tracker)
+    if (kind == AIQuotaKind::Embedding)
     {
-        query_context->ai_quota_tracker = std::make_shared<AIQuotaTracker>(
+        if (!query_context->ai_embedding_quota_tracker)
+            query_context->ai_embedding_quota_tracker = std::make_shared<AIQuotaTracker>(
+                kind,
+                settings_ref[Setting::ai_function_embedding_max_input_tokens_per_query],
+                /* max_output_tokens = */ 0, /// Embedding requests produce no output tokens.
+                settings_ref[Setting::ai_function_embedding_max_api_calls_per_query],
+                settings_ref[Setting::ai_function_throw_on_quota_exceeded]);
+        return query_context->ai_embedding_quota_tracker;
+    }
+
+    if (!query_context->ai_text_quota_tracker)
+        query_context->ai_text_quota_tracker = std::make_shared<AIQuotaTracker>(
+            kind,
             settings_ref[Setting::ai_function_max_input_tokens_per_query],
             settings_ref[Setting::ai_function_max_output_tokens_per_query],
             settings_ref[Setting::ai_function_max_api_calls_per_query],
             settings_ref[Setting::ai_function_throw_on_quota_exceeded]);
-    }
-    return query_context->ai_quota_tracker;
+    return query_context->ai_text_quota_tracker;
 }
 
 void Context::setRuntimeFilterLookup(const RuntimeFilterLookupPtr & filter_lookup)

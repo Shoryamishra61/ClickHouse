@@ -19,8 +19,8 @@ bool AIQuotaTracker::quotasExceededLocked()
         if (throw_on_quota_exceeded)
             throw Exception(ErrorCodes::LIMIT_EXCEEDED,
                 "AI input token limit reached or exceeded: {} tokens consumed, maximum: {}. "
-                "This is controlled by the 'ai_function_max_input_tokens_per_query' setting",
-                input_tokens, max_input_tokens);
+                "This is controlled by the '{}max_input_tokens_per_query' setting",
+                input_tokens, max_input_tokens, settingPrefix());
         quota_exceeded = true;
         return true;
     }
@@ -30,8 +30,8 @@ bool AIQuotaTracker::quotasExceededLocked()
         if (throw_on_quota_exceeded)
             throw Exception(ErrorCodes::LIMIT_EXCEEDED,
                 "AI output token limit reached or exceeded: {} tokens generated, maximum: {}. "
-                "This is controlled by the 'ai_function_max_output_tokens_per_query' setting",
-                output_tokens, max_output_tokens);
+                "This is controlled by the '{}max_output_tokens_per_query' setting",
+                output_tokens, max_output_tokens, settingPrefix());
         quota_exceeded = true;
         return true;
     }
@@ -67,8 +67,8 @@ bool AIQuotaTracker::recordApiCall()
     if (throw_on_quota_exceeded)
         throw Exception(ErrorCodes::LIMIT_EXCEEDED,
             "AI API call limit reached: {} calls made, maximum: {}. "
-            "This is controlled by the 'ai_function_max_api_calls_per_query' setting",
-            api_calls, max_api_calls);
+            "This is controlled by the '{}max_api_calls_per_query' setting",
+            api_calls, max_api_calls, settingPrefix());
 
     quota_exceeded = true;
     return false;

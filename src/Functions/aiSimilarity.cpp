@@ -146,8 +146,8 @@ public:
         bool throw_on_error = settings[Setting::ai_function_throw_on_error].value;
         size_t max_batch_size = static_cast<size_t>(settings[Setting::ai_function_embedding_max_batch_size].value);
 
-        /// Shared across every AI function call in the query
-        auto quota_tracker = getContext()->getAIQuotaTracker();
+        /// Shared across every embedding function call in the query; the text functions have their own budget
+        auto quota_tracker = getContext()->getAIQuotaTracker(AIQuotaKind::Embedding);
 
         auto timeouts = ConnectionTimeouts::getHTTPTimeouts(settings, getContext()->getServerSettings());
         timeouts.receive_timeout = Poco::Timespan(static_cast<int64_t>(settings[Setting::ai_function_request_timeout_sec].value) /*s*/, 0 /*us*/);

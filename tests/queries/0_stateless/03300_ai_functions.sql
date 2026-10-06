@@ -294,6 +294,8 @@ WHERE name IN (
     'ai_function_max_api_calls_per_query',
     'ai_function_throw_on_quota_exceeded',
     'ai_function_embedding_max_batch_size',
+    'ai_function_embedding_max_input_tokens_per_query',
+    'ai_function_embedding_max_api_calls_per_query',
     'ai_function_text_default_credentials',
     'ai_function_embedding_default_credentials'
 )

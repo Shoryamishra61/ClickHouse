@@ -1332,7 +1332,7 @@ def test_embed_quota_throw_records_input_tokens(started_cluster):
         "SELECT aiEmbed(x, 'test-embed-model', map('credentials', 'ai_embed')) FROM test_input",
         settings={
             "ai_function_embedding_max_batch_size": 1,
-            "ai_function_max_input_tokens_per_query": 5,
+            "ai_function_embedding_max_input_tokens_per_query": 5,
             "ai_function_throw_on_quota_exceeded": 1,
         },
         query_id=qid,
@@ -1355,7 +1355,7 @@ def test_embed_quota_throw_records_rows_processed(started_cluster):
         "SELECT aiEmbed(x, 'test-embed-model', map('credentials', 'ai_embed')) FROM test_input",
         settings={
             "ai_function_embedding_max_batch_size": 1,
-            "ai_function_max_input_tokens_per_query": 5,
+            "ai_function_embedding_max_input_tokens_per_query": 5,
             "ai_function_throw_on_quota_exceeded": 1,
         },
         query_id=qid,
@@ -1449,7 +1449,7 @@ def test_similarity_row_counters_stay_zero_on_throw(started_cluster):
         "FROM (SELECT arrayJoin([('a', 'b'), ('c', 'd')]) AS p)",
         settings={
             "ai_function_embedding_max_batch_size": 2,
-            "ai_function_max_input_tokens_per_query": 2,
+            "ai_function_embedding_max_input_tokens_per_query": 2,
             "ai_function_throw_on_quota_exceeded": 1,
         },
         query_id=qid,
@@ -1550,7 +1550,7 @@ def test_embed_quota_input_tokens_exceeded(started_cluster):
         "SELECT aiEmbed(x, 'test-embed-model', map('credentials', 'ai_embed')) FROM test_input",
         settings={
             "ai_function_embedding_max_batch_size": 1,
-            "ai_function_max_input_tokens_per_query": 5,
+            "ai_function_embedding_max_input_tokens_per_query": 5,
             "ai_function_throw_on_quota_exceeded": 0,
         },
         query_id=qid,
@@ -1751,14 +1751,14 @@ def test_function_name_header(started_cluster):
 
 def test_embed_retry_respects_api_call_quota(started_cluster):
     """The embedding path enforces the same per-attempt API-call quota: a retriable HTTP 500 is not
-    retried past `ai_function_max_api_calls_per_query`."""
+    retried past `ai_function_embedding_max_api_calls_per_query`."""
     qid = unique_query_id("embed_quota_caps_retries")
     result = instance.query(
         "SELECT aiEmbed('server error', 'test-embed-model', map('credentials', 'ai_embed_error'))",
         settings={
             "ai_function_max_retries": 5,
             "ai_function_retry_initial_delay_ms": 1,  # keep the test fast
-            "ai_function_max_api_calls_per_query": 1,
+            "ai_function_embedding_max_api_calls_per_query": 1,
             "ai_function_throw_on_error": 0,
             "ai_function_throw_on_quota_exceeded": 0,
         },
@@ -2365,3 +2365,56 @@ def test_api_call_quota_ignores_subquery_settings(started_cluster):
     assert subquery_only == 64, (
         f"expected all 64 rows to run (a quota set only in the subquery is ignored), got {subquery_only}"
     )
+
+
+def _run_mixed_quota_query(qid, settings):
+    """Run one query calling both a text and an embedding function over the same 4 rows, and return
+    the (classification, embedding) pair of each row."""
+    instance.query("TRUNCATE TABLE test_input")
+    instance.query(
+        "INSERT INTO test_input SELECT 'row_' || toString(number) FROM numbers(4)"
+    )
+    result = instance.query(
+        f"SELECT {CHAT_CALL} AS c, {EMBED_CALL} AS e FROM test_input",
+        settings={
+            "ai_function_embedding_max_batch_size": 1,
+            "ai_function_throw_on_quota_exceeded": 0,
+            **settings,
+        },
+        query_id=qid,
+    )
+    rows = [line.split("\t") for line in result.strip().split("\n")]
+    return [(c, parse_embedding(e)) for c, e in rows]
+
+
+def test_embedding_quota_does_not_bound_text_functions(started_cluster):
+    """The two families draw on separate budgets, so exhausting the embedding one must leave the text
+    one intact. With one shared tracker the first embedding batch would also stop the classifications."""
+    qid = unique_query_id("quota_split_embedding_exhausted")
+    rows = _run_mixed_quota_query(
+        qid,
+        {
+            "ai_function_embedding_max_api_calls_per_query": 1,
+            "ai_function_max_api_calls_per_query": 0,
+        },
+    )
+    assert [bool(e) for _, e in rows] == [True, False, False, False]
+    assert all(c for c, _ in rows), f"a text call was cut by the embedding quota: {rows}"
+    # One embedding call plus one chat call per row.
+    assert int(get_profile_events(qid)["api_calls"]) == 5
+
+
+def test_text_quota_does_not_bound_embedding_functions(started_cluster):
+    """The mirror case: exhausting the text budget must not stop the embedding calls."""
+    qid = unique_query_id("quota_split_text_exhausted")
+    rows = _run_mixed_quota_query(
+        qid,
+        {
+            "ai_function_max_api_calls_per_query": 1,
+            "ai_function_embedding_max_api_calls_per_query": 0,
+        },
+    )
+    assert [bool(c) for c, _ in rows] == [True, False, False, False]
+    assert all(e for _, e in rows), f"an embedding call was cut by the text quota: {rows}"
+    # One chat call plus one embedding call per row.
+    assert int(get_profile_events(qid)["api_calls"]) == 5

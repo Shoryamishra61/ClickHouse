@@ -1,0 +1,4 @@
+-- Current defaults
+1000	10000000
+-- compatibility = 26.9 restores the pre-split limits
+1000	1000000
