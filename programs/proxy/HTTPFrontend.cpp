@@ -68,10 +68,16 @@ struct HTTPBodyFraming
     bool expect_continue = false;       /// The client waits for `100 Continue` before sending the body.
 };
 
+struct QueryPrefix
+{
+    String data;
+    bool is_prefix = false;     /// Only the beginning of the body was read: it is longer, or the rest is in later chunks.
+};
+
 /// Without a `query` parameter, the body of the request is the query. Reads the beginning of the body
 /// (the bytes stay in the reader's buffer and are forwarded to the backend unchanged) to classify the query.
 /// Returns nothing if the body cannot be inspected: it is compressed, or its framing is not known.
-std::optional<String> readQueryPrefixFromBody(FiberSocket & client, RecordingReader & reader, const HTTPBodyFraming & framing)
+std::optional<QueryPrefix> readQueryPrefixFromBody(FiberSocket & client, RecordingReader & reader, const HTTPBodyFraming & framing)
 {
     /// Enough for the leading keyword after a reasonable amount of whitespace and comments.
     constexpr size_t max_prefix_bytes = 64 * 1024;
@@ -108,7 +114,8 @@ std::optional<String> readQueryPrefixFromBody(FiberSocket & client, RecordingRea
     const size_t length = std::min<UInt64>(size, max_prefix_bytes);
     if (!reader.ensure(length))
         return std::nullopt;
-    return reader.readFixed(length);
+    /// A chunked body may continue in the next chunks, even if they are empty.
+    return QueryPrefix{.data = reader.readFixed(length), .is_prefix = framing.chunked || length < size};
 }
 
 const StaticPageConfig * findStaticPage(const HTTPConfig & http, const String & path)
@@ -289,7 +296,7 @@ void handleHTTP(FiberSocket & client, const FrontendContext & ctx)
     {
         /// With `decompress=1` the body is in the compressed native format and cannot be inspected.
         if (auto query_prefix = readQueryPrefixFromBody(client, reader, body_framing))
-            attributes.query_type = classifyQuery(*query_prefix);
+            attributes.query_type = classifyQuery(query_prefix->data, query_prefix->is_prefix);
     }
 
     if (header_user)

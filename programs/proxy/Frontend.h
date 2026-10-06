@@ -68,7 +68,9 @@ void handleSSH(int fd, const FrontendContext & ctx);
 void validateSSHKeys(const ProxyConfiguration & config);
 
 /// Classify a SQL query as "select", "insert" or "other" by its leading keyword.
-String classifyQuery(std::string_view query);
+/// If @p is_prefix, the query is only the beginning of the query text; an empty string is returned
+/// when it ends before the leading keyword is complete, as the query type is not known then.
+String classifyQuery(std::string_view query, bool is_prefix = false);
 
 }
 

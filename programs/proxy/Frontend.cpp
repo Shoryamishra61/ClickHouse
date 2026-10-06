@@ -26,7 +26,7 @@ namespace ErrorCodes
 namespace DB::Proxy
 {
 
-String classifyQuery(std::string_view query)
+String classifyQuery(std::string_view query, bool is_prefix)
 {
     size_t i = 0;
     /// Skip leading whitespace and SQL comments.
@@ -57,6 +57,11 @@ String classifyQuery(std::string_view query)
     size_t start = i;
     while (i < query.size() && (std::isalpha(static_cast<unsigned char>(query[i])) || query[i] == '_'))
         ++i;
+
+    /// The prefix ended within the leading whitespace and comments or within the first keyword,
+    /// so the rest of the query may start with any keyword.
+    if (is_prefix && i >= query.size())
+        return "";
 
     String keyword;
     for (size_t j = start; j < i; ++j)
