@@ -789,6 +789,17 @@ RangesInDataParts MergeTreeDataSelectExecutor::filterPartsByPartition(
     return res;
 }
 
+/// Two dotted column names overlap when they are equal, or when one is an ancestor
+/// of the other in the subcolumn hierarchy (a `.`-separated prefix). For example,
+/// `document` overlaps `document.country` (parent/child), but `document.city` and
+/// `document.country` do not (sibling subcolumns are independent).
+static bool columnNamesOverlap(std::string_view lhs, std::string_view rhs)
+{
+    if (lhs.size() > rhs.size())
+        std::swap(lhs, rhs);
+    return rhs.starts_with(lhs) && (lhs.size() == rhs.size() || rhs[lhs.size()] == '.');
+}
+
 std::expected<void, PreformattedMessage> MergeTreeDataSelectExecutor::canUseIndex(
     const MergeTreeIndexPtr & index,
     const StorageMetadataPtr & metadata_snapshot,
@@ -796,18 +807,6 @@ std::expected<void, PreformattedMessage> MergeTreeDataSelectExecutor::canUseInde
 {
     if (all_updated_columns.empty())
         return {};
-
-    /// Two dotted column names overlap when they are equal, or when one is an ancestor
-    /// of the other in the subcolumn hierarchy (a `.`-separated prefix). For example,
-    /// `document` overlaps `document.country` (parent/child), but `document.city` and
-    /// `document.country` do not (sibling subcolumns are independent).
-    auto overlaps = [](std::string_view updated, std::string_view required)
-    {
-        if (updated.size() > required.size())
-            std::swap(updated, required);
-        return required.starts_with(updated)
-            && (updated.size() == required.size() || required[updated.size()] == '.');
-    };
 
     auto options = GetColumnsOptions(GetColumnsOptions::Kind::All).withSubcolumns();
     auto required_columns_names = index->getColumnsRequiredForIndexCalc();
@@ -817,7 +816,7 @@ std::expected<void, PreformattedMessage> MergeTreeDataSelectExecutor::canUseInde
     {
         for (const auto & updated_column : all_updated_columns)
         {
-            if (overlaps(updated_column, required_column.name))
+            if (columnNamesOverlap(updated_column, required_column.name))
             {
                 return std::unexpected(PreformattedMessage::create(
                     "Index {} depends on column `{}` which will be changed on the fly (by a pending mutation of `{}`)",
@@ -873,6 +872,7 @@ RangesInDataParts MergeTreeDataSelectExecutor::filterPartsByStatistics(
 
     RangesInDataParts res_parts;
     size_t total_parts_before = parts.size();
+    const NameSet consulted_columns = statistics_pruner.getColumnsConsultedByEstimates();
 
     for (const auto & part : parts)
     {
@@ -883,9 +883,10 @@ RangesInDataParts MergeTreeDataSelectExecutor::filterPartsByStatistics(
         /// - a `DROP COLUMN` followed by adding a column with the same name makes reads treat the
         ///   on-disk data as missing and fill the default instead, while the estimate still
         ///   describes the dropped column's data.
-        /// Either way the estimates of such a part do not describe the values the query sees, so the
-        /// part is not prunable. Both are metadata mutations and appear in neither `hasDataMutations`
-        /// nor `getAllUpdatedColumns`, so the gate above does not see them.
+        /// Either way the estimates of such a part for the affected names do not describe the values
+        /// the query sees, so the part is not prunable if the pruner consults any of them. Both are
+        /// metadata mutations and appear in neither `hasDataMutations` nor `getAllUpdatedColumns`,
+        /// so the gate above does not see them.
         if (mutations_snapshot && mutations_snapshot->hasMetadataMutations())
         {
             auto alter_conversions = MergeTreeData::getAlterConversionsForPart(part.data_part, mutations_snapshot, context
@@ -894,7 +895,19 @@ RangesInDataParts MergeTreeDataSelectExecutor::filterPartsByStatistics(
 #endif
             );
 
-            if (!alter_conversions->getRenameMap().empty() || !alter_conversions->getDroppedColumns().empty())
+            auto is_consulted = [&](const String & name)
+            {
+                for (const auto & consulted : consulted_columns)
+                    if (columnNamesOverlap(name, consulted))
+                        return true;
+                return false;
+            };
+
+            bool has_affected_column = std::ranges::any_of(alter_conversions->getDroppedColumns(), is_consulted);
+            for (const auto & [rename_to, rename_from] : alter_conversions->getRenameMap())
+                has_affected_column = has_affected_column || is_consulted(rename_to) || is_consulted(rename_from);
+
+            if (has_affected_column)
             {
                 res_parts.push_back(part);
                 continue;

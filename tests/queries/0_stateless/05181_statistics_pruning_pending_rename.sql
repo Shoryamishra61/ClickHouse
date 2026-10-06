@@ -43,3 +43,20 @@ CREATE TABLE t_statistics_pruned (x Int64 STATISTICS(basic)) ENGINE = MergeTree 
 INSERT INTO t_statistics_pruned SETTINGS materialize_statistics_on_insert = 1 VALUES (1), (2);
 SELECT extract(explain, 'Parts: [0-9]+/[0-9]+') FROM (EXPLAIN indexes = 1 SELECT count() FROM t_statistics_pruned WHERE x = 100) WHERE explain LIKE '%Parts: 0/1%';
 DROP TABLE t_statistics_pruned;
+
+-- A pending metadata mutation of an unrelated column does not disable pruning by the statistics
+-- of the queried column.
+DROP TABLE IF EXISTS t_statistics_pending_unrelated;
+CREATE TABLE t_statistics_pending_unrelated (x Int64 STATISTICS(basic), y Int64 STATISTICS(basic), z Int64) ENGINE = MergeTree ORDER BY tuple();
+SYSTEM STOP MERGES t_statistics_pending_unrelated;
+INSERT INTO t_statistics_pending_unrelated SETTINGS materialize_statistics_on_insert = 1 VALUES (1, 100, 0), (2, 200, 0);
+
+ALTER TABLE t_statistics_pending_unrelated DROP COLUMN z, RENAME COLUMN y TO w SETTINGS alter_sync = 0, mutations_sync = 0;
+
+SELECT extract(explain, 'Parts: [0-9]+/[0-9]+') FROM (EXPLAIN indexes = 1 SELECT count() FROM t_statistics_pending_unrelated WHERE x = 100) WHERE explain LIKE '%Parts: 0/1%';
+SELECT count() FROM t_statistics_pending_unrelated WHERE x = 100;
+-- The renamed column is still not pruned by the statistics stored under its old name.
+SELECT count() FROM t_statistics_pending_unrelated WHERE w = 100;
+
+SYSTEM START MERGES t_statistics_pending_unrelated;
+DROP TABLE t_statistics_pending_unrelated;
