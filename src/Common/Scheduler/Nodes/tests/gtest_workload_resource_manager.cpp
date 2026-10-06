@@ -2484,6 +2484,31 @@ TEST(SchedulerWorkloadResourceManager, ServerLimitReservedResourceNamesRejected)
     EXPECT_ANY_THROW(t.query("CREATE RESOURCE __server_memory__ (MEMORY RESERVATION)"));
 }
 
+// The config / Keeper load path rejects the reserved implicit resource names loudly, same as the SQL
+// path, rather than silently dropping a config-defined resource that happens to use one.
+TEST(SchedulerWorkloadResourceManager, ServerLimitReservedResourceNamesRejectedOnConfigLoad)
+{
+    ResourceTest t;
+    auto parse_resource = [](const String & sql) -> ASTPtr
+    {
+        ParserCreateResourceQuery parser;
+        String error;
+        const char * pos = sql.data();
+        return tryParseQuery(
+            parser, pos, sql.data() + sql.size(), error,
+            false, "", false, 0,
+            DBMS_DEFAULT_MAX_PARSER_DEPTH, DBMS_DEFAULT_MAX_PARSER_BACKTRACKS, true);
+    };
+
+    ASTPtr cpu = parse_resource("CREATE RESOURCE __server_cpu__ (MASTER THREAD, WORKER THREAD)");
+    ASSERT_TRUE(cpu != nullptr);
+    EXPECT_ANY_THROW(t.storage.setLocalEntities({{"__server_cpu__", cpu}}));
+
+    ASTPtr mem = parse_resource("CREATE RESOURCE __server_memory__ (MEMORY RESERVATION)");
+    ASSERT_TRUE(mem != nullptr);
+    EXPECT_ANY_THROW(t.storage.setLocalEntities({{"__server_memory__", mem}}));
+}
+
 // The server memory limit is mirrored onto the per-resource implicit root workload. When enabled and
 // no `MEMORY RESERVATION` resource is declared, the manager creates an internal one and the storage
 // resolves the reservation resource name to it, so the execution paths route through it.

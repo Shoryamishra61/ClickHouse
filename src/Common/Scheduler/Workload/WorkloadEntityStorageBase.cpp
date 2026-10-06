@@ -733,14 +733,13 @@ void WorkloadEntityStorageBase::setLocalEntities(const std::vector<std::pair<Str
     {
         auto normalized = normalizeCreateWorkloadEntityQuery(*create_query);
         // Reserved implicit server-limit resource names are managed internally and must not be
-        // config-defined; ignore such an entity (rather than abort startup) with a warning, mirroring
-        // the reject on the SQL path in storeEntity().
+        // config-defined; reject them (as on the SQL path in storeEntity) rather than silently dropping a
+        // config/Keeper-defined resource with that name.
         if (typeid_cast<ASTCreateResourceQuery *>(normalized.get())
             && (entity_name == IMPLICIT_CPU_RESOURCE_NAME || entity_name == IMPLICIT_MEMORY_RESOURCE_NAME))
-        {
-            LOG_WARNING(log, "Ignoring resource '{}' loaded from configuration: the name is reserved for the implicit server-limit resource", entity_name);
-            continue;
-        }
+            throw Exception(ErrorCodes::BAD_ARGUMENTS,
+                "Resource name '{}' is reserved for the implicit server-limit resource and cannot be used",
+                entity_name);
         local_new_entities[entity_name] = normalized;
     }
 
