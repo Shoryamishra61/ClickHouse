@@ -339,6 +339,7 @@ namespace Setting
     extern const SettingsBool read_in_order_use_virtual_row;
     extern const SettingsBool read_in_order_use_virtual_row_per_block;
     extern const SettingsBool read_in_order_use_sliced_pool;
+    extern const SettingsUInt64 read_in_order_virtual_row_block_interval;
     extern const SettingsBool use_skip_indexes_if_final_exact_mode;
     extern const SettingsBool use_skip_indexes_on_data_read;
     extern const SettingsBool use_indexes_refiner_in_read_pools;
@@ -1024,7 +1025,11 @@ Pipe ReadFromMergeTree::readInOrder(
             pk_header = Block(std::move(pk_header_columns));
 
             if (use_virtual_row_per_block)
-                processor->setVirtualRowConversions(virtual_row_conversion, pk_header, read_type == ReadType::InReverseOrder);
+                processor->setVirtualRowConversions(
+                    virtual_row_conversion,
+                    pk_header,
+                    read_type == ReadType::InReverseOrder,
+                    context->getSettingsRef()[Setting::read_in_order_virtual_row_block_interval]);
         }
 
         auto source = std::make_shared<MergeTreeSource>(std::move(processor), data.getLogName());
@@ -1161,7 +1166,8 @@ Pipe ReadFromMergeTree::readInOrderSliced(
         processor->addPartLevelToChunk(isQueryWithFinal());
         processor->enableSlicedReading();
         if (settings[Setting::read_in_order_use_virtual_row_per_block])
-            processor->setVirtualRowConversions(virtual_row_conversion, pk_header, read_in_reverse_order);
+            processor->setVirtualRowConversions(
+                virtual_row_conversion, pk_header, read_in_reverse_order, settings[Setting::read_in_order_virtual_row_block_interval]);
 
         auto source = std::make_shared<MergeTreeSource>(std::move(processor), data.getLogName());
         if (i == 0)
@@ -4027,7 +4033,8 @@ ReadFromMergeTree::AnalysisResultPtr ReadFromMergeTree::selectRangesToRead(
             /// under a key salted with the effective skip-index profile so that only a query that
             /// ran the same set of indexes consults them; a query that disabled skip indexes (or
             /// ignored an index) reads its own profile's key and is not poisoned. See issue #108519.
-            const UInt64 profiled_condition_hash = MergeTreeDataSelectExecutor::getSkipIndexProfiledConditionHash(*condition_hash, *indexes);
+            const UInt64 profiled_condition_hash = MergeTreeDataSelectExecutor::getSkipIndexProfiledConditionHash(
+                *condition_hash, *indexes, settings[Setting::distributed_index_analysis]);
             for (const auto & remaining_ranges : remaining)
             {
                 const auto & data_part = remaining_ranges.data_part;
@@ -5435,6 +5442,11 @@ void ReadFromMergeTree::initializePipeline(QueryPipelineBuilder & pipeline, [[ma
             storage_snapshot->metadata,
             skip_partition_pruning);
 
+    /// The build side registers a join runtime filter in the lookup of the thread's query context, which is not always this step's context.
+    RuntimeFilterLookupPtr runtime_filter_lookup;
+    if (auto query_context = CurrentThread::tryGetQueryContext(); query_context && !join_runtime_filters_for_index_analysis.empty())
+        runtime_filter_lookup = query_context->getRuntimeFilterLookup();
+
     /// Now check if we have to use primary-key or skip indexes for join pruning
     bool runtime_prune_primary_key = false;
     const bool pending_mutations = mutations_snapshot->hasDataMutations() || mutations_snapshot->hasAlterMutations() || mutations_snapshot->hasPatchParts();
@@ -5445,7 +5457,7 @@ void ReadFromMergeTree::initializePipeline(QueryPipelineBuilder & pipeline, [[ma
         /// setting's description documents this no-op, and
         /// `05243_join_runtime_filters_index_analysis_final_noop` pins it.
         && !query_info.isFinal()
-        && !join_runtime_filters_for_index_analysis.empty()
+        && runtime_filter_lookup
         && !pending_mutations
         /// Not supported under parallel replicas: the descriptor is not carried to remote replica
         /// reads, so pruning would only cover the local replica's share. Skip it entirely there.
@@ -5494,10 +5506,10 @@ void ReadFromMergeTree::initializePipeline(QueryPipelineBuilder & pipeline, [[ma
     /// Use a callback to isolate MergeTreeReader from JoinRuntimeFilter
     MergeTreeSkipIndexReader::DynamicPredicateBuilder dynamic_predicate_builder;
     MergeTreeSkipIndexReader::DynamicSkipIndexFilter dynamic_skip_index_filter;
-    if (!join_runtime_filters_for_index_analysis.empty())
+    if (runtime_filter_lookup)
     {
         dynamic_predicate_builder =
-            [lookup = context->getRuntimeFilterLookup(), descriptors = join_runtime_filters_for_index_analysis, ctx = context]
+            [lookup = runtime_filter_lookup, descriptors = join_runtime_filters_for_index_analysis, ctx = context]
             (ActionsDAG & dag) -> const ActionsDAG::Node *
             {
                 return buildRuntimeRangePredicate(*lookup, descriptors, dag, ctx);
@@ -5505,7 +5517,7 @@ void ReadFromMergeTree::initializePipeline(QueryPipelineBuilder & pipeline, [[ma
 
         const UInt64 bloom_filter_in_cap = context->getSettingsRef()[Setting::join_runtime_filter_exact_values_limit] / 100;
         dynamic_skip_index_filter =
-            [lookup = context->getRuntimeFilterLookup(), descriptors = join_runtime_filters_for_index_analysis, bloom_filter_in_cap]
+            [lookup = runtime_filter_lookup, descriptors = join_runtime_filters_for_index_analysis, bloom_filter_in_cap]
             (const IMergeTreeIndex & index) -> bool
             {
                 if (index.index.type != "bloom_filter")
@@ -6968,8 +6980,8 @@ bool ReadFromMergeTree::supportsBucketedRead() const
         && !context->getSettingsRef()[Setting::distributed_plan_prefer_replicas_over_workers])
         unsupported_deferred_filters = false;
 #endif
-    /// An order set before the plan was optimized (the old analyzer's executeOrderOptimized) is rejected in
-    /// getReasonReadCannotBeDistributed, so it cannot reach here. Do not gate on it: the worker
+    /// An order set before the plan was optimized is rejected in getReasonReadCannotBeDistributed,
+    /// so it cannot reach here. Do not gate on it: the worker
     /// path asks for its order before consulting this, and refusing would route the read to a node with no catalog.
     return !unsupported_deferred_filters
         && !(analyzed_result_ptr && analyzed_result_ptr->readFromProjection())

@@ -232,6 +232,7 @@ void MergingSortedAlgorithm::initialize(Inputs inputs)
             queue = QueueType(cursors);
         });
     }
+
 }
 
 void MergingSortedAlgorithm::consume(Input & input, size_t source_num)
@@ -285,18 +286,15 @@ void MergingSortedAlgorithm::consume(Input & input, size_t source_num)
 
 IMergingAlgorithm::Status MergingSortedAlgorithm::merge()
 {
-    if (sorting_queue_strategy == SortingQueueStrategy::Default)
-    {
-        return queue_variants.callOnVariant([&](auto & queue)
+    return sorting_queue_strategy == SortingQueueStrategy::Default
+        ? queue_variants.callOnVariant([&](auto & queue)
         {
             return mergeImpl(queue);
+        })
+        : queue_variants.callOnBatchVariant([&](auto & queue)
+        {
+            return mergeBatchImpl(queue);
         });
-    }
-
-    return queue_variants.callOnBatchVariant([&](auto & queue)
-    {
-        return mergeBatchImpl(queue);
-    });
 }
 
 void MergingSortedAlgorithm::insertRow(const SortCursorImpl & current)

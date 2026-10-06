@@ -176,7 +176,6 @@ namespace Setting
     extern const SettingsBool enable_packed_string_keys_in_aggregation;
     extern const SettingsBool enable_parallel_single_level_merge;
     extern const SettingsBool enable_producing_buckets_out_of_order_in_aggregation;
-    extern const SettingsBool enable_parallel_blocks_marshalling;
     extern const SettingsBool use_variant_as_common_type;
     extern const SettingsBool serialize_string_in_memory_with_zero_byte;
     extern const SettingsString temporary_files_codec;
@@ -1472,8 +1471,7 @@ ALWAYS_INLINE void addMergeSortingStep(QueryPlan & query_plan,
     /// Mirrors the single-node read-in-order case in optimizeReadInOrder.
     /// If a limit is later pushed down into this step, `updateLimit` will turn buffering back off.
     if (query_analysis_result.partial_sorting_limit == 0
-        && sort_settings.read_in_order_use_buffering
-        && !sort_settings.read_in_order_use_virtual_row_per_block)
+        && sort_settings.read_in_order_use_buffering)
         merging_sorted->enableBuffering();
 
     query_plan.addStep(std::move(merging_sorted));
@@ -3292,11 +3290,9 @@ void Planner::buildPlanForQueryNode()
     // we will have `BlocksMarshallingStep` added to the query plan, but not for
     // select * from remote('127.0.0.{1,2}', numbers_mt(1e6))
     // because `to_stage` for it will be `QueryProcessingStage::Complete`.
-    if (query_context->getSettingsRef()[Setting::enable_parallel_blocks_marshalling]
+    if (contextAllowsBlocksMarshalling(*query_context)
         && client_info.query_kind == ClientInfo::QueryKind::SECONDARY_QUERY
         && select_query_options.to_stage != QueryProcessingStage::Complete // Don't do it for INSERT SELECT, for example
-        && client_info.distributed_depth <= 1 // Makes sense for higher depths too, just not supported
-        && !client_info.is_replicated_database_internal
         // A local shard/replica plan is united into the parent pipeline in this process, where
         // nothing unmarshalls the blocks.
         && !select_query_options.is_local_plan_for_distributed_query
