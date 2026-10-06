@@ -1,4 +1,6 @@
--- Tags: no-fasttest, no-parallel
+-- Tags: no-fasttest, no-msan, no-parallel
+-- no-fasttest, no-msan: these builds have no embedded compiler, so the lambda is never compiled and
+-- `CompiledFunctionExecute` stays 0.
 -- no-parallel: the failpoint is server-wide and would delay the announcements of any concurrently running
 -- parallel-replicas query.
 -- Plan-based parallel replicas build an ordinary local plan, and the initiator's local replica executes a
