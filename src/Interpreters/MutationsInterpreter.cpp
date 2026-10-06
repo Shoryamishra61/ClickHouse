@@ -2531,7 +2531,7 @@ void MutationsInterpreter::validateNonDeterministicMutationsForStorage(
     const auto storage_id = storage->getStorageID();
     for (const auto & command : commands)
     {
-        const auto nondeterministic_func_data = findFirstNonDeterministicFunction(command, context, nondeterministic_virtual_columns, &storage_id);
+        const auto nondeterministic_func_data = findFirstNonDeterministicFunction(command, context, nondeterministic_virtual_columns, &storage_id, &real_columns);
         if (nondeterministic_func_data.subquery)
             throw Exception(ErrorCodes::BAD_ARGUMENTS, "ALTER UPDATE/ALTER DELETE statement with subquery may be nondeterministic, "
                                                        "see allow_nondeterministic_mutations setting");

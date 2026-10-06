@@ -61,3 +61,27 @@ ALTER TABLE t_repl_05228_sample UPDATE value = _sample_factor WHERE key = 1 SETT
 ALTER TABLE t_repl_05228_sample DELETE WHERE _sample_factor = 1 AND key = 2 SETTINGS mutations_sync = 2;
 SELECT key, value FROM t_repl_05228_sample ORDER BY key;
 DROP TABLE t_repl_05228_sample SYNC;
+
+-- An `ALIAS` or `EPHEMERAL` column over a non-deterministic virtual column is computed on read, so reading it
+-- in a mutation reads the virtual column too.
+DROP TABLE IF EXISTS t_repl_05228_alias SYNC;
+CREATE TABLE t_repl_05228_alias (key Int, value String, v String ALIAS _table, w String ALIAS concat(v, 'x'), e String EPHEMERAL _database)
+    ENGINE = ReplicatedMergeTree('/clickhouse/tables/{database}/test_05228/t_alias', 'r1') ORDER BY key;
+INSERT INTO t_repl_05228_alias (key, value) VALUES (1, 'a'), (2, 'b');
+ALTER TABLE t_repl_05228_alias DELETE WHERE v != ''; -- { serverError BAD_ARGUMENTS }
+ALTER TABLE t_repl_05228_alias UPDATE value = w WHERE key = 1; -- { serverError BAD_ARGUMENTS }
+ALTER TABLE t_repl_05228_alias DELETE WHERE t_repl_05228_alias.v != ''; -- { serverError BAD_ARGUMENTS }
+ALTER TABLE t_repl_05228_alias DELETE WHERE e != ''; -- { serverError BAD_ARGUMENTS }
+ALTER TABLE t_repl_05228_alias DELETE WHERE v = 't_repl_05228_alias' AND key = 2 SETTINGS allow_nondeterministic_mutations = 1, mutations_sync = 2;
+SELECT key, value FROM t_repl_05228_alias ORDER BY key;
+DROP TABLE t_repl_05228_alias SYNC;
+
+-- A compound identifier naming a real subcolumn is not the virtual column, even when its first part
+-- matches the table name.
+DROP TABLE IF EXISTS b_05228 SYNC;
+CREATE TABLE b_05228 (key Int, b_05228 Tuple(_table String))
+    ENGINE = ReplicatedMergeTree('/clickhouse/tables/{database}/test_05228/b', 'r1') ORDER BY key;
+INSERT INTO b_05228 VALUES (1, tuple('x')), (2, tuple(''));
+ALTER TABLE b_05228 DELETE WHERE b_05228._table != '' SETTINGS mutations_sync = 2;
+SELECT key FROM b_05228 ORDER BY key;
+DROP TABLE b_05228 SYNC;
