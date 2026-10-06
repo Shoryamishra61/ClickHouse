@@ -659,6 +659,17 @@ Pipe ReadFromMergeTree::readFromPoolParallelReplicas(
         context->getClusterForParallelReplicas()->getShardsInfo().at(0).getAllNodeCount(),
         data.getStorageID().getFullTableName()};
 
+    /// Set total rows in progress only on initiator with local plan, otherwise rows will be counted multiple times.
+    /// The coordinator cannot report them in this case: it receives the initiator's announcement
+    /// before the progress callback is set by remote sources.
+    size_t total_rows = 0;
+    if (isParallelReplicasLocalPlanForInitiator())
+    {
+        total_rows = parts_with_range.getRowsCountAllParts();
+        if (query_info.trivial_limit > 0 && query_info.trivial_limit < total_rows)
+            total_rows = query_info.trivial_limit;
+    }
+
     auto pool = std::make_shared<MergeTreeReadPoolParallelReplicas>(
         extension,
         std::move(parts_with_range),
@@ -704,6 +715,10 @@ Pipe ReadFromMergeTree::readFromPoolParallelReplicas(
             &storage_snapshot->metadata->getColumns());
 
         auto source = std::make_shared<MergeTreeSource>(std::move(processor), data.getLogName());
+
+        if (i == 0 && total_rows)
+            source->addTotalRowsApprox(total_rows);
+
         pipes.emplace_back(std::move(source));
     }
 
@@ -4298,6 +4313,37 @@ void ReadFromMergeTree::replaceVectorColumnWithDistanceColumn(const String & vec
         throw Exception(ErrorCodes::ILLEGAL_COLUMN,
             "The `_distance` column is an internal virtual column of vector search and cannot be referenced directly in queries. "
             "Use the distance function (e.g. `L2Distance`, `cosineDistance`) in ORDER BY instead");
+
+    /// Row-policy DAGs retain required table columns as direct passthrough outputs. The vector-column
+    /// passthrough becomes invalid after replacing the physical column with `_distance`, while other
+    /// outputs consuming the vector column make the no-rescoring rewrite inapplicable and are rejected
+    /// by the caller. Remove this redundant output from both active and deferred row-policy DAGs.
+    const auto remove_vector_column_passthrough = [&](const FilterDAGInfoPtr & filter)
+    {
+        if (!filter)
+            return;
+
+        String output_to_remove;
+        for (const auto * output : filter->actions.getOutputs())
+        {
+            if (output->result_name == vector_column
+                || (output->type == ActionsDAG::ActionType::ALIAS && output->children.at(0)->result_name == vector_column))
+            {
+                output_to_remove = output->result_name;
+                break;
+            }
+        }
+
+        if (!output_to_remove.empty())
+        {
+            filter->actions.removeUnusedResult(output_to_remove);
+            filter->actions.removeUnusedActions();
+        }
+    };
+
+    remove_vector_column_passthrough(query_info.row_level_filter);
+    remove_vector_column_passthrough(deferred_row_level_filter);
+
     std::erase(all_column_names, vector_column);
     all_column_names.emplace_back("_distance");
     output_header = std::make_shared<const Block>(MergeTreeSelectProcessor::transformHeader(
@@ -4794,16 +4840,12 @@ QueryPlanStepPtr ReadFromMergeTree::clone() const
     ///   index analysis from the raw `query_info.filter_actions_dag` with partition pruning re-enabled,
     ///   letting filters that `deferFiltersAfterFinalIfNeeded` deliberately excluded participate in
     ///   partition pruning and skip indexes, which could drop rows a `FINAL` still needs for deduplication;
-    /// - `deferred_row_level_filter` / `deferred_prewhere_info`: otherwise the clone applies a deferred row
-    ///   policy / PREWHERE during reading, before `FINAL`, changing which row wins deduplication;
     /// - `index_analysis_had_filter`: otherwise the read-in-order PK-selectivity guard in
     ///   `requestReadingInOrder` treats the cloned step as an unfiltered full scan;
     /// - `filter_actions_dag`: keep the base-class DAG in sync with `query_info.filter_actions_dag`
     ///   (both were set to the same DAG by `applyFilters`, and `query_info` is copied by the constructor).
     cloned_step->indexes = indexes;
     cloned_step->skip_partition_pruning = skip_partition_pruning;
-    cloned_step->deferred_row_level_filter = deferred_row_level_filter;
-    cloned_step->deferred_prewhere_info = deferred_prewhere_info;
     cloned_step->index_analysis_had_filter = index_analysis_had_filter;
     cloned_step->filter_actions_dag = filter_actions_dag;
     cloned_step->allow_top_k_prewhere_query_condition_cache = allow_top_k_prewhere_query_condition_cache;
@@ -4814,6 +4856,17 @@ QueryPlanStepPtr ReadFromMergeTree::clone() const
     cloned_step->distributed_read_buckets = distributed_read_buckets;
     cloned_step->distributed_read_lanes_per_task = distributed_read_lanes_per_task;
     cloned_step->distributed_read_param_name = distributed_read_param_name;
+    /// Filters deferred until after FINAL merging: losing them would apply the filter
+    /// before deduplication and return rows a newer version should have replaced.
+    if (deferred_row_level_filter)
+    {
+        auto deferred_row_level_filter_copy = std::make_shared<FilterDAGInfo>();
+        deferred_row_level_filter_copy->actions = deferred_row_level_filter->actions.clone();
+        deferred_row_level_filter_copy->column_name = deferred_row_level_filter->column_name;
+        deferred_row_level_filter_copy->do_remove_column = deferred_row_level_filter->do_remove_column;
+        cloned_step->deferred_row_level_filter = std::move(deferred_row_level_filter_copy);
+    }
+    cloned_step->deferred_prewhere_info = deferred_prewhere_info;
     /// Carry over the TopK marker: without it the clone would use the unsalted query condition cache key.
     /// It is copied rather than set with `setTopKColumn`, which would fold the part-set salt into `condition_hash` again.
     cloned_step->top_k_filter_info = top_k_filter_info;
