@@ -9,11 +9,13 @@ SET check_query_single_value_result = 1;
 -- the recompression a silent no-op.
 DROP TABLE IF EXISTS t_recompress_inherited_after_add;
 
+-- `index_granularity` is pinned: with a randomized tiny granularity (10 rows, 10001 marks) the
+-- whole-part rewrite took more than 300 seconds under the thread fuzzer of the flaky check.
 CREATE TABLE t_recompress_inherited_after_add (id UInt64, x String)
 ENGINE = MergeTree ORDER BY id
 SETTINGS min_bytes_for_wide_part = 0, min_rows_for_wide_part = 0,
     min_bytes_for_full_part_storage = 0, min_rows_for_full_part_storage = 0,
-    default_compression_codec = 'NONE';
+    index_granularity = 8192, index_granularity_bytes = '10Mi', default_compression_codec = 'NONE';
 
 INSERT INTO t_recompress_inherited_after_add SELECT number, repeat('a', 100) FROM numbers(100000);
 
