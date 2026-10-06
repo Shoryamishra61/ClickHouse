@@ -1313,6 +1313,13 @@ ColumnPtr ColumnDynamic::compress(bool force_compression) const
     return ColumnCompressed::create(size(), byte_size,
         [my_variant_compressed = std::move(variant_compressed), my_variant_info = variant_info, my_max_dynamic_types = max_dynamic_types, my_global_max_dynamic_types = global_max_dynamic_types, my_statistics = statistics]() mutable
         {
+            /// `decompress` returns a fresh `ColumnVariant`, so the top level is reused without a copy.
+            /// A variant branch whose compression was a no-op is still shared with the owner captured
+            /// in the `ColumnVariant` decompression callback (it runs once per read, so it cannot give
+            /// it up), and `IColumn::mutate` in `create` deep copies that branch. This is accepted on
+            /// purpose, for the same reason as in `ColumnObject::compress`: `ColumnDynamic` keeps raw
+            /// mutable access to its variants, so it cannot borrow a shared child, and aliasing it via
+            /// `assumeMutable` is exactly what the ownership checks in `IColumn::mutate` exist to catch.
             return ColumnDynamic::create(my_variant_compressed->decompress(), my_variant_info, my_max_dynamic_types, my_global_max_dynamic_types, my_statistics);
         });
 }
