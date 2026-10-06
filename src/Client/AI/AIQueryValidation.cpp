@@ -543,8 +543,9 @@ bool isAllowedServerOwnedTableForAIAgent(const String & database, const String &
     /// Keeper host for the `mntr`/`isro` commands, `distributed_ddl_queue` and the queue-metadata
     /// tables read the queue state stored in Keeper, `replicas` and `database_replicas` request
     /// the replication state there, and even the connection/watch views can establish the
-    /// server's Keeper session lazily. The Iceberg tables read the table metadata from the
-    /// object storage.
+    /// server's Keeper session lazily, and `clusters` reads the replica states of the
+    /// `Replicated` databases from Keeper. The Iceberg tables read the table metadata from the
+    /// object storage, and `remote_data_paths` walks the metadata of the object storage disks.
     ///
     /// Then the tables that hold the texts of queries and of errors, or access metadata, rather
     /// than the data or the schema of the user: the texts of the queries running on the server
@@ -566,8 +567,10 @@ bool isAllowedServerOwnedTableForAIAgent(const String & database, const String &
         "azure_queue_metadata",
         "replicas",
         "database_replicas",
+        "clusters",
         "iceberg_history",
         "iceberg_files",
+        "remote_data_paths",
 
         "processes",
         "user_processes",

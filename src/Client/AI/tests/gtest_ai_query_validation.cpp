@@ -203,8 +203,10 @@ TEST(AIQueryValidation, RejectsExternalServerOwnedTables)
     EXPECT_FALSE(isAllowedServerOwnedTableForAIAgent("system", "azure_queue_metadata"));
     EXPECT_FALSE(isAllowedServerOwnedTableForAIAgent("system", "replicas"));
     EXPECT_FALSE(isAllowedServerOwnedTableForAIAgent("system", "database_replicas"));
+    EXPECT_FALSE(isAllowedServerOwnedTableForAIAgent("system", "clusters"));
     EXPECT_FALSE(isAllowedServerOwnedTableForAIAgent("system", "iceberg_history"));
     EXPECT_FALSE(isAllowedServerOwnedTableForAIAgent("system", "iceberg_files"));
+    EXPECT_FALSE(isAllowedServerOwnedTableForAIAgent("system", "remote_data_paths"));
 
     EXPECT_TRUE(isAllowedServerOwnedTableForAIAgent("system", "tables"));
 
