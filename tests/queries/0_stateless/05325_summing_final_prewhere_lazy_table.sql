@@ -15,7 +15,7 @@ INSERT INTO {CLICKHOUSE_DATABASE_1:Identifier}.t VALUES (-1, 0, 1), (-1, -5, 2);
 DETACH DATABASE {CLICKHOUSE_DATABASE_1:Identifier};
 ATTACH DATABASE {CLICKHOUSE_DATABASE_1:Identifier};
 
-SELECT engine FROM system.tables WHERE database = {CLICKHOUSE_DATABASE_1:String} AND name = 't';
+SELECT engine FROM system.tables WHERE database = currentDatabase() || '_1' AND name = 't';
 
 SELECT count() FROM {CLICKHOUSE_DATABASE_1:Identifier}.t FINAL PREWHERE b IN (-5, 0, 5);
 SELECT k FROM {CLICKHOUSE_DATABASE_1:Identifier}.t FINAL WHERE b IN (-5, 0, 5) ORDER BY k SETTINGS optimize_move_to_prewhere_if_final = 1;
