@@ -227,6 +227,22 @@ namespace Setting
     extern const SettingsBool azure_validate_etag_on_read;
 }
 
+/// Whether `createReadBuffer` pins the read to the object generation seen at listing time (a `GET`
+/// conditioned on the listed etag). Each backend that supports it has its own setting, because they
+/// are documented per backend and a user may want to opt out of the check for one store but not the other.
+static bool isReadPinnedToListedEtag(const IObjectStorage & object_storage, const Settings & settings)
+{
+    switch (object_storage.getType())
+    {
+        case ObjectStorageType::S3:
+            return settings[Setting::s3_validate_etag_on_read];
+        case ObjectStorageType::Azure:
+            return settings[Setting::azure_validate_etag_on_read];
+        default:
+            return false;
+    }
+}
+
 static void logIcebergFileStats(const ObjectInfoPtr & object_info, const LoggerPtr & log)
 {
 #if USE_AVRO
@@ -1024,7 +1040,7 @@ Chunk StorageObjectStorageSource::generate()
         /// was pinned to that generation; otherwise a concurrent overwrite could save marks for
         /// different bytes under the listed generation's cache key.
         else if (const bool marks_generation_is_pinned = configuration->isDataLakeConfiguration()
-                || (read_context->getSettingsRef()[Setting::s3_validate_etag_on_read] && object_storage->getType() == ObjectStorageType::S3);
+                || isReadPinnedToListedEtag(*object_storage, read_context->getSettingsRef());
             format_filter_info->condition_hash && !reader.getObjectInfo()->file_bucket_info && marks_generation_is_pinned)
         {
             const auto & object_info = reader.getObjectInfo();
@@ -1226,14 +1242,14 @@ StorageObjectStorageSource::ReaderHolder StorageObjectStorageSource::createReade
         /// Applying cached matching marks skips row groups without reading them, so it is only
         /// correct if the bytes the reader opens are the generation the marks were computed on.
         /// The cache key carries the listed etag, but a plain `GET` is not pinned to it: only S3
-        /// with `s3_validate_etag_on_read` guarantees the opened bytes match the listed etag (see
-        /// `read_is_pinned_to_etag` below). Data-lake data files are immutable, so the path alone
+        /// with `s3_validate_etag_on_read` or Azure with `azure_validate_etag_on_read` guarantees
+        /// the opened bytes match the listed etag (see `isReadPinnedToListedEtag`). Data-lake data files are immutable, so the path alone
         /// pins the generation. In every other case the cache-derived bucket would carry no exact
         /// generation token (`footer_digest` stays 0 - the marks describe row groups, not a
         /// footer), and `checkFileMatchesBucketAssignment` could accept a same-row-group-count
         /// rewrite; fail close by not pruning at all.
         const bool marks_generation_is_pinned = configuration->isDataLakeConfiguration()
-            || (context_->getSettingsRef()[Setting::s3_validate_etag_on_read] && object_storage->getType() == ObjectStorageType::S3);
+            || isReadPinnedToListedEtag(*object_storage, context_->getSettingsRef());
         if (query_condition_cache && !object_info->file_bucket_info && marks_generation_is_pinned)
         {
             const auto query_condition_cache_key = makeQueryConditionCacheKey(*object_info, configuration->isDataLakeConfiguration());
@@ -1617,12 +1633,12 @@ StorageObjectStorageSource::ReaderHolder StorageObjectStorageSource::createReade
         /// footer would describe the generation the cache key names, which is the assignment's own
         /// generation, and the comparison could not detect that the `GET` returned a different one.
         /// The read is pinned to the listed etag - so the opened bytes are that generation by
-        /// construction - only on S3 with `s3_validate_etag_on_read` (see `createReadBuffer`). Data-lake
+        /// construction - only on S3 with `s3_validate_etag_on_read` or Azure with
+        /// `azure_validate_etag_on_read` (see `createReadBuffer`). Data-lake
         /// configurations also pin the listed file generation to immutable metadata. On any other backend,
         /// or with the setting off, the metadata cache is bypassed for bucketed reads so the digest guard
         /// can fail close on a concurrent in-place overwrite.
-        const bool read_is_pinned_to_etag = context_->getSettingsRef()[Setting::s3_validate_etag_on_read]
-            && object_storage->getType() == ObjectStorageType::S3;
+        const bool read_is_pinned_to_etag = isReadPinnedToListedEtag(*object_storage, context_->getSettingsRef());
         const bool can_use_metadata_cache = canUseParquetMetadataCache(
             *object_info->getObjectMetadata(),
             configuration->isDataLakeConfiguration(),
@@ -1923,14 +1939,8 @@ std::unique_ptr<ReadBufferFromFileBase> createReadBuffer(
     /// 2. object etag suggests a cache key in case we use filesystem cache
     /// 3. object etag as a cache key for parquet metadata caching
     /// 4. object etag to detect a concurrent in-place overwrite during the read
-    /// Whether the read is pinned to the generation of the object seen at listing time. Each backend
-    /// that supports it has its own setting, because they are documented per backend and a user may
-    /// want to opt out of the check for one store but not the other.
-    bool validate_etag_on_read = false;
-    if (object_storage->getType() == ObjectStorageType::S3)
-        validate_etag_on_read = settings[Setting::s3_validate_etag_on_read];
-    else if (object_storage->getType() == ObjectStorageType::Azure)
-        validate_etag_on_read = settings[Setting::azure_validate_etag_on_read];
+    /// Whether the read is pinned to the generation of the object seen at listing time.
+    const bool validate_etag_on_read = isReadPinnedToListedEtag(*object_storage, settings);
 
     if (!object_info.metadata)
     {
