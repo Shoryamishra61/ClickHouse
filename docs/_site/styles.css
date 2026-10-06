@@ -796,6 +796,47 @@ details.accordion > summary,
     margin-top: 0 !important;
 }
 
+/* Observability deployment navigation uses the same underline treatment as content tabs. */
+#navigation-items > ul:has(> li > a[href="/clickstack/observability"]):has(> li > a[href="/clickstack/self-configured"]) {
+    display: flex;
+    gap: 1rem;
+    margin: 1.5rem 1rem 1.25rem;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+#navigation-items > ul:has(> li > a[href="/clickstack/observability"]):has(> li > a[href="/clickstack/self-configured"]) > li {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+#navigation-items > ul:has(> li > a[href="/clickstack/observability"]):has(> li > a[href="/clickstack/self-configured"]) > li > a {
+    justify-content: center;
+    padding: 0 0 0.625rem;
+    margin: 0 0 -1px;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    background: transparent;
+    font-size: 0.8125rem;
+    line-height: 1.5rem;
+    white-space: nowrap;
+}
+
+#navigation-items > ul:has(> li > a[href="/clickstack/observability"]):has(> li > a[href="/clickstack/self-configured"]) > li > a[aria-current] {
+    border-bottom-color: currentColor;
+}
+
+.dark #navigation-items > ul:has(> li > a[href="/clickstack/observability"]):has(> li > a[href="/clickstack/self-configured"]) > li > a[aria-current] {
+    border-bottom-color: #faff69;
+}
+
+#navigation-items > ul:has(> li > a[href="/clickstack/observability"]):has(> li > a[href="/clickstack/self-configured"]) > li > a > svg {
+    display: none;
+}
+
+.dark #navigation-items > ul:has(> li > a[href="/clickstack/observability"]):has(> li > a[href="/clickstack/self-configured"]) {
+    border-bottom-color: #303030;
+}
+
 /* Start Mintlify's scrollbar track at the first navigation item rather than at
    the top of the sticky logo/search header. */
 #sidebar-content > [data-component-part="scroll-area-scrollbar"][data-orientation="vertical"] {
