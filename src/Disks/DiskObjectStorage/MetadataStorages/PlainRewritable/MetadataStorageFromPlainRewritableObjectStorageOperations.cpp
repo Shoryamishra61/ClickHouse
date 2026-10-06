@@ -442,8 +442,8 @@ void MetadataStorageFromPlainObjectStorageUnlinkMetadataFileOperation::execute()
 
     copy_attempted = true;
     copyBlobOfListedFile(*object_storage, path, remote_source_path, remote_tmp_path, getReadSettings(), getWriteSettings());
-    source_saved = true;
 
+    remove_attempted = true;
     object_storage->removeObjectIfExists(StoredObject(remote_source_path));
 
     fs_tree->removeFile(path);
@@ -457,7 +457,7 @@ void MetadataStorageFromPlainObjectStorageUnlinkMetadataFileOperation::undo()
     auto log = getLogger("MetadataStorageFromPlainObjectStorageUnlinkMetadataFileOperation");
 
     /// The temporary copy is dropped in a later stage, so a failure never strands the restore.
-    if (source_saved)
+    if (remove_attempted)
     {
         undoWithRetries(log, fmt::format("restore the blob of the file '{}'", path), [&]
         {
@@ -603,16 +603,14 @@ void MetadataStorageFromPlainObjectStorageMoveFileOperation::execute()
     if (had_existing_target && !replaceable)
         throw Exception(ErrorCodes::FILE_ALREADY_EXISTS, "Target file '{}' already exists", path_to);
 
-    blob_move_attempted = true;
-
     /// Save the source before touching the target.
+    source_copy_attempted = true;
     {
         fiu_do_on(FailPoints::plain_object_storage_copy_temp_source_file_fail_on_file_move, {
             throw Exception(ErrorCodes::FAULT_INJECTED, "Injecting fault when moving from '{}' to '{}'", path_from, path_to);
         });
 
         copyBlobOfListedFile(*object_storage, path_from, remote_path_from, tmp_remote_path_from, read_settings, write_settings);
-        source_saved = true;
     }
 
     if (had_existing_target)
@@ -622,11 +620,11 @@ void MetadataStorageFromPlainObjectStorageMoveFileOperation::execute()
         });
 
         copyBlobOfListedFile(*object_storage, path_to, remote_path_to, tmp_remote_path_to, read_settings, write_settings);
-        target_saved = true;
 
         fs_tree->removeFile(path_to);
         fs_tree->recordFile(path_to, file_from_remote_info.value());
 
+        target_remove_attempted = true;
         object_storage->removeObjectIfExists(StoredObject(remote_path_to));
     }
     else
@@ -646,6 +644,7 @@ void MetadataStorageFromPlainObjectStorageMoveFileOperation::execute()
             throw Exception(ErrorCodes::FAULT_INJECTED, "Injecting fault after moving from '{}' to '{}'", path_from, path_to);
         });
 
+        source_remove_attempted = true;
         object_storage->removeObjectIfExists(StoredObject(remote_path_from));
     }
 
@@ -654,7 +653,7 @@ void MetadataStorageFromPlainObjectStorageMoveFileOperation::execute()
 
 void MetadataStorageFromPlainObjectStorageMoveFileOperation::undo()
 {
-    if (!blob_move_attempted)
+    if (!source_copy_attempted)
         return;
 
     const auto read_settings = getReadSettings();
@@ -665,7 +664,7 @@ void MetadataStorageFromPlainObjectStorageMoveFileOperation::undo()
 
     /// Each stage says where one key has to end up and asks object storage whether it is already there, so it holds
     /// whether the matching step of `execute` never ran, ran, or ran and lost its answer.
-    if (source_saved)
+    if (source_remove_attempted)
     {
         undoWithRetries(log, fmt::format("restore the blob of the source file '{}'", path_from), [&]
         {
@@ -700,8 +699,8 @@ void MetadataStorageFromPlainObjectStorageMoveFileOperation::undo()
             return;
         }
 
-        /// Nothing overwrites or removes the target before its backup completes.
-        if (!target_saved)
+        /// The target is untouched until its removal is attempted, and by then its backup has completed.
+        if (!target_remove_attempted)
             return;
 
         if (!object_storage->exists(StoredObject(tmp_remote_path_to)))
@@ -736,7 +735,7 @@ void MetadataStorageFromPlainObjectStorageMoveFileOperation::finalize()
 {
     removed_objects.push_back(StoredObject(remote_path_from));
 
-    if (blob_move_attempted)
+    if (source_copy_attempted)
     {
         object_storage->removeObjectIfExists(StoredObject(tmp_remote_path_from));
         object_storage->removeObjectIfExists(StoredObject(tmp_remote_path_to));

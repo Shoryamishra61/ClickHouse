@@ -41,7 +41,7 @@ private:
     const std::shared_ptr<PlainRewritableMetrics> metrics;
 
     /// Set after all validation and before the write, so `undo` runs exactly when `execute` may have changed object
-    /// storage; see `blob_move_attempted` of the move operation.
+    /// storage; see `source_copy_attempted` of the move operation.
     bool write_attempted = false;
 
 public:
@@ -96,7 +96,7 @@ private:
     const std::shared_ptr<PlainRewritableMetrics> metrics;
 
     DirectoryRemoteInfo info;
-    /// Set once `info` is captured and before the removal; see `blob_move_attempted` of the move operation.
+    /// Set once `info` is captured and before the removal; see `source_copy_attempted` of the move operation.
     bool remove_attempted = false;
 
 public:
@@ -147,10 +147,9 @@ private:
 
     std::filesystem::path remote_source_path;
     std::filesystem::path remote_tmp_path;
-    /// The copy can land even when it throws.
+    /// Set right before their steps; see `source_copy_attempted` of the move operation.
     bool copy_attempted = false;
-    /// Only after the copy can the source be removed.
-    bool source_saved = false;
+    bool remove_attempted = false;
 
 public:
     MetadataStorageFromPlainObjectStorageUnlinkMetadataFileOperation(
@@ -180,7 +179,7 @@ private:
 
     std::filesystem::path remote_path_from;
     std::filesystem::path remote_path_to;
-    /// Set once both keys are known and before the copy; see `blob_move_attempted` of the move operation.
+    /// Set right before the copy; see `source_copy_attempted` of the move operation.
     bool copy_attempted = false;
 
 public:
@@ -218,13 +217,11 @@ private:
     std::filesystem::path tmp_remote_path_from;
     std::filesystem::path tmp_remote_path_to;
     std::optional<FileRemoteInfo> file_from_remote_info;
-    /// Set once the keys above are known and before the first write, so that `undo` knows `execute` may have changed
-    /// object storage. It does not claim that any particular write landed; `undo` finds that out for itself.
-    bool blob_move_attempted{false};
-    /// Only after the source is saved can it be removed; the target is not touched before.
-    bool source_saved{false};
-    /// A failed copy can leave a partial backup, so only a completed one may overwrite the target.
-    bool target_saved{false};
+    /// Each flag is set right before its step: a step can land even when it throws, so a set flag says that the step
+    /// may have changed object storage and that the steps before it completed. `undo` asks object storage for the rest.
+    bool source_copy_attempted{false};
+    bool target_remove_attempted{false};
+    bool source_remove_attempted{false};
     bool had_existing_target{false};
 
 public:
@@ -248,8 +245,9 @@ public:
     void execute() override;
     /**
      * @brief Undo the `execute` logic:
-     *  1. Restore remote_path_from from tmp_remote_path_from, if saved.
-     *  2. Restore remote_path_to from tmp_remote_path_to, if saved, or remove it if there was no target.
+     *  1. Restore remote_path_from from tmp_remote_path_from, if its removal was attempted.
+     *  2. Restore remote_path_to from tmp_remote_path_to, if its removal was attempted,
+     *     or remove it if there was no target.
      *  3. Remove the temporary copies.
      */
     void undo() override;
