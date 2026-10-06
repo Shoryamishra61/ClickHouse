@@ -9369,7 +9369,8 @@ Uses replicas from cluster_for_parallel_replicas.
 - [distributed_index_analysis_for_non_shared_merge_tree](#distributed_index_analysis_for_non_shared_merge_tree)
 - [distributed_index_analysis_min_parts_to_activate](/reference/settings/merge-tree-settings/distributed-index#distributed_index_analysis_min_parts_to_activate)
 - [distributed_index_analysis_min_indexes_bytes_to_activate](/reference/settings/merge-tree-settings/distributed-index#distributed_index_analysis_min_indexes_bytes_to_activate)
-)", EXPERIMENTAL, \
+)", BETA, \
+        {"26.10", false, false, "Distributed index analysis was moved to Beta."}, \
         {"26.1", false, false, "New experimental setting"}) \
     DECLARE(Bool, distributed_index_analysis_only_on_coordinator, false, R"(
 If enabled, distributed index analysis runs only on the coordinator.
