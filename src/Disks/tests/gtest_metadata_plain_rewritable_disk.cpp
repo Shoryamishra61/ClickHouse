@@ -2489,6 +2489,57 @@ TEST_F(MetadataPlainRewritableDiskTest, HardLinkAcrossDirectories)
     EXPECT_EQ(readObject(object_storage, metadata->getStorageObjects("B/own").front().remote_path), "own");
 }
 
+TEST_F(MetadataPlainRewritableDiskTest, SnapshotKeepsExplicitFileList)
+{
+    const std::string test = "SnapshotKeepsExplicitFileList";
+    auto metadata = getMetadataStorage(test);
+    auto object_storage = getObjectStorage(test);
+
+    {
+        auto tx = metadata->createTransaction();
+        tx->createDirectory("A");
+        tx->createDirectory("B");
+        size_t size = writeObject(object_storage, tx->generateObjectKeyForPath("A/f1").serialize(), "shared");
+        tx->createMetadataFile("A/f1", {StoredObject("f1", "f1", size)});
+        size_t size_own = writeObject(object_storage, tx->generateObjectKeyForPath("B/own").serialize(), "own");
+        tx->createMetadataFile("B/own", {StoredObject("own", "own", size_own)});
+        tx->commit(DB::NoCommitOptions{});
+    }
+
+    {
+        auto tx = metadata->createTransaction();
+        tx->createHardLink("A/f1", "B/f1");
+        tx->commit(DB::NoCommitOptions{});
+    }
+
+    /// The move records the new ETag of `prefix.path` of the directory, so after the restart the snapshot is up to date
+    /// for it, and the explicit list of its files is taken from the snapshot instead of listing the blobs under its prefix
+    /// (where the blob of the hard link is absent).
+    {
+        auto tx = metadata->createTransaction();
+        tx->moveDirectory("B", "C");
+        tx->commit(DB::NoCommitOptions{});
+    }
+
+    const auto shared_remote_path = metadata->getStorageObjects("A/f1").front().remote_path;
+
+    metadata = restartMetadataStorage(test);
+    EXPECT_EQ(sorted(metadata->listDirectory("A")), std::vector<std::string>({"f1"}));
+    EXPECT_EQ(sorted(metadata->listDirectory("C")), std::vector<std::string>({"f1", "own"}));
+    EXPECT_EQ(metadata->getStorageObjects("C/f1").front().remote_path, shared_remote_path);
+    EXPECT_EQ(metadata->getFileSize("C/f1"), 6u);
+    EXPECT_EQ(metadata->getHardlinkCount("A/f1"), 1);
+    EXPECT_EQ(metadata->getHardlinkCount("C/f1"), 1);
+    EXPECT_EQ(metadata->getHardlinkCount("C/own"), 0);
+    EXPECT_EQ(readObject(object_storage, metadata->getStorageObjects("C/f1").front().remote_path), "shared");
+    EXPECT_EQ(readObject(object_storage, metadata->getStorageObjects("C/own").front().remote_path), "own");
+
+    /// The state survives one more restart, from the snapshot written after the previous one.
+    metadata = restartMetadataStorage(test);
+    EXPECT_EQ(sorted(metadata->listDirectory("C")), std::vector<std::string>({"f1", "own"}));
+    EXPECT_EQ(metadata->getHardlinkCount("A/f1"), 1);
+}
+
 TEST_F(MetadataPlainRewritableDiskTest, UnlinkKeepsSharedBlob)
 {
     thread_local_rng.seed(42);
