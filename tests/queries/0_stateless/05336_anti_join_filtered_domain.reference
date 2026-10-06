@@ -1,19 +1,6 @@
 -- rows of the anti join
 1948
--- estimate, buffered subquery
-Expression ((Project names + Projection)) (rows: <unknown>, cost: <unknown>)
-  Aggregating (rows: <unknown>, cost: <unknown>)
-    Expression ((Before GROUP BY + WHERE)) (rows: <unknown>, cost: <unknown>)
-      Expression (Post Join Actions) (rows: ~1975.0, cost: 13333.0)
-        Join (JOIN FillRightFirst) (rows: ~1975.0, cost: 13333.0)
-          Expression (Left Pre Join Actions) (rows: <unknown>, cost: <unknown>)
-            Expression (Create result for always true EXISTS expression) (rows: ~13333.0, source: statistics)
-              Expression ((WHERE + (Renaming correlated columns to equivalent expressions in subquery + Change column names to column identifiers))) (rows: <unknown>, cost: <unknown>)
-                ReadFromMergeTree (default.t_ae_fact) (rows: <unknown>, cost: <unknown>)
-          Expression (Right Pre Join Actions) (rows: <unknown>, cost: <unknown>)
-            Expression (Change column names to column identifiers) (rows: ~10000.0, source: statistics)
-              ReadFromMergeTree (default.t_ae_keys) (rows: <unknown>, cost: <unknown>)
--- estimate, subquery repeated
+-- estimate
 Expression ((Project names + Projection)) (rows: <unknown>, cost: <unknown>)
   Aggregating (rows: <unknown>, cost: <unknown>)
     Expression ((Before GROUP BY + WHERE)) (rows: <unknown>, cost: <unknown>)

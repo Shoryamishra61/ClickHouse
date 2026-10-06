@@ -13,7 +13,6 @@ SET query_plan_optimize_join_order_algorithm = 'greedy';
 SET query_plan_join_swap_table = 0;
 SET use_statistics = 0;
 SET enable_join_runtime_filters = 0;
-SET collect_hash_table_stats_during_joins = 0;
 SET max_rows_to_group_by = 0;
 SET param__internal_cascades_cluster_node_count = 3;
 SET param__internal_join_table_stat_hints = '{"t_a": {"cardinality": 10000, "distinct_keys": {"k": 100, "v": 50}}, "t_b": {"cardinality": 1000, "distinct_keys": {"k": 100}}, "t_c": {"cardinality": 100, "distinct_keys": {"k": 100}}}';
@@ -37,8 +36,7 @@ SELECT count()
 FROM (SELECT a.k AS k, count() AS c FROM t_a AS a JOIN t_b AS b ON a.k = b.k GROUP BY a.k) AS s
 JOIN t_c AS c ON s.k = c.k;
 
--- 10000 + 1000 rows. The union's key has no NDV, so its rows stand in for it: the join is
--- 11000 * 100 / 11000 rows.
+-- 10000 + 1000 rows. The union's key has at most 100 + 100 values, so the join is 11000 * 100 / 200 rows.
 SELECT '-- UNION ALL adds up its inputs';
 EXPLAIN estimates = 1
 SELECT count()

@@ -1,7 +1,7 @@
--- A condition moved to PREWHERE stays in the filter above the read as an input column. The
--- selectivity estimator took that column for an unknown predicate and applied the default factor
--- on top of the PREWHERE estimate, so the same conjunction estimated fewer rows when part of it
--- moved than when nothing moved. A moved condition now counts once, in the PREWHERE estimate.
+-- A condition moved to PREWHERE stays in the filter above the read as an input column, and the
+-- selectivity estimator counts it once, in the PREWHERE estimate. Without this the column counted
+-- as an unknown predicate with the default factor on top, so the same conjunction estimated fewer
+-- rows when part of it moved than when nothing moved.
 --
 -- The assertion compares the two estimates with each other, so it holds whatever the default
 -- factors and the sketch precision are, and requires them to be positive so that a failed

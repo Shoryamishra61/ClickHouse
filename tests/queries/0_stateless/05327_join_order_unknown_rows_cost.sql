@@ -1,10 +1,12 @@
--- A relation whose row estimate is unknown used to be costed as one row by the join order
--- optimizer, so it was joined first. Now its cost uses the rows it cannot exceed (the rows the
--- read selects), or the largest known relation when no bound exists, so a missing estimate
--- never makes a plan look cheap. The hints stand in for column statistics of the known tables;
--- `t_unk` has no statistics and a filter the primary index cannot use, so its estimate is unknown.
+-- A relation whose row estimate is unknown is costed by the join order optimizer at the rows it
+-- cannot exceed (the rows the read selects), or at the largest known relation when no bound
+-- exists, so a missing estimate never makes a plan look cheap; without this it counted as one row
+-- and was joined first. The hints stand in for column statistics of the known tables; `t_unk` has
+-- no statistics and a filter the primary index cannot use, so its estimate is unknown.
 SET explain_query_plan_default = 'legacy';
 SET enable_analyzer = 1;
+-- The plan lines below show the filter moved to PREWHERE; the runner randomizes the move.
+SET optimize_move_to_prewhere = 1;
 SET enable_parallel_replicas = 0;
 SET query_plan_optimize_join_order_limit = 10;
 SET query_plan_optimize_join_order_randomize = 0;
@@ -68,15 +70,14 @@ SELECT count()
 FROM t_big AS b
 JOIN t_empty AS e ON b.k = e.k;
 
--- The DPsub algorithm sees the relation estimates too.
-SELECT '-- dpsub';
-SET query_plan_optimize_join_order_algorithm = 'dpsub';
-EXPLAIN estimates = 1
-SELECT count()
-FROM t_big AS b
-JOIN t_small AS s ON b.k = s.k
-JOIN t_unk AS u ON b.k = u.k
-WHERE u.v < 5;
+-- The DPsub algorithm sees the relation estimates too: its plan is the greedy one above.
+SELECT '-- dpsub agrees with greedy',
+    (SELECT groupArray(explain) FROM (EXPLAIN estimates = 1
+        SELECT count() FROM t_big AS b JOIN t_small AS s ON b.k = s.k JOIN t_unk AS u ON b.k = u.k WHERE u.v < 5
+        SETTINGS query_plan_optimize_join_order_algorithm = 'dpsub'))
+    = (SELECT groupArray(explain) FROM (EXPLAIN estimates = 1
+        SELECT count() FROM t_big AS b JOIN t_small AS s ON b.k = s.k JOIN t_unk AS u ON b.k = u.k WHERE u.v < 5
+        SETTINGS query_plan_optimize_join_order_algorithm = 'greedy'));
 
 DROP TABLE t_big;
 DROP TABLE t_small;

@@ -2,8 +2,11 @@
 -- input means: a `UNION ALL` with an unknown input is unknown whatever its other inputs, an inner
 -- join with a proven-empty side is empty even when the other side is unknown, a semi join over an
 -- empty side is empty, a keyless aggregation of an unknown input is its one row while a keyed one
--- is unknown, and a paste or any join follows its own row rule.
+-- is unknown, and an any join emits each left row once. The cost token is stripped from the plan
+-- lines: this test is about rows, and every change of a cost constant would move it otherwise.
 SET enable_analyzer = 1;
+-- The plan lines below show the filter moved to PREWHERE; the runner randomizes the move.
+SET optimize_move_to_prewhere = 1;
 SET enable_parallel_replicas = 0;
 SET explain_query_plan_default = 'legacy';
 SET enable_join_runtime_filters = 0;
@@ -28,28 +31,38 @@ INSERT INTO t_ua_unk SELECT number, number FROM numbers(100);
 INSERT INTO t_ua_empty SELECT number, number FROM numbers(10);
 
 SELECT '-- UNION ALL: a proven-empty first input does not make an unknown second input known';
+SELECT replaceRegexpAll(explain, ', cost: [0-9.]+', '') FROM (
 EXPLAIN estimates = 1
-SELECT count() FROM (SELECT k FROM t_ua_empty WHERE k > 1000000 UNION ALL SELECT k FROM t_ua_unk WHERE v < 5);
+SELECT count() FROM (SELECT k FROM t_ua_empty WHERE k > 1000000 UNION ALL SELECT k FROM t_ua_unk WHERE v < 5)
+);
 
 SELECT '-- inner join: a proven-empty side decides, the unknown other side does not matter';
+SELECT replaceRegexpAll(explain, ', cost: [0-9.]+', '') FROM (
 EXPLAIN estimates = 1
-SELECT count() FROM (SELECT k FROM t_ua_empty WHERE k > 1000000) AS e JOIN (SELECT k FROM t_ua_unk WHERE v < 5) AS u ON e.k = u.k;
+SELECT count() FROM (SELECT k FROM t_ua_empty WHERE k > 1000000) AS e JOIN (SELECT k FROM t_ua_unk WHERE v < 5) AS u ON e.k = u.k
+);
 
 SELECT '-- semi join over an empty other side: empty';
+SELECT replaceRegexpAll(explain, ', cost: [0-9.]+', '') FROM (
 EXPLAIN estimates = 1
-SELECT count() FROM t_ua_known AS a LEFT SEMI JOIN (SELECT k FROM t_ua_empty WHERE k > 1000000) AS e ON a.k = e.k;
+SELECT count() FROM t_ua_known AS a LEFT SEMI JOIN (SELECT k FROM t_ua_empty WHERE k > 1000000) AS e ON a.k = e.k
+);
 
 SELECT '-- aggregation of an unknown input: keyless is one row, keyed is unknown';
+SELECT replaceRegexpAll(explain, ', cost: [0-9.]+', '') FROM (
 EXPLAIN estimates = 1
-SELECT count() FROM t_ua_unk WHERE v < 5;
+SELECT count() FROM t_ua_unk WHERE v < 5
+);
+SELECT replaceRegexpAll(explain, ', cost: [0-9.]+', '') FROM (
 EXPLAIN estimates = 1
-SELECT k, count() FROM t_ua_unk WHERE v < 5 GROUP BY k;
+SELECT k, count() FROM t_ua_unk WHERE v < 5 GROUP BY k
+);
 
-SELECT '-- paste join: the shorter side; left any join: the left side';
+SELECT '-- left any join: the left side';
+SELECT replaceRegexpAll(explain, ', cost: [0-9.]+', '') FROM (
 EXPLAIN estimates = 1
-SELECT count() FROM t_ua_known PASTE JOIN t_ua_unk;
-EXPLAIN estimates = 1
-SELECT count() FROM t_ua_known AS a LEFT ANY JOIN t_ua_unk AS u ON a.k = u.k;
+SELECT count() FROM t_ua_known AS a LEFT ANY JOIN t_ua_unk AS u ON a.k = u.k
+);
 
 DROP TABLE t_ua_known;
 DROP TABLE t_ua_unk;

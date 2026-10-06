@@ -1,8 +1,15 @@
--- Every processor records the row estimate of the plan step that created it, so
--- `system.processors_profile_log` can compare the estimate with the rows the step produced.
--- A step's output is the sum of `output_rows` over its processors whose consumers belong to
--- other steps; `parent_ids` lists the consumers of a processor.
+-- The join order optimizer stamps the row estimate of every relation and every join it decides
+-- on the plan node; `EXPLAIN estimates = 1` prints it with the origin of the estimate, and every
+-- processor records the estimate of the plan step that created it, so
+-- `system.processors_profile_log` can compare it with the rows the step produced. A step's output
+-- is the sum of `output_rows` over its processors whose consumers belong to other steps;
+-- `parent_ids` lists the consumers of a processor. The hints stand in for column statistics so the
+-- numbers are fixed.
+SET explain_query_plan_default = 'legacy';
 SET enable_analyzer = 1;
+SET enable_join_runtime_filters = 0;
+-- The plan lines below show the filter moved to PREWHERE; the runner randomizes the move.
+SET optimize_move_to_prewhere = 1;
 SET enable_parallel_replicas = 0;
 SET query_plan_optimize_join_order_limit = 10;
 SET query_plan_optimize_join_order_randomize = 0;
@@ -19,6 +26,13 @@ CREATE TABLE t_est_b (k UInt64, w UInt64) ENGINE = MergeTree ORDER BY k SETTINGS
 INSERT INTO t_est_a SELECT number, number FROM numbers(1000);
 INSERT INTO t_est_b SELECT number * 10, number FROM numbers(100);
 
+SELECT '-- the plan with its estimates';
+EXPLAIN estimates = 1
+SELECT count()
+FROM t_est_a AS a
+JOIN t_est_b AS b ON a.k = b.k;
+
+SELECT '-- the same estimates in the profile log, next to the rows produced';
 SELECT count()
 FROM t_est_a AS a
 JOIN t_est_b AS b ON a.k = b.k
@@ -54,6 +68,14 @@ FROM log
 WHERE plan_step_estimated_rows IS NOT NULL AND id NOT IN (SELECT id FROM internal)
 GROUP BY plan_step_name, plan_step_estimated_rows, plan_step_estimate_source
 ORDER BY plan_step_estimated_rows, plan_step_name, plan_step_estimate_source;
+
+SELECT '-- without hints and statistics the relations are estimated from the primary index';
+SET param__internal_join_table_stat_hints = '{}';
+EXPLAIN estimates = 1
+SELECT count()
+FROM t_est_a AS a
+JOIN t_est_b AS b ON a.k = b.k
+WHERE b.w < 10;
 
 DROP TABLE t_est_a;
 DROP TABLE t_est_b;

@@ -1,6 +1,6 @@
 -- The row count a past execution built a join's hash table from replaces a larger estimate of that
--- input in the next plan. It was then marked a precise estimate, although it describes the past
--- execution's input, not this one's. It stays imprecise now; `EXPLAIN` shows the source.
+-- input in the next plan and stays an imprecise estimate: it describes the past execution's input,
+-- not this one's. `EXPLAIN` shows the source.
 SET allow_experimental_statistics = 1;
 SET use_statistics = 1;
 -- The test runner may turn this off; the inserted parts need their statistics.
@@ -10,7 +10,6 @@ SET enable_analyzer = 1;
 SET enable_parallel_replicas = 0;
 SET query_plan_optimize_join_order_limit = 10;
 SET query_plan_optimize_join_order_randomize = 0;
-SET query_plan_optimize_join_order_algorithm = 'greedy';
 SET query_plan_join_swap_table = 0;
 SET enable_join_runtime_filters = 0;
 SET collect_hash_table_stats_during_joins = 1;

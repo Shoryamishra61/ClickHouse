@@ -9,7 +9,6 @@ SET explain_query_plan_default = 'legacy';
 SET enable_join_runtime_filters = 0;
 SET query_plan_optimize_join_order_limit = 10;
 SET query_plan_optimize_join_order_randomize = 0;
-SET query_plan_optimize_join_order_algorithm = 'greedy';
 SET query_plan_join_swap_table = 0;
 SET use_statistics = 1;
 -- The test runner may turn this off; the inserted parts need their statistics.

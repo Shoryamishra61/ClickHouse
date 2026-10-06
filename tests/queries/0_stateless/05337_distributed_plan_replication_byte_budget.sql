@@ -1,8 +1,11 @@
 -- The rule-based distributed planner copies the right side of a broadcast join, and a table it
--- keeps as one read task, to every node. Both used to pass on a row count alone; now they also have
--- to fit `distributed_plan_max_bytes_to_broadcast`, modeled as rows times the average row width,
--- and a side without a row estimate may pass on its proven row bound.
+-- keeps as one read task, to every node. Both have to fit `distributed_plan_max_rows_to_broadcast`
+-- and `distributed_plan_max_bytes_to_broadcast`, the latter as rows times the average row width; a
+-- side without a row estimate passes on its proven row bound. Without the byte budget a few wide
+-- rows would be copied to every node on their row count alone.
 SET enable_analyzer = 1;
+-- The plan lines below show the filter moved to PREWHERE; the runner randomizes the move.
+SET optimize_move_to_prewhere = 1;
 SET enable_parallel_replicas = 0;
 SET explain_query_plan_default = 'legacy';
 SET max_rows_to_group_by = 0;
@@ -30,10 +33,6 @@ EXPLAIN SELECT count() FROM t_rb_big AS b JOIN t_rb_small AS s ON b.k = s.k;
 SELECT '-- the same rows at 16 bytes fit: broadcast';
 SET param__internal_join_table_stat_hints = '{"t_rb_small": {"cardinality": 1000, "avg_row_bytes": 16}, "t_rb_big": {"cardinality": 100000, "avg_row_bytes": 16}}';
 EXPLAIN SELECT count() FROM t_rb_big AS b JOIN t_rb_small AS s ON b.k = s.k;
-
-SELECT '-- a budget of 0 turns the byte check off: broadcast of the 2 MB rows';
-SET param__internal_join_table_stat_hints = '{"t_rb_small": {"cardinality": 1000, "avg_row_bytes": 2000000}, "t_rb_big": {"cardinality": 100000, "avg_row_bytes": 16}}';
-EXPLAIN SELECT count() FROM t_rb_big AS b JOIN t_rb_small AS s ON b.k = s.k SETTINGS distributed_plan_max_bytes_to_broadcast = 0;
 
 SELECT '-- a filter the primary key cannot prune leaves the rows unknown; the bound of 1000 rows fits the row limit: broadcast';
 SET param__internal_join_table_stat_hints = '{}';

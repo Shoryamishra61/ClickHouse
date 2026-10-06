@@ -1,10 +1,11 @@
 -- The rule-based distributed planner moves a join, an aggregation or a read into a new node under
 -- a gather exchange. The row estimate stamped on the node has to move with the step, and the
--- gather carries it too, or `EXPLAIN estimates` and the profile log lose it for exactly the
--- rewritten steps. A global aggregation is estimated as well. An aggregation whose group count the
--- statistics do not give stays unknown: the input rows the strategy decision falls back to are not
--- reported as groups.
+-- gather carries it too, or `EXPLAIN estimates` loses it for exactly the rewritten steps. A global
+-- aggregation is estimated as well. An aggregation whose group count the statistics do not give
+-- stays unknown: the input rows the strategy decision falls back to are not reported as groups.
 SET enable_analyzer = 1;
+-- The join cost printed below comes from the join order optimizer; the runner may turn it off.
+SET query_plan_optimize_join_order_limit = 10;
 SET enable_parallel_replicas = 0;
 SET explain_query_plan_default = 'legacy';
 SET max_rows_to_group_by = 0;

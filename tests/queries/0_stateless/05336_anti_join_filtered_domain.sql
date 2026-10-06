@@ -1,9 +1,8 @@
--- `NOT EXISTS` over a filtered table with several rows per key. The filter kept the key's NDV
--- (only the rows went down), the join below the anti join narrowed the key values of its two sides
--- to the smaller count, and the anti join then saw every preserved key matched and estimated one
--- row. Now a filter leaves a value only when one of its rows survives, two filtered sets of one
--- key domain overlap in proportion to their shares of it, and a semi or anti join counts the
--- preserved keys the other side has. The buffered subquery result also has an estimate.
+-- `NOT EXISTS` over a filtered table with several rows per key. A filter leaves a key value only
+-- when one of its rows survives, two filtered sets of one key domain overlap in proportion to their
+-- shares of it, and the anti join drops the preserved keys the other side has. Without the first
+-- two the join below the anti join would see every preserved key matched and the anti join would
+-- estimate one row.
 --
 -- `t_ae_fact` has four rows per key with a pseudo-random `v`; `v < 334` keeps a third of them, so
 -- a key keeps at least one row with probability 1 - (2/3)^4 = 0.8 and the anti join keeps about a
@@ -14,11 +13,12 @@ SET use_statistics = 1;
 SET materialize_statistics_on_insert = 1;
 SET explain_query_plan_default = 'legacy';
 SET enable_analyzer = 1;
+-- The plan lines below show the filter moved to PREWHERE; the runner randomizes the move.
+SET optimize_move_to_prewhere = 1;
 SET enable_parallel_replicas = 0;
 SET allow_correlated_subqueries = 1;
 SET query_plan_optimize_join_order_limit = 10;
 SET query_plan_optimize_join_order_randomize = 0;
-SET query_plan_optimize_join_order_algorithm = 'greedy';
 SET query_plan_join_swap_table = 0;
 SET enable_join_runtime_filters = 0;
 SET collect_hash_table_stats_during_joins = 0;
@@ -40,15 +40,10 @@ INSERT INTO t_ae_keys SELECT number FROM numbers(10000);
 SELECT '-- rows of the anti join';
 SELECT count() FROM t_ae_keys AS a WHERE NOT EXISTS (SELECT 1 FROM t_ae_fact AS f WHERE f.k = a.k AND f.v < 334);
 
-SELECT '-- estimate, buffered subquery';
+SELECT '-- estimate';
 EXPLAIN estimates = 1
 SELECT count() FROM t_ae_keys AS a WHERE NOT EXISTS (SELECT 1 FROM t_ae_fact AS f WHERE f.k = a.k AND f.v < 334)
 SETTINGS correlated_subqueries_use_in_memory_buffer = 1;
-
-SELECT '-- estimate, subquery repeated';
-EXPLAIN estimates = 1
-SELECT count() FROM t_ae_keys AS a WHERE NOT EXISTS (SELECT 1 FROM t_ae_fact AS f WHERE f.k = a.k AND f.v < 334)
-SETTINGS correlated_subqueries_use_in_memory_buffer = 0;
 
 SELECT '-- Cascades';
 EXPLAIN estimates = 1

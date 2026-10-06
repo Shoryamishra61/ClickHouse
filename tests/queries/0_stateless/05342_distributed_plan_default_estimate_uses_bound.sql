@@ -3,6 +3,8 @@
 -- fit with its proven row bound, the rows the read selects. A side estimated from statistics alone
 -- passes on its estimate.
 SET enable_analyzer = 1;
+-- The plan lines below show the filter moved to PREWHERE; the runner randomizes the move.
+SET optimize_move_to_prewhere = 1;
 SET enable_parallel_replicas = 0;
 SET explain_query_plan_default = 'legacy';
 SET max_rows_to_group_by = 0;

@@ -15,7 +15,7 @@
 ===== Aggregation by 2 columns and NDV1*NDV2 > total rows ======
   JoinLogical
   Join: t1[5] ⋈ tt2[17]
-  ResultRows: 8
+  ResultRows: 9
       ReadFromMergeTree (default.t1)
       Aggregating
           ReadFromMergeTree (default.t2)

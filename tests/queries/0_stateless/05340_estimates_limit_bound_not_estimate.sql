@@ -2,12 +2,13 @@
 -- stays without one under a limit, in the join order optimizer and in the Cascades optimizer, and
 -- `WITH TIES` can keep every row equal to the last one, so it bounds nothing.
 SET enable_analyzer = 1;
+-- The plan lines below show the filter moved to PREWHERE; the runner randomizes the move.
+SET optimize_move_to_prewhere = 1;
 SET enable_parallel_replicas = 0;
 SET explain_query_plan_default = 'legacy';
 SET enable_join_runtime_filters = 0;
 SET query_plan_optimize_join_order_limit = 10;
 SET query_plan_optimize_join_order_randomize = 0;
-SET query_plan_optimize_join_order_algorithm = 'greedy';
 SET query_plan_join_swap_table = 0;
 SET use_statistics = 0;
 SET max_rows_to_group_by = 0;

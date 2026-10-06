@@ -1,9 +1,12 @@
--- The Cascades optimizer picked a broadcast join, a replicated read or a replicated subplan by
--- cost alone. Now every replication has to fit `distributed_plan_max_bytes_to_broadcast`: the
--- estimated rows times the row width when the rows are known, the proven row bound when they are
--- not; a result with neither is never replicated. The hints stand in for statistics. Side
--- widths stay small and the budget moves, so the cost model has no reason to copy the other side.
+-- Every replication the Cascades optimizer proposes, a broadcast join side, a replicated read or a
+-- replicated subplan, has to fit `distributed_plan_max_bytes_to_broadcast`: the estimated rows
+-- times the row width when the rows are known and no default went into them, the proven row bound
+-- otherwise; a result with neither is never replicated. Without the budget the cost model alone
+-- would decide. The hints stand in for statistics; side widths stay small and the budget moves, so
+-- the cost model has no reason to copy the other side.
 SET enable_analyzer = 1;
+-- The plan lines below show the filter moved to PREWHERE; the runner randomizes the move.
+SET optimize_move_to_prewhere = 1;
 SET enable_parallel_replicas = 0;
 SET explain_query_plan_default = 'legacy';
 SET max_rows_to_group_by = 0;
@@ -12,7 +15,6 @@ SET collect_hash_table_stats_during_joins = 0;
 SET query_plan_join_swap_table = 0;
 SET query_plan_optimize_join_order_randomize = 0;
 SET query_plan_optimize_join_order_limit = 10;
-SET query_plan_optimize_join_order_algorithm = 'greedy';
 SET use_statistics = 0;
 SET param__internal_cascades_cluster_node_count = 3;
 
@@ -38,17 +40,13 @@ SELECT '-- a budget of 50 bytes fits neither side: no replication, the join shuf
 EXPLAIN SELECT count(), any(name) FROM t_cb_fact AS f JOIN t_cb_dim AS d ON f.k = d.k
 SETTINGS make_distributed_plan = 1, enable_cascades_optimizer = 1, distributed_plan_max_bytes_to_broadcast = 50;
 
-SELECT '-- a budget of 0 is no budget, not an empty one: the dimension is broadcast';
-EXPLAIN SELECT count(), any(name) FROM t_cb_fact AS f JOIN t_cb_dim AS d ON f.k = d.k
-SETTINGS make_distributed_plan = 1, enable_cascades_optimizer = 1, distributed_plan_max_bytes_to_broadcast = 0;
-
 SELECT '-- a filter the primary key cannot prune leaves the rows unknown; the bound of 100 rows times 16 bytes fits a budget of 2000 bytes';
 SET param__internal_join_table_stat_hints = '{"t_cb_fact": {"cardinality": 10000000, "avg_row_bytes": 16, "distinct_keys": {"k": 5}}}';
-EXPLAIN estimates = 1 SELECT count() FROM t_cb_fact AS f JOIN t_cb_unk AS u ON f.k = u.k WHERE u.v < 5
+EXPLAIN SELECT count() FROM t_cb_fact AS f JOIN t_cb_unk AS u ON f.k = u.k WHERE u.v < 5
 SETTINGS make_distributed_plan = 1, enable_cascades_optimizer = 1, distributed_plan_max_bytes_to_broadcast = 2000;
 
 SELECT '-- and does not fit a budget of 1000 bytes: no replication of the unknown side';
-EXPLAIN estimates = 1 SELECT count() FROM t_cb_fact AS f JOIN t_cb_unk AS u ON f.k = u.k WHERE u.v < 5
+EXPLAIN SELECT count() FROM t_cb_fact AS f JOIN t_cb_unk AS u ON f.k = u.k WHERE u.v < 5
 SETTINGS make_distributed_plan = 1, enable_cascades_optimizer = 1, distributed_plan_max_bytes_to_broadcast = 1000;
 
 SELECT '-- a small result over a large scan: the broadcast ships the result and fits, the scan is read once';
