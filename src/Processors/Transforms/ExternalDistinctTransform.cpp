@@ -314,11 +314,11 @@ void ExternalDistinctTransform::work()
     {
         if constexpr (std::is_same_v<Phase, Hashing>)
         {
+            /// A completed set keeps its bytes in the shared counter until the transform is destroyed. A
+            /// single-stream `DISTINCT` would still retain these keys while other partitions insert theirs,
+            /// so the combined byte limit must count them even if this partition finishes first.
             if (phase.input_finished)
-            {
                 state.emplace<Finishing>();
-                set_memory.update(0);
-            }
             else
                 consumeHashing(phase);
         }
@@ -462,7 +462,6 @@ void ExternalDistinctTransform::consumeHashing(Hashing & hashing)
     if ((limit_hint && result_rows >= limit_hint) || hashing.set.isLimitReached())
     {
         state.emplace<Finishing>();
-        set_memory.update(0);
         return;
     }
 
