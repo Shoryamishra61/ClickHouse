@@ -307,6 +307,10 @@ private:
         const bool use_query_condition_cache = filter->query_condition_cache && num_granules;
         String query_condition_cache_part_name;
 
+        /// The granules skipped by the entry of the filter of the query. Nothing is known about PREWHERE
+        /// on them, so they must not be recorded as having no rows satisfying it.
+        QueryConditionCache::MatchingMarks granules_skipped_by_filter_condition;
+
         if (use_query_condition_cache)
         {
             query_condition_cache_part_name = filter->getQueryConditionCachePartName(block_index);
@@ -326,6 +330,13 @@ private:
                     throw Exception(ErrorCodes::LOGICAL_ERROR,
                         "The query condition cache entry for block {} of a Memory table has {} granules instead of {}",
                         query_condition_cache_part_name, entry->size(), num_granules);
+
+                if (condition_hash == filter->filter_condition_hash && filter->write_prewhere_condition)
+                {
+                    granules_skipped_by_filter_condition.resize(num_granules);
+                    for (size_t granule = 0; granule < num_granules; ++granule)
+                        granules_skipped_by_filter_condition[granule] = !(*entry)[granule];
+                }
 
                 if (!matching_granules)
                     matching_granules = std::move(entry);
@@ -367,14 +378,15 @@ private:
             if (!use_query_condition_cache || !filter->write_prewhere_condition)
                 return;
 
+            if (!no_rows_passed && combined_mask.empty())
+                return;
+
             MarkRanges granules_without_matches;
-            if (no_rows_passed)
+            for (size_t granule = 0; granule < num_granules; ++granule)
             {
-                granules_without_matches.emplace_back(0, num_granules);
-            }
-            else if (!combined_mask.empty())
-            {
-                for (size_t granule = 0; granule < num_granules; ++granule)
+                if (!granules_skipped_by_filter_condition.empty() && granules_skipped_by_filter_condition[granule])
+                    continue;
+                if (!no_rows_passed)
                 {
                     const size_t begin = granule * granule_rows;
                     const size_t end = std::min(begin + granule_rows, num_src_rows);
@@ -382,11 +394,11 @@ private:
                     /// as is, which is e.g. the column itself for `PREWHERE k`.
                     if (!memoryIsZero(combined_mask.data(), begin, end))
                         continue;
-                    if (!granules_without_matches.empty() && granules_without_matches.back().end == granule)
-                        ++granules_without_matches.back().end;
-                    else
-                        granules_without_matches.emplace_back(granule, granule + 1);
                 }
+                if (!granules_without_matches.empty() && granules_without_matches.back().end == granule)
+                    ++granules_without_matches.back().end;
+                else
+                    granules_without_matches.emplace_back(granule, granule + 1);
             }
 
             if (!granules_without_matches.empty())
