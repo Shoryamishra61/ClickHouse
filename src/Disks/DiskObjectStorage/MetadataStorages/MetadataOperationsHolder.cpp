@@ -19,7 +19,7 @@ namespace ErrorCodes
 extern const int FS_METADATA_ERROR;
 }
 
-void MetadataOperationsHolder::rollback(size_t until_pos, Exception & rollback_reason) noexcept
+std::optional<String> MetadataOperationsHolder::rollback(size_t until_pos) noexcept
 {
     ProfileEvents::increment(ProfileEvents::MetadataTransactionRollbacks);
 
@@ -35,15 +35,15 @@ void MetadataOperationsHolder::rollback(size_t until_pos, Exception & rollback_r
 
             state = MetadataStorageTransactionState::PARTIALLY_ROLLED_BACK;
 
-            rollback_reason.addMessage(fmt::format("While rolling back operation #{}", i));
-            rollback_reason.addMessage(getExceptionMessage(std::current_exception(), /*with_stacktrace=*/true));
-            rollback_reason.addMessage(
-                "Rolling back the metadata transaction did not complete, so the metadata keeps a part of a transaction "
-                "that is reported as failed");
-
-            return;
+            return fmt::format(
+                "While rolling back operation #{}: {}: Rolling back the metadata transaction did not complete, so the "
+                "metadata keeps a part of a transaction that is reported as failed",
+                i,
+                getExceptionMessage(std::current_exception(), /*with_stacktrace=*/true));
         }
     }
+
+    return {};
 }
 
 void MetadataOperationsHolder::prependOperation(MetadataOperationPtr && operation)
@@ -85,27 +85,26 @@ void MetadataOperationsHolder::commit()
         {
             operations[i]->execute();
         }
-        catch (Exception & error)
-        {
-            state = MetadataStorageTransactionState::FAILED;
-
-            error.addMessage(fmt::format("While committing metadata operation #{}", i));
-            rollback(i, error);
-
-            tryLogCurrentException(__PRETTY_FUNCTION__);
-            error.rethrow();
-        }
         catch (...)
         {
-            /// Some object storages (Azure) throw their own exception types.
             state = MetadataStorageTransactionState::FAILED;
 
-            Exception error(getCurrentExceptionMessageAndPattern(/*with_stacktrace=*/ true), getCurrentExceptionCode());
-            error.addMessage(fmt::format("While committing metadata operation #{}", i));
-            rollback(i, error);
+            String details = fmt::format("While committing metadata operation #{}", i);
+            if (auto rollback_failure = rollback(i))
+                details += ": " + *rollback_failure;
 
-            tryLogException(std::make_exception_ptr(error), __PRETTY_FUNCTION__);
-            error.rethrow();
+            /// The original exception is rethrown as is, so the callers that check its type still can. Some object storages
+            /// (Azure) throw their own exception types, which cannot take the details, so for those they are only logged.
+            if (auto * error = current_exception_cast<Exception *>())
+            {
+                error->addMessage(details);
+                tryLogCurrentException(__PRETTY_FUNCTION__);
+            }
+            else
+            {
+                tryLogCurrentException(__PRETTY_FUNCTION__, details);
+            }
+            throw;
         }
     }
 

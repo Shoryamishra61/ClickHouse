@@ -13,6 +13,7 @@
 
 #include <Common/thread_local_rng.h>
 #include <Common/FailPoint.h>
+#include <Common/ProfileEvents.h>
 
 #include <base/scope_guard.h>
 
@@ -30,6 +31,12 @@ using namespace DB;
 namespace DB::ErrorCodes
 {
     extern const int CORRUPTED_DATA;
+}
+
+namespace ProfileEvents
+{
+    extern const Event MetadataTransactionRollbacks;
+    extern const Event MetadataTransactionRollbacksFailed;
 }
 
 class MetadataPlainRewritableDiskTest : public testing::Test
@@ -2651,8 +2658,11 @@ TEST_F(MetadataPlainRewritableDiskTest, ForeignErrorRollsBackTransaction)
 
     object_storage->fail_copy_of = metadata->getStorageObjects("/A/target").front().remote_path;
     const auto objects_before = allObjects(object_storage, key_prefix);
+    const auto rollbacks_before = ProfileEvents::global_counters[ProfileEvents::MetadataTransactionRollbacks];
+    const auto failed_rollbacks_before = ProfileEvents::global_counters[ProfileEvents::MetadataTransactionRollbacksFailed];
 
-    /// The backup of the target fails halfway, after the unlink and after the move saved the source.
+    /// The backup of the target fails halfway, after the unlink and after the move saved the source. The original error
+    /// reaches the caller, so the callers that check its type still can.
     auto tx = metadata->createTransaction();
     tx->unlinkFile("/A/other", /*if_exists=*/false, /*should_remove_objects=*/true);
     tx->replaceFile("/A/source", "/A/target");
@@ -2661,12 +2671,13 @@ TEST_F(MetadataPlainRewritableDiskTest, ForeignErrorRollsBackTransaction)
         tx->commit(DB::NoCommitOptions{});
         ADD_FAILURE() << "The commit of a transaction with a failed copy succeeded";
     }
-    catch (const Exception & e)
+    catch (const std::runtime_error & e)
     {
-        EXPECT_THAT(e.message(), testing::HasSubstr("Injected foreign error"));
-        EXPECT_THAT(e.message(), testing::Not(testing::HasSubstr("did not complete")));
+        EXPECT_THAT(e.what(), testing::HasSubstr("Injected foreign error"));
     }
 
+    EXPECT_EQ(ProfileEvents::global_counters[ProfileEvents::MetadataTransactionRollbacks] - rollbacks_before, 1u);
+    EXPECT_EQ(ProfileEvents::global_counters[ProfileEvents::MetadataTransactionRollbacksFailed], failed_rollbacks_before);
     EXPECT_EQ(allObjects(object_storage, key_prefix), objects_before);
     EXPECT_TRUE(metadata->existsFile("/A/other"));
     EXPECT_TRUE(metadata->existsFile("/A/source"));
@@ -2750,6 +2761,7 @@ TEST_F(MetadataPlainRewritableDiskTest, MoveTargetBackupRemovedDuringTransaction
     object_storage->before_copy_of = source_blob;
     object_storage->before_copy = [&] { for (const auto & blob : listAllBlobs(key_prefix + "/__root")) fs::remove(blob); };
     object_storage->fail_remove_of = source_blob;
+    const auto failed_rollbacks_before = ProfileEvents::global_counters[ProfileEvents::MetadataTransactionRollbacksFailed];
 
     auto tx = metadata->createTransaction();
     tx->replaceFile("/A/source", "/A/target");
@@ -2758,10 +2770,11 @@ TEST_F(MetadataPlainRewritableDiskTest, MoveTargetBackupRemovedDuringTransaction
         tx->commit(DB::NoCommitOptions{});
         ADD_FAILURE() << "The commit of a transaction with a failed removal succeeded";
     }
-    catch (const Exception & e)
+    catch (const std::runtime_error & e)
     {
-        EXPECT_THAT(e.message(), testing::HasSubstr("Cannot restore the blob of the file '/A/target'"));
-        EXPECT_THAT(e.message(), testing::HasSubstr("(CORRUPTED_DATA)"));
-        EXPECT_THAT(e.message(), testing::HasSubstr("did not complete"));
+        EXPECT_THAT(e.what(), testing::HasSubstr("Injected foreign error"));
     }
+
+    /// The error is foreign, so the report of the rollback goes only to the log; the counter says that it stopped.
+    EXPECT_EQ(ProfileEvents::global_counters[ProfileEvents::MetadataTransactionRollbacksFailed] - failed_rollbacks_before, 1u);
 }
