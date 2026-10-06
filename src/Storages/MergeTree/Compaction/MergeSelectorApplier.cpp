@@ -127,11 +127,12 @@ size_t getAffordablePartsToMergeAtOnce(const ChooseContext & ctx)
 /// `MergeTask::ExecuteAndFinalizeHorizontalPart::extractMergingAndGatheringColumns` as far as the table
 /// metadata can tell: the sorting key, the columns the merging mode needs, the columns of the min-max index
 /// (in case the merge has to recompute it), the columns of multi-column skip indexes and of projections
-/// (which are rebuilt on the horizontal stage) and, when rows expire, the columns of the TTL expressions.
-/// The remaining columns are the ones the vertical stage gathers. Over-counting here is harmless - it
-/// prices a vertical merge a little higher and predicts vertical merges a little less often - so the
-/// count leans that way whenever the exact set depends on the parts and not on the table.
-NameSet getColumnsMergedOnHorizontalStageOfVerticalMergeSet(const ChooseContext & ctx)
+/// (which are rebuilt on the horizontal stage) and, when the merge removes expired values
+/// (`removes_expired_values`), the columns of the TTL expressions. The remaining columns are the ones the
+/// vertical stage gathers. Over-counting here is harmless - it prices a vertical merge a little higher and
+/// predicts vertical merges a little less often - so the count leans that way whenever the exact set
+/// depends on the parts and not on the table.
+NameSet getColumnsMergedOnHorizontalStageOfVerticalMergeSet(const ChooseContext & ctx, bool removes_expired_values)
 {
     const auto & metadata = ctx.metadata_snapshot;
     const auto & params = ctx.merging_params;
@@ -166,7 +167,11 @@ NameSet getColumnsMergedOnHorizontalStageOfVerticalMergeSet(const ChooseContext 
         key_columns.insert_range(projection.getRequiredColumns());
 
     /// A vertical merge that removes expired values merges the columns of the rows, move and recompression
-    /// TTL expressions on the horizontal stage.
+    /// TTL expressions on the horizontal stage. A merge that does not remove them gathers those columns on
+    /// the vertical stage like the others, see `MergeTask::extractMergingAndGatheringColumns`.
+    if (!removes_expired_values)
+        return key_columns;
+
     auto add_ttl_expression_columns = [&](const TTLDescription & ttl)
     {
         for (const auto & column : ttl.expression_columns)
@@ -187,15 +192,16 @@ NameSet getColumnsMergedOnHorizontalStageOfVerticalMergeSet(const ChooseContext 
     return key_columns;
 }
 
-size_t getColumnsMergedOnHorizontalStageOfVerticalMerge(const ChooseContext & ctx)
+size_t getColumnsMergedOnHorizontalStageOfVerticalMerge(const ChooseContext & ctx, bool removes_expired_values)
 {
     /// The merge merges at least one column even when the key is empty (`ORDER BY tuple()`).
-    return std::max<size_t>(1, getColumnsMergedOnHorizontalStageOfVerticalMergeSet(ctx).size());
+    return std::max<size_t>(1, getColumnsMergedOnHorizontalStageOfVerticalMergeSet(ctx, removes_expired_values).size());
 }
 
-/// Whether the table can merge vertically at all. The rest of the decision depends on the range itself,
-/// see `predictVerticalMerge`.
-bool tableCanMergeVertically(const ChooseContext & ctx)
+/// Whether the table can merge vertically at all, by a merge that removes expired values or by one that
+/// does not (the TTL expression columns move to the horizontal stage, which leaves fewer columns to gather).
+/// The rest of the decision depends on the range itself, see `predictVerticalMerge`.
+bool tableCanMergeVertically(const ChooseContext & ctx, bool removes_expired_values)
 {
     const auto & settings = ctx.merge_tree_settings;
     const auto & metadata = ctx.metadata_snapshot;
@@ -218,7 +224,7 @@ bool tableCanMergeVertically(const ChooseContext & ctx)
     /// A key column that is a subcolumn keeps its whole storage column on the horizontal stage.
     const auto physical_columns = metadata.getColumns().getAllPhysical().getNameSet();
     NameSet key_columns_in_storage;
-    for (const auto & column : getColumnsMergedOnHorizontalStageOfVerticalMergeSet(ctx))
+    for (const auto & column : getColumnsMergedOnHorizontalStageOfVerticalMergeSet(ctx, removes_expired_values))
     {
         if (auto name_in_storage = Nested::tryGetColumnNameInStorage(column, physical_columns))
             key_columns_in_storage.insert(std::move(*name_in_storage));
@@ -318,7 +324,8 @@ bool rangeRemovesExpiredValues(const ChooseContext & ctx, PartsRangeView range)
 /// the uncompressed sizes of the columns, the same as `MergeTask` and `FutureMergedMutatedPart` decide by,
 /// not the sizes on disk: those include marks and indexes and can exceed the uncompressed size of tiny or
 /// poorly compressed parts, which would predict a vertical merge that then runs horizontally.
-bool predictVerticalMerge(const ChooseContext & ctx, PartsRangeView range)
+/// `removes_expired_values` is `rangeRemovesExpiredValues` of the range.
+bool predictVerticalMerge(const ChooseContext & ctx, PartsRangeView range, bool removes_expired_values)
 {
     const auto & settings = ctx.merge_tree_settings;
 
@@ -346,7 +353,7 @@ bool predictVerticalMerge(const ChooseContext & ctx, PartsRangeView range)
     if (!wide_part || !full_storage)
         return false;
 
-    if (rangeRemovesExpiredValues(ctx, range) && !rangeCanMergeVerticallyWhileRemovingExpiredValues(ctx, range))
+    if (removes_expired_values && !rangeCanMergeVerticallyWhileRemovingExpiredValues(ctx, range))
         return false;
 
     return sum_rows >= settings[MergeTreeSetting::vertical_merge_algorithm_min_rows_to_activate]
@@ -358,7 +365,9 @@ bool predictVerticalMerge(const ChooseContext & ctx, PartsRangeView range)
 /// horizontal merge when it will merge vertically and fits the cap of a vertical merge instead. Vertical
 /// merges hold only the key columns of every source part at once, so a wide table on a small server keeps
 /// its full merge width for the large merges that go vertical, and is narrowed only for the small
-/// horizontal ones - whose fixed cost is the very thing this estimate is about.
+/// horizontal ones - whose fixed cost is the very thing this estimate is about. Whether the columns of the
+/// TTL expressions are merged on the horizontal stage depends on whether the range removes expired values,
+/// so the cap of a vertical merge is taken per range from one of two precomputed values.
 /// Returns the caller's filter unchanged when there is nothing to cap.
 IMergeSelector::RangeFilter capRangesByAffordableMemory(const ChooseContext & ctx, const IMergeSelector::RangeFilter & range_filter)
 {
@@ -366,17 +375,24 @@ IMergeSelector::RangeFilter capRangesByAffordableMemory(const ChooseContext & ct
     if (affordable_horizontal == 0)
         return range_filter;
 
-    const size_t affordable_vertical = tableCanMergeVertically(ctx)
-        ? getAffordablePartsToMergeAtOnce(ctx, getColumnsMergedOnHorizontalStageOfVerticalMerge(ctx))
-        : affordable_horizontal;
+    auto get_affordable_vertical = [&](bool removes_expired_values)
+    {
+        return tableCanMergeVertically(ctx, removes_expired_values)
+            ? getAffordablePartsToMergeAtOnce(ctx, getColumnsMergedOnHorizontalStageOfVerticalMerge(ctx, removes_expired_values))
+            : affordable_horizontal;
+    };
+    const size_t affordable_vertical = get_affordable_vertical(false);
+    const size_t affordable_vertical_removing_expired_values = get_affordable_vertical(true);
 
-    return [&ctx, range_filter, affordable_horizontal, affordable_vertical](PartsRangeView range)
+    return [&ctx, range_filter, affordable_horizontal, affordable_vertical, affordable_vertical_removing_expired_values](PartsRangeView range)
     {
         if (range_filter && !range_filter(range))
             return false;
         if (range.size() <= affordable_horizontal)
             return true;
-        return range.size() <= affordable_vertical && predictVerticalMerge(ctx, range);
+        const bool removes_expired_values = rangeRemovesExpiredValues(ctx, range);
+        const size_t affordable = removes_expired_values ? affordable_vertical_removing_expired_values : affordable_vertical;
+        return range.size() <= affordable && predictVerticalMerge(ctx, range, removes_expired_values);
     };
 }
 

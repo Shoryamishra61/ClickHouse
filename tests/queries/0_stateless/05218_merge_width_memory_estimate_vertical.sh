@@ -105,3 +105,9 @@ run t_merge_width_vertical 1
 # with a column TTL, which rules out a vertical merge that does remove them - and keeps its width.
 echo 'vertical with TTLs not due'
 run t_merge_width_vertical_ttl 1 "TTL toDateTime(k) + INTERVAL 100 YEAR" "TTL toDateTime(k) + INTERVAL 100 YEAR"
+
+# A merge that does not remove expired values gathers the columns of the TTL expressions on the vertical
+# stage like the others, so a TTL over every non-key column that is far from due does not make the merge
+# priced by all of them, and the merge keeps its width.
+echo 'vertical with a wide TTL not due'
+run t_merge_width_vertical_wide_ttl 1 "" "TTL toDateTime(c1 + c2 + c3 + c4 + c5 + c6 + c7 + c8 + c9 + c10 + c11 + c12 + c13 + c14 + c15) + INTERVAL 100 YEAR"
