@@ -402,7 +402,6 @@ void optimizeFunctionArrayElementForMap(QueryTreeNodePtr & node, FunctionNode & 
 
     const auto & data_type_map = assert_cast<const DataTypeMap &>(*ctx.column.type);
     const auto & key_type = data_type_map.getKeyType();
-    auto tmp_key_column = key_type->createColumn();
 
     /// `UUID` and `UUID2` share the physical representation but keep the two 64-bit halves in the
     /// opposite order. A plain `Field`-level insert below would copy the raw representation as-is,
@@ -413,18 +412,21 @@ void optimizeFunctionArrayElementForMap(QueryTreeNodePtr & node, FunctionNode & 
     if ((isUUID(key_type_decayed) && isUUID2(constant_type_decayed)) || (isUUID2(key_type_decayed) && isUUID(constant_type_decayed)))
         key_value = convertFieldToType(key_value, *key_type_decayed, constant_type_decayed.get());
 
-    /// Verify that the constant value is compatible with the map's key type.
-    if (!tmp_key_column->tryInsert(key_value))
+    if (isEnum(key_type))
     {
-        /// A map with Enum keys can also be indexed by the name of the enum value,
-        /// so convert the name to the numeric value of the enum.
-        if (!isEnum(key_type) || key_value.getType() != Field::Types::String)
-            return;
-
-        Field enum_value = tryConvertFieldToType(key_value, *key_type);
-        if (enum_value.isNull() || !tmp_key_column->tryInsert(enum_value))
+        /// A map with Enum keys can be indexed either by the name of the enum value or by its numeric value.
+        /// Convert both forms to the numeric value of the enum. This also rejects a value that is not in
+        /// the Enum at all, which has no name and hence no key subcolumn, while `arrayElement` returns
+        /// the default value for it.
+        key_value = tryConvertFieldToType(key_value, *key_type);
+        if (key_value.isNull())
             return;
     }
+
+    auto tmp_key_column = key_type->createColumn();
+    /// Verify that the constant value is compatible with the map's key type.
+    if (!tmp_key_column->tryInsert(key_value))
+        return;
 
     /// Serialize the key to its text representation to construct the subcolumn name,
     /// e.g. the string key "foo" becomes the subcolumn suffix "key_foo".
