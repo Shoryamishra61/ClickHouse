@@ -186,6 +186,8 @@ private:
     void dequeueLane(size_t lane) TSA_REQUIRES(mutex);
     std::optional<size_t> nextLane() const TSA_REQUIRES(mutex);
     std::optional<size_t> nextLaneBefore(size_t lane) const TSA_REQUIRES(mutex);
+    /// A lane with slices in flight lies after the position in key order.
+    bool inFlightAfter(LaneQueue::const_iterator position) const TSA_REQUIRES(mutex);
     std::optional<size_t> nextUnreadMark(const Lane & lane) const TSA_REQUIRES(mutex);
     Slices::iterator headSlice(Lane & lane) const TSA_REQUIRES(mutex);
     void cutSlice(size_t lane) TSA_REQUIRES(mutex);
@@ -226,6 +228,8 @@ private:
     size_t read_marks TSA_GUARDED_BY(mutex) = 0;
     /// The merge asked for a lane anew since the last `schedule`.
     bool merge_asked TSA_GUARDED_BY(mutex) = false;
+    /// The merge went through a lane to its end and asked for more: the query spans lanes, see `schedule`.
+    bool merge_passed_lane TSA_GUARDED_BY(mutex) = false;
     bool finished TSA_GUARDED_BY(mutex) = false;
 };
 

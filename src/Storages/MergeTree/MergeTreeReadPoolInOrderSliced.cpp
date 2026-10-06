@@ -262,6 +262,14 @@ std::optional<size_t> MergeTreeReadPoolInOrderSliced::nextLaneBefore(size_t lane
     return head.lane;
 }
 
+bool MergeTreeReadPoolInOrderSliced::inFlightAfter(LaneQueue::const_iterator position) const
+{
+    for (auto it = std::next(position); it != queue.end(); ++it)
+        if (!lanes[it->lane].slices.empty())
+            return true;
+    return false;
+}
+
 std::optional<size_t> MergeTreeReadPoolInOrderSliced::nextUnreadMark(const Lane & lane) const
 {
     if (lane.unread.empty())
@@ -578,6 +586,7 @@ MergeTreeReadPoolInOrderSliced::Served MergeTreeReadPoolInOrderSliced::serve(siz
 
     if (!next_mark)
     {
+        merge_passed_lane = true;
         finishLaneUnlocked(lane);
         return Served{.finished = true};
     }
@@ -649,7 +658,9 @@ std::vector<size_t> MergeTreeReadPoolInOrderSliced::schedule(const std::vector<s
     {
         /// Read ahead in the order the merge is going to need the data, never past the budget. A lane that
         /// is being read and is too short to share is left to its reader; the next lane in key order is
-        /// read ahead instead.
+        /// read ahead instead. Lanes the merge has not started and that lie after everything in flight are
+        /// left alone until it went through a lane to its end: a query that ends within the lanes it is on,
+        /// as a LIMIT met in the first part does, reads nothing else; one that spans lanes reads them all.
         const size_t budget = readAheadMarks();
         for (auto it = queue.begin(); it != queue.end() && can_cut();)
         {
@@ -659,6 +670,8 @@ std::vector<size_t> MergeTreeReadPoolInOrderSliced::schedule(const std::vector<s
                 ++it;
                 continue;
             }
+            if (!merge_passed_lane && lanes[lane].slices.empty() && !inFlightAfter(it))
+                break;
             if (issued_marks + nextSliceMarks(lane) > budget)
                 break;
             cutSlice(lane);
