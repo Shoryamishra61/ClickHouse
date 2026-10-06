@@ -46,7 +46,7 @@ public:
 
     String getSignatureString() const override
     {
-        return "(UInt64, String) -> Nullable(String)";
+        return "(UInt64, const String) -> Nullable(String)";
     }
 
     DataTypePtr getReturnTypeImpl(const ColumnsWithTypeAndName & arguments) const override
