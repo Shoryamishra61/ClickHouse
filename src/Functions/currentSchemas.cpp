@@ -25,8 +25,7 @@ public:
     static constexpr auto name = "currentSchemas";
     static FunctionPtr create(ContextPtr context)
     {
-        const auto database_info = context->getCurrentDatabase();
-        return std::make_shared<FunctionCurrentSchemas>(String{database_info.getDatabasePart()});
+        return std::make_shared<FunctionCurrentSchemas>(context->getCurrentDatabase().getFullName());
     }
 
     explicit FunctionCurrentSchemas(const String & db_name_) :
