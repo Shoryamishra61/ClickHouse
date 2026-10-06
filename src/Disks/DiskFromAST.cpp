@@ -1,6 +1,7 @@
 #include <Disks/DiskFromAST.h>
 #include <Disks/getDiskConfigurationFromAST.h>
 #include <Disks/DiskSelector.h>
+#include <Disks/loadLocalDiskConfig.h>
 #include <Common/assert_cast.h>
 #include <Common/SipHash.h>
 #include <Common/Config/ConfigProcessor.h>
@@ -256,7 +257,38 @@ std::string DiskFromAST::createCustomDisk(const ASTPtr & disk_function_ast, Cont
     return assert_cast<const ASTLiteral &>(*ast).value.safeGet<String>();
 }
 
-DiskPtr DiskFromAST::createTransientDisk(const ASTPtr & disk_function_ast, ContextPtr context)
+/// The local paths a resolved configuration of a query-local disk can carry: the `path` of a `local` disk
+/// or of a local object storage backend (the disk root and every `locations.<name>` child), and the
+/// `metadata_path`. The disk creators check them as well when they create the disk, but a query that
+/// never creates the disk (`DESCRIBE`) has to be held to the same restriction.
+static void checkTransientDiskLocalPaths(const Poco::Util::AbstractConfiguration & config, ContextPtr context)
+{
+    /// `local` is a disk of its own; for every other type the backend is `object_storage_type` when it is
+    /// given and the `type` itself otherwise, the same way `ObjectStorageFactory::create` picks it.
+    auto check_backend = [&](const std::string & prefix, bool is_root)
+    {
+        auto type = config.getString(prefix + "type", is_root ? "local" : "");
+        auto backend = (is_root && type == "local") ? type : config.getString(prefix + "object_storage_type", type);
+        if (backend == "local" || backend == "local_blob_storage" || backend == "local_plain" || backend == "local_plain_rewritable")
+            checkCustomLocalDiskPath(config.getString(prefix + "path", ""), context);
+    };
+
+    check_backend("", /* is_root */ true);
+    if (config.has("locations"))
+    {
+        Poco::Util::AbstractConfiguration::Keys locations;
+        config.keys("locations", locations);
+        for (const auto & location : locations)
+            check_backend("locations." + location + ".", /* is_root */ false);
+    }
+
+    if (config.has("metadata_path"))
+        checkCustomLocalDiskPath(config.getString("metadata_path"), context);
+}
+
+/// Resolve and validate the configuration of a query-local disk without creating it.
+static Poco::AutoPtr<Poco::Util::XMLConfiguration> getValidatedTransientDiskConfig(
+    const ASTPtr & disk_function_ast, ContextPtr context, std::string & serialization)
 {
     if (!isDiskFunction(disk_function_ast))
         throw Exception(ErrorCodes::BAD_ARGUMENTS, "Expected a disk function");
@@ -264,7 +296,7 @@ DiskPtr DiskFromAST::createTransientDisk(const ASTPtr & disk_function_ast, Conte
     const auto * function = disk_function_ast->as<ASTFunction>();
     const auto * function_args_expr = assert_cast<const ASTExpressionList *>(function->arguments.get());
     const auto & disk_args = function_args_expr->children;
-    auto serialization = function->formatWithSecretsOneLine();
+    serialization = function->formatWithSecretsOneLine();
 
     auto config = getValidatedDiskConfig(
         disk_args, serialization, context, /* attach */ false, /* for_system_database */ false);
@@ -273,6 +305,22 @@ DiskPtr DiskFromAST::createTransientDisk(const ASTPtr & disk_function_ast, Conte
     /// and nothing checks it against the disks of the server configuration.
     if (config->has("name"))
         throw Exception(ErrorCodes::BAD_ARGUMENTS, "The description of a query-local disk cannot have a `name`");
+
+    checkTransientDiskLocalPaths(*config, context);
+
+    return config;
+}
+
+void DiskFromAST::validateTransientDisk(const ASTPtr & disk_function_ast, ContextPtr context)
+{
+    std::string serialization;
+    getValidatedTransientDiskConfig(disk_function_ast, context, serialization);
+}
+
+DiskPtr DiskFromAST::createTransientDisk(const ASTPtr & disk_function_ast, ContextPtr context)
+{
+    std::string serialization;
+    auto config = getValidatedTransientDiskConfig(disk_function_ast, context, serialization);
 
     auto disk_settings_hash = sipHash128(serialization.data(), serialization.size());
     auto disk_name = DiskSelector::TMP_INTERNAL_DISK_PREFIX + toString(disk_settings_hash);

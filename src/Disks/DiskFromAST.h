@@ -21,6 +21,10 @@ namespace DiskFromAST
     /// validation as `createCustomDisk` is applied. Used by queries that need a disk only for their
     /// own lifetime, such as the `mergeTreeParts` table function.
     DiskPtr createTransientDisk(const ASTPtr & disk_function, ContextPtr context);
+
+    /// Run the validation of `createTransientDisk` without creating the disk, for queries that only
+    /// need to know that the disk could be created, such as `DESCRIBE`.
+    void validateTransientDisk(const ASTPtr & disk_function, ContextPtr context);
 }
 
 }

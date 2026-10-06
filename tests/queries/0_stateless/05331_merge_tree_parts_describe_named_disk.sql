@@ -5,12 +5,6 @@
 DESCRIBE mergeTreeParts(
     structure('x UInt8'),
     parts(),
-    disk(type = local, path = '/'),
-    table_settings(index_granularity_bytes = 10485760));
-
-DESCRIBE mergeTreeParts(
-    structure('x UInt8'),
-    parts(),
     disk(name = 'mtp_describe_named', type = local, path = '/'),
     table_settings(index_granularity_bytes = 10485760)); -- { serverError BAD_ARGUMENTS }
 

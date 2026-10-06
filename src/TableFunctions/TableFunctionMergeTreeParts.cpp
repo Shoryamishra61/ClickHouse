@@ -87,9 +87,10 @@ VectorWithMemoryTracking<size_t> TableFunctionMergeTreeParts::skipAnalysisForArg
 }
 
 StoragePtr TableFunctionMergeTreeParts::executeImpl(
-    const ASTPtr & /*ast_function*/, ContextPtr context, const String & table_name, ColumnsDescription /*cached_columns*/, bool is_insert_query) const
+    const ASTPtr & /*ast_function*/, ContextPtr context, const String & table_name, ColumnsDescription /*cached_columns*/, bool /*is_insert_query*/) const
 {
-    auto columns = getActualTableStructure(context, is_insert_query);
+    /// Not `getActualTableStructure`: it validates the disk description, and `createTransientDisk` below does that anyway.
+    auto columns = parseColumnsListFromString(structure, context);
 
     /// The access and readonly checks have passed by now, so the disk may be created. It is not
     /// registered in the context: it lives only as long as the storage, so a query cannot grow the
@@ -117,6 +118,10 @@ StoragePtr TableFunctionMergeTreeParts::executeImpl(
 
 ColumnsDescription TableFunctionMergeTreeParts::getActualTableStructure(ContextPtr context, bool /*is_insert_query*/) const
 {
+    /// `DESCRIBE` stops here and never creates the disk, so the restrictions on the disk description that
+    /// are known before the disk exists (the `dynamic_disk_allow_*` settings, the local paths, the S3
+    /// credentials) are checked here, so that `DESCRIBE` accepts only what a read would accept.
+    DiskFromAST::validateTransientDisk(disk_function_ast, context);
     return parseColumnsListFromString(structure, context);
 }
 
