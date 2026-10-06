@@ -54,6 +54,9 @@ def started_cluster():
         # Cluster.start waits until port 9000 becomes accessible.
         # Server opens the Mongo compatibility port a bit later.
         cluster.instances["node"].wait_for_log_line("Mongo compatibility protocol")
+        cluster.instances["node"].wait_for_log_line(
+            "Mongo endpoint with a default session user"
+        )
         yield cluster
     except Exception as ex:
         logging.exception(ex)
@@ -95,9 +98,9 @@ def read_op_msg(sock):
     return bson.decode(payload[5:])
 
 
-def connect_raw():
+def connect_raw(port=server_port):
     node = cluster.instances["node"]
-    sock = socket.create_connection((node.ip_address, server_port), timeout=30)
+    sock = socket.create_connection((node.ip_address, port), timeout=30)
     sock.settimeout(30)
     return sock
 
@@ -1729,6 +1732,43 @@ def test_connection_status_reports_the_authenticated_user(started_cluster):
 
     node.query("DROP USER mongo_status_user", password="123")
     node.query("DROP ROLE mongo_status_role", password="123")
+
+
+def test_empty_user_name_is_the_default_session_user(started_cluster):
+    """A `PLAIN` payload with an empty user name authenticates as the default session user: the
+    `default_session_user` server setting on `mongo_port`, and the override of the `protocols`
+    endpoint on the endpoint that sets one."""
+    node = cluster.instances["node"]
+    node.query("DROP USER IF EXISTS mongo_anonymous_user", password="123")
+    node.query("CREATE USER mongo_anonymous_user IDENTIFIED WITH no_password", password="123")
+
+    def authenticated_users(port, password):
+        with connect_raw(port) as sock:
+            sock.sendall(
+                encode_op_msg(
+                    {
+                        "saslStart": 1,
+                        "mechanism": "PLAIN",
+                        "payload": bson.Binary(b"\x00\x00" + password),
+                        "$db": "admin",
+                    },
+                    request_id=1,
+                )
+            )
+            reply = read_op_msg(sock)
+            assert reply["ok"] == 1.0, reply
+            sock.sendall(
+                encode_op_msg({"connectionStatus": 1, "$db": "admin"}, request_id=2)
+            )
+            return [
+                user["user"]
+                for user in read_op_msg(sock)["authInfo"]["authenticatedUsers"]
+            ]
+
+    assert authenticated_users(server_port, b"123") == ["default"]
+    assert authenticated_users(27018, b"") == ["mongo_anonymous_user"]
+
+    node.query("DROP USER mongo_anonymous_user", password="123")
 
 
 def test_create_of_an_existing_collection_is_an_error(started_cluster):

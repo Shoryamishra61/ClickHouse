@@ -68,9 +68,8 @@ std::vector<Document> AuthHandler::handle(const std::vector<OpMessageSection> & 
 
     /// `authzid` is the identity to act as. It is empty unless the client asks for
     /// impersonation, which for us is the same as authenticating that user directly.
+    /// If both are empty, the executor resolves the name to the default session user.
     String user = authcid.empty() ? authzid : authcid;
-    if (user.empty())
-        throw Exception(ErrorCodes::BAD_ARGUMENTS, "Empty user name in the 'PLAIN' authentication payload");
 
     executor->authenticate(user, password);
 

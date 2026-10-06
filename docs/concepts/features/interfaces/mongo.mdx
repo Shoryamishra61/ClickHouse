@@ -37,7 +37,7 @@ client = pymongo.MongoClient("mongodb://default:@localhost:27017/default?authMec
 client["my_database"]["my_collection"].find({"age": {"$gt": 20}})
 ```
 
-The user name is taken from the authentication payload sent by the client, not from the authentication database, so the database in the connection string may be any value.
+The user name is taken from the authentication payload sent by the client, not from the authentication database, so the database in the connection string may be any value. A payload with an empty user name authenticates as the default session user: the `default_session_user` server setting, which can be overridden for the endpoint in the `protocols` section (see [Composable protocols](/concepts/features/configuration/server-config/composable-protocols)).
 
 :::note
 The wire protocol port is plaintext. Do not expose it outside a trusted network.

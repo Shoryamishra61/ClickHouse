@@ -18,6 +18,7 @@ extern const SettingsUInt64 max_parser_depth;
 
 namespace DB::ErrorCodes
 {
+extern const int AUTHENTICATION_FAILED;
 extern const int BAD_ARGUMENTS;
 extern const int LIMIT_EXCEEDED;
 }
@@ -84,8 +85,9 @@ String MessageTransport::receivePayload(const Header & header)
     return payload;
 }
 
-QueryExecutor::QueryExecutor(std::unique_ptr<Session> & session_, const Poco::Net::SocketAddress & address_)
-    : session(session_), address(address_), gen(randomSeed()), dis(0, INT32_MAX)
+QueryExecutor::QueryExecutor(
+    std::unique_ptr<Session> & session_, const Poco::Net::SocketAddress & address_, const String & default_session_user_)
+    : session(session_), address(address_), default_session_user(default_session_user_), gen(randomSeed()), dis(0, INT32_MAX)
 {
 }
 
@@ -307,7 +309,17 @@ void QueryExecutor::executeStreaming(const String & query, const std::function<v
 
 void QueryExecutor::authenticate(const String & username, const String & password)
 {
-    session->authenticate(username, password, address);
+    /// If the resolved name is empty too (explicitly configured to prohibit connections without
+    /// a user name), the login is refused and recorded as a failure, like on the other endpoints.
+    const String & user_name = username.empty() ? default_session_user : username;
+    if (user_name.empty())
+    {
+        auto exception = Exception(ErrorCodes::AUTHENTICATION_FAILED, "Got an empty user name in the 'PLAIN' authentication payload");
+        session->onAuthenticationFailure(user_name, address, exception);
+        throw exception;
+    }
+
+    session->authenticate(user_name, password, address);
     /// A connection of this endpoint is stateful, so it takes a session context of its own, like
     /// the other stateful protocols do after a login: it is what counts the connection against
     /// `max_sessions_for_user` and what applies the settings the authentication server sent.

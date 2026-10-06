@@ -4,6 +4,7 @@
 #if USE_MONGODB && USE_RAPIDJSON
 
 #include <memory>
+#include <Core/ServerSettings.h>
 #include <IO/ReadBufferFromPocoSocket.h>
 #include <IO/ReadBufferFromString.h>
 #include <IO/ReadHelpers.h>
@@ -22,12 +23,18 @@
 namespace DB
 {
 
+namespace ServerSetting
+{
+    extern const ServerSettingsString default_session_user;
+}
+
 MongoHandler::MongoHandler(
     const Poco::Net::StreamSocket & socket_,
     IServer & server_,
     TCPServer & tcp_server_,
     bool ssl_enabled_,
     Int32 connection_id_,
+    std::optional<String> default_session_user_,
     const ProfileEvents::Event & read_event_,
     const ProfileEvents::Event & write_event_)
     : Poco::Net::TCPServerConnection(socket_)
@@ -35,6 +42,7 @@ MongoHandler::MongoHandler(
     , tcp_server(tcp_server_)
     , ssl_enabled(ssl_enabled_)
     , connection_id(connection_id_)
+    , default_session_user(std::move(default_session_user_))
     , read_event(read_event_)
     , write_event(write_event_)
 {
@@ -57,6 +65,12 @@ void MongoHandler::run()
 
     session->setClientConnectionId(connection_id);
 
+    /// An empty user name in `saslStart` means the default session user: the `default_session_user`
+    /// server setting, possibly overridden for this listener in the `protocols` section.
+    const String resolved_default_session_user = default_session_user
+        ? *default_session_user
+        : String(server.context()->getServerSettings()[ServerSetting::default_session_user]);
+
     try
     {
         while (tcp_server.isOpen())
@@ -78,7 +92,7 @@ void MongoHandler::run()
             String payload = message_transport->receivePayload(*header);
             ReadBufferFromString payload_buffer(payload);
 
-            auto executor = std::make_shared<MongoProtocol::QueryExecutor>(session, socket().peerAddress());
+            auto executor = std::make_shared<MongoProtocol::QueryExecutor>(session, socket().peerAddress(), resolved_default_session_user);
             MongoProtocol::handle(*header, payload_buffer, message_transport, executor);
         }
     }

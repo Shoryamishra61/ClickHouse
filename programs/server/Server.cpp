@@ -4194,7 +4194,7 @@ std::unique_ptr<TCPProtocolStackFactory> Server::buildProtocolStackFromConfig(
         if (type == "mongo")
         {
 #if USE_MONGODB && USE_RAPIDJSON
-            return TCPServerConnectionFactory::Ptr(new MongoHandlerFactory(*this, ProfileEvents::InterfaceMongoReceiveBytes, ProfileEvents::InterfaceMongoSendBytes));
+            return TCPServerConnectionFactory::Ptr(new MongoHandlerFactory(*this, ProfileEvents::InterfaceMongoReceiveBytes, ProfileEvents::InterfaceMongoSendBytes, default_session_user));
 #else
             throw Exception(ErrorCodes::SUPPORT_IS_DISABLED, "Mongo protocol is disabled because ClickHouse has been built without the MongoDB or the rapidjson library");
 #endif
@@ -4893,7 +4893,7 @@ void Server::updateServers(
                             consumes_default_session_user = true;
                             break;
                         }
-                        if (type == "tcp" || type == "mysql" || type == "postgres")
+                        if (type == "tcp" || type == "mysql" || type == "postgres" || type == "mongo")
                             consumes_default_session_user = true;
                         /// The running listener still serves the handler set of the *previous*
                         /// configuration (the shared `prometheus.handlers` section), so consider the

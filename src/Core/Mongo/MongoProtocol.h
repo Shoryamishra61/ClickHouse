@@ -168,7 +168,7 @@ struct ParserLimits
 class QueryExecutor
 {
 public:
-    explicit QueryExecutor(std::unique_ptr<Session> & session_, const Poco::Net::SocketAddress & address_);
+    QueryExecutor(std::unique_ptr<Session> & session_, const Poco::Net::SocketAddress & address_, const String & default_session_user_);
 
     String execute(const String & query);
 
@@ -179,6 +179,7 @@ public:
       */
     void executeStreaming(const String & query, const std::function<void(std::string_view)> & on_row);
 
+    /// An empty `username` means the default session user of the endpoint.
     void authenticate(const String & username, const String & password);
 
     /// The name of the user this connection has authenticated as, or an empty string before a
@@ -195,6 +196,9 @@ private:
 
     std::unique_ptr<Session> & session;
     Poco::Net::SocketAddress address;
+    /// The user an empty user name is resolved to: the `default_session_user` server setting,
+    /// possibly overridden for the endpoint in the `protocols` section.
+    String default_session_user;
     pcg64_fast gen;
     std::uniform_int_distribution<Int32> dis;
 };

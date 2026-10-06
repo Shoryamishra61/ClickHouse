@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <Poco/Net/TCPServerConnection.h>
 #include <Common/Logger.h>
 #include <Common/ProfileEvents.h>
@@ -31,6 +32,7 @@ public:
         TCPServer & tcp_server_,
         bool ssl_enabled_,
         Int32 connection_id_,
+        std::optional<String> default_session_user_,
         const ProfileEvents::Event & read_event_ = ProfileEvents::end(),
         const ProfileEvents::Event & write_event_ = ProfileEvents::end());
 
@@ -44,6 +46,8 @@ private:
     std::unique_ptr<Session> session;
     [[maybe_unused]] bool ssl_enabled = false;
     Int32 connection_id = 0;
+    /// If set, overrides the `default_session_user` server setting for this listener.
+    std::optional<String> default_session_user;
 
     std::shared_ptr<ReadBufferFromPocoSocket> in;
     std::shared_ptr<WriteBuffer> out;
