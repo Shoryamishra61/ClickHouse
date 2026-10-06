@@ -19581,10 +19581,9 @@ async function executedPlanSource(query, context)
     const explain = typed ?? executedPlanStatement(tokens, format_clause);
     if (explain === null) return null;
     const session = new URL(context.url, location.href).searchParams.has('session_id');
-    /// A typed `EXPLAIN` is planned as the user asked: the result shape and `extremes` belong to its text output.
-    if (typed !== null) return { explain, ...context, shape: '', extremes: false, session, run_done: null };
-    /// `postImpl` sends `extremes = 1` exactly when the statement has no `FORMAT` clause.
-    return { explain, ...context, extremes: format_clause === null, session, run_done: null };
+    /// A typed `EXPLAIN` is planned as the user asked: the result shape belongs to its text output.
+    if (typed !== null) return { explain, ...context, shape: '', session, run_done: null };
+    return { explain, ...context, session, run_done: null };
 }
 
 /// `ParserInsertQuery` treats everything after `INSERT ... FORMAT <input format>` as inline input
@@ -20822,8 +20821,8 @@ function typedExplainPlanStatement(tokens, format_span)
     return applyExplainPlanInsertion(format_span ? text.slice(0, format_span.start) + text.slice(format_span.end) : text, insertion);
 }
 
-/// Returns the URL of that request: the run's server, user, database, result shape, query parameters
-/// and `extremes`, which all change the plan and its node ids. No query cache, so no plan is cached.
+/// Returns the URL of that request: the run's server, user, database, result shape and query parameters. Not
+/// the page's `extremes = 1`, which only feeds its bar coloring, and no query cache, so no plan is cached.
 function executedPlanUrl(source, password)
 {
     let url = source.url + (source.url.indexOf('?') >= 0 ? '&' : '?')
@@ -20834,7 +20833,6 @@ function executedPlanUrl(source, password)
     url += source.shape;
     for (const [name, value] of Object.entries(source.params))
         url += '&param_' + encodeURIComponent(name) + '=' + encodeURIComponent(value);
-    if (source.extremes) url += '&extremes=1';
     return url;
 }
 /// The keywords a query-level settings list may run into: the output clauses of

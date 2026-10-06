@@ -298,15 +298,15 @@ function run(html) {
         check('executed', `no plan for ${JSON.stringify(query)}`, executed(query), null);
 
     /// The URL of the plan request carries what changes the plan, and no query cache.
-    const source = { url: 'http://h:8123/', user: 'u', database: 'db', params: { p: 'a b' }, shape: '&limit=10&page=2', extremes: true };
+    const source = { url: 'http://h:8123/', user: 'u', database: 'db', params: { p: 'a b' }, shape: '&limit=10&page=2' };
     check('executed url', 'the run context', H.executedPlanUrl(source, 'pw'),
         'http://h:8123/?add_http_cors_header=1&default_format=JSON&framing_output_format=None&user=u&password=pw&database=db'
-        + '&limit=10&page=2&param_p=a%20b&extremes=1');
+        + '&limit=10&page=2&param_p=a%20b');
     check('executed url', 'empty parts are left out',
-        H.executedPlanUrl({ url: 'http://h/', user: '', database: '', params: {}, shape: '', extremes: false }, ''),
+        H.executedPlanUrl({ url: 'http://h/', user: '', database: '', params: {}, shape: '' }, ''),
         'http://h/?add_http_cors_header=1&default_format=JSON&framing_output_format=None');
     check('executed url', 'a server URL with a query string is continued',
-        H.executedPlanUrl({ ...source, url: 'http://h/?session_id=s', extremes: false }, '').startsWith('http://h/?session_id=s&add_http_cors_header=1'), true);
+        H.executedPlanUrl({ ...source, url: 'http://h/?session_id=s' }, '').startsWith('http://h/?session_id=s&add_http_cors_header=1'), true);
 
     /// A typed `EXPLAIN` runs as written; its Plan view makes a second call, the rewrite above minus a trailing `FORMAT`.
     const typed = (query, format = null) => H.typedExplainPlanStatement(H.fallbackTokenize(query),
