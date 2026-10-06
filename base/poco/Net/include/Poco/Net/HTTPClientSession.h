@@ -275,6 +275,9 @@ namespace Net
         /// The caller has to report the completion of the body with
         /// `setRequestBodyComplete`, so that connection reuse can tell a fully sent
         /// request from an interrupted one.
+        ///
+        /// A request with `Expect: 100-continue` is rejected with `NotImplementedException`:
+        /// waiting for `100 Continue` is only possible with `peekResponse` after `sendRequest`.
 
         BodyInfo sendRequestHeaders(HTTPRequest & request) { return sendRequestHeaders(request, nullptr, nullptr); }
 

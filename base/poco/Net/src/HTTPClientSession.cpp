@@ -376,6 +376,12 @@ std::ostream& HTTPClientSession::sendRequest(HTTPRequest& request, uint64_t * co
 HTTPClientSession::BodyInfo HTTPClientSession::sendRequestHeaders(HTTPRequest& request, uint64_t * connect_time, uint64_t * first_byte_time)
 {
 	/// Keep in sync with sendRequest() above: this is the same method without the iostream layer.
+
+	/// Waiting for `100 Continue` is only possible through `peekResponse`, which needs the request
+	/// body stream that this method does not create.
+	if (request.getExpectContinue())
+		throw Poco::NotImplementedException("Expect: 100-continue is not supported by HTTPClientSession::sendRequestHeaders");
+
 	_pRequestStream = 0;
 	_pResponseStream = 0;
 	clearException();
@@ -593,6 +599,8 @@ bool HTTPClientSession::peekResponse(HTTPResponse& response)
 {
 	poco_assert (!_responseReceived);
 
+	if (!_pRequestStream)
+		throw IllegalStateException("peekResponse requires a request sent with sendRequest");
 	_pRequestStream->flush();
 
 	if (networkException()) networkException()->rethrow();
