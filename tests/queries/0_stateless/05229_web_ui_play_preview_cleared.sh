@@ -22,7 +22,10 @@ echo '--- an empty preview packet clears the previous preview'
 echo "$UNINDENTED_PAGE" | grep -c -x -F 'else targetResultEl.clearPreview();'
 
 echo '--- an exception clears the preview left by the failed query'
-echo "$UNINDENTED_PAGE" | grep -c -x -F 'targetResultEl.clearPreview();'
+echo "$UNINDENTED_PAGE" | grep -A 4 -F -m1 'renderError(message)' | grep -c -x -F 'this.clearPreview();'
+
+echo '--- a failed table clears the preview left by the failed query'
+echo "$UNINDENTED_PAGE" | grep -A 4 -F -m1 'finalizeFailedTable(measureNow)' | grep -c -x -F 'this.clearPreview();'
 
 echo '--- the real result is never cleared as a preview'
 echo "$UNINDENTED_PAGE" | grep -A 3 -F -m1 'clearPreview()' | grep -c -F 'if (this._received_real_meta) return;'

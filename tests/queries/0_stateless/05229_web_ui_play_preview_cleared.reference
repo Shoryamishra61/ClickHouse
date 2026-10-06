@@ -4,5 +4,7 @@
 1
 --- an exception clears the preview left by the failed query
 1
+--- a failed table clears the preview left by the failed query
+1
 --- the real result is never cleared as a preview
 1
