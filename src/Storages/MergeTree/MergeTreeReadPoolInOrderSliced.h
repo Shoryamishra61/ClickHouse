@@ -228,8 +228,9 @@ private:
     size_t read_marks TSA_GUARDED_BY(mutex) = 0;
     /// The merge asked for a lane anew since the last `schedule`.
     bool merge_asked TSA_GUARDED_BY(mutex) = false;
-    /// The merge went through a lane to its end and asked for more: the query spans lanes, see `schedule`.
-    bool merge_passed_lane TSA_GUARDED_BY(mutex) = false;
+    /// Some lane was read to its end and the merge asked for more: the query is not answered within the
+    /// lanes it started on, see `schedule`.
+    bool query_spans_lanes TSA_GUARDED_BY(mutex) = false;
     bool finished TSA_GUARDED_BY(mutex) = false;
 };
 

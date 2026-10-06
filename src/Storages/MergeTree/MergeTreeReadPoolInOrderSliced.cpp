@@ -586,7 +586,7 @@ MergeTreeReadPoolInOrderSliced::Served MergeTreeReadPoolInOrderSliced::serve(siz
 
     if (!next_mark)
     {
-        merge_passed_lane = true;
+        query_spans_lanes = true;
         finishLaneUnlocked(lane);
         return Served{.finished = true};
     }
@@ -670,7 +670,7 @@ std::vector<size_t> MergeTreeReadPoolInOrderSliced::schedule(const std::vector<s
                 ++it;
                 continue;
             }
-            if (!merge_passed_lane && lanes[lane].slices.empty() && !inFlightAfter(it))
+            if (!query_spans_lanes && lanes[lane].slices.empty() && !inFlightAfter(it))
                 break;
             if (issued_marks + nextSliceMarks(lane) > budget)
                 break;
