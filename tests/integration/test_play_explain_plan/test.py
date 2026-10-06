@@ -1,26 +1,22 @@
 """Executable regression test for the `/play` EXPLAIN PLAN tree.
 
-The Web UI renders an `EXPLAIN` as a collapsible tree of plan nodes in its own Plan view, rather than
-as the server's indented text. The tree comes from `EXPLAIN PLAN json = 1`, which the page adds to the
-statement itself so that plain `EXPLAIN <query>` is enough - only the bytes on the wire change, and the
-query kept in the tab, the history and the Download button stays as the user wrote it.
+The Web UI renders a query plan as a collapsible tree (and a graph) of plan nodes in its own Plan view.
+The statement the user runs is sent as written; the Plan view makes a second call, the statement with
+`json = 1, indexes = 1, header = 1, actions = 1` added to an `EXPLAIN`, or wrapped into one for a `SELECT`.
 
-The contracts pinned here are the ones that decide whether a query still runs at all. `json` is
-accepted only by `EXPLAIN PLAN` (every other kind rejects it with `UNKNOWN_SETTING`), so the rewrite
-must recognise the kind - an absent one means `PLAN` - and leave `PIPELINE`, `AST`, `SYNTAX`,
-`QUERY TREE`, `ESTIMATE`, `TABLE OVERRIDE` and `CURRENT TRANSACTION` alone. It must also leave the SVG
-path alone, which it gets for free: a `digraph` comes from `graph = 1`, a PIPELINE/AST setting. A
-`json` the user wrote is never overwritten in either direction, since `json = 0` is how the indented
-text is asked for back. The insertion goes at the front of the settings list and carries its comma
-only when a list is already there, so both spellings are valid SQL. And because the decision is made
-on the lexer's tokens rather than by matching text, an `EXPLAIN` inside a string literal or a comment
-is inert, while the insertion offset - a sum over the tokens, insignificant ones included - survives
-leading comments, odd whitespace and multi-byte characters.
+The contracts pinned here are the ones that decide whether that call works at all. `json` is accepted
+only by `EXPLAIN PLAN` (every other kind rejects it with `UNKNOWN_SETTING`), and not together with
+`distributed = 1`, so those statements get no Plan view. A `json` the user wrote is never overwritten in
+either direction, since `json = 0` is how the indented text is asked for back. The insertion goes at the
+front of the settings list and carries its comma only when a list is already there. And because the
+decision is made on the lexer's tokens rather than by matching text, an `EXPLAIN` inside a string literal
+or a comment is inert, while the insertion offset survives leading comments, odd whitespace and
+multi-byte characters.
 
 The stateless suite has no JavaScript runtime, so the contracts are driven by a Node.js harness
 (`explain_harness.js`) executed inside the `clickhouse/mysql-js-client` container (node:22-alpine):
-it fetches `/play` from a real server, extracts the helpers from the page script, and asserts on
-their results.
+it fetches `/play` from a real server, extracts the helpers from the page script, asserts on their
+results, and sends the statements and their plan requests to the same server.
 """
 
 import io

@@ -31,13 +31,16 @@
 ///  - `parseExplainPlan` normalizes the payload into the tree the view renders, splitting each node's
 ///    properties into the scalars shown inline and the array/object ones shown as collapsible
 ///    sub-nodes, naming the inputs of a join (`left`, `right · build`), and returning null for
-///    anything that is not an `EXPLAIN PLAN json = 1` payload.
+///    anything that is not an `EXPLAIN PLAN json = 1` payload;
+///  - the server accepts what the page sends: each statement runs, and the plan request the page makes
+///    for it returns a plan.
 ///
 /// Driven by `test.py` inside the `clickhouse/mysql-js-client` container (node:22-alpine), against
-/// the `/play` page served by a real ClickHouse server. Can also be run standalone against a
-/// checkout for development: node explain_harness.js programs/server/play.html
+/// the `/play` page served by a real ClickHouse server, which also receives the statements. Can also be
+/// run standalone against a checkout for development: node explain_harness.js programs/server/play.html
+/// (the server checks are skipped without a server URL).
 ///
-/// Usage: node explain_harness.js <path-or-url-of-play.html>
+/// Usage: node explain_harness.js <path-or-url-of-play.html> [server-url]
 /// Exit code 0 = all scenarios pass; 1 = failure (details on stdout).
 
 'use strict';
@@ -103,15 +106,18 @@ function main() {
         console.error('usage: node explain_harness.js <path-or-url-of-play.html>');
         process.exit(2);
     }
-    return (/^https?:/.test(src)
+    const from_url = /^https?:/.test(src);
+    /// The server that receives the statements: the one serving the page, unless given.
+    const server = process.argv[3] || (from_url ? new URL('/', src).href : null);
+    return (from_url
         ? fetch(src).then(r => {
             if (!r.ok) throw new Error(`GET ${src} -> HTTP ${r.status}`);
             return r.text();
         })
-        : Promise.resolve(fs.readFileSync(src, 'utf8'))).then(run);
+        : Promise.resolve(fs.readFileSync(src, 'utf8'))).then((html) => run(html, server));
 }
 
-function run(html) {
+async function run(html, server) {
     const H = extractHelpers(extractScript(html));
 
     /// One statement as the Plan view sees it: whether its plan can be drawn, and the text of the second
@@ -330,8 +336,56 @@ function run(html) {
         [true, true, true, true]);
     check('typed', 'other statements are not', ['EXPLAIN PIPELINE SELECT 1', 'SELECT 1'].map(kind), [false, false]);
 
+    if (server)
+        await checkOnServer(H, server, typed, executed);
+    else
+        console.log('SKIP [server] no server URL, so no statement was sent');
+
     console.log(failures ? `\n${failures} scenario check(s) FAILED` : '\nAll scenarios passed');
     process.exit(failures ? 1 : 0);
+}
+
+/// The checks above compare strings, which cannot tell whether the server accepts them. Here each
+/// statement runs on `server`, and so does the plan request the page makes for it (`executedPlanSource`).
+async function checkOnServer(H, server, typed, executed) {
+    const url = H.executedPlanUrl({ url: server, user: '', database: '', params: {}, shape: '' }, '');
+    const post = async (statement) => {
+        const response = await fetch(url, { method: 'POST', body: statement });
+        const text = await response.text();
+        return { ok: response.ok, text };
+    };
+    /// A response read as `_fetchExecutedPlan` reads it.
+    const outcome = (response) => (response.ok
+        ? (H.parseExplainPlan(JSON.parse(JSON.parse(response.text).data[0].explain)) !== null ? 'plan' : response.text)
+        : response.text.trim());
+
+    for (const [query, format = null] of [
+        ['EXPLAIN SELECT 1'],
+        ['EXPLAIN PLAN SELECT number FROM numbers(10) WHERE number > 5'],
+        ['EXPLAIN PLAN indexes = 0, header = 1 SELECT 1'],
+        ['EXPLAIN WITH cte AS (SELECT 1 AS x) SELECT * FROM cte'],
+        ['EXPLAIN SELECT 1 FORMAT TSV', 'FORMAT TSV'],
+        ['EXPLAIN distributed = 0 SELECT 1'],
+        ['EXPLAIN distributed = 1 SELECT 1'],
+        ['EXPLAIN PLAN json = 1 SELECT 1'],
+        ['EXPLAIN PLAN json = 0 SELECT 1'],
+        ['EXPLAIN PLAN header = +1, json = 0 SELECT 1'],
+        ['EXPLAIN PIPELINE SELECT 1'],
+        ['SELECT 1'],
+        ['WITH 1 AS x SELECT x'],
+        ['(SELECT 1) UNION ALL (SELECT 2)'],
+        ['SELECT number FROM numbers(10) FORMAT JSON', 'FORMAT JSON'],
+        ['SELECT 1 FORMAT JSON SETTINGS max_threads = 1', 'FORMAT JSON'],
+    ]) {
+        const response = await post(query);
+        check('server', `${JSON.stringify(query)} runs`, response.ok ? 'ok' : response.text.trim(), 'ok');
+        const request = H.explainPlanRequest(H.fallbackTokenize(query));
+        if (request.plan_json && request.insertion === null)
+            check('server', `${JSON.stringify(query)} returns its own plan`, outcome(response), 'plan');
+        const plan_request = typed(query, format) ?? executed(query, format);
+        if (plan_request !== null)
+            check('server', `the plan request ${JSON.stringify(plan_request)} returns a plan`, outcome(await post(plan_request)), 'plan');
+    }
 }
 
 main().catch((e) => {
