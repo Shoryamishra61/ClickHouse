@@ -1317,7 +1317,14 @@ void DatabaseMaterializedPostgreSQL::onDropDatabaseFailed(ContextPtr)
     /// re-arm is needed for a plain database just as much. Recovery is idempotent, so a double call (a failure
     /// inside `beforeDropDatabase`, which recovers in its own catch, is also routed here) is harmless.
     std::lock_guard lock(handler_mutex);
-    drop_in_progress = false;
+
+    /// The interpreter calls this hook for any failed DROP DATABASE, including one that failed before
+    /// `beforeDropDatabase` was reached (e.g. `DROP DATABASE ... IF EMPTY`, an access or validation error).
+    /// Such an attempt has neither stopped anything nor removed a table, so there is nothing to recover - and
+    /// recovering anyway would consume a `nested_table_removed_during_drop` left over from an earlier refused
+    /// drop and needlessly re-persist the partial drop recovery marker.
+    if (!drop_in_progress.exchange(false))
+        return;
 
     /// The drop can also fail in `drop` itself - for example, the non-last coordinated replica's post-data
     /// teardown in `shutdownFinal` (`unregisterReplicaAndCheckLast` / `removeCoordinationNodes`) throws when

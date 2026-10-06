@@ -522,11 +522,12 @@ public:
     /// so an engine can veto it (throw) before any local data is removed. Default: no-op.
     virtual void beforeTruncateDatabase(ContextPtr /*context*/) {}
 
-    /// Called by DROP DATABASE if the drop failed (threw) at any point after `beforeDropDatabase` was invoked,
-    /// so an engine that committed teardown work in `beforeDropDatabase` (e.g. stopping a coordinated
-    /// replication handler before the nested tables are removed) can recover when the subsequent local
-    /// nested-table drop throws and the drop is refused, instead of staying mounted but silently stopped.
-    /// Must be idempotent. Default: no-op.
+    /// Called by DROP DATABASE if the drop failed (threw), so an engine that committed teardown work in
+    /// `beforeDropDatabase` (e.g. stopping a coordinated replication handler before the nested tables are
+    /// removed) can recover when the subsequent local nested-table drop throws and the drop is refused,
+    /// instead of staying mounted but silently stopped.
+    /// Also called when the drop failed before `beforeDropDatabase` was reached, so the engine must check
+    /// itself whether its teardown actually started. Must be idempotent. Default: no-op.
     virtual void onDropDatabaseFailed(ContextPtr /*context*/) {}
 
     /// Delete data and metadata stored inside the database, if exists.
