@@ -19,7 +19,7 @@ SELECT 'NullableTuple with transform_null_in=0';
 SELECT * FROM bloom_filter_nullable_index WHERE str IN
     (SELECT '1048576', str FROM bloom_filter_nullable_index) SETTINGS transform_null_in = 0, enable_analyzer = 1; -- { serverError NUMBER_OF_COLUMNS_DOESNT_MATCH }
 SELECT * FROM bloom_filter_nullable_index WHERE str IN
-    (SELECT '1048576', str FROM bloom_filter_nullable_index) SETTINGS transform_null_in = 0, enable_analyzer = 1; -- { serverError NUMBER_OF_COLUMNS_DOESNT_MATCH }
+    (SELECT '1048576', str FROM bloom_filter_nullable_index) SETTINGS transform_null_in = 0, use_skip_indexes = 0, enable_analyzer = 1; -- { serverError NUMBER_OF_COLUMNS_DOESNT_MATCH }
 
 SELECT 'NullableTuple with transform_null_in=1';
 
@@ -27,7 +27,7 @@ SELECT * FROM bloom_filter_nullable_index WHERE str IN
     (SELECT '1048576', str FROM bloom_filter_nullable_index) SETTINGS transform_null_in = 1, enable_analyzer = 1; -- { serverError NUMBER_OF_COLUMNS_DOESNT_MATCH }
 
 SELECT * FROM bloom_filter_nullable_index WHERE str IN
-    (SELECT '1048576', str FROM bloom_filter_nullable_index) SETTINGS transform_null_in = 1, enable_analyzer = 1; -- { serverError NUMBER_OF_COLUMNS_DOESNT_MATCH }
+    (SELECT '1048576', str FROM bloom_filter_nullable_index) SETTINGS transform_null_in = 1, use_skip_indexes = 0, enable_analyzer = 1; -- { serverError NUMBER_OF_COLUMNS_DOESNT_MATCH }
 
 
 SELECT 'NullableColumnFromCast with transform_null_in=0';
