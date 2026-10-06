@@ -404,6 +404,16 @@ void StatementGenerator::generateSettingValues(
 
         set->set_property(setting);
         set->set_value(settings.at(setting).random_func(rg, fc));
+        if (setting == "join_algorithm" && set->value().contains("grace_hash") && rg.nextSmallNumber() < 9)
+        {
+            /// `grace_hash` needs a spill threshold, and neither `max_bytes_before_external_join` nor
+            /// `max_bytes_ratio_before_external_join` provides one by default. Usually pair it with one,
+            /// so the join gets exercised instead of failing with `BAD_ARGUMENTS` or being skipped.
+            SetValue * threshold = vals->add_other_values();
+
+            threshold->set_property("max_bytes_before_external_join");
+            threshold->set_value(bytesRangeNonZero(rg, fc));
+        }
     }
 }
 
