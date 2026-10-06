@@ -47,11 +47,12 @@ function reserved_for_one_merge()
 
     ${CLICKHOUSE_LOCAL} --path "$data_dir" -q "$(create_table t_measure)" < /dev/null
 
-    ${CLICKHOUSE_LOCAL} --path "$data_dir" -q "
+    timeout 120 ${CLICKHOUSE_LOCAL} --path "$data_dir" -q "
         SYSTEM ENABLE FAILPOINT plain_merge_task_pause_before_prepare;
-        SELECT sleepEachRow(3) FROM numbers(3) SETTINGS max_block_size = 1 FORMAT Null;
-        SELECT value FROM system.metrics WHERE metric = 'MergesMutationsMemoryReservation';
-        SELECT sleepEachRow(3) FROM numbers(2) SETTINGS max_block_size = 1 FORMAT Null;
+        -- The background merge is selected - and its estimate reserved - once its parts are older than
+        -- min_age_to_force_merge_seconds, and then parks on the failpoint before it executes, so the
+        -- reservation is still held when the metric is read.
+        SYSTEM WAIT FAILPOINT plain_merge_task_pause_before_prepare PAUSE;
         SELECT value FROM system.metrics WHERE metric = 'MergesMutationsMemoryReservation';
         SYSTEM DISABLE FAILPOINT plain_merge_task_pause_before_prepare;
     " < /dev/null | sort -rn | head -1
@@ -59,8 +60,8 @@ function reserved_for_one_merge()
     rm -rf "$data_dir"
 }
 
-# On a loaded CI machine the background selector can lag behind min_age_to_force_merge_seconds, so a zero
-# measurement means the merge was not selected within the window - retry on fresh data.
+# The measurement waits until the selected merge parks on the failpoint, so a zero (empty) measurement means
+# the merge was not selected before the timeout - retry on fresh data.
 function reserved_for_one_merge_with_retries()
 {
     local result=0

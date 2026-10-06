@@ -44,16 +44,13 @@ function reserved_for_merge()
         INSERT INTO t_merge_mem_marks SELECT number, number, number, number, toString(number) FROM numbers(2000, 1000);
     " < /dev/null
 
-    ${CLICKHOUSE_LOCAL} --path "$data_dir" -q "
+    timeout 120 ${CLICKHOUSE_LOCAL} --path "$data_dir" -q "
         SYSTEM ENABLE FAILPOINT plain_merge_task_pause_before_prepare;
 
-        -- The background merge is selected - and its estimate reserved - while these sleeps run, and then
-        -- parks on the failpoint before it executes, so the reservation is still held when the metric is read.
-        SELECT sleepEachRow(3) FROM numbers(3) SETTINGS max_block_size = 1 FORMAT Null;
-        SELECT value FROM system.metrics WHERE metric = 'MergesMutationsMemoryReservation';
-        SELECT sleepEachRow(3) FROM numbers(2) SETTINGS max_block_size = 1 FORMAT Null;
-        SELECT value FROM system.metrics WHERE metric = 'MergesMutationsMemoryReservation';
-        SELECT sleepEachRow(3) FROM numbers(2) SETTINGS max_block_size = 1 FORMAT Null;
+        -- The background merge is selected - and its estimate reserved - once its parts are older than
+        -- min_age_to_force_merge_seconds, and then parks on the failpoint before it executes, so the
+        -- reservation is still held when the metric is read.
+        SYSTEM WAIT FAILPOINT plain_merge_task_pause_before_prepare PAUSE;
         SELECT value FROM system.metrics WHERE metric = 'MergesMutationsMemoryReservation';
 
         SYSTEM DISABLE FAILPOINT plain_merge_task_pause_before_prepare;
@@ -62,10 +59,9 @@ function reserved_for_merge()
     rm -rf "$data_dir"
 }
 
-# A merge that is selected parks on the failpoint until the final SYSTEM DISABLE FAILPOINT, so a zero
-# measurement means the background selector did not pick the merge within the observation window at all
-# (on a loaded CI machine selection can lag behind min_age_to_force_merge_seconds) - retry the whole
-# measurement on fresh data instead of stretching every run's window.
+# The measurement waits until the selected merge parks on the failpoint, so a zero (empty) measurement means
+# the background selector did not pick the merge before the timeout at all - retry the whole measurement on
+# fresh data.
 function reserved_for_merge_with_retries()
 {
     local result=0
