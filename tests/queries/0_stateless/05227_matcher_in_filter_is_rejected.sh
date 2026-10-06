@@ -52,10 +52,30 @@ SELECT 'tuple matcher in a filter', groupArray(id) FROM tup_05227 SETTINGS addit
 SELECT count() FROM tup_05227 SETTINGS additional_table_filters = {'tup_05227': 'not ignore(tup_05227.*)'}; -- { serverError BAD_ARGUMENTS }
 CREATE ROW POLICY OR REPLACE p_05227 ON tup_05227 USING greatest(tup.*) > 0 TO ALL;
 SELECT 'tuple matcher in a row policy', groupArray(id) FROM tup_05227;
--- A qualified matcher can be checked against the table columns only on the read.
-CREATE ROW POLICY OR REPLACE p_05227 ON tup_05227 USING not ignore(tup_05227.*) TO ALL;
-SELECT count() FROM tup_05227; -- { serverError BAD_ARGUMENTS }
+-- When the table exists, a qualified matcher is checked against its columns when the policy is created or altered.
+CREATE ROW POLICY OR REPLACE p_05227 ON tup_05227 USING not ignore(tup_05227.*) TO ALL; -- { serverError BAD_ARGUMENTS }
+CREATE ROW POLICY OR REPLACE p_05227 ON tup_05227 USING not ignore(no_such_column.*) TO ALL; -- { serverError BAD_ARGUMENTS }
+CREATE ROW POLICY OR REPLACE p_05227 ON tup_05227 USING not ignore(id.*) TO ALL; -- { serverError BAD_ARGUMENTS }
+ALTER ROW POLICY p_05227 ON tup_05227 USING not ignore(tup_05227.*); -- { serverError BAD_ARGUMENTS }
+SELECT 'tuple row policy kept after a rejected ALTER', groupArray(id) FROM tup_05227;
 DROP ROW POLICY p_05227 ON tup_05227;
+
+-- A policy on a table that does not exist yet is checked on the read.
+DROP TABLE IF EXISTS late_05227;
+CREATE ROW POLICY OR REPLACE p_05227 ON late_05227 USING not ignore(late_05227.*) TO ALL;
+CREATE TABLE late_05227 (id UInt32) ENGINE = MergeTree ORDER BY id;
+SELECT count() FROM late_05227; -- { serverError BAD_ARGUMENTS }
+DROP ROW POLICY p_05227 ON late_05227;
+DROP TABLE late_05227;
+
+-- With analyzer_compatibility_prefer_alias_over_subcolumn, a qualifier that names both the table and a Tuple column
+-- expands into the table columns, so it is rejected.
+DROP TABLE IF EXISTS same_05227;
+CREATE TABLE same_05227 (id UInt32, same_05227 Tuple(x UInt8, y UInt8)) ENGINE = MergeTree ORDER BY id;
+INSERT INTO same_05227 VALUES (1, (1, 2)), (2, (0, 0)), (3, (0, 3));
+SELECT 'tuple named as the table', groupArray(id) FROM same_05227 SETTINGS analyzer_compatibility_prefer_alias_over_subcolumn = 0, additional_table_filters = {'same_05227': 'greatest(same_05227.*) > 0'};
+SELECT count() FROM same_05227 SETTINGS analyzer_compatibility_prefer_alias_over_subcolumn = 1, additional_table_filters = {'same_05227': 'greatest(same_05227.*) > 0'}; -- { serverError BAD_ARGUMENTS }
+DROP TABLE same_05227;
 DROP TABLE tup_05227;
 
 -- A matcher-free filter keeps working.

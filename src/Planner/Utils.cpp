@@ -1,6 +1,5 @@
 #include <Planner/Utils.h>
 
-#include <Parsers/ASTIdentifier.h>
 #include <Parsers/ASTSelectWithUnionQuery.h>
 #include <Parsers/ASTSelectQuery.h>
 #include <Parsers/ASTSubquery.h>
@@ -68,6 +67,7 @@ namespace Setting
 {
     extern const SettingsString additional_result_filter;
     extern const SettingsBool analyzer_compatibility_apply_final_to_all_joined_tables;
+    extern const SettingsBool analyzer_compatibility_prefer_alias_over_subcolumn;
     extern const SettingsUInt64 max_bytes_to_read;
     extern const SettingsUInt64 max_bytes_to_read_leaf;
     extern const SettingsSeconds max_estimated_execution_time;
@@ -723,16 +723,30 @@ QueryTreeNodePtr buildFilterQueryTree(ASTPtr filter_expression,
     /// against their own tables. A qualified matcher over a column of the table, e.g. `tup.*` for a `Tuple` column
     /// `tup`, expands into the elements of that column and is fine.
     StorageSnapshotPtr storage_snapshot;
+    NameSet table_names;
+    if (!table_expression->getAlias().empty())
+        table_names.insert(table_expression->getAlias());
     if (const auto * table_node = table_expression->as<TableNode>())
-        storage_snapshot = table_node->getStorageSnapshot();
-    else if (const auto * table_function_node = table_expression->as<TableFunctionNode>())
-        storage_snapshot = table_function_node->getStorageSnapshot();
-
-    auto is_column_qualifier = [&](const ASTIdentifier & qualifier)
     {
-        return storage_snapshot
-            && storage_snapshot->tryGetColumn(GetColumnsOptions(GetColumnsOptions::All).withSubcolumns(), qualifier.name());
-    };
+        storage_snapshot = table_node->getStorageSnapshot();
+        const auto & storage_id = table_node->getStorageID();
+        table_names.insert(storage_id.getTableName());
+        table_names.insert(storage_id.getDatabaseName() + "." + storage_id.getTableName());
+    }
+    else if (const auto * table_function_node = table_expression->as<TableFunctionNode>())
+    {
+        storage_snapshot = table_function_node->getStorageSnapshot();
+    }
+
+    auto is_column_qualifier = makeTupleColumnQualifierCheck(
+        [&](const String & name) -> std::optional<NameAndTypePair>
+        {
+            if (!storage_snapshot)
+                return {};
+            return storage_snapshot->tryGetColumn(GetColumnsOptions(GetColumnsOptions::All).withSubcolumns(), name);
+        },
+        std::move(table_names),
+        query_context->getSettingsRef()[Setting::analyzer_compatibility_prefer_alias_over_subcolumn]);
 
     if (const auto * matcher = findColumnMatcherInExpression(*filter_expression, is_column_qualifier))
         throw Exception(ErrorCodes::BAD_ARGUMENTS,

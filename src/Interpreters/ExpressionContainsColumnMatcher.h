@@ -1,8 +1,11 @@
 #pragma once
 
+#include <Core/NamesAndTypes.h>
+#include <Core/Names.h>
 #include <Parsers/IAST_fwd.h>
 
 #include <functional>
+#include <optional>
 
 namespace DB
 {
@@ -22,5 +25,17 @@ using IsColumnQualifier = std::function<bool(const ASTIdentifier & qualifier)>;
 /// A qualified matcher whose qualifier is a column, e.g. `tup.*` for a `Tuple` column `tup`, expands into the
 /// elements of that column rather than into table columns, so it is not reported.
 const IAST * findColumnMatcherInExpression(const IAST & ast, const IsColumnQualifier & is_column_qualifier);
+
+/// The rule of `QueryAnalyzer::resolveQualifiedMatcher` for a qualified matcher in an expression over a single table:
+/// its qualifier expands into the elements of a column when it is a column of a `Tuple` type (possibly inside
+/// `Nullable`, `Array` or `Map`), unless `analyzer_compatibility_prefer_alias_over_subcolumn` is enabled and the
+/// qualifier also names the table, in which case it expands into the table columns.
+///
+/// `try_get_column` looks up a column (or subcolumn) of the table by name, `table_names` are the names under which
+/// the table can be referenced (its name, `database.name`, its alias).
+IsColumnQualifier makeTupleColumnQualifierCheck(
+    std::function<std::optional<NameAndTypePair>(const String &)> try_get_column,
+    NameSet table_names,
+    bool prefer_table_over_column);
 
 }

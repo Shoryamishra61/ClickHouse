@@ -1,5 +1,9 @@
 #include <Interpreters/ExpressionContainsColumnMatcher.h>
 
+#include <DataTypes/DataTypeArray.h>
+#include <DataTypes/DataTypeMap.h>
+#include <DataTypes/DataTypeNullable.h>
+#include <DataTypes/DataTypeTuple.h>
 #include <Functions/UserDefined/UserDefinedSQLFunctionFactory.h>
 #include <Parsers/ASTAsterisk.h>
 #include <Parsers/ASTColumnsMatcher.h>
@@ -76,6 +80,39 @@ const IAST * findColumnMatcherInExpression(const IAST & ast, const IsColumnQuali
 {
     UnorderedSetWithMemoryTracking<String> visited_udfs;
     return findColumnMatcherInExpressionImpl(ast, is_column_qualifier, visited_udfs);
+}
+
+IsColumnQualifier makeTupleColumnQualifierCheck(
+    std::function<std::optional<NameAndTypePair>(const String &)> try_get_column_,
+    NameSet table_names_,
+    bool prefer_table_over_column)
+{
+    return [try_get_column = std::move(try_get_column_), table_names = std::move(table_names_), prefer_table_over_column](
+               const ASTIdentifier & qualifier)
+    {
+        const auto & name = qualifier.name();
+        if (prefer_table_over_column && table_names.contains(name))
+            return false;
+
+        auto column = try_get_column(name);
+        if (!column)
+            return false;
+
+        DataTypePtr type = column->type;
+        while (true)
+        {
+            if (const auto * nullable_type = typeid_cast<const DataTypeNullable *>(type.get()))
+                type = nullable_type->getNestedType();
+            else if (const auto * array_type = typeid_cast<const DataTypeArray *>(type.get()))
+                type = array_type->getNestedType();
+            else if (const auto * map_type = typeid_cast<const DataTypeMap *>(type.get()))
+                type = map_type->getNestedType();
+            else
+                break;
+        }
+
+        return typeid_cast<const DataTypeTuple *>(type.get()) != nullptr;
+    };
 }
 
 }

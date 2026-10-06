@@ -5,25 +5,64 @@
 #include <Access/Common/AccessFlags.h>
 #include <Access/Common/AccessRightsElement.h>
 #include <Access/RowPolicy.h>
+#include <Core/Settings.h>
 #include <Interpreters/Context.h>
+#include <Interpreters/DatabaseCatalog.h>
+#include <Interpreters/ExpressionContainsColumnMatcher.h>
 #include <Interpreters/executeDDLQueryOnCluster.h>
 #include <Interpreters/removeOnClusterClauseIfNeeded.h>
 #include <Parsers/Access/ASTCreateRowPolicyQuery.h>
 #include <Parsers/Access/ASTRolesOrUsersSet.h>
 #include <Parsers/Access/ASTRowPolicyName.h>
+#include <Storages/IStorage.h>
 #include <boost/range/algorithm/sort.hpp>
 
 
 namespace DB
 {
 
+namespace Setting
+{
+    extern const SettingsBool analyzer_compatibility_prefer_alias_over_subcolumn;
+}
+
 namespace ErrorCodes
 {
     extern const int ACCESS_ENTITY_ALREADY_EXISTS;
+    extern const int BAD_ARGUMENTS;
 }
 
 namespace
 {
+    /// `checkRowPolicyFilterExpression` lets a qualified matcher through, because without the columns of the table
+    /// it cannot tell `tup.*` over a `Tuple` column from `t.*` over the table. For a policy on a concrete table that
+    /// exists, check it against the columns of the table now, rather than only on the next read. A policy on all the
+    /// tables of a database (`ON db.*`) or on a table that does not exist yet is checked on the read.
+    void checkRowPolicyFilterMatchersAgainstTable(const ASTPtr & filter, const RowPolicyName & full_name, const ContextPtr & context)
+    {
+        if (!filter || full_name.table_name == RowPolicyName::ANY_TABLE_MARK)
+            return;
+
+        StorageID storage_id(full_name.database, full_name.table_name);
+        auto table = DatabaseCatalog::instance().tryGetTable(storage_id, context);
+        if (!table)
+            return;
+
+        auto metadata_snapshot = table->getInMemoryMetadataPtr(context, /* bypass_metadata_cache = */ false);
+        const auto & columns = metadata_snapshot->getColumns();
+
+        auto is_column_qualifier = makeTupleColumnQualifierCheck(
+            [&](const String & name) { return columns.tryGetColumn(GetColumnsOptions(GetColumnsOptions::All).withSubcolumns(), name); },
+            NameSet{full_name.table_name, full_name.database + "." + full_name.table_name},
+            context->getSettingsRef()[Setting::analyzer_compatibility_prefer_alias_over_subcolumn]);
+
+        if (const auto * matcher = findColumnMatcherInExpression(*filter, is_column_qualifier))
+            throw Exception(ErrorCodes::BAD_ARGUMENTS,
+                "Column matcher {} is not allowed in a row policy filter expression; list the columns explicitly. In filter {}",
+                matcher->formatForErrorMessage(),
+                filter->formatForErrorMessage());
+    }
+
     void updateRowPolicyFromQueryImpl(
         RowPolicy & policy,
         const ASTCreateRowPolicyQuery & query,
@@ -76,6 +115,10 @@ BlockIO InterpreterCreateRowPolicyQuery::execute()
     getContext()->checkAccess(required_access);
 
     query.replaceEmptyDatabase(getContext()->getCurrentDatabase());
+
+    for (const auto & [filter_type, filter] : query.filters)
+        for (const auto & full_name : query.names->full_names)
+            checkRowPolicyFilterMatchersAgainstTable(filter, full_name, getContext());
 
     std::optional<RolesOrUsersSet> roles_from_query;
     if (query.roles)
