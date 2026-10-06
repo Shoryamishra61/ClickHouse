@@ -161,7 +161,7 @@ bool ColumnLowCardinality::tryInsert(const Field & x)
 
 void ColumnLowCardinality::insertDefault()
 {
-    idx.insertIndex(getDictionary().getDefaultValueIndex());
+    idx.insertIndex(std::as_const(*this).getDictionary().getDefaultValueIndex());
 }
 
 #if !defined(DEBUG_OR_SANITIZER_BUILD)
