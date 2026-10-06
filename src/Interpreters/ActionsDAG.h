@@ -127,7 +127,12 @@ public:
         /// `input_header`, when given, is the header the DAG reads: an INPUT is then identified by where
         /// it sits in it as well as by its normalized name, which tells `__table1.id` and `__table2.id`
         /// apart after the qualifier index is erased. See `writeCacheKeyColumnName`.
-        void updateHash(SipHash & hash_state, bool build_independent = false, const Block * input_header = nullptr) const;
+        /// See `ActionsDAG::updateHash` for `with_variable_size_constant_values`.
+        void updateHash(
+            SipHash & hash_state,
+            bool build_independent = false,
+            const Block * input_header = nullptr,
+            bool with_variable_size_constant_values = true) const;
     };
 
     /// NOTE: std::list is an implementation detail.
@@ -554,6 +559,7 @@ public:
       * @param equivalent_right_stream_column_to_left_stream_column - equivalent right stream column name to left stream column map.
       * @param cross_type_equivalent_columns - the equivalent columns whose replacement is a cast of the opposite side's
       * key rather than a rename of an equal-typed column.
+      * @param filter_is_always_false - no row passes the filter, and a side whose emptiness empties the join output receives it.
       */
     ActionsForJOINFilterPushDown splitActionsForJOINFilterPushDown(
         const std::string & filter_name,
@@ -565,7 +571,8 @@ public:
         const Names & equivalent_columns_to_push_down,
         const std::unordered_map<std::string, ColumnWithTypeAndName> & equivalent_left_stream_column_to_right_stream_column,
         const std::unordered_map<std::string, ColumnWithTypeAndName> & equivalent_right_stream_column_to_left_stream_column,
-        const NameSet & cross_type_equivalent_columns);
+        const NameSet & cross_type_equivalent_columns,
+        bool filter_is_always_false);
 
     /** Build filter dag from multiple filter dags.
       *
@@ -596,7 +603,20 @@ public:
     /// `build_independent` leaves out anything that differs between two builds of the same query -
     /// column names and prepared-set values - so the result identifies what the DAG computes rather
     /// than how this particular plan named it. See `Node::updateHash`.
-    void updateHash(SipHash & hash_state, bool build_independent = false, const Block * input_header = nullptr) const;
+    ///
+    /// With `with_variable_size_constant_values = false` a constant whose value has no fixed size
+    /// (`IColumn::valuesHaveFixedSize` is false: a string, an array, an aggregate function state) is
+    /// hashed by its name and type but not by its value, which can be arbitrarily large - a folded
+    /// scalar subquery can carry a `groupBitmap` state of millions of elements. Fixed-size values are
+    /// always hashed. Two such constants that share a name then collide even when their values differ,
+    /// e.g. a string passed through a subquery column (named `__table1.s`, not by its value) or a
+    /// heavy scalar subquery over changed data (named `__getScalar('<hash of the subquery>')`). Meant
+    /// for keys where a wrong match only costs a worse estimate, such as the hash-table-stats key.
+    void updateHash(
+        SipHash & hash_state,
+        bool build_independent = false,
+        const Block * input_header = nullptr,
+        bool with_variable_size_constant_values = true) const;
 
     friend class QueryPlanOptimizations::TextIndexDAGReplacer;
 

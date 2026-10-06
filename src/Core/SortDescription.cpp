@@ -17,6 +17,7 @@
 #include <DataTypes/DataTypesBinaryEncoding.h>
 #include <Processors/QueryPlan/QueryPlanFormat.h>
 #include <DataTypes/DataTypeNullable.h>
+#include <DataTypes/TypeTree.h>
 
 #include <string_view>
 #include <unordered_set>
@@ -112,12 +113,7 @@ bool comparisonCanMergeDistinctValues(const IDataType & type)
         return which.isFloat() || which.isDynamic() || which.isVariant() || which.isObject();
     };
 
-    if (is_ambiguous(type))
-        return true;
-
-    bool result = false;
-    type.forEachChild([&](const IDataType & child) { result = result || is_ambiguous(child); });
-    return result;
+    return anyInTypeTree(type, is_ambiguous);
 }
 
 }
