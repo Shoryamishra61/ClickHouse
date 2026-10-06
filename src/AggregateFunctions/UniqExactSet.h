@@ -255,17 +255,20 @@ public:
                 }
             };
 
+            /// The calling thread takes part in the work too, so one job less is enqueued (`i` starts from 1).
             const size_t max_threads_to_enqueue = std::min<size_t>(thread_pool.getMaxThreads(), NUM_BUCKETS);
-            for (size_t i = 0; i < max_threads_to_enqueue
+            for (size_t i = 1; i < max_threads_to_enqueue
                  && next_bucket_to_merge->load(std::memory_order_relaxed) < NUM_BUCKETS; ++i)
                 runner.enqueueAndKeepTrack(thread_func, Priority{});
+
+            thread_func();
         }
         catch (...)
         {
             is_cancelled.store(true);
             throw;
         }
-        runner.waitForAllToFinishAndRethrowFirstError();
+        runner.cancelScheduledAndWaitForStartedAndRethrowFirstError();
     }
 
     auto merge(const UniqExactSet & other, ThreadPool * thread_pool = nullptr, std::atomic<bool> * is_cancelled = nullptr)
@@ -533,16 +536,20 @@ private:
                     }
                 };
 
+                /// The calling thread takes part in the work too: when the pool is busy (e.g. with the merges
+                /// of other groups), it does not wait idle for the jobs to be picked up. So one job less is enqueued.
                 const size_t num_jobs = std::min<size_t>(thread_pool.getMaxThreads(), single_level_sources.size());
-                for (size_t i = 0; i < num_jobs; ++i)
+                for (size_t i = 1; i < num_jobs && next_source->load(std::memory_order_relaxed) < single_level_sources.size(); ++i)
                     runner.enqueueAndKeepTrack(thread_func, Priority{});
+
+                thread_func();
             }
             catch (...)
             {
                 is_cancelled.store(true);
                 throw;
             }
-            runner.waitForAllToFinishAndRethrowFirstError();
+            runner.cancelScheduledAndWaitForStartedAndRethrowFirstError();
         }
 
         /// The former content of a single-level destination now lives in `scattered`.
@@ -576,16 +583,19 @@ private:
                 }
             };
 
+            /// The calling thread takes part in the work too, so one job less is enqueued (`i` starts from 1).
             const size_t num_jobs = std::min<size_t>(thread_pool.getMaxThreads(), NUM_BUCKETS);
-            for (size_t i = 0; i < num_jobs && next_bucket->load(std::memory_order_relaxed) < NUM_BUCKETS; ++i)
+            for (size_t i = 1; i < num_jobs && next_bucket->load(std::memory_order_relaxed) < NUM_BUCKETS; ++i)
                 runner.enqueueAndKeepTrack(thread_func, Priority{});
+
+            thread_func();
         }
         catch (...)
         {
             is_cancelled.store(true);
             throw;
         }
-        runner.waitForAllToFinishAndRethrowFirstError();
+        runner.cancelScheduledAndWaitForStartedAndRethrowFirstError();
     }
 
     template <typename Set>
