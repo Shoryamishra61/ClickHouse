@@ -311,22 +311,6 @@ Poco::AutoPtr<Poco::XML::Document> getDiskConfigurationFromASTImpl(const ASTs & 
     return xml_document;
 }
 
-void forceAnonymousS3DiskConfig(Poco::Util::AbstractConfiguration & config)
-{
-    /// Force the disk root and every `locations.<name>` child anonymous: an `include` can resolve a
-    /// `locations.<name>` S3 child with its own server-managed auth, and this pre-resolution fallback runs
-    /// instead of the post-resolution per-prefix check, so a root-only rewrite would leave such a child with
-    /// the server identity (built with `for_disk_s3 = true`, bypassing the restriction).
-    forceAnonymousS3DiskConfigAtPrefix(config, "");
-    if (config.has("locations"))
-    {
-        Poco::Util::AbstractConfiguration::Keys locations;
-        config.keys("locations", locations);
-        for (const auto & location : locations)
-            forceAnonymousS3DiskConfigAtPrefix(config, "locations." + location + ".");
-    }
-}
-
 void forceAnonymousS3DiskConfigAtPrefix(Poco::Util::AbstractConfiguration & config, const String & prefix)
 {
     /// Force the S3 client unsigned: clear `http_client` (which would mint a GCP token regardless of the
@@ -422,6 +406,28 @@ bool resolvedS3BackendIsRestricted(
 
 }
 
+void forceAnonymousS3DiskConfig(Poco::Util::AbstractConfiguration & config, const DynamicS3DiskCredentialInfo & info)
+{
+    /// The pre-resolution check found that the disk root relies on server-managed credentials, so the root is
+    /// forced anonymous. An `include` can also resolve `locations.<name>` children, and a multi-location
+    /// `DiskObjectStorage` builds one object storage per child, each with its own `object_storage_type` and
+    /// auth. So every child is checked on its own the way the post-resolution check does it, and only an S3
+    /// child whose resolved auth is not proved safe is forced anonymous: a non-S3 or an already anonymous
+    /// child keeps its configuration instead of being degraded together with the root.
+    forceAnonymousS3DiskConfigAtPrefix(config, "");
+    if (config.has("locations"))
+    {
+        Poco::Util::AbstractConfiguration::Keys locations;
+        config.keys("locations", locations);
+        for (const auto & location : locations)
+        {
+            const String prefix = "locations." + location + ".";
+            if (resolvedS3BackendIsRestricted(config, prefix, /* is_root */ false, info))
+                forceAnonymousS3DiskConfigAtPrefix(config, prefix);
+        }
+    }
+}
+
 void validateResolvedS3DiskCredentials(
     Poco::Util::AbstractConfiguration & config, ContextPtr context, bool is_loading_from_existing_metadata, const DynamicS3DiskCredentialInfo & info)
 {
@@ -487,7 +493,7 @@ DiskConfigurationPtr getDiskConfigurationFromAST(const ASTs & disk_args, Context
     /// This path does not resolve `include`, so there is no post-resolution check; only honor the
     /// pre-resolution decision.
     if (info.load_anonymously)
-        forceAnonymousS3DiskConfig(*conf);
+        forceAnonymousS3DiskConfig(*conf, info);
     return conf;
 }
 

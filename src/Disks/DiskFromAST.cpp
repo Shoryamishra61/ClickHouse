@@ -69,7 +69,7 @@ static Poco::AutoPtr<Poco::Util::XMLConfiguration> getValidatedDiskConfig(
         /// re-validate the resolved config, so an `include` that injects an S3 backend with server-managed
         /// auth (past a literal non-S3 `type` in the AST) is still caught.
         if (s3_disk_info.load_anonymously)
-            forceAnonymousS3DiskConfig(*config);
+            forceAnonymousS3DiskConfig(*config, s3_disk_info);
         else
             validateResolvedS3DiskCredentials(*config, context, attach, s3_disk_info);
     }
