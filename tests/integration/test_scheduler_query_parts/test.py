@@ -99,16 +99,19 @@ def test_tasks_share_query_slot(started_cluster):
 
 def test_distributed_subqueries_share_query_slot(started_cluster):
     # Every distributed subquery has its own distributed plan; the tasks of all of them are parts of
-    # the same query and share its slot.
+    # the same query and share its slot. The outer query reads a table too, because a plan that reads
+    # `system.one` cannot be distributed.
     joined_before = joined_slots(node1)
     result = node1.query(
         f"""
         SELECT
+            count(),
             (SELECT count() FROM test_query_parts WHERE id % 2 = 0),
             (SELECT sum(id) FROM test_query_parts WHERE id % 2 = 1)
+        FROM test_query_parts
         SETTINGS workload = 'all', workload_admission_timeout_ms = 30000, {DISTRIBUTED_SETTINGS}
         """,
         timeout=120,
     )
-    assert result == "5000\t25000000\n"
+    assert result == "10000\t5000\t25000000\n"
     assert joined_slots(node1) > joined_before
