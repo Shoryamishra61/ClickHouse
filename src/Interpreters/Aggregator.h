@@ -1110,14 +1110,20 @@ private:
         DeferredMerges * deferred = nullptr)
         const;
 
+    /// Merge the states of one source row `src` into `dst` and destroy them. If `deferred` is not null,
+    /// pairs of states too large to merge serially are recorded there instead, as in `mergeDataImpl`.
+    void mergeAndDestroyRowOrDefer(AggregateDataPtr dst, AggregateDataPtr src, Arena * arena, DeferredMerges * deferred) const;
+
     /// Merge data from hash table `src` into `dst`, but only for keys that already exist in dst. In other cases, merge the data into `overflows`.
+    /// `deferred` is the same as for `mergeDataImpl`.
     template <typename Method, typename Table>
     requires MapAggregationMethod<Method>
     void mergeDataNoMoreKeysImpl(
         Table & table_dst,
         AggregatedDataWithoutKey & overflows,
         Table & table_src,
-        Arena * arena) const;
+        Arena * arena,
+        DeferredMerges * deferred = nullptr) const;
 
     /// A set method has no aggregate states, so there is nothing to merge or overflow.
     template <typename Method, typename Table>
@@ -1126,7 +1132,8 @@ private:
         Table & table_dst,
         AggregatedDataWithoutKey & overflows,
         Table & table_src,
-        Arena * arena) const;
+        Arena * arena,
+        DeferredMerges * deferred = nullptr) const;
 
     /// A set method has no aggregate states: the merge is a plain key union.
     template <typename Method, typename Table>
@@ -1143,7 +1150,8 @@ private:
         Table & table_dst,
         AggregatedDataWithoutKey & overflows,
         Table & table_src,
-        Arena * arena) const;
+        Arena * arena,
+        DeferredMerges * deferred = nullptr) const;
 
     /// Same, but ignores the rest of the keys.
     template <typename Method, typename Table>
@@ -1151,7 +1159,8 @@ private:
     void mergeDataOnlyExistingKeysImpl(
         Table & table_dst,
         Table & table_src,
-        Arena * arena) const;
+        Arena * arena,
+        DeferredMerges * deferred = nullptr) const;
 
     /// A set method has no aggregate states, so there is nothing to merge.
     template <typename Method, typename Table>
@@ -1159,7 +1168,8 @@ private:
     void mergeDataOnlyExistingKeysImpl(
         Table & table_dst,
         Table & table_src,
-        Arena * arena) const;
+        Arena * arena,
+        DeferredMerges * deferred = nullptr) const;
 
     void mergeWithoutKeyDataImpl(
         ManyAggregatedDataVariants & non_empty_data,

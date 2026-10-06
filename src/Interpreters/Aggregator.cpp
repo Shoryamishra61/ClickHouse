@@ -4922,15 +4922,42 @@ void Aggregator::mergeDeferredLargeStates(DeferredMerges & deferred, Arena * are
 }
 
 
+void Aggregator::mergeAndDestroyRowOrDefer(AggregateDataPtr dst, AggregateDataPtr src, Arena * arena, DeferredMerges * deferred) const
+{
+    auto is_deferred = [&](size_t i)
+    {
+        return deferred && aggregate_functions[i]->isAbleToParallelizeMerge()
+            && aggregate_functions[i]->isLargeMergePair(dst + offsets_of_aggregate_states[i], src + offsets_of_aggregate_states[i]);
+    };
+
+    for (size_t i = 0; i < params.aggregates_size; ++i)
+        if (!is_deferred(i))
+            aggregate_functions[i]->merge(dst + offsets_of_aggregate_states[i], src + offsets_of_aggregate_states[i], arena);
+
+    /// The pairs are recorded only after every merge of the row succeeded: if one throws, the source row is
+    /// still owned by the source table and is destroyed once, by it. The decision is the same as above,
+    /// because the states of a deferred pair have not been touched.
+    for (size_t i = 0; i < params.aggregates_size; ++i)
+    {
+        if (is_deferred(i))
+        {
+            (*deferred)[i].dst_places.push_back(dst + offsets_of_aggregate_states[i]);
+            (*deferred)[i].src_places.push_back(src + offsets_of_aggregate_states[i]);
+        }
+        else
+            aggregate_functions[i]->destroy(src + offsets_of_aggregate_states[i]);
+    }
+}
+
 template <typename Method, typename Table>
 requires SetAggregationMethod<Method>
 void NO_INLINE Aggregator::mergeDataNoMoreKeysImpl(
-    Table & table_dst, AggregatedDataWithoutKey &, Table & table_src, Arena * arena) const
+    Table & table_dst, AggregatedDataWithoutKey &, Table & table_src, Arena * arena, DeferredMerges *) const
 {
     /// What separates the two for a map method is where the states of the refused keys go: here into the
     /// overflow row, in `mergeDataOnlyExistingKeysImpl` nowhere. A set method has no states, so the overflow
     /// row would receive nothing and the two are the same operation.
-    mergeDataOnlyExistingKeysImpl<Method, Table>(table_dst, table_src, arena);
+    mergeDataOnlyExistingKeysImpl<Method, Table>(table_dst, table_src, arena, nullptr);
 }
 
 template <typename Method, typename Table>
@@ -4939,7 +4966,8 @@ void NO_INLINE Aggregator::mergeDataNoMoreKeysImpl(
     Table & table_dst,
     AggregatedDataWithoutKey & overflows,
     Table & table_src,
-    Arena * arena) const
+    Arena * arena,
+    DeferredMerges * deferred) const
 {
     if (is_simple_count)
     {
@@ -4963,17 +4991,7 @@ void NO_INLINE Aggregator::mergeDataNoMoreKeysImpl(
 
     table_src.mergeToViaFind(table_dst, [&](AggregateDataPtr dst, AggregateDataPtr & src, bool found)
     {
-        AggregateDataPtr res_data = found ? dst : overflows;
-
-        for (size_t i = 0; i < params.aggregates_size; ++i)
-            aggregate_functions[i]->merge(
-                res_data + offsets_of_aggregate_states[i],
-                src + offsets_of_aggregate_states[i],
-                arena);
-
-        for (size_t i = 0; i < params.aggregates_size; ++i)
-            aggregate_functions[i]->destroy(src + offsets_of_aggregate_states[i]);
-
+        mergeAndDestroyRowOrDefer(found ? dst : overflows, src, arena, deferred);
         src = nullptr;
     });
     table_src.clearAndShrink();
@@ -4981,7 +4999,7 @@ void NO_INLINE Aggregator::mergeDataNoMoreKeysImpl(
 
 template <typename Method, typename Table>
 requires SetAggregationMethod<Method>
-void NO_INLINE Aggregator::mergeDataOnlyExistingKeysImpl(Table & table_dst, Table & table_src, Arena * arena) const
+void NO_INLINE Aggregator::mergeDataOnlyExistingKeysImpl(Table & table_dst, Table & table_src, Arena * arena, DeferredMerges *) const
 {
     /// The NULL group is carried over as the map version does: it lives outside the cells, so the "no more
     /// keys" cutoff does not apply to it and dropping it would lose a group the query is meant to return.
@@ -4999,7 +5017,8 @@ requires MapAggregationMethod<Method>
 void NO_INLINE Aggregator::mergeDataOnlyExistingKeysImpl(
     Table & table_dst,
     Table & table_src,
-    Arena * arena) const
+    Arena * arena,
+    DeferredMerges * deferred) const
 {
     if (is_simple_count)
     {
@@ -5026,15 +5045,7 @@ void NO_INLINE Aggregator::mergeDataOnlyExistingKeysImpl(
         if (!found)
             return;
 
-        for (size_t i = 0; i < params.aggregates_size; ++i)
-            aggregate_functions[i]->merge(
-                dst + offsets_of_aggregate_states[i],
-                src + offsets_of_aggregate_states[i],
-                arena);
-
-        for (size_t i = 0; i < params.aggregates_size; ++i)
-            aggregate_functions[i]->destroy(src + offsets_of_aggregate_states[i]);
-
+        mergeAndDestroyRowOrDefer(dst, src, arena, deferred);
         src = nullptr;
     });
     table_src.clearAndShrink();
@@ -5161,14 +5172,16 @@ void NO_INLINE Aggregator::mergeSingleLevelDataImpl(
                     getDataVariant<Method>(*res).data,
                     res->without_key,
                     getDataVariant<Method>(current).data,
-                    res->aggregates_pool);
+                    res->aggregates_pool,
+                    deferred_ptr);
             }
             else
             {
                 mergeDataOnlyExistingKeysImpl<Method>(
                     getDataVariant<Method>(*res).data,
                     getDataVariant<Method>(current).data,
-                    res->aggregates_pool);
+                    res->aggregates_pool,
+                    deferred_ptr);
             }
 
             /// `current` will not destroy the states of aggregate functions in the destructor

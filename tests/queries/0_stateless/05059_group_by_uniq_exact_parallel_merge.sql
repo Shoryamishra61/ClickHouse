@@ -131,3 +131,16 @@ FROM
     GROUP BY k
 )
 SETTINGS max_threads = 4, distributed_aggregation_memory_efficient = 0, group_by_two_level_threshold = 1, group_by_two_level_threshold_bytes = 1;
+
+-- After `max_rows_to_group_by` is reached the serial single-level merge only merges the keys already in the result,
+-- the others into the overflow row (with totals) or nowhere; the large states of the existing keys are deferred too.
+-- The first row of every block has the hot key 0, so every thread has it and it always survives the limit.
+SELECT k, uniqExact(n) AS u
+FROM (SELECT if(number % 8 = 0 AND number % 8192 != 0, number % 64 + 1, 0) AS k, number AS n FROM numbers_mt(320000))
+GROUP BY k WITH TOTALS HAVING k = 0 ORDER BY k
+SETTINGS max_threads = 4, max_block_size = 8192, group_by_two_level_threshold = 0, group_by_two_level_threshold_bytes = 0, enable_parallel_single_level_merge = 0, max_rows_to_group_by = 4, group_by_overflow_mode = 'any', totals_mode = 'before_having';
+
+SELECT k, uniqExact(n) AS u
+FROM (SELECT if(number % 8 = 0 AND number % 8192 != 0, number % 64 + 1, 0) AS k, number AS n FROM numbers_mt(320000))
+GROUP BY k HAVING k = 0 ORDER BY k
+SETTINGS max_threads = 4, max_block_size = 8192, group_by_two_level_threshold = 0, group_by_two_level_threshold_bytes = 0, enable_parallel_single_level_merge = 0, max_rows_to_group_by = 4, group_by_overflow_mode = 'any';
