@@ -16,7 +16,7 @@ ClickHouse 提供了一种实验性的 `logsql` 方言，可使用
 在会话中启用该方言并配置源表：
 
 ```sql
-SET allow_experimental_logsql_dialect = 1;
+SET enable_logsql_dialect = 1;
 SET logsql_database = 'default';
 SET logsql_table = 'logs';
 SET logsql_time_column = '_time';

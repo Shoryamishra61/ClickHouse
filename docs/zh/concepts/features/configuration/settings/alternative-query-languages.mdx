@@ -93,7 +93,7 @@ ClickHouse 会将 LogsQL 查询转换为对已配置日志表执行的 `SELECT` 
 如需启用该功能，并将其指向一个包含时间列和消息列的表，请按如下方式配置：
 
 ```sql
-SET allow_experimental_logsql_dialect = 1;
+SET enable_logsql_dialect = 1;
 SET logsql_database = 'default';
 SET logsql_table = 'logs';
 SET logsql_time_column = '_time';

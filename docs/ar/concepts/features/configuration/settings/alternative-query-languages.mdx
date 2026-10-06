@@ -93,7 +93,7 @@ LogsQL هي لغة الاستعلام في [VictoriaLogs](https://docs.victoriam
 لتفعيلها وتوجيهها إلى جدول يحتوي على عمود للوقت وعمود للرسالة:
 
 ```sql
-SET allow_experimental_logsql_dialect = 1;
+SET enable_logsql_dialect = 1;
 SET logsql_database = 'default';
 SET logsql_table = 'logs';
 SET logsql_time_column = '_time';

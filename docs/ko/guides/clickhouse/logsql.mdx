@@ -16,7 +16,7 @@ ClickHouse는 [VictoriaLogs LogsQL](https://docs.victoriametrics.com/victorialog
 다음과 같이 세션에서 이 방언을 활성화하고 원본 테이블을 구성하십시오.
 
 ```sql
-SET allow_experimental_logsql_dialect = 1;
+SET enable_logsql_dialect = 1;
 SET logsql_database = 'default';
 SET logsql_table = 'logs';
 SET logsql_time_column = '_time';

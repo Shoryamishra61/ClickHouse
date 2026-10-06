@@ -93,7 +93,7 @@ ClickHouse는 LogsQL 쿼리를 지정된 로그 테이블을 대상으로 하는
 이 기능을 활성화하고 시간 컬럼과 메시지 컬럼이 있는 테이블을 대상으로 지정하려면 다음과 같이 설정하십시오.
 
 ```sql
-SET allow_experimental_logsql_dialect = 1;
+SET enable_logsql_dialect = 1;
 SET logsql_database = 'default';
 SET logsql_table = 'logs';
 SET logsql_time_column = '_time';

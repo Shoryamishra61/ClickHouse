@@ -93,7 +93,7 @@ O ClickHouse converte uma consulta LogsQL em uma consulta `SELECT` sobre uma tab
 Para habilitá-la e direcioná-la a uma tabela com uma coluna de tempo e uma coluna de mensagem:
 
 ```sql
-SET allow_experimental_logsql_dialect = 1;
+SET enable_logsql_dialect = 1;
 SET logsql_database = 'default';
 SET logsql_table = 'logs';
 SET logsql_time_column = '_time';

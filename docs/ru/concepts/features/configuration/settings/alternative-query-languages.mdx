@@ -93,7 +93,7 @@ ClickHouse преобразует запрос LogsQL в `SELECT`-запрос �
 Чтобы включить эту возможность и указать таблицу со столбцом времени и столбцом сообщения, выполните следующее:
 
 ```sql
-SET allow_experimental_logsql_dialect = 1;
+SET enable_logsql_dialect = 1;
 SET logsql_database = 'default';
 SET logsql_table = 'logs';
 SET logsql_time_column = '_time';
