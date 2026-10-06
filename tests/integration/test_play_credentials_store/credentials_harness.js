@@ -98,6 +98,9 @@ function makeContext(storage) {
         decodeURIComponent,
         JSON,
         Object,
+        /// What the page computes without `CSS.supports`: no field is ever reported as autofilled, so
+        /// `dropAutofilledStalePassword` (called by `storeCredentials`) keeps every password here.
+        AUTOFILL_SELECTOR: null,
     };
     ctx.PasswordCredential = class PasswordCredential {
         constructor({ id, password, name }) {
@@ -125,7 +128,8 @@ function makeContext(storage) {
 
 const FUNCTIONS = ['effectiveConnectionUser', 'implicitUserStamp', 'sameConnectionUser', 'sameAsLiveConnectionUser',
     'serverIdentityKey', 'implicitUsersStorageKey', 'learnedImplicitUser', 'rememberImplicitUser',
-    'serverAddressWithoutSession', 'storeCredentials', 'getServerStatus', 'buildCompletionUrl'];
+    'serverAddressWithoutSession', 'storeCredentials', 'getServerStatus', 'buildCompletionUrl',
+    'isAutofilled', 'dropAutofilledStalePassword'];
 
 function boot(js, { withPasswordCredential = true, storage = makeStorage() } = {}) {
     const ctx = makeContext(storage);
@@ -139,7 +143,7 @@ async function requestUrls(ctx) {
     ctx.fetched.length = 0;
     await vm.runInContext('getServerStatus(url_elem.value, user_elem.value, password_elem.value)', ctx);
     const status_url = ctx.fetched.length ? ctx.fetched[0].url : null;
-    const completion_url = vm.runInContext('buildCompletionUrl()', ctx);
+    const completion_url = vm.runInContext('buildCompletionUrl(url_elem.value, user_elem.value, password_elem.value)', ctx);
     return { status_url, completion_url };
 }
 
