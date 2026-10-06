@@ -67,6 +67,7 @@ namespace ErrorCodes
     extern const int NOT_IMPLEMENTED;
     extern const int CANNOT_BACKUP_TABLE;
     extern const int FAULT_INJECTED;
+    extern const int NOT_INITIALIZED;
 }
 
 namespace FailPoints
@@ -112,6 +113,8 @@ StorageMaterializedPostgreSQL::StorageMaterializedPostgreSQL(
             is_attach,
             *replication_settings,
             /* is_materialized_postgresql_database */false);
+
+    is_standalone_coordinated = replication_handler->isCoordinated();
 
     replication_handler->addStorage(remote_table_name, this);
     replication_handler->startup(/* delayed */is_attach);
@@ -194,6 +197,22 @@ StoragePtr StorageMaterializedPostgreSQL::getNested() const
 StoragePtr StorageMaterializedPostgreSQL::tryGetNested() const
 {
     return DatabaseCatalog::instance().tryGetTable(getNestedStorageID(), nested_context);
+}
+
+
+void StorageMaterializedPostgreSQL::checkCoordinatedNestedAvailable(int error_code, const char * action) const
+{
+    /// In coordinated mode the local nested `ReplicatedReplacingMergeTree` exists before this replica holds the
+    /// complete initial snapshot (a standby, or any replica right after a restart, fetches it through ClickHouse
+    /// replication). `PostgreSQLReplicationHandler::markCaughtUpNestedTablesAvailable` sets `has_nested` once it
+    /// has caught up; until then reading or backing up the local copy would observe an empty or partial table.
+    /// The database engine enforces the same by hiding such tables (see `DatabaseMaterializedPostgreSQL`).
+    if (is_standalone_coordinated && !has_nested.load())
+        throw Exception(error_code,
+            "Cannot {} table {}: this replica of the coordinated MaterializedPostgreSQL setup has not caught up with "
+            "its initial snapshot yet. Failing closed instead of exposing a partial result. Retry once the table is "
+            "available",
+            action, getStorageID().getNameForLogs());
 }
 
 
@@ -610,6 +629,8 @@ void StorageMaterializedPostgreSQL::read(
         size_t max_block_size,
         size_t num_streams)
 {
+    checkCoordinatedNestedAvailable(ErrorCodes::NOT_INITIALIZED, "read");
+
     auto nested_table = getNested();
 
     readFinalFromNestedStorage(query_plan, nested_table, column_names,
@@ -624,6 +645,8 @@ void StorageMaterializedPostgreSQL::read(
 void StorageMaterializedPostgreSQL::backupData(
     BackupEntriesCollector & backup_entries_collector, const String & data_path_in_backup, const std::optional<ASTs> & partitions)
 {
+    checkCoordinatedNestedAvailable(ErrorCodes::CANNOT_BACKUP_TABLE, "back up");
+
     /// The data lives in the nested ReplacingMergeTree table, delegate the backup to it.
     auto nested = tryGetNested();
     if (!nested)

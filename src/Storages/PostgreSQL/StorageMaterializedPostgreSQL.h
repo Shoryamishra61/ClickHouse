@@ -160,6 +160,10 @@ public:
 
     StoragePtr tryGetNested() const;
 
+    /// Throw `error_code` if this is a coordinated single-table engine whose local nested table has not caught
+    /// up with the initial snapshot yet.
+    void checkCoordinatedNestedAvailable(int error_code, const char * action) const;
+
     /// Create a temporary MaterializedPostgreSQL table with current_table_name + TMP_SUFFIX.
     /// An empty wrapper is returned - it does not have inMemory metadata, just acts as an empty wrapper over
     /// temporary nested, which will be created shortly after.
@@ -214,6 +218,10 @@ private:
 
     /// Set for wrappers that belong to a coordinated (Keeper-managed) MaterializedPostgreSQL database.
     bool is_coordinated = false;
+
+    /// Set for a single MaterializedPostgreSQL table engine that uses the Keeper-based coordination. Cached
+    /// here because `replication_handler` is reset by DROP.
+    bool is_standalone_coordinated = false;
 
     std::atomic<bool> database_replication_ready = false;
 
