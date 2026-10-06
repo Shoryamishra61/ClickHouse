@@ -24,6 +24,7 @@
 #include <Processors/ISource.h>
 #include <Processors/Sources/NullSource.h>
 
+#include <algorithm>
 #include <atomic>
 #include <functional>
 #include <memory>
@@ -78,6 +79,27 @@ struct MemorySourceFilter
 };
 
 using MemorySourceFilterPtr = std::shared_ptr<const MemorySourceFilter>;
+
+/// `AdaptiveExpressionActions` (e.g. the split PREWHERE steps with `enable_adaptive_short_circuit_lazy_execution`)
+/// are stateful and not thread safe, so every stream needs its own copy of the filter with such actions.
+static MemorySourceFilterPtr cloneSourceFilterForStream(const MemorySourceFilterPtr & filter)
+{
+    if (!filter)
+        return filter;
+
+    auto is_adaptive = [](const MemorySourceFilter::Step & step)
+    {
+        return step.actions->getSettings().enable_adaptive_short_circuit_lazy_execution;
+    };
+    if (std::ranges::none_of(filter->steps, is_adaptive))
+        return filter;
+
+    auto result = std::make_shared<MemorySourceFilter>(*filter);
+    for (auto & step : result->steps)
+        if (is_adaptive(step))
+            step.actions = step.actions->clone();
+    return result;
+}
 
 class MemorySource : public ISource
 {
@@ -547,8 +569,9 @@ Pipe ReadFromMemoryStorageStep::makePipe()
 
     for (size_t stream = 0; stream < num_streams; ++stream)
     {
+        auto stream_filter = stream == 0 ? source_filter : cloneSourceFilterForStream(source_filter);
         auto source = std::make_shared<MemorySource>(
-            physical_columns, virtual_columns, current_data, parallel_execution_index, nullptr, nullptr, source_filter, output_header);
+            physical_columns, virtual_columns, current_data, parallel_execution_index, nullptr, nullptr, std::move(stream_filter), output_header);
         if (stream == 0)
             source->addTotalRowsApprox(snapshot_data.rows);
         pipes.emplace_back(std::move(source));

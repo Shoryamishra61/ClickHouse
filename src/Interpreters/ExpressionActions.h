@@ -210,7 +210,7 @@ protected:
     /// Called after all the actions were executed on a block. `input_num_rows` is the number of rows the
     /// block had *before* the execution: row-multiplying actions such as `ARRAY JOIN` change the block size,
     /// and the profiling below has to be attributed to the rows the actions actually ran on.
-    virtual void finalizeBlockExecution(size_t /*input_num_rows*/) const {}
+    virtual void finalizeBlockExecution(size_t /*input_num_rows*/, bool /*dry_run*/) const {}
 };
 
 /// AdaptiveExpressionActions builds upon ExpressionActions to enable dynamic evaluation of whether a
@@ -240,7 +240,7 @@ protected:
         size_t num_rows,
         bool dry_run) const override;
 
-    void finalizeBlockExecution(size_t input_num_rows) const override;
+    void finalizeBlockExecution(size_t input_num_rows, bool dry_run) const override;
 
 private:
     struct ActionState

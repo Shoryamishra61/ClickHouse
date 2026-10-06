@@ -929,7 +929,7 @@ void ExpressionActions::execute(
     block.swap(res);
 
     num_rows = execution_context.num_rows;
-    finalizeBlockExecution(input_num_rows);
+    finalizeBlockExecution(input_num_rows, dry_run);
 }
 
 std::vector<ssize_t> ExpressionActions::getInputPositions(const Block & header) const
@@ -1037,7 +1037,7 @@ Columns ExpressionActions::executeOnColumns(
     }
 
     num_rows = execution_context.num_rows;
-    finalizeBlockExecution(input_num_rows);
+    finalizeBlockExecution(input_num_rows, dry_run);
     return res;
 }
 
@@ -1279,7 +1279,7 @@ ColumnPtr AdaptiveExpressionActions::executeFunction(
         /// an eager one - the static schedule would have wrapped it into a `ColumnFunction` instead.
         ProfileEvents::increment(ProfileEvents::AdaptiveShortCircuitEagerExecutions);
 
-        for (size_t i = 0; i < arguments.size(); ++i)
+        auto reduce_argument = [&](size_t i)
         {
             auto & argument = arguments[i];
             if (const auto * column_function = checkAndGetShortCircuitArgument(argument.column))
@@ -1289,6 +1289,22 @@ ColumnPtr AdaptiveExpressionActions::executeFunction(
                 argument.column = column_function->reduce(dry_run, &argument_profile).column;
                 lazy_arguments_elapsed += argument_profile.execution_elapsed;
             }
+        };
+
+        /// A nested short circuit function (e.g. `if` inside `and`) handles its lazily executed arguments by itself
+        /// and profiles them, the same as `ColumnFunction::reduce` does. Reducing all of them here would execute
+        /// its branches eagerly on all the rows and break their own adaptive decisions.
+        IFunctionBase::ShortCircuitSettings short_circuit_settings;
+        if (action_states[action_index].is_short_circuit_function
+            && action.node->function_base->isShortCircuit(short_circuit_settings, arguments.size()))
+        {
+            for (size_t i : short_circuit_settings.arguments_with_disabled_lazy_execution)
+                reduce_argument(i);
+        }
+        else
+        {
+            for (size_t i = 0; i < arguments.size(); ++i)
+                reduce_argument(i);
         }
     }
 
@@ -1299,7 +1315,9 @@ ColumnPtr AdaptiveExpressionActions::executeFunction(
     profile.execution_elapsed = watch.elapsed();
     /// Add the time spent reducing lazy arguments afterwards.
     profile.execution_elapsed += lazy_arguments_elapsed;
-    accumulateProfile(action_index, profile);
+    /// The timings of a dry run do not reflect the real execution, they must not affect the adaptive decisions.
+    if (!dry_run)
+        accumulateProfile(action_index, profile);
     return res;
 }
 
@@ -1384,8 +1402,12 @@ size_t AdaptiveExpressionActions::getActionInputRows(size_t action_index) const
     return current_round_input_rows;
 }
 
-void AdaptiveExpressionActions::finalizeBlockExecution(size_t input_num_rows) const
+void AdaptiveExpressionActions::finalizeBlockExecution(size_t input_num_rows, bool dry_run) const
 {
+    /// A dry run (e.g. of a lambda body during the analysis) is not a real execution: do not count its rows.
+    if (dry_run)
+        return;
+
     /// Revisit the decisions only after enough rows were processed, otherwise the measurements are too noisy.
     static constexpr size_t update_on_every_rows = 20000;
 
