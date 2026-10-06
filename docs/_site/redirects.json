@@ -1,9 +1,5 @@
 [
   {
-    "destination": "/clickstack",
-    "source": "/clickstack/index"
-  },
-  {
     "destination": "/clickstack/managing/overview",
     "source": "/clickstack/managing/admin"
   },
