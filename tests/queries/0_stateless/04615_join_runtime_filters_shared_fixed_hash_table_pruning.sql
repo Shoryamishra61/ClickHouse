@@ -35,6 +35,8 @@ SET enable_analyzer = 1;
 SET enable_join_runtime_filters = 1;
 SET enable_join_runtime_filters_index_analysis = 1;
 SET join_runtime_filter_from_fixed_hash_table = 1;
+-- Pin (randomized in CI): the shared filter is only published when the build side converts to a `FixedHashMap`.
+SET enable_join_fixed_hash_table_conversion = 1;
 SET use_skip_indexes_on_data_read = 1;
 SET enable_parallel_replicas = 0;
 SET join_algorithm = 'hash';
