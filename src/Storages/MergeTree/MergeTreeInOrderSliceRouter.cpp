@@ -2,7 +2,6 @@
 
 #include <Storages/MergeTree/MergeTreeSliceInfo.h>
 
-#include <algorithm>
 
 namespace DB
 {
@@ -78,16 +77,16 @@ IProcessor::Status MergeTreeInOrderSliceRouter::prepare()
         }
     }
 
-    /// One parked source per slice waiting in the FIFO; sources still reading take theirs when done.
-    const size_t idle_sources = std::count(input_needed.begin(), input_needed.end(), false);
-    size_t queued = pool->schedule(idle_sources);
-    for (size_t source = 0; source < source_inputs.size() && queued > 0; ++source)
+    /// The pool names a parked source per slice waiting in its FIFO; sources still reading take theirs
+    /// when done.
+    std::vector<size_t> parked;
+    for (size_t source = 0; source < source_inputs.size(); ++source)
+        if (!input_needed[source])
+            parked.push_back(source);
+    for (size_t source : pool->schedule(parked))
     {
-        if (input_needed[source])
-            continue;
         source_inputs[source]->setNeeded();
         input_needed[source] = true;
-        --queued;
     }
 
     for (bool needed : input_needed)

@@ -239,6 +239,8 @@ public:
     size_t getNumMarksToRead() const { return mark_ranges.getNumberOfMarks(); }
     /// The first mark of the task; `mark_ranges` is consumed while reading.
     size_t getFirstMark() const { return first_mark; }
+    /// Bytes of column data read so far, before any filtering: what the task cost its reader.
+    size_t getNumReadBytes() const { return total_read_bytes; }
 
     /// `read_request_map` narrows the part's map; `patch_read_request_maps` then holds the matching patch maps.
     static Readers createReaders(
@@ -277,6 +279,7 @@ private:
     /// Ranges to read from data_part.
     MarkRanges mark_ranges;
     const size_t first_mark;
+    size_t total_read_bytes = 0;
 
     /// Ranges to read from patch parts.
     std::vector<MarkRanges> patches_mark_ranges;
