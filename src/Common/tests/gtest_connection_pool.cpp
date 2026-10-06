@@ -1014,6 +1014,46 @@ TEST_F(ConnectionPoolTest, NoReceiveCall)
     ASSERT_EQ(0, CurrentMetrics::get(metrics.stored_count));
 }
 
+/// A request body with `Content-Length` written through `sendHTTPRequest` with a buffer much smaller
+/// than the body, so that it leaves in many pieces. The server echoes the body back, and the second
+/// exchange on the reused connection checks that the first body ended exactly at its `Content-Length`.
+TEST_F(ConnectionPoolTest, FixedLengthRequestBodyInManyWrites)
+{
+    auto pool = getPool();
+    auto metrics = pool->getMetrics();
+
+    String data;
+    for (size_t i = 0; i < 10000; ++i)
+        data += std::to_string(i) + "\n";
+
+    for (size_t attempt = 0; attempt < 2; ++attempt)
+    {
+        auto connection = pool->getConnection(timeouts, nullptr);
+
+        Poco::Net::HTTPRequest request(Poco::Net::HTTPRequest::HTTP_PUT, "/", "HTTP/1.1");
+        request.setContentLength(data.size());
+        auto request_body = DB::sendHTTPRequest(*connection, request, 137);
+        for (size_t pos = 0; pos < data.size(); pos += 1000)
+            DB::writeString(data.substr(pos, 1000), *request_body);
+        request_body->finalize();
+
+        Poco::Net::HTTPResponse response;
+        auto response_body = DB::receiveHTTPResponse(*connection, response);
+        ASSERT_EQ(response.getStatus(), Poco::Net::HTTPResponse::HTTP_OK);
+        ASSERT_EQ(response.getContentLength64(), static_cast<Int64>(data.size()));
+
+        String result;
+        DB::readStringUntilEOF(result, *response_body);
+        ASSERT_EQ(data, result);
+    }
+
+    ASSERT_EQ(1, getServer().totalConnections());
+    ASSERT_EQ(1, DB::CurrentThread::getProfileEvents()[metrics.created]);
+    ASSERT_EQ(2, DB::CurrentThread::getProfileEvents()[metrics.preserved]);
+    ASSERT_EQ(1, DB::CurrentThread::getProfileEvents()[metrics.reused]);
+    ASSERT_EQ(0, DB::CurrentThread::getProfileEvents()[metrics.reset]);
+}
+
 /// `getConnection` hands out the full `Poco::Net::HTTPClientSession` interface, so a caller may
 /// drive a pooled connection through the legacy `std::iostream` API instead of
 /// `sendRequestHeaders`/`receiveHTTPResponse`. The pool decides whether a connection can be reused
@@ -1147,7 +1187,9 @@ TEST_F(ConnectionPoolTest, LegacyStreamApiIsThrottled)
 
     {
         /// The throttlers live in the `ThreadStatus`, which a unit test does not have by default.
-        DB::ThreadStatus thread_status;
+        /// Do not put a bare `ThreadStatus` on the stack: its destructor resets `current_thread` for good,
+        /// and later tests in the same process would fail with `Thread status was not initialized`.
+        DB::MainThreadStatus::getInstance();
 
         DB::CurrentThread::ReadThrottlingScope read_scope(read_throttler);
         DB::CurrentThread::WriteThrottlingScope write_scope(write_throttler);
