@@ -39,6 +39,34 @@ bool parseDatabaseAndTableName(IParser::Pos & pos, Expected & expected, String &
     return true;
 }
 
+bool parseSimpleDatabaseAndTableName(IParser::Pos & pos, Expected & expected, String & database_str, String & table_str)
+{
+    ParserToken s_dot(TokenType::Dot);
+    ParserIdentifier identifier_parser;
+
+    database_str = "";
+    table_str = "";
+
+    ASTPtr first;
+    if (!identifier_parser.parse(pos, first, expected))
+        return false;
+
+    if (s_dot.ignore(pos))
+    {
+        ASTPtr second;
+        if (!identifier_parser.parse(pos, second, expected))
+            return false;
+        database_str = getIdentifierName(first);
+        table_str = getIdentifierName(second);
+    }
+    else
+    {
+        table_str = getIdentifierName(first);
+    }
+
+    return true;
+}
+
 bool parseDatabaseAndTableAsAST(IParser::Pos & pos, Expected & expected, ASTPtr & database, ASTPtr & table)
 {
     ParserToken s_dot(TokenType::Dot);
