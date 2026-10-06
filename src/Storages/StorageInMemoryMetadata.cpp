@@ -1160,9 +1160,11 @@ bool settingCanAffectQueryRows(std::string_view setting_name)
     /// attempt, which would append a duplicate copy of unchanged rows. The rest are here because a
     /// settings profile of a view's definer routinely carries them, and an edit to one of them must
     /// not invalidate a watermark either.
-    /// The result limits and `extremes` are overwritten by `StorageView`'s `getViewContext` (they
-    /// apply to the outer query, not to the view), and writing them marks them as changed, so they
-    /// have to be left out here as well.
+    /// `extremes` only adds a separate block of minimums and maximums next to the result and never
+    /// changes its rows. The result limits `max_result_rows` / `max_result_bytes` are deliberately not
+    /// here: `StorageView`'s `getViewContext` pins them to zero, so they fold in as a constant for a
+    /// plain view, but `StorageMaterializedView::readImpl` and a refresh run under the effective
+    /// reader's limits as they are, and a limit there can truncate the result or fail the query.
     static const std::set<std::string_view> settings_not_affecting_rows = {
         "log_comment",
         "log_formatted_queries",
@@ -1200,8 +1202,6 @@ bool settingCanAffectQueryRows(std::string_view setting_name)
         "http_zlib_compression_level",
         "send_progress_in_http_headers",
         "extremes",
-        "max_result_bytes",
-        "max_result_rows",
     };
 
     if (settings_not_affecting_rows.contains(setting_name))
