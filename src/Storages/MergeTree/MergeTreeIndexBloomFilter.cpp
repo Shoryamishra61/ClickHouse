@@ -8,6 +8,7 @@
 #include <Common/FieldAccurateComparison.h>
 #include <Core/Settings.h>
 #include <DataTypes/DataTypeArray.h>
+#include <DataTypes/DataTypeDynamic.h>
 #include <DataTypes/DataTypeEnum.h>
 #include <DataTypes/DataTypeFixedString.h>
 #include <DataTypes/DataTypeLowCardinality.h>
@@ -174,6 +175,152 @@ ColumnWithTypeAndName getPreparedSetInfo(const ConstSetPtr & prepared_set)
         set_elements.emplace_back(set_element->convertToFullColumnIfConst());
 
     return {ColumnTuple::create(set_elements), std::make_shared<DataTypeTuple>(prepared_set->getElementsTypes()), "dummy"};
+}
+
+const ActionsDAG::Node * getNodeWithoutAliases(const RPNBuilderTreeNode & tree_node)
+{
+    const ActionsDAG::Node * node = tree_node.getDAGNode();
+    while (node && node->type == ActionsDAG::ActionType::ALIAS)
+    {
+        if (node->children.size() != 1)
+            return nullptr;
+        node = node->children[0];
+    }
+    return node;
+}
+
+bool getDirectArrayJoinIndexColumn(const RPNBuilderTreeNode & tree_node, const Block & header, String & column_name)
+{
+    const ActionsDAG::Node * node = getNodeWithoutAliases(tree_node);
+    if (!node
+        || (node->type != ActionsDAG::ActionType::INPUT && node->type != ActionsDAG::ActionType::FUNCTION)
+        || !node->result_type)
+        return false;
+
+    column_name = tree_node.getColumnName();
+    if (!header.has(column_name))
+        return false;
+
+    const DataTypePtr & index_type = header.getByPosition(header.getPositionByName(column_name)).type;
+    return typeid_cast<const DataTypeArray *>(index_type.get()) && node->result_type->equals(*index_type);
+}
+
+bool isIdentityDynamicArrayCast(const RPNBuilderFunctionTreeNode & function, const Block & header, String & column_name)
+{
+    const String function_name = function.getFunctionName();
+    if ((function_name != "CAST" && function_name != "_CAST") || function.getArgumentsSize() != 2)
+        return false;
+
+    const ActionsDAG::Node * outer_node = getNodeWithoutAliases(function);
+    if (!outer_node || outer_node->type != ActionsDAG::ActionType::FUNCTION || !outer_node->result_type
+        || !typeid_cast<const DataTypeArray *>(outer_node->result_type.get()))
+        return false;
+
+    const RPNBuilderTreeNode dynamic_node = function.getArgumentAt(0);
+    if (!dynamic_node.isFunction())
+        return false;
+
+    const auto dynamic_function = dynamic_node.toFunctionNode();
+    const String dynamic_function_name = dynamic_function.getFunctionName();
+    if ((dynamic_function_name != "CAST" && dynamic_function_name != "_CAST") || dynamic_function.getArgumentsSize() != 2)
+        return false;
+
+    const ActionsDAG::Node * dynamic_cast_node = getNodeWithoutAliases(dynamic_function);
+    if (!dynamic_cast_node || dynamic_cast_node->type != ActionsDAG::ActionType::FUNCTION || !dynamic_cast_node->result_type
+        || !typeid_cast<const DataTypeDynamic *>(dynamic_cast_node->result_type.get()))
+        return false;
+
+    const RPNBuilderTreeNode source_node = dynamic_function.getArgumentAt(0);
+    if (!getDirectArrayJoinIndexColumn(source_node, header, column_name))
+        return false;
+
+    const ActionsDAG::Node * source_dag_node = getNodeWithoutAliases(source_node);
+    const DataTypePtr & index_type = header.getByPosition(header.getPositionByName(column_name)).type;
+    return source_dag_node && source_dag_node->result_type && source_dag_node->result_type->equals(*index_type)
+        && outer_node->result_type->equals(*index_type);
+}
+
+struct ArrayJoinIndexInput
+{
+    String column_name;
+    bool has_empty_array_to_single = false;
+    DataTypePtr generated_default_type;
+    /// Array-element target types, outermost to innermost, for casts above emptyArrayToSingle.
+    std::vector<DataTypePtr> array_cast_targets;
+};
+
+bool resolveArrayJoinIndexInput(const RPNBuilderTreeNode & input, const Block & header, ArrayJoinIndexInput & result)
+{
+    const ActionsDAG::Node * input_node = getNodeWithoutAliases(input);
+    if (!input_node || !input_node->result_type || !typeid_cast<const DataTypeArray *>(input_node->result_type.get()))
+        return false;
+
+    std::vector<DataTypePtr> casts_above_default;
+    RPNBuilderTreeNode current = input;
+
+    while (true)
+    {
+        if (getDirectArrayJoinIndexColumn(current, header, result.column_name))
+            return true;
+
+        if (!current.isFunction())
+            return false;
+
+        const auto function = current.toFunctionNode();
+        const ActionsDAG::Node * function_node = getNodeWithoutAliases(function);
+        if (!function_node || function_node->type != ActionsDAG::ActionType::FUNCTION || !function_node->result_type)
+            return false;
+
+        const String function_name = function.getFunctionName();
+        if (function_name == "emptyArrayToSingle")
+        {
+            if (result.has_empty_array_to_single || function.getArgumentsSize() != 1)
+                return false;
+
+            const RPNBuilderTreeNode argument = function.getArgumentAt(0);
+            const ActionsDAG::Node * argument_node = getNodeWithoutAliases(argument);
+            const auto * input_array_type = argument_node && argument_node->result_type
+                ? typeid_cast<const DataTypeArray *>(argument_node->result_type.get()) : nullptr;
+            const auto * result_array_type = typeid_cast<const DataTypeArray *>(function_node->result_type.get());
+            if (!input_array_type || !result_array_type || !input_array_type->equals(*result_array_type))
+                return false;
+
+            result.has_empty_array_to_single = true;
+            result.generated_default_type = input_array_type->getNestedType();
+            result.array_cast_targets = std::move(casts_above_default);
+            current = argument;
+            continue;
+        }
+
+        if (isIdentityDynamicArrayCast(function, header, result.column_name))
+            return true;
+
+        if (!isLosslessConversionFunction(*function_node))
+            return false;
+
+        const RPNBuilderTreeNode argument = function.getArgumentAt(0);
+        const ActionsDAG::Node * argument_node = getNodeWithoutAliases(argument);
+        const auto * result_array_type = typeid_cast<const DataTypeArray *>(function_node->result_type.get());
+        const auto * argument_array_type = argument_node && argument_node->result_type
+            ? typeid_cast<const DataTypeArray *>(argument_node->result_type.get()) : nullptr;
+        if (!result_array_type || !argument_array_type)
+            return false;
+
+        if (!result.has_empty_array_to_single)
+            casts_above_default.emplace_back(result_array_type->getNestedType());
+        current = argument;
+    }
+}
+
+bool isSupportedBloomFilterArrayElementType(const DataTypePtr & type)
+{
+    if (!type || canContainNull(*type))
+        return false;
+
+    const DataTypePtr primitive_type = removeLowCardinalityAndNullable(type);
+    const WhichDataType which(primitive_type);
+    return which.isUInt() || which.isInt() || which.isString() || which.isFixedString() || which.isDate() || which.isDateTime()
+        || which.isDateTime64() || which.isEnum() || which.isUUID() || which.isIPv4() || which.isIPv6();
 }
 
 bool hashMatchesFilter(const BloomFilterPtr& bloom_filter, UInt64 hash, size_t hash_functions)
@@ -800,8 +947,11 @@ bool MergeTreeIndexConditionBloomFilter::traverseTreeIn(
     }
 
     /// `arrayJoin(col) IN (set)` needs a set element in the granule, same as `hasAny(col, set)`.
+    /// `nullIn` has the same positive match behavior only when the prepared set contains no NULL.
     /// `notIn` is not derivable: a granule holding a set element still yields rows outside the set.
-    if (function_name != "in" && function_name != "globalIn")
+    const bool is_in = function_name == "in" || function_name == "globalIn";
+    const bool is_null_in = function_name == "nullIn" || function_name == "globalNullIn";
+    if (!is_in && !is_null_in)
         return false;
     if (!column)
         return false;
@@ -810,23 +960,107 @@ bool MergeTreeIndexConditionBloomFilter::traverseTreeIn(
     if (!array_join_argument)
         return false;
 
-    auto array_column_name = array_join_argument->getColumnName();
-    if (!header.has(array_column_name))
+    /// Retain the scalar conversions around ARRAY_JOIN so an emptyArrayToSingle default
+    /// can be checked using the exact type of the left operand.
+    std::vector<DataTypePtr> scalar_cast_targets;
+    RPNBuilderTreeNode array_join_node = wrapped_key_node;
+    DataTypePtr array_join_value_type;
+    while (true)
+    {
+        if (array_join_node.getArrayJoinArgument())
+        {
+            const ActionsDAG::Node * dag_node = getNodeWithoutAliases(array_join_node);
+            if (!dag_node || dag_node->type != ActionsDAG::ActionType::ARRAY_JOIN || !dag_node->result_type)
+                return false;
+            array_join_value_type = dag_node->result_type;
+            break;
+        }
+
+        if (!array_join_node.isFunction())
+            return false;
+
+        const auto function = array_join_node.toFunctionNode();
+        const ActionsDAG::Node * dag_node = getNodeWithoutAliases(function);
+        if (!dag_node || !isLosslessConversionFunction(*dag_node) || !dag_node->result_type)
+            return false;
+
+        scalar_cast_targets.emplace_back(dag_node->result_type);
+        array_join_node = function.getArgumentAt(0);
+    }
+
+    auto array_join_input = array_join_node.getArrayJoinArgument();
+    if (!array_join_input)
         return false;
 
-    size_t position = header.getPositionByName(array_column_name);
+    ArrayJoinIndexInput array_input;
+    if (!resolveArrayJoinIndexInput(*array_join_input, header, array_input) || !header.has(array_input.column_name))
+        return false;
+
+    const ActionsDAG::Node * input_dag_node = getNodeWithoutAliases(*array_join_input);
+    const auto * input_array_type = input_dag_node && input_dag_node->result_type
+        ? typeid_cast<const DataTypeArray *>(input_dag_node->result_type.get()) : nullptr;
+    if (!input_array_type || !input_array_type->getNestedType()->equals(*array_join_value_type))
+        return false;
+
+    const DataTypePtr & effective_left_type = scalar_cast_targets.empty() ? array_join_value_type : scalar_cast_targets.front();
+
+    size_t position = header.getPositionByName(array_input.column_name);
     const auto * array_type = typeid_cast<const DataTypeArray *>(header.getByPosition(position).type.get());
     if (!array_type)
         return false;
 
     const auto & array_nested_type = array_type->getNestedType();
-    if (!bloomFilterHashDomainMatches(type, array_nested_type))
+    if (!isSupportedBloomFilterArrayElementType(array_nested_type) || !bloomFilterHashDomainMatches(type, array_nested_type))
         return false;
+
+    /// Both the generated-default oracle and the NULL-membership oracle require one completed
+    /// scalar set. Tuple recursion deliberately passes nullptr, so decline before either oracle.
+    if ((array_input.has_empty_array_to_single || is_null_in)
+        && (!prepared_set || prepared_set->getDataTypes().size() != 1))
+        return false;
+
+    if ((array_input.has_empty_array_to_single || is_null_in) && !prepared_set->areTypesEqual(0, effective_left_type))
+        return false;
+
+    if (is_null_in && prepared_set->hasNull())
+        return false;
+
+    if (array_input.has_empty_array_to_single)
+    {
+        if (!array_input.generated_default_type)
+            return false;
+
+        ColumnPtr default_column = array_input.generated_default_type->createColumnConstWithDefaultValue(1)->convertToFullColumnIfConst();
+        DataTypePtr default_type = array_input.generated_default_type;
+
+        for (auto it = array_input.array_cast_targets.rbegin(); it != array_input.array_cast_targets.rend(); ++it)
+        {
+            default_column = castColumn(ColumnWithTypeAndName{default_column, default_type, ""}, *it);
+            default_type = *it;
+        }
+
+        for (auto it = scalar_cast_targets.rbegin(); it != scalar_cast_targets.rend(); ++it)
+        {
+            default_column = castColumn(ColumnWithTypeAndName{default_column, default_type, ""}, *it);
+            default_type = *it;
+        }
+
+        /// If the static wrapper map did not end at the ARRAY_JOIN left type, decline before
+        /// constructing a Set probe. Accepted conversions above are already proven lossless.
+        if (!default_type->equals(*effective_left_type))
+            return false;
+
+        ColumnsWithTypeAndName default_probe;
+        default_probe.emplace_back(default_column, default_type, "");
+        const auto default_match = prepared_set->execute(default_probe, false);
+        if (assert_cast<const ColumnUInt8 &>(*default_match).getData()[0])
+            return false;
+    }
 
     const auto & converted_column = castColumn(ColumnWithTypeAndName{column, type, ""}, array_nested_type);
     out.predicate.emplace_back(
         std::make_pair(position, BloomFilterHash::hashWithColumn(array_nested_type, converted_column, 0, column->size())));
-    out.function = RPNElement::FUNCTION_HAS_ANY;
+    out.function = is_in ? RPNElement::FUNCTION_HAS_ANY : RPNElement::FUNCTION_IN;
     return true;
 }
 
