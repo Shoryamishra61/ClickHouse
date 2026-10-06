@@ -3265,6 +3265,10 @@ ProjectionNames QueryAnalyzer::resolveMatcher(QueryTreeNodePtr & matcher_node, I
                     {
                         if (!current) return;
 
+                        /// See `expandProjectionMatchers`.
+                        if (projection_nodes_before_matcher.contains(current.get()))
+                            return;
+
                         if (auto * identifier = current->as<IdentifierNode>())
                         {
                             auto it = replace_transformer_mappings.find(identifier->getIdentifier().getFullName());
@@ -3450,6 +3454,8 @@ bool QueryAnalyzer::expandMatchersInsideProjectionExpression(QueryTreeNodePtr & 
         if (!matcher_node)
             expanded |= expandMatchersInsideProjectionExpression(argument_node, scope);
 
+        /// The arguments are resolved in order, so the following matchers must not rewrite this one.
+        projection_nodes_before_matcher.insert(argument_node.get());
         expanded_argument_nodes.push_back(argument_node);
     }
 
@@ -3559,10 +3565,19 @@ bool QueryAnalyzer::expandMatchersInsideWindowDefinition(QueryTreeNodePtr & node
 /** Expand the matchers of the projection of the query, at the root of the projection items and nested inside them,
   * without resolving the rest of the projection. Used with `group_by_use_nulls`, see `resolveQuery`.
   *
+  * Without `group_by_use_nulls` the projection items are resolved in order, so the `REPLACE` transformer of a matcher
+  * rewrites only the items following it: the preceding ones are already resolved and stay bound to the source columns.
+  * Here the preceding items are not resolved yet, so they are remembered in `projection_nodes_before_matcher`
+  * and `resolveMatcher` does not rewrite them.
+  *
   * Returns true if a matcher was expanded.
   */
 bool QueryAnalyzer::expandProjectionMatchers(QueryNode & query_node, IdentifierResolveScope & scope)
 {
+    /// A subquery resolved while expanding a matcher has its own projection.
+    auto saved_projection_nodes_before_matcher = std::exchange(projection_nodes_before_matcher, {});
+    SCOPE_EXIT({ projection_nodes_before_matcher = std::move(saved_projection_nodes_before_matcher); });
+
     auto & projection_nodes = query_node.getProjection().getNodes();
     QueryTreeNodes expanded_projection_nodes;
     bool expanded = false;
@@ -3573,6 +3588,7 @@ bool QueryAnalyzer::expandProjectionMatchers(QueryNode & query_node, IdentifierR
         if (node_to_resolve->getNodeType() != QueryTreeNodeType::MATCHER)
         {
             expanded |= expandMatchersInsideProjectionExpression(node_to_resolve, scope);
+            projection_nodes_before_matcher.insert(node_to_resolve.get());
             expanded_projection_nodes.push_back(std::move(node_to_resolve));
             continue;
         }

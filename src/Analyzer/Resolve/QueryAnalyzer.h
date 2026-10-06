@@ -330,6 +330,12 @@ private:
       */
     const IQueryTreeNode * query_with_replaced_clauses = nullptr;
 
+    /** The projection items, and the function arguments inside them, that are already passed by `expandProjectionMatchers`.
+      * Without `group_by_use_nulls` they are resolved by then, so the `REPLACE` transformers of the following matchers
+      * do not affect them, and `resolveMatcher` does not rewrite them.
+      */
+    std::unordered_set<const IQueryTreeNode *> projection_nodes_before_matcher;
+
     std::unordered_map<IQueryTreeNode *, QueryTreeNodePtr> cte_copy_to_original_map;
 
     /** The name of the view a table expression was inlined from, see `inlineViewSubqueryIfNeeded`.
