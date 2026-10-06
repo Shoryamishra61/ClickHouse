@@ -19,13 +19,21 @@
 #include <Processors/Transforms/ExpressionTransform.h>
 #include <Processors/Transforms/FilterTransform.h>
 #include <QueryPipeline/QueryPipelineBuilder.h>
+#include <Common/CurrentThread.h>
 #include <Common/JSONBuilder.h>
+#include <Core/Settings.h>
+#include <Interpreters/Context.h>
 
 #include <Processors/QueryPlan/Optimizations/RuntimeDataflowStatistics.h>
 #include <fmt/ranges.h>
 
 namespace DB
 {
+
+namespace Setting
+{
+    extern const SettingsBool short_circuit_function_evaluation_reorder_arguments;
+}
 
 namespace ErrorCodes
 {
@@ -424,17 +432,25 @@ void FilterStep::transformPipeline(QueryPipelineBuilder & pipeline, const BuildQ
     }
 }
 
+/// The value of `short_circuit_function_evaluation_reorder_arguments` to show the AND chain split as it is executed.
+/// The pipeline is not built for `EXPLAIN`, so the setting is taken from the query context. Without a query context
+/// (the plan is described outside of a query), the default value of the setting is used.
+static bool reorderAndChainForDescription()
+{
+    if (auto query_context = CurrentThread::tryGetQueryContext())
+        return query_context->getSettingsRef()[Setting::short_circuit_function_evaluation_reorder_arguments];
+    return Settings()[Setting::short_circuit_function_evaluation_reorder_arguments];
+}
+
 void FilterStep::describeActions(FormatSettings & settings) const
 {
     const String & prefix = settings.detail_prefix;
 
     auto cloned_dag = actions_dag.clone();
 
-    /// The query settings are not available here, so the atoms are shown in the order for the default
-    /// `short_circuit_function_evaluation_reorder_arguments = 1`.
     std::vector<ActionsAndName> and_atoms;
     if (!settings.pretty && !actions_dag.hasStatefulFunctions())
-        and_atoms = splitAndChainIntoMultipleFilters(cloned_dag, filter_column_name, /*reorder=*/ true);
+        and_atoms = splitAndChainIntoMultipleFilters(cloned_dag, filter_column_name, reorderAndChainForDescription());
 
     for (auto & and_atom : and_atoms)
     {
@@ -476,7 +492,7 @@ void FilterStep::describeActions(JSONBuilder::JSONMap & map) const
 
     std::vector<ActionsAndName> and_atoms;
     if (!actions_dag.hasStatefulFunctions())
-        and_atoms = splitAndChainIntoMultipleFilters(cloned_dag, filter_column_name, /*reorder=*/ true);
+        and_atoms = splitAndChainIntoMultipleFilters(cloned_dag, filter_column_name, reorderAndChainForDescription());
 
     for (auto & and_atom : and_atoms)
     {
