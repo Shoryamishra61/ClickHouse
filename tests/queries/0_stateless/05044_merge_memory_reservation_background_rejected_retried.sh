@@ -23,18 +23,26 @@ CUR_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 # Every table in this test is created with the same shape, data and settings, so all their merge
 # estimates are (near-)identical and a limit of 1.5x one estimate admits exactly one of them.
+# The tables are created without min_age_to_force_merge_seconds, so no merge is selected until the observing
+# process has armed the failpoint and then enables it with enable_force_merge.
 function create_table()
 {
     local table="$1"
     echo "
         CREATE TABLE $table (k UInt64, v String)
-        ENGINE = MergeTree ORDER BY k
-        SETTINGS min_age_to_force_merge_seconds = 5, min_age_to_force_merge_on_partition_only = 1;
+        ENGINE = MergeTree ORDER BY k;
 
         SYSTEM STOP MERGES $table;
         INSERT INTO $table SELECT number, repeat('a', 100) FROM numbers(2000);
         INSERT INTO $table SELECT number, repeat('b', 100) FROM numbers(2000, 2000);
     "
+}
+
+# Lets the background selector pick the merge of the table: called only after the failpoint is armed.
+function enable_force_merge()
+{
+    local table="$1"
+    echo "ALTER TABLE $table MODIFY SETTING min_age_to_force_merge_seconds = 1, min_age_to_force_merge_on_partition_only = 1;"
 }
 
 # Measures the reservation of a single merge of such a table: the background merge is selected - and its
@@ -52,6 +60,7 @@ function reserved_for_one_merge()
         -- The background merge is selected - and its estimate reserved - once its parts are older than
         -- min_age_to_force_merge_seconds, and then parks on the failpoint before it executes, so the
         -- reservation is still held when the metric is read.
+        $(enable_force_merge t_measure)
         SYSTEM WAIT FAILPOINT plain_merge_task_pause_before_prepare PAUSE;
         SELECT value FROM system.metrics WHERE metric = 'MergesMutationsMemoryReservation';
         SYSTEM DISABLE FAILPOINT plain_merge_task_pause_before_prepare;
@@ -85,8 +94,7 @@ function rejected_and_retried()
     local data_dir
     data_dir=$(mktemp -d "${CLICKHOUSE_TMP}/05044_merge_memory_reservation_scenario_XXXXXX")
 
-    # The data is created right before the observing process starts, so at its startup the parts are
-    # younger than min_age_to_force_merge_seconds and the failpoint is armed before any merge is selected.
+    # No merge can be selected before the observing process arms the failpoint and enables the forced merge.
     ${CLICKHOUSE_LOCAL} --path "$data_dir" -q "
         $(create_table t_first)
         $(create_table t_second)
@@ -94,6 +102,8 @@ function rejected_and_retried()
 
     ${CLICKHOUSE_LOCAL} --path "$data_dir" -q "
         SYSTEM ENABLE FAILPOINT plain_merge_task_pause_before_prepare;
+        $(enable_force_merge t_first)
+        $(enable_force_merge t_second)
 
         -- One of the two merges is selected, reserves, and parks on the failpoint while these sleeps run;
         -- the other keeps being rejected by tryReserve on every background retry.

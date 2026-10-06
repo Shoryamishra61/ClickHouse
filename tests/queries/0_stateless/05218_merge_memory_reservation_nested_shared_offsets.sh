@@ -24,8 +24,8 @@ CUR_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # Prints the largest reservation observed while the selected merge is parked on the failpoint.
 #
 # The data is written by one clickhouse-local process and merged by the next one: a background merge is
-# only selected once the parts are older than min_age_to_force_merge_seconds, which leaves the second
-# process time to arm the failpoint before the merge is selected.
+# only selected once min_age_to_force_merge_seconds is set, and the second process sets it only after it has
+# armed the failpoint, so the merge cannot be selected (and run to completion unobserved) before that.
 function reserved_for_merge()
 {
     local columns="$1"
@@ -35,8 +35,7 @@ function reserved_for_merge()
     ${CLICKHOUSE_LOCAL} --path "$data_dir" -q "
         CREATE TABLE t_merge_mem_nested (k UInt64, ${columns})
         ENGINE = MergeTree ORDER BY k
-        SETTINGS min_bytes_for_wide_part = 0, share_nested_offsets = 1,
-                 min_age_to_force_merge_seconds = 5, min_age_to_force_merge_on_partition_only = 1;
+        SETTINGS min_bytes_for_wide_part = 0, share_nested_offsets = 1;
 
         INSERT INTO t_merge_mem_nested SELECT number, arr, arr, arr, arr FROM (SELECT number, range(number % 7) AS arr FROM numbers(1000));
         INSERT INTO t_merge_mem_nested SELECT number, arr, arr, arr, arr FROM (SELECT number, range(number % 7) AS arr FROM numbers(1000, 1000));
@@ -48,7 +47,10 @@ function reserved_for_merge()
 
         -- The background merge is selected - and its estimate reserved - once its parts are older than
         -- min_age_to_force_merge_seconds, and then parks on the failpoint before it executes, so the
-        -- reservation is still held when the metric is read.
+        -- reservation is still held when the metric is read. The setting is enabled only now, after the
+        -- failpoint is armed: with a fixed age set at creation, a slow run (e.g. under a sanitizer) could
+        -- select and complete the merge before the failpoint is armed, and the wait below would hang.
+        ALTER TABLE t_merge_mem_nested MODIFY SETTING min_age_to_force_merge_seconds = 1, min_age_to_force_merge_on_partition_only = 1;
         SYSTEM WAIT FAILPOINT plain_merge_task_pause_before_prepare PAUSE;
         SELECT value FROM system.metrics WHERE metric = 'MergesMutationsMemoryReservation';
 

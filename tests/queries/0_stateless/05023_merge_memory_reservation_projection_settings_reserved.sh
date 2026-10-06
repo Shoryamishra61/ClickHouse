@@ -24,9 +24,10 @@ CUR_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # Prints the largest reservation observed while the selected merge is parked on the failpoint.
 #
 # The data is written by one clickhouse-local process and merged by the next one: a background merge is
-# only selected once the parts are older than min_age_to_force_merge_seconds, which leaves the second
-# process time to arm the failpoint before the merge is selected. Both processes share nothing but the data
-# directory, and the metric is process-wide, so it reflects this one merge alone.
+# only selected once min_age_to_force_merge_seconds is set, and the second process sets it only after it has
+# armed the failpoint, so the merge cannot be selected (and run to completion unobserved) before that. Both
+# processes share nothing but the data directory, and the metric is process-wide, so it reflects this one
+# merge alone.
 function reserved_for_merge()
 {
     local projection_settings="$1"
@@ -37,8 +38,7 @@ function reserved_for_merge()
         CREATE TABLE t_merge_mem_reserved (k UInt64, v String)
         ENGINE = MergeTree ORDER BY k
         SETTINGS min_bytes_for_wide_part = 0, max_compress_block_size = 1048576,
-                 materialize_projections_on_merge = 1,
-                 min_age_to_force_merge_seconds = 5, min_age_to_force_merge_on_partition_only = 1;
+                 materialize_projections_on_merge = 1;
 
         INSERT INTO t_merge_mem_reserved SELECT number, repeat('a', 100) FROM numbers(1000);
         INSERT INTO t_merge_mem_reserved SELECT number, repeat('b', 100) FROM numbers(1000, 1000);
@@ -53,7 +53,10 @@ function reserved_for_merge()
 
         -- The background merge is selected - and its estimate reserved - once its parts are older than
         -- min_age_to_force_merge_seconds, and then parks on the failpoint before it executes, so the
-        -- reservation is still held when the metric is read.
+        -- reservation is still held when the metric is read. The setting is enabled only now, after the
+        -- failpoint is armed: with a fixed age set at creation, a slow run (e.g. under a sanitizer) could
+        -- select and complete the merge before the failpoint is armed, and the wait below would hang.
+        ALTER TABLE t_merge_mem_reserved MODIFY SETTING min_age_to_force_merge_seconds = 1, min_age_to_force_merge_on_partition_only = 1;
         SYSTEM WAIT FAILPOINT plain_merge_task_pause_before_prepare PAUSE;
         SELECT value FROM system.metrics WHERE metric = 'MergesMutationsMemoryReservation';
 
