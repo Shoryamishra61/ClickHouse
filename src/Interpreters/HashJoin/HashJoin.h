@@ -717,8 +717,9 @@ public:
         Initialized,
     };
 
-    /// Owned by exactly one build thread, so these lists need no mutex. The maps are
-    /// shared and go through `bucket_locks`.
+    /// The lists of one build stream. During the build, only the inserts of that stream change them.
+    /// They are moved or cleared only after the inserts stop, so they need no mutex. The maps are shared
+    /// and go through `bucket_locks`.
     struct WorkerStoredData
     {
         StoredBlocksList columns;
@@ -948,7 +949,7 @@ private:
             use_parallel_layout_);
     }
 
-    bool addBlockToJoin(const Block & block, ScatteredBlock::Selector selector, size_t worker_id, bool check_limits, RowDataStorePtr row_store = nullptr);
+    bool addBlockToJoin(const Block & block, ScatteredBlock::Selector selector, JoinBuildContext context, RowDataStorePtr row_store = nullptr);
 
     std::shared_ptr<TableJoin> table_join;
     JoinKind kind;

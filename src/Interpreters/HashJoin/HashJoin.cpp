@@ -1135,7 +1135,7 @@ Block HashJoin::prepareRightBlock(const Block & block) const
     return prepareRightBlock(block, savedBlockSample());
 }
 
-bool HashJoin::addBlockToJoin(const Block & source_block, size_t /* num_rows */, size_t worker_id, bool check_limits)
+bool HashJoin::addBlockToJoin(const Block & source_block, size_t /* num_rows */, JoinBuildContext context)
 {
     /// `materializeColumnsFromRightBlock` dereferences `data`, so the identical check in the
     /// overload below is reached too late to guard it.
@@ -1143,10 +1143,10 @@ bool HashJoin::addBlockToJoin(const Block & source_block, size_t /* num_rows */,
         throw Exception(ErrorCodes::LOGICAL_ERROR, "Join data was released");
 
     auto materialized = materializeColumnsFromRightBlock(source_block);
-    return addBlockToJoin(materialized, ScatteredBlock::Selector(materialized.rows()), worker_id, check_limits);
+    return addBlockToJoin(materialized, ScatteredBlock::Selector(materialized.rows()), context);
 }
 
-bool HashJoin::addBlockToJoin(const Block & block, ScatteredBlock::Selector selector, size_t worker_id, bool check_limits, RowDataStorePtr row_store)
+bool HashJoin::addBlockToJoin(const Block & block, ScatteredBlock::Selector selector, JoinBuildContext context, RowDataStorePtr row_store)
 {
     ProfileEventTimeIncrement<Microseconds> build_watch(ProfileEvents::HashJoinBuildMicroseconds);
 
@@ -1212,10 +1212,10 @@ bool HashJoin::addBlockToJoin(const Block & block, ScatteredBlock::Selector sele
         block_to_save = block_to_save.shrinkToFit();
 
     const auto maps_kind = getMapsKind();
-    if (worker_id >= data->workers.size())
+    if (context.getNumStreams() > data->workers.size())
         throw Exception(
-            ErrorCodes::LOGICAL_ERROR, "Too many HashJoin build workers: claimed {}, capacity {}", worker_id + 1, data->workers.size());
-    auto & worker = data->workers[worker_id];
+            ErrorCodes::LOGICAL_ERROR, "Too many HashJoin build streams: {}, capacity {}", context.getNumStreams(), data->workers.size());
+    auto & worker = data->workers[context.getStream()];
 
     size_t total_rows = 0;
     size_t total_bytes = 0;
@@ -1387,7 +1387,7 @@ bool HashJoin::addBlockToJoin(const Block & block, ScatteredBlock::Selector sele
                     if (flag_per_row && !per_row_flags_initialized)
                     {
                         used_flags->reinit<kind_, strictness_, mapsKindOf<decltype(map)>()>(
-                            worker_id, stored_columns->block_no, stored_columns->blockRows(), stored_columns->selector);
+                            context.getStream(), stored_columns->block_no, stored_columns->blockRows(), stored_columns->selector);
                         per_row_flags_initialized = true;
                     }
                 });
@@ -1434,7 +1434,7 @@ bool HashJoin::addBlockToJoin(const Block & block, ScatteredBlock::Selector sele
                 doDebugAsserts();
             }
 
-            if (check_limits)
+            if (context.joinChecksLimits())
             {
                 total_rows = getTotalRowCount();
                 total_bytes = getTotalByteCountUnchecked();
@@ -1444,9 +1444,9 @@ bool HashJoin::addBlockToJoin(const Block & block, ScatteredBlock::Selector sele
             }
         }
     }
-    if (!check_limits)
+    if (!context.joinChecksLimits())
         return true;
-    shrinkStoredBlocksToFit(total_bytes, worker_id);
+    shrinkStoredBlocksToFit(total_bytes, context.getStream());
     return table_join->sizeLimits().check(total_rows, total_bytes, "JOIN", ErrorCodes::SET_SIZE_LIMIT_EXCEEDED);
 }
 

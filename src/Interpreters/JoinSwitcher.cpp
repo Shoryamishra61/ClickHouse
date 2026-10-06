@@ -80,10 +80,11 @@ JoinSwitcher::JoinSwitcher(
 
 bool JoinSwitcher::addBlockToJoin(const Block & block, size_t num_rows, JoinBuildContext context)
 {
+    /// `MergeJoin` checks no limits of its own, so it does not matter whether `context` asks for them.
     if (switched.load(std::memory_order_acquire))
     {
         std::unique_lock lock(switch_mutex);
-        return join->addBlockToJoin(block, num_rows, worker_id, true);
+        return join->addBlockToJoin(block, num_rows, context);
     }
 
     bool over_limit = false;
@@ -94,10 +95,10 @@ bool JoinSwitcher::addBlockToJoin(const Block & block, size_t num_rows, JoinBuil
         {
             lock.unlock();
             std::unique_lock exclusive(switch_mutex);
-            return join->addBlockToJoin(block, num_rows, worker_id, true);
+            return join->addBlockToJoin(block, num_rows, context);
         }
 
-        join->addBlockToJoin(block, num_rows, worker_id, false);
+        join->addBlockToJoin(block, num_rows, context.callerChecksLimits());
         over_limit = !limits.softCheck(join->getTotalRowCount(), join->getTotalByteCount());
     }
 
@@ -107,7 +108,7 @@ bool JoinSwitcher::addBlockToJoin(const Block & block, size_t num_rows, JoinBuil
     std::unique_lock lock(switch_mutex);
     if (switched.load(std::memory_order_relaxed))
         return true;
-    return switchJoin();
+    return switchJoin(context);
 }
 
 JoinResultPtr JoinSwitcher::joinBlock(Block block)
@@ -164,7 +165,7 @@ bool JoinSwitcher::switchJoin(JoinBuildContext context)
 
     bool success = true;
     for (const Block & saved_block : right_blocks)
-        success = success && merge_join->addBlockToJoin(saved_block, saved_block.rows(), /* worker_id = */ 0, true);
+        success = success && merge_join->addBlockToJoin(saved_block, saved_block.rows(), context);
 
     QueryExecutionCounters::addUsedJoinAlgorithm(JoinAlgorithm::PARTIAL_MERGE);
 

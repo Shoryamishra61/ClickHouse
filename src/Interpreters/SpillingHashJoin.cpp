@@ -56,7 +56,7 @@ SpillingHashJoin::SpillingHashJoin(
 
 SpillingHashJoin::~SpillingHashJoin() = default;
 
-void SpillingHashJoin::tryConvertChunks(size_t worker_id)
+void SpillingHashJoin::tryConvertChunks(JoinBuildContext context)
 {
     chassert(in_memory_hash_join);
     chassert(grace_join);
@@ -105,8 +105,8 @@ bool SpillingHashJoin::addBlockToJoin(const Block & block, size_t num_rows, Join
     if (state.load(std::memory_order_acquire) != State::COLLECTING)
     {
         /// Lend a hand with the conversion instead of waiting for it.
-        tryConvertChunks(worker_id);
-        return chosen_join->addBlockToJoin(block, num_rows, worker_id, check_limits);
+        tryConvertChunks(context);
+        return chosen_join->addBlockToJoin(block, num_rows, context);
     }
 
     /// The hash table buffer grows in power-of-two steps. Doubling from X to 2X allocates the new
@@ -117,19 +117,19 @@ bool SpillingHashJoin::addBlockToJoin(const Block & block, size_t num_rows, Join
     /// the switch the live buffer (already at half) plus the conversion peak still fit under the
     /// configured cap.
     if (in_memory_hash_join->getTotalByteCount() * 2 >= max_bytes_before_external_join)
-        switchToGraceHashJoin(worker_id);
+        switchToGraceHashJoin(context);
 
     /// Re-check: we may have just switched.
     if (state.load(std::memory_order_acquire) != State::COLLECTING)
-        return chosen_join->addBlockToJoin(block, num_rows, worker_id, check_limits);
+        return chosen_join->addBlockToJoin(block, num_rows, context);
 
     /// Shared so build threads do not serialize, but still excludes them while it is drained.
     std::shared_lock lock(switch_mutex);
 
     if (state.load(std::memory_order_acquire) != State::COLLECTING)
-        return chosen_join->addBlockToJoin(block, num_rows, worker_id, check_limits);
+        return chosen_join->addBlockToJoin(block, num_rows, context);
 
-    return in_memory_hash_join->addBlockToJoin(block, num_rows, worker_id, check_limits);
+    return in_memory_hash_join->addBlockToJoin(block, num_rows, context);
 }
 
 void SpillingHashJoin::switchToGraceHashJoin(JoinBuildContext context, bool spill_immediately)
@@ -162,7 +162,7 @@ void SpillingHashJoin::switchToGraceHashJoin(JoinBuildContext context, bool spil
 
         grace_join->initialize(*left_sample_block);
         if (spill_immediately)
-            grace_join->requestSpill();
+            grace_join->requestSpill(context);
         chosen_join = grace_join;
 
         state.store(State::GRACE_HASH_JOIN, std::memory_order_release);
@@ -174,7 +174,7 @@ void SpillingHashJoin::switchToGraceHashJoin(JoinBuildContext context, bool spil
         QueryExecutionCounters::addUsedJoinAlgorithm(JoinAlgorithm::GRACE_HASH);
     }
 
-    tryConvertChunks(worker_id);
+    tryConvertChunks(context);
 }
 
 size_t SpillingHashJoin::getSpillableBytes() const
@@ -220,7 +220,7 @@ void SpillingHashJoin::onBuildPhaseFinish()
         const size_t total_bytes = in_memory_hash_join->getTotalByteCount();
         if (total_bytes >= max_bytes_before_external_join)
         {
-            switchToGraceHashJoin(/* worker_id = */ 0);
+            switchToGraceHashJoin(JoinBuildContext::serial());
         }
         else
         {

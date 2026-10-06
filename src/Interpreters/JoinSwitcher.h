@@ -191,7 +191,7 @@ private:
     /// Drain HashJoin onto MergeJoin. Caller holds exclusive `switch_mutex`.
     /// `MergeJoin` is built first; `join` and `switched` are published before the hash
     /// table is released so a throw cannot send fillers back onto a drained HashJoin.
-    bool switchJoin();
+    bool switchJoin(JoinBuildContext context);
 };
 
 }

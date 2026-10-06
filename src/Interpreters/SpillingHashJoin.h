@@ -121,8 +121,8 @@ private:
 
     /// `spill_immediately` is for the memory-pressure path: the new GraceHashJoin repartitions as it
     /// takes the data over, instead of holding all of it in bucket 0 until the next spill request.
-    void switchToGraceHashJoin(size_t worker_id, bool spill_immediately = false);
-    void tryConvertChunks(size_t worker_id);
+    void switchToGraceHashJoin(JoinBuildContext context, bool spill_immediately = false);
+    void tryConvertChunks(JoinBuildContext context);
 
     LoggerPtr log;
     std::shared_ptr<TableJoin> table_join;

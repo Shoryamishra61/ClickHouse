@@ -284,11 +284,11 @@ Block JoiningTransform::readExecute(Chunk & chunk)
 }
 
 FillingRightJoinSideTransform::FillingRightJoinSideTransform(
-    SharedHeader input_header, JoinPtr join_, FinishCounterPtr finish_counter_, size_t build_worker_id_)
+    SharedHeader input_header, JoinPtr join_, FinishCounterPtr finish_counter_, JoinBuildContext build_context_)
     : IProcessor({input_header}, {Block()})
     , join(std::move(join_))
     , finish_counter(std::move(finish_counter_))
-    , build_worker_id(build_worker_id_)
+    , build_context(build_context_)
 {
     spillable = join->canSpillToDisk();
 }
@@ -397,7 +397,7 @@ void FillingRightJoinSideTransform::work()
     else
     {
         ProfileEvents::increment(ProfileEvents::JoinBuildTableRowCount, num_rows);
-        stop_reading = !join->addBlockToJoin(block, num_rows, build_worker_id, true);
+        stop_reading = !join->addBlockToJoin(block, num_rows, build_context);
     }
 
     set_totals = for_totals;
