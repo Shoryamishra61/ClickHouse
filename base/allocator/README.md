@@ -14,7 +14,8 @@ jemalloc that affect observable behavior are reproduced deliberately and marked 
 `/// jemalloc: <name>` comment.
 
 Not implemented: the HPA page allocator, SEC, allocation with `sbrk` (DSS), `prof_log`, user hooks
-(`experimental.hooks.install`), custom extent hooks, test hooks. The `mallctl` nodes of these features report
+(`experimental.hooks.install`, `experimental.hooks.remove`), user thread event hooks
+(`experimental.hooks.thread_event`, which returns `ENOENT`), custom extent hooks, test hooks. The `mallctl` nodes of these features report
 jemalloc's values for disabled features.
 
 ## Design
