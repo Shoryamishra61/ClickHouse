@@ -77,12 +77,22 @@ SYSTEM FLUSH LOGS query_log;
 -- is several times more bytes than any real cluster transfers. `serialize_query_plan` moves the estimate
 -- by less than 0.4%, so one set of values covers both the query-based and the plan-based implementation.
 --
--- Queries whose transfer stays under 100 KB are not checked: at that size the bytes on the wire are
--- mostly protocol framing and per-replica fixed cost, which the estimate does not model and should not.
--- Their measured transfers are recorded all the same, so the pairs can be read off this array.
+-- `parallel_replicas_local_plan` has to be 0 for the measurement: with the local plan on, the local
+-- replica wins the race for the ranges on a warm single-machine cluster and almost nothing crosses the
+-- wire at all - `query_12` measures 5358127 bytes with it off and 4675 with it on, and `query_15` swings
+-- between 3421 and 260928 run to run. With it off the figures repeat within ~0.5%, except `query_12`,
+-- which carries ~15% from how the ranges split between the replicas.
 --
--- The checked queries land within 1.07x to 1.80x of the transferred bytes: `query_28` 1.07x, `query_15`
--- 1.16x, `query_43` 1.18x, `query_12` 1.20x, `query_34` 1.63x and `query_10` 1.80x - the last two under
+-- Every query is checked, but a pair also has to differ by more than 100 KB to count: below that the
+-- difference is protocol framing and per-replica fixed cost, which the estimate does not model and should
+-- not. That is what `query_1`, `query_20`, `query_21`, `query_22` and `query_23` live on - a single-row
+-- `COUNT(*)` result still costs about 17 KB on the wire against a 12-byte estimate. Unlike skipping those
+-- rows outright, this still catches an estimate that blows up on them, since that moves the difference
+-- past 100 KB. (Suppressing the progress and profile-event packets with `send_profile_events = 0` and a
+-- large `interactive_delay` only takes 1-6 KB off those transfers, and nothing off the large ones.)
+--
+-- The larger queries land within 1.05x to 1.80x of the transferred bytes: `query_28` 1.05x, `query_15`
+-- 1.16x, `query_43` 1.18x, `query_12` 1.20x, `query_34` 1.69x and `query_10` 1.80x - the last two under
 -- rather than over. Aggregate states are the residual: they are sampled from the hash table and so priced
 -- in hash-table order, while the replicas send them in key order.
 WITH
@@ -99,4 +109,5 @@ FROM
       ORDER BY event_time_microseconds
     )
 )
-WHERE res.3 >= 100000 AND (greatest(res.2, res.3) / least(res.2, res.3)) > 2.5;
+WHERE (greatest(res.2, res.3) / least(res.2, res.3)) > 2.5
+  AND (greatest(res.2, res.3) - least(res.2, res.3)) > 100000;
