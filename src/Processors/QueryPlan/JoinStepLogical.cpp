@@ -1474,13 +1474,15 @@ static MergeJoinOutputOrder mergeJoinOutputOrder(
 /// `FullSortingMergeJoin`, whichever `join_algorithm` variant selected it) or is predicted to become one (a
 /// `JoinStepLogical`, only seen while the runtime-filter pass runs before any join is physical - see
 /// `predictMergeJoinOutputOrder`). Empty for a hash join and the other algorithms, whose output order is
-/// not exploitable.
+/// not exploitable. Empty for `parallel_full_sorting_merge` as well, for the same reason as in
+/// `applyOrderToJoin`: it is sharded by the hash of the keys afterwards, and inheriting its order would turn
+/// the sort above into a merge of its shards, leaving the join above unsharded.
 static MergeJoinOutputOrder nestedJoinOutputOrder(const QueryPlan::Node & join_node)
 {
     if (const auto * join_step = typeid_cast<const JoinStep *>(join_node.step.get()))
     {
         const auto * merge_join = typeid_cast<const FullSortingMergeJoin *>(join_step->getJoin().get());
-        if (!merge_join || !join_step->getOutputHeader())
+        if (!merge_join || merge_join->isParallel() || !join_step->getOutputHeader())
             return {};
         const auto & table_join = merge_join->getTableJoin();
         const auto & clause = table_join.getOnlyClause();
@@ -1809,8 +1811,10 @@ std::vector<Names> JoinStepLogical::predictMergeJoinOutputOrder(const QueryPlan:
                     return mergeJoinOutputOrder(join_operator.kind, join_operator.strictness, left_keys, right_keys, *getOutputHeader());
                 continue;
             case JoinAlgorithm::FULL_SORTING_MERGE:
-            case JoinAlgorithm::PARALLEL_FULL_SORTING_MERGE:
                 return mergeJoinOutputOrder(join_operator.kind, join_operator.strictness, left_keys, right_keys, *getOutputHeader());
+            case JoinAlgorithm::PARALLEL_FULL_SORTING_MERGE:
+                /// Selected, but its order is not inherited (see `nestedJoinOutputOrder`).
+                return {};
             case JoinAlgorithm::DIRECT:
                 continue;
             case JoinAlgorithm::GRACE_HASH:
