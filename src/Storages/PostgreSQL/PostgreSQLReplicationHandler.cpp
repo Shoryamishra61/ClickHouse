@@ -444,7 +444,9 @@ namespace
     /// /replicas bookkeeping without sharing the replicated object, so a drop of one setup would tear down
     /// or leak the other's PostgreSQL objects. The connection endpoint (host:port) is deliberately NOT
     /// part of the identity: replicas of one setup may legitimately reach the same PostgreSQL server
-    /// through different addresses.
+    /// through different addresses. The upstream cluster itself is fenced separately by its
+    /// `system_identifier` (see `ensureCoordinatedSourceClusterCompatible`), which needs a PostgreSQL
+    /// connection and therefore cannot be part of this fingerprint, which is also checked at CREATE time.
     String coordinatedNamingFingerprint(
         const MaterializedPostgreSQLSettings & settings, const String & postgres_database, const String & postgres_table)
     {
@@ -2237,6 +2239,7 @@ void PostgreSQLReplicationHandler::registerReplicaThenEnsureNestedTables()
     assertCoordinationIdentityMatchesNestedTables();
 
     ensureCoordinatedNamingCompatible();
+    ensureCoordinatedSourceClusterCompatible();
     ensureCoordinatedTableSetCompatible();
 
     /// Holds the startup inside the window between the advisory teardown-token check (in
@@ -2594,6 +2597,43 @@ void PostgreSQLReplicationHandler::ensureCoordinatedNamingCompatible()
             "Existing setup:\n{}\nThis replica:\n{}\n(If the existing setup was dropped incompletely, "
             "remove the leftover Keeper path manually.)",
             coordination_keeper_path, published_fingerprint, coordination_naming_fingerprint);
+}
+
+
+void PostgreSQLReplicationHandler::ensureCoordinatedSourceClusterCompatible()
+{
+    /// `IDENTIFY_SYSTEM` reports the `system_identifier` of the PostgreSQL cluster, which is unique per
+    /// cluster and shared by its physical standbys - exactly the identity of the source whose slot and
+    /// publication the coordinated replicas share. It needs a replication connection, which this engine
+    /// requires anyway.
+    String local_system_identifier;
+    {
+        postgres::Connection replication_connection(connection_info, /* replication */true);
+        pqxx::nontransaction tx(replication_connection.getRef());
+        pqxx::result result{tx.exec("IDENTIFY_SYSTEM")};
+        local_system_identifier = result[0][0].as<std::string>();
+    }
+
+    auto component_guard = Coordination::setCurrentComponent("PostgreSQLReplicationHandler::ensureCoordinatedSourceClusterCompatible");
+
+    auto zookeeper = getContext()->getZooKeeper();
+    const String path = coordination_keeper_path + "/source_system_identifier";
+    zookeeper->createAncestors(path);
+    auto code = zookeeper->tryCreate(path, local_system_identifier, zkutil::CreateMode::Persistent);
+    if (code == Coordination::Error::ZOK)
+        return;
+    if (code != Coordination::Error::ZNODEEXISTS)
+        throw zkutil::KeeperException::fromPath(code, path);
+
+    const String published_system_identifier = zookeeper->get(path);
+    if (published_system_identifier != local_system_identifier)
+        throw Exception(ErrorCodes::BAD_ARGUMENTS,
+            "The coordinated MaterializedPostgreSQL setup at Keeper path '{}' replicates the PostgreSQL cluster with "
+            "system identifier {}, but this replica is connected to the PostgreSQL cluster with system identifier {}. "
+            "All replicas of one coordinated setup must replicate the same PostgreSQL cluster, because they share its "
+            "replication slot and publication. (If the existing setup was dropped incompletely, remove the leftover "
+            "Keeper path manually.)",
+            coordination_keeper_path, published_system_identifier, local_system_identifier);
 }
 
 
@@ -3134,6 +3174,7 @@ void PostgreSQLReplicationHandler::removeCoordinationNodes(bool remove_metadata)
     if (remove_metadata)
     {
         remove_checked(coordination_keeper_path + "/naming");
+        remove_checked(coordination_keeper_path + "/source_system_identifier");
         remove_checked(coordination_keeper_path + "/table_set");
     }
     /// The nested Replicated tables remove their own trees under <keeper_path>/tables when they are

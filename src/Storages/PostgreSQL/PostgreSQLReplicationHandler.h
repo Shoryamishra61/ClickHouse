@@ -280,6 +280,14 @@ private:
     /// torn down by a last-replica drop (see the <keeper_path>/teardown ownership token). Idempotent.
     void ensureCoordinatedNamingCompatible();
 
+    /// Publish the `system_identifier` of the upstream PostgreSQL cluster at
+    /// <keeper_path>/source_system_identifier (first replica) or check it against the already published one
+    /// (joining replica), throwing BAD_ARGUMENTS on a mismatch. The naming fingerprint does not include the
+    /// connection endpoint (one cluster can be reachable through different addresses), so without this fence
+    /// replicas pointed at different PostgreSQL clusters with the same database and table names would share
+    /// one coordinated setup and consume or tear down each other's slot and publication. Idempotent.
+    void ensureCoordinatedSourceClusterCompatible();
+
     /// Publish this replica's derived table set at <keeper_path>/table_set (first replica) or check it
     /// against the already published one (joining replica), throwing on a mismatch. This fences the
     /// authoritative shared table set BEFORE any nested table is built: without it, two fresh replicas
