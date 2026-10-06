@@ -1671,8 +1671,15 @@ void ClientBase::pinOutboundDialect(const String & outbound_query, bool outbound
         /// must parse it as SQL instead of running it through the transpiler a second time (e.g.
         /// `clickhouse-client --dialect=polyglot --allow_merge_tree_settings --index_granularity=...`
         /// rewrites a `CREATE TABLE`).
+        /// The parse-time settings pinned for the verbatim text are undone in that case: they only govern
+        /// the server-side reparse of the foreign text, which no longer happens, and sending them as changed
+        /// settings could fail under a profile that keeps one of them readonly.
         if (outbound_text_is_serialized_ast)
+        {
+            if (current_query_settings_before_verbatim_pin)
+                client_context->setSettings(*current_query_settings_before_verbatim_pin);
             client_context->setSetting("dialect", String("clickhouse"));
+        }
         return;
     }
 
@@ -3178,9 +3185,14 @@ void ClientBase::processParsedSingleQuery(
         /// the native path (and `pinOutboundDialect` sends it with the `clickhouse` dialect).
         const bool send_query_verbatim = parse_dialect == Dialect::polyglot && !current_query_is_set_escape;
         current_query_sent_verbatim = send_query_verbatim;
+        current_query_settings_before_verbatim_pin.reset();
 
         if (send_query_verbatim)
         {
+            /// Remembered for `pinOutboundDialect`: when a client-side AST->SQL rewrite replaces the verbatim
+            /// text, the server no longer reparses it with the polyglot parser, so the pinned parse-time
+            /// settings must not be sent (they would be marked as changed and could hit readonly constraints).
+            current_query_settings_before_verbatim_pin = std::make_shared<const Settings>(client_context->getSettingsCopy());
             /// The original query text is sent verbatim, and the server transpiles it under the
             /// settings that accompany the query. Pin those settings to their parse-time values so the
             /// query's own `SETTINGS` clause cannot change how the very same text is interpreted on the

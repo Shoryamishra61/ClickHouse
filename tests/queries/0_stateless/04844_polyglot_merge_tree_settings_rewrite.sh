@@ -37,6 +37,10 @@ do
     sleep 0.3
 done
 $CLICKHOUSE_CLIENT -q "SELECT if(Settings['dialect'] = 'polyglot', 'retranspiled', 'sent as SQL'), query LIKE '%SETTINGS index_granularity = 1024%' FROM system.query_log WHERE current_database = currentDatabase() AND query_id = '$query_id' AND type = 'QueryFinish'"
+# The parser-only settings pinned for a verbatim polyglot query are not sent with the rewritten SQL:
+# the server no longer reparses the polyglot text, and sending them as changed settings would fail
+# under a profile that keeps one of them readonly.
+$CLICKHOUSE_CLIENT -q "SELECT mapContains(Settings, 'max_parser_backtracks'), mapContains(Settings, 'implicit_select') FROM system.query_log WHERE current_database = currentDatabase() AND query_id = '$query_id' AND type = 'QueryFinish'"
 
 $CLICKHOUSE_CLIENT -q "DROP TABLE t"
 
