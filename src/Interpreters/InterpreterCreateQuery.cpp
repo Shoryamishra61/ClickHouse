@@ -3723,8 +3723,12 @@ BlockIO InterpreterCreateQuery::execute()
                 }
 
                 ASTPtr inherited_query = query_ptr->clone();
-                InterpreterCreateQuery(inherited_query, preflight_context)
-                    .setEngine(inherited_query->as<ASTCreateQuery &>());
+                auto & inherited = inherited_query->as<ASTCreateQuery &>();
+                InterpreterCreateQuery(inherited_query, preflight_context).setEngine(inherited);
+
+                /// getRequiredAccess sees no engine, because this query holds none of its own
+                if (inherited.storage && inherited.storage->engine)
+                    getContext()->checkAccess(AccessType::TABLE_ENGINE, inherited.storage->engine->name);
             }
 
             /// This branch ships the query text as written, and `OLDEST_VERSION` also ships no settings,
