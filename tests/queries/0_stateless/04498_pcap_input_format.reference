@@ -92,6 +92,9 @@ packets.pcapng	0	0	0
 truncated.pcap	0	0	0
 --- padded short frame: payload excludes the Ethernet padding ---
 60	4	ping	0	42
+--- tunnels: IP columns describe the outer header ---
+1	['ETHERNET_II','IPv6','IP','TCP','RAW']	IPv6	6	2001:db8::1	2001:db8::2	IPv4	64	\N	\N
+2	['ETHERNET_II','IP','IPv6','UDP']	IP	4	::ffff:192.0.2.1	::ffff:192.0.2.2	IPv6	64	\N	\N
 --- subset of columns (only number, dst_port) ---
 1	80
 2	67
