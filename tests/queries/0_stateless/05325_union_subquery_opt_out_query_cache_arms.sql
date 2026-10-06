@@ -1,3 +1,6 @@
+-- Tags: no-parallel
+-- ^ uses SYSTEM DROP QUERY CACHE, which would interfere with concurrent query cache tests.
+
 -- A set-operation subquery that explicitly opts out of the Planner-level query result cache with its own
 -- `SETTINGS use_query_cache = 0` must not be cached through the outer `query_cache_for_subqueries`
 -- propagation either - not even its earlier arms, which do not carry the clause themselves (only the last
