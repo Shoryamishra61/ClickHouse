@@ -64,17 +64,27 @@ DistributedQuerySchedulingGroups & DistributedQuerySchedulingGroups::instance()
 void DistributedQuerySchedulingGroups::add(const String & group_id, const QuerySchedulingGroupPtr & group)
 {
     std::lock_guard lock{mutex};
+    addLocked(group_id, group);
+}
+
+QuerySchedulingGroupPtr DistributedQuerySchedulingGroups::join(
+    const String & group_id, const std::function<QuerySchedulingGroupPtr(const QuerySchedulingGroupPtr &)> & make_group)
+{
+    std::lock_guard lock{mutex};
+    QuerySchedulingGroupPtr registered;
+    if (auto it = groups.find(group_id); it != groups.end())
+        registered = it->second.lock();
+    auto group = make_group(registered);
+    if (!registered)
+        addLocked(group_id, group);
+    return group;
+}
+
+void DistributedQuerySchedulingGroups::addLocked(const String & group_id, const QuerySchedulingGroupPtr & group)
+{
     // Drop the entries of finished queries; there are as many entries as distributed queries running here.
     std::erase_if(groups, [](const auto & entry) { return entry.second.expired(); });
     groups[group_id] = group;
-}
-
-QuerySchedulingGroupPtr DistributedQuerySchedulingGroups::find(const String & group_id) const
-{
-    std::lock_guard lock{mutex};
-    if (auto it = groups.find(group_id); it != groups.end())
-        return it->second.lock();
-    return nullptr;
 }
 
 }

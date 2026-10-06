@@ -9,6 +9,7 @@
 #include <boost/noncopyable.hpp>
 
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
@@ -67,8 +68,8 @@ using QuerySchedulingGroupPtr = std::shared_ptr<QuerySchedulingGroup>;
 
 /// Groups of the queries whose distributed plans run on this server, by the id of the initiator's
 /// group. The initiator registers the group of its query, and the tasks of the query that run on
-/// this server find it here (or register their own if the initiator runs elsewhere). An entry does
-/// not keep a group alive.
+/// this server join it here (the first task registers its own group if the initiator runs elsewhere).
+/// An entry does not keep a group alive.
 class DistributedQuerySchedulingGroups : private boost::noncopyable
 {
 public:
@@ -77,11 +78,17 @@ public:
     /// Registers `group` under `group_id`, replacing a previous group with that id.
     void add(const String & group_id, const QuerySchedulingGroupPtr & group);
 
-    /// Returns the live group registered under `group_id`, or `nullptr`.
-    QuerySchedulingGroupPtr find(const String & group_id) const;
+    /// Returns the group of a part of the query whose group has id `group_id`. `make_group` gets the
+    /// live group registered under `group_id` (or `nullptr`) and returns the group of the part. If no
+    /// live group is registered, the returned group is registered, so concurrent parts of one query
+    /// get one group. A registered group is never replaced by a part that does not accept it.
+    /// `make_group` is called under the lock of the registry.
+    QuerySchedulingGroupPtr join(const String & group_id, const std::function<QuerySchedulingGroupPtr(const QuerySchedulingGroupPtr &)> & make_group);
 
 private:
-    mutable std::mutex mutex;
+    void addLocked(const String & group_id, const QuerySchedulingGroupPtr & group) TSA_REQUIRES(mutex);
+
+    std::mutex mutex;
     std::unordered_map<String, std::weak_ptr<QuerySchedulingGroup>> groups TSA_GUARDED_BY(mutex);
 };
 

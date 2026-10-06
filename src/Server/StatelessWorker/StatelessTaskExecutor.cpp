@@ -113,11 +113,13 @@ StatelessTaskExecutor::Result StatelessTaskExecutor::startTask(const String & un
     /// scheduled on its own.
     if (!task_description.scheduling_group_id.empty())
     {
-        auto & scheduling_groups = DistributedQuerySchedulingGroups::instance();
-        auto parent_group = scheduling_groups.find(task_description.scheduling_group_id);
-        query_context->setParentSchedulingGroup(parent_group);
-        if (auto group = query_context->getSchedulingGroup(); group != parent_group)
-            scheduling_groups.add(task_description.scheduling_group_id, group);
+        DistributedQuerySchedulingGroups::instance().join(
+            task_description.scheduling_group_id,
+            [&](const QuerySchedulingGroupPtr & registered)
+            {
+                query_context->setParentSchedulingGroup(registered);
+                return query_context->getSchedulingGroup();
+            });
     }
 
     auto [object_storage, object_storage_path] = getObjectStorageForTemporaryFiles(unique_temp_file_path, query_context);
