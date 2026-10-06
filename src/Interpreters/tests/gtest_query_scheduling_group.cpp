@@ -16,13 +16,19 @@ QuerySchedulingGroupPtr makeGroup(const String & workload)
     return std::make_shared<QuerySchedulingGroup>(workload, ClassifierSettings{}, /*classifier_=*/ nullptr);
 }
 
-/// Joins the group registered under `group_id` if it has workload `workload`, else makes a new one.
+ClassifierPtr noClassifier()
+{
+    return nullptr;
+}
+
+/// Joins the query whose group is registered under `group_id` as a part with workload `workload`,
+/// the way a task does on a worker.
 QuerySchedulingGroupPtr joinAs(DistributedQuerySchedulingGroups & groups, const String & group_id, const String & workload)
 {
     return groups.join(group_id, [&](const QuerySchedulingGroupPtr & registered)
     {
-        if (registered && registered->accepts(workload, ClassifierSettings{}))
-            return registered;
+        if (registered)
+            return registered->getGroupFor(workload, ClassifierSettings{}, noClassifier);
         return makeGroup(workload);
     });
 }
@@ -51,8 +57,9 @@ TEST(DistributedQuerySchedulingGroups, ConcurrentJoinGetsOneGroup)
         EXPECT_EQ(group, joined.front());
 }
 
-/// A part that does not accept the registered group gets its own, and the registered one stays.
-TEST(DistributedQuerySchedulingGroups, MismatchedPartDoesNotReplaceGroup)
+/// Parts that do not accept the registered group share a derived group per workload, and the
+/// registered group stays.
+TEST(DistributedQuerySchedulingGroups, MismatchedPartsShareDerivedGroup)
 {
     DistributedQuerySchedulingGroups groups;
     auto initiator = makeGroup("w");
@@ -60,8 +67,25 @@ TEST(DistributedQuerySchedulingGroups, MismatchedPartDoesNotReplaceGroup)
 
     auto other = joinAs(groups, "query", "other");
     EXPECT_NE(other, initiator);
+    EXPECT_EQ(joinAs(groups, "query", "other"), other);
+    EXPECT_NE(joinAs(groups, "query", "third"), other);
 
     EXPECT_EQ(joinAs(groups, "query", "w"), initiator);
+}
+
+/// A derived group keeps the group it is derived from alive, so the parts that come after the last
+/// part of the original group finished still join the same groups.
+TEST(DistributedQuerySchedulingGroups, DerivedGroupKeepsParentAlive)
+{
+    DistributedQuerySchedulingGroups groups;
+    auto first = joinAs(groups, "query", "w");
+    auto other = joinAs(groups, "query", "other");
+    std::weak_ptr<QuerySchedulingGroup> weak_first = first;
+    first.reset();
+
+    ASSERT_FALSE(weak_first.expired());
+    EXPECT_EQ(joinAs(groups, "query", "other"), other);
+    EXPECT_EQ(joinAs(groups, "query", "w"), weak_first.lock());
 }
 
 /// A part that finds only an expired entry registers its own group.

@@ -20,17 +20,38 @@ namespace ErrorCodes
     extern const int QUERY_SLOT_ACQUISITION_TIMEOUT;
 }
 
-QuerySchedulingGroup::QuerySchedulingGroup(String workload_, const ClassifierSettings & settings_, ClassifierPtr classifier_)
+QuerySchedulingGroup::QuerySchedulingGroup(
+    String workload_, const ClassifierSettings & settings_, ClassifierPtr classifier_, std::shared_ptr<QuerySchedulingGroup> parent_)
     : id(UUIDHelpers::generateV4())
     , workload(std::move(workload_))
     , settings(settings_)
     , classifier(std::move(classifier_))
+    , parent(std::move(parent_))
 {
 }
 
 bool QuerySchedulingGroup::accepts(const String & workload_, const ClassifierSettings & settings_) const
 {
     return workload == workload_ && settings == settings_;
+}
+
+std::shared_ptr<QuerySchedulingGroup> QuerySchedulingGroup::getGroupFor(
+    const String & workload_, const ClassifierSettings & settings_, const std::function<ClassifierPtr()> & make_classifier)
+{
+    if (accepts(workload_, settings_))
+        return shared_from_this();
+
+    std::lock_guard lock{derived_mutex};
+    std::erase_if(derived, [](const auto & group) { return group.expired(); });
+    for (const auto & weak_group : derived)
+    {
+        auto group = weak_group.lock();
+        if (group && group->accepts(workload_, settings_))
+            return group;
+    }
+    auto group = std::make_shared<QuerySchedulingGroup>(workload_, settings_, make_classifier(), shared_from_this());
+    derived.push_back(group);
+    return group;
 }
 
 std::shared_ptr<QuerySlot> QuerySchedulingGroup::acquireQuerySlot(ResourceLink link, std::chrono::steady_clock::time_point admission_deadline)

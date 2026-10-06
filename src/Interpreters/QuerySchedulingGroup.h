@@ -13,6 +13,7 @@
 #include <memory>
 #include <mutex>
 #include <unordered_map>
+#include <vector>
 
 
 namespace DB
@@ -35,10 +36,14 @@ class QuerySlot;
 ///
 /// A query can run several distributed plans (e.g. one per distributed subquery). The tasks of all of
 /// them carry the id of the initiator's group, so on every server they join one group per query.
-class QuerySchedulingGroup : private boost::noncopyable
+///
+/// Parts of the query that change the workload or a scheduling setting are scheduled as a separate
+/// query: they join a group derived from the query's group, one per distinct workload and settings.
+/// A derived group keeps its parent alive, so the parts that come later find the same groups.
+class QuerySchedulingGroup : public std::enable_shared_from_this<QuerySchedulingGroup>, private boost::noncopyable
 {
 public:
-    QuerySchedulingGroup(String workload_, const ClassifierSettings & settings_, ClassifierPtr classifier_);
+    QuerySchedulingGroup(String workload_, const ClassifierSettings & settings_, ClassifierPtr classifier_, std::shared_ptr<QuerySchedulingGroup> parent_ = nullptr);
 
     /// Unique id of the group, sent to the servers that run tasks of the query's distributed plans.
     const UUID & getId() const { return id; }
@@ -48,6 +53,12 @@ public:
     bool accepts(const String & workload_, const ClassifierSettings & settings_) const;
 
     const ClassifierPtr & getClassifier() const { return classifier; }
+
+    /// Returns the group of a part of the query with this workload and these scheduling settings: this
+    /// group if it accepts them, otherwise the derived group for them, made with a classifier from
+    /// `make_classifier` if there is none.
+    std::shared_ptr<QuerySchedulingGroup> getGroupFor(
+        const String & workload_, const ClassifierSettings & settings_, const std::function<ClassifierPtr()> & make_classifier);
 
     /// Returns the query slot of the group, acquiring one through `link` if no member holds it.
     /// Waits while another member is being admitted. The slot is released when the last member
@@ -59,6 +70,10 @@ private:
     const String workload;
     const ClassifierSettings settings;
     const ClassifierPtr classifier;
+    const std::shared_ptr<QuerySchedulingGroup> parent;
+
+    std::mutex derived_mutex;
+    std::vector<std::weak_ptr<QuerySchedulingGroup>> derived TSA_GUARDED_BY(derived_mutex);
 
     std::timed_mutex admission_mutex;
     std::weak_ptr<QuerySlot> query_slot; /// Guarded by `admission_mutex`
@@ -81,7 +96,8 @@ public:
     /// Returns the group of a part of the query whose group has id `group_id`. `make_group` gets the
     /// live group registered under `group_id` (or `nullptr`) and returns the group of the part. If no
     /// live group is registered, the returned group is registered, so concurrent parts of one query
-    /// get one group. A registered group is never replaced by a part that does not accept it.
+    /// get one group. A registered group is never replaced: a part that does not accept it joins a
+    /// group derived from it (see `QuerySchedulingGroup::getGroupFor`).
     /// `make_group` is called under the lock of the registry.
     QuerySchedulingGroupPtr join(const String & group_id, const std::function<QuerySchedulingGroupPtr(const QuerySchedulingGroupPtr &)> & make_group);
 
