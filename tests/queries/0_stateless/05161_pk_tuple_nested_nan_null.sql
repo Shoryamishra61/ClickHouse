@@ -222,3 +222,32 @@ SELECT count() FROM t_pk_map_nested_null_transform WHERE m != map('k', [NULL]);
 SELECT count(), sum(x) FROM t_pk_map_nested_null_transform WHERE m != map('k', [NULL]);
 
 DROP TABLE t_pk_map_nested_null_transform;
+
+SELECT 'IS NOT DISTINCT FROM treats a nested NULL as an ordinary value';
+
+-- `<=>` compares a `Tuple` element-wise in the null-safe way, so `(NULL, 1) <=> (NULL, 1)` is true, and
+-- the point atom stays usable for pruning, while `count()` keeps agreeing with the real read.
+
+CREATE TABLE t_pk_tuple_null_safe (t Tuple(Nullable(Int32), Int32), x Int32) ENGINE = MergeTree ORDER BY t
+SETTINGS index_granularity = 1, allow_nullable_key = 1;
+
+INSERT INTO t_pk_tuple_null_safe VALUES ((0,0),1),((NULL,1),1),((5,1),1),((NULL,2),1);
+
+SELECT count(), sum(x) FROM t_pk_tuple_null_safe WHERE t <=> (NULL, 1);
+SELECT count(), sum(x) FROM t_pk_tuple_null_safe WHERE NOT (t <=> (NULL, 1));
+SELECT count(), sum(x) FROM t_pk_tuple_null_safe WHERE t <=> (5, 1);
+SELECT count() FROM t_pk_tuple_null_safe WHERE t <=> (NULL, 1) SETTINGS force_primary_key = 1;
+SELECT trimLeft(explain) FROM (EXPLAIN indexes = 1 SELECT x FROM t_pk_tuple_null_safe WHERE t <=> (NULL, 1)) WHERE explain LIKE '%Condition:%';
+
+DROP TABLE t_pk_tuple_null_safe;
+
+CREATE TABLE t_pk_tuple_null_safe_transform (t Tuple(Nullable(Int32), Int32), x Int32) ENGINE = MergeTree ORDER BY toString(t)
+SETTINGS index_granularity = 1;
+
+INSERT INTO t_pk_tuple_null_safe_transform VALUES ((0,0),1),((NULL,1),1),((5,1),1),((NULL,2),1);
+
+SELECT count(), sum(x) FROM t_pk_tuple_null_safe_transform WHERE t <=> (NULL, 1);
+SELECT count(), sum(x) FROM t_pk_tuple_null_safe_transform WHERE NOT (t <=> (NULL, 1));
+SELECT count() FROM t_pk_tuple_null_safe_transform WHERE t <=> (NULL, 1) SETTINGS force_primary_key = 1;
+
+DROP TABLE t_pk_tuple_null_safe_transform;

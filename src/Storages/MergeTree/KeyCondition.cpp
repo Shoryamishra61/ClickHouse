@@ -2702,7 +2702,8 @@ static bool tupleTypeMayHoldNestedNull(const DataTypePtr & type)
     return false;
 }
 
-static bool deterministicTransformMayHideNull(const DataTypePtr & input_type, const DataTypePtr & key_type)
+static bool deterministicTransformMayHideNull(
+    const DataTypePtr & input_type, const DataTypePtr & key_type, bool nested_null_is_ordinary_value)
 {
     if (!input_type || !key_type)
         return true;
@@ -2710,7 +2711,7 @@ static bool deterministicTransformMayHideNull(const DataTypePtr & input_type, co
     if (isNullableOrLowCardinalityNullable(input_type) && !isNullableOrLowCardinalityNullable(key_type))
         return true;
 
-    return tupleTypeMayHoldNestedNull(input_type);
+    return !nested_null_is_ordinary_value && tupleTypeMayHoldNestedNull(input_type);
 }
 
 /// Returns true if `output_name` depends on `input_name` and the whole sub-DAG is injective w.r.t. that input
@@ -2914,6 +2915,7 @@ bool KeyCondition::canConstantBeWrappedByDeterministicFunctions(
     DataTypePtr & out_key_column_type,
     Field & out_value,
     DataTypePtr & out_type,
+    bool nested_null_is_ordinary_value,
     bool & out_atom_is_exact)
 {
     out_atom_is_exact = false;
@@ -2985,10 +2987,11 @@ bool KeyCondition::canConstantBeWrappedByDeterministicFunctions(
     /// A `NULL` inside a value of that column makes the comparison `NULL` at row level, which `WHERE`
     /// rejects. When the transform maps such a value to an ordinary key value, the index compares it as
     /// unequal to the constant, so a negated atom claims the row as matching, and `mayReadNullKeyValue`
-    /// cannot see it from the key type. The atom is not exact then either.
+    /// cannot see it from the key type. The atom is not exact then either. A null-safe comparison never
+    /// answers `NULL`, so a `NULL` nested in a `Tuple` does not matter for it.
     out_atom_is_exact = isDeterministicTransformInjective(dag.actions->getActionsDAG(), expr_name, dag.output_name)
         && !transform_input_has_nan
-        && !deterministicTransformMayHideNull(dag.input_type, out_key_column_type);
+        && !deterministicTransformMayHideNull(dag.input_type, out_key_column_type, nested_null_is_ordinary_value);
 
     Field transformed_value = (*transformed_const_column)[0];
 
@@ -5063,7 +5066,13 @@ bool KeyCondition::extractAtomFromTree(const RPNBuilderTreeNode & node, const Bu
             /// range anyway, and the exact-count optimization would count those rows without ever
             /// evaluating the filter. The same holds once a key transform maps the constant into key
             /// space, which is where the nested value stops being visible at all.
-            if (hasNullOrNaNInside(const_value))
+            ///
+            /// `isNotDistinctFrom` is the exception for a `NULL`: it compares a `Tuple` element-wise in
+            /// the null-safe way, so a nested `NULL` is an ordinary value that matches only a `NULL` at
+            /// the same position, and key order puts it in the same place for the key and the constant.
+            /// A nested `NaN` is still rejected for it: `(nan, 1) <=> (nan, 1)` is false.
+            const bool nested_null_is_ordinary_value = func_name == "isNotDistinctFrom";
+            if (nested_null_is_ordinary_value ? anyFieldSatisfies(const_value, isNaNField) : hasNullOrNaNInside(const_value))
                 return false;
 
             bool condition_is_relaxed = false;
@@ -5105,7 +5114,7 @@ bool KeyCondition::extractAtomFromTree(const RPNBuilderTreeNode & node, const Bu
             {
                 bool atom_is_exact = false;
                 if (!canConstantBeWrappedByDeterministicFunctions(
-                        key_arg, info, key_column_num, key_expr_type, const_value, const_type, atom_is_exact))
+                        key_arg, info, key_column_num, key_expr_type, const_value, const_type, nested_null_is_ordinary_value, atom_is_exact))
                     return false;
 
                 condition_is_relaxed = !atom_is_exact;
