@@ -2656,9 +2656,23 @@ MergeMutateSelectedEntryPtr StorageMergeTree::selectPartsToMutate(
             if (first_mutation_tid != it->second.tid)
                 break;
 
+            /// A mixed-scope entry (e.g. `UPDATE ... IN PARTITION 1, UPDATE ... IN PARTITION 2`) can carry
+            /// commands of other partitions, which `MutateTask` drops for this part anyway. Do not let them
+            /// count towards the size limit or the barrier check of this part.
+            MutationCommands single_mutation_commands;
+            for (const auto & command : *it->second.commands)
+            {
+                if (!command.resolved_partition_ids || command.resolved_partition_ids->contains(part->info.getPartitionId()))
+                    single_mutation_commands.push_back(command);
+            }
+            /// The entry affects the partition, so normally some command remains. Otherwise keep all of
+            /// them, so that the part still advances past the entry (`MutateTask` skips them all).
+            if (single_mutation_commands.empty())
+                single_mutation_commands = *it->second.commands;
+
             size_t commands_size = 0;
             MutationCommands commands_for_size_validation;
-            for (const auto & command : *it->second.commands)
+            for (const auto & command : single_mutation_commands)
             {
                 if (command.type != MutationCommand::Type::DROP_COLUMN
                     && command.type != MutationCommand::Type::DROP_INDEX
@@ -2699,13 +2713,11 @@ MergeMutateSelectedEntryPtr StorageMergeTree::selectPartsToMutate(
             if (current_ast_elements + commands_size >= max_ast_elements)
                 break;
 
-            const auto & single_mutation_commands = it->second.commands;
-
-            if (single_mutation_commands->containBarrierCommand())
+            if (single_mutation_commands.containBarrierCommand())
             {
                 if (commands->empty())
                 {
-                    commands->insert(commands->end(), single_mutation_commands->begin(), single_mutation_commands->end());
+                    commands->insert(commands->end(), single_mutation_commands.begin(), single_mutation_commands.end());
                     mutation_ids.push_back(it->second.file_name);
                     last_mutation_to_apply = it;
                 }
@@ -2713,7 +2725,7 @@ MergeMutateSelectedEntryPtr StorageMergeTree::selectPartsToMutate(
             }
 
             current_ast_elements += commands_size;
-            commands->insert(commands->end(), single_mutation_commands->begin(), single_mutation_commands->end());
+            commands->insert(commands->end(), single_mutation_commands.begin(), single_mutation_commands.end());
             mutation_ids.push_back(it->second.file_name);
             last_mutation_to_apply = it;
         }
