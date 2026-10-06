@@ -49,12 +49,13 @@ SETTINGS short_circuit_function_evaluation = 'force_enable', short_circuit_funct
 
 -- The second argument decides almost no rows, the third one decides almost all of them,
 -- so after the first blocks the third argument is executed before the second one.
+-- JIT compilation would fuse the lazy arguments into one compiled function, which leaves nothing to reorder.
 SELECT sum(number < 10000000 AND number % 1000 != 5 AND bitAnd(number, 1023) = 7) FROM numbers(1000000)
 SETTINGS short_circuit_function_evaluation = 'force_enable', short_circuit_function_evaluation_reorder_arguments = 1, max_block_size = 8192,
-    log_comment = '05259_reorder_1';
+    compile_expressions = 0, log_comment = '05259_reorder_1';
 SELECT sum(number < 10000000 AND number % 1000 != 5 AND bitAnd(number, 1023) = 7) FROM numbers(1000000)
 SETTINGS short_circuit_function_evaluation = 'force_enable', short_circuit_function_evaluation_reorder_arguments = 0, max_block_size = 8192,
-    log_comment = '05259_reorder_0';
+    compile_expressions = 0, log_comment = '05259_reorder_0';
 
 SYSTEM FLUSH LOGS query_log;
 SELECT log_comment, ProfileEvents['ShortCircuitArgumentsReordered'] > 0
