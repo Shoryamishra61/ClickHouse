@@ -208,9 +208,8 @@ void StatisticsBasic::serialize(WriteBuffer & buf)
         mask |= BasicFeatureMask::NumericMinMax;
     if (tracks_string)
         mask |= BasicFeatureMask::StringLengthSum;
-
-    mask |= BasicFeatureMask::DefaultCount;
-    /// Not written for a sum that a loaded blob lacks, so that a mutation re-serializing it does not invent one.
+    if (has_default_count)
+        mask |= BasicFeatureMask::DefaultCount;
     if (has_sum)
         mask |= BasicFeatureMask::ExactSum;
     writeIntBinary(mask, buf);
@@ -222,9 +221,8 @@ void StatisticsBasic::serialize(WriteBuffer & buf)
     }
     if (tracks_string)
         writeIntBinary(string_total_bytes, buf);
-
-    writeIntBinary(default_count, buf);
-
+    if (has_default_count)
+        writeIntBinary(default_count, buf);
     if (has_sum)
         writeFieldBinary(sum, buf);
 }
@@ -254,7 +252,6 @@ void StatisticsBasic::deserialize(ReadBuffer & buf, StatisticsFileVersion /*vers
     Field stored_sum;
     if (mask & BasicFeatureMask::ExactSum)
         stored_sum = readFieldBinary(buf);
-    /// A missing sum, or one of an unexpected type, is not used, and the next merge of the part rebuilds it.
     has_sum = has_sum && stored_sum.getType() == sum.getType();
     if (has_sum)
         sum = stored_sum;
