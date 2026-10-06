@@ -9,8 +9,6 @@
 #include <Parsers/ExpressionElementParsers.h>
 #include <Parsers/parseDatabaseAndTableName.h>
 #include <Parsers/parseIdentifierOrStringLiteral.h>
-#include <Parsers/StatementFactory.h>
-#include <Parsers/registerStatements.h>
 #include <Access/Common/RowPolicyDefs.h>
 #include <base/range.h>
 #include <boost/container/flat_set.hpp>
@@ -316,14 +314,12 @@ bool ParserCreateRowPolicyQuery::parseImpl(Pos & pos, ASTPtr & node, Expected & 
 
     return true;
 }
-}
 
-namespace DB
+std::map<String, Documentation> ParserCreateRowPolicyQuery::getDocumentation() const
 {
+    std::map<String, Documentation> documentation;
 
-void registerStatementRowPolicy(StatementFactory & factory)
-{
-    factory.registerStatement("CREATE ROW POLICY",
+    documentation["CREATE ROW POLICY"] =
     {
         .description = R"DOCS_MD(
 Creates a [row policy](/concepts/features/security/access-rights#row-policy-management), i.e. a filter used to determine which rows a user can read from a table.
@@ -412,9 +408,19 @@ CREATE ROW POLICY p1, p2 ON t1, t2
 CREATE ROW POLICY pol1 ON CLUSTER cluster1 ON table1, pol2 ON CLUSTER cluster2 ON table2
 ```
 
-## USING Clause {#using-clause}
+## USING clause {#using-clause}
 
-Allows specifying a condition to filter rows. A user will see a row if the condition is calculated to non-zero for the row.
+Defines a filter condition for a table. A user can only see rows for which the condition is true (evaluates to a non-zero value). This is similar to adding an extra `WHERE` condition to every query the user runs against the table.
+
+For example, the following policy limits `analyst_role` to rows from the EU:
+
+```sql
+CREATE ROW POLICY region_filter ON db.orders
+USING region = 'EU'
+TO analyst_role;
+```
+
+With this policy, `SELECT * FROM db.orders` returns the same rows as `SELECT * FROM db.orders WHERE region = 'EU'` would.
 
 ## TO Clause {#to-clause}
 
@@ -546,6 +552,10 @@ before the upgrade keep working. On these engines the policy is always applied b
 `FINAL` does not merge hidden rows into the result of a query.
 </Note>
 
+## Join tables {#join-tables}
+
+A [Join](/reference/engines/table-engines/special/join) table is a prepared hash table that a `JOIN` or `joinGet` reads as is, so its rows cannot be filtered there. A policy on such a table, including a database-wide `ON db.*` policy, filters a plain `SELECT` from the table, but while it applies, `JOIN` and `joinGet` queries against the table fail with `ACCESS_DENIED`.
+
 ## ON CLUSTER Clause {#on-cluster-clause}
 
 Allows creating row policies on a cluster, see [Distributed DDL](/reference/statements/distributed-ddl). This is also the convenient way to create the policy on the local tables of every server of the cluster.
@@ -571,9 +581,9 @@ CREATE [ROW] POLICY [IF NOT EXISTS | OR REPLACE] policy_name [, ...]
 )",
         .parent = "CREATE",
         .related = {"ALTER ROW POLICY", "CREATE MASKING POLICY", "CREATE ROLE", "DROP", "SHOW"},
-    });
+    };
 
-    factory.registerStatement("ALTER ROW POLICY",
+    documentation["ALTER ROW POLICY"] =
     {
         .description = R"DOCS_MD(
 Changes row policy.
@@ -655,7 +665,9 @@ ALTER [ROW] POLICY [IF EXISTS] name [, ...]
 )",
         .parent = "ALTER",
         .related = {"CREATE ROW POLICY", "ALTER", "SHOW"},
-    });
+    };
+
+    return documentation;
 }
 
 }
