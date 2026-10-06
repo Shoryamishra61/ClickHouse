@@ -680,6 +680,9 @@ bool collectPlanDependencies(
                         "into the engine's own access check", dep.database, dep.table);
                     return false;
                 }
+                /// The helper column is not recorded, but the columns resolved away before planning
+                /// (`indexHint` arguments) are still required by a miss, so a hit must recheck them.
+                dep.access_checked_columns = read_from_table->getAccessCheckedColumns();
             }
             else
             {

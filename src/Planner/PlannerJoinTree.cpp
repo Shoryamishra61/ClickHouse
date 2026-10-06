@@ -829,14 +829,17 @@ bool applyTrivialCountWithSparsityFilterIfPossible(
   * `SELECT count() FROM t` passes with a grant on any one column, while these names are always required.
   */
 void checkAccessRightsForColumnsResolvedAway(
-    const TableNode & table_node, const TableExpressionData & table_expression_data, const ContextPtr & query_context)
+    const StoragePtr & storage,
+    const StorageID & storage_id,
+    const StorageSnapshotPtr & storage_snapshot,
+    const TableExpressionData & table_expression_data,
+    const ContextPtr & query_context)
 {
     const auto & column_names = table_expression_data.getAccessCheckedColumnsNames();
     if (column_names.empty())
         return;
 
-    checkAccessRights(
-        table_node.getStorage(), table_node.getStorageID(), table_node.getStorageSnapshot(), column_names, query_context);
+    checkAccessRights(storage, storage_id, storage_snapshot, column_names, query_context);
 }
 
 void prepareBuildQueryPlanForTableExpression(const QueryTreeNodePtr & table_expression, const SelectQueryOptions & select_query_options, PlannerContextPtr & planner_context)
@@ -862,7 +865,8 @@ void prepareBuildQueryPlanForTableExpression(const QueryTreeNodePtr & table_expr
         columns_names_allowed_to_select = checkAccessRights(
             table_node->getStorage(), table_node->getStorageID(), table_node->getStorageSnapshot(), column_names_with_aliases, query_context);
 
-        checkAccessRightsForColumnsResolvedAway(*table_node, table_expression_data, query_context);
+        checkAccessRightsForColumnsResolvedAway(
+            table_node->getStorage(), table_node->getStorageID(), table_node->getStorageSnapshot(), table_expression_data, query_context);
     }
     else if (table_function_node)
     {
@@ -876,6 +880,9 @@ void prepareBuildQueryPlanForTableExpression(const QueryTreeNodePtr & table_expr
             const auto & column_names_with_aliases = table_expression_data.getSelectedColumnsNames();
             columns_names_allowed_to_select = checkAccessRights(
                 storage, table_function_node->getStorageID(), table_function_node->getStorageSnapshot(), column_names_with_aliases, query_context);
+
+            checkAccessRightsForColumnsResolvedAway(
+                storage, table_function_node->getStorageID(), table_function_node->getStorageSnapshot(), table_expression_data, query_context);
         }
     }
     else if ((query_node || union_node) && select_query_options.check_subquery_table_access)
@@ -2814,9 +2821,20 @@ JoinTreeQueryPlan buildQueryPlanForTableExpression(TableExpressionNodePtr table_
                         reading_from_table->setReadsOnlyInjectedColumn(table_expression_data.readsOnlyInjectedColumn());
                         /// The plan cache records the dependency's required columns from this set, not
                         /// from the step's output header: access was checked for the selected columns
-                        /// (`ALIAS` columns included), while the header lists the physical read columns
-                        /// (see `ReadFromTableStep::getAccessCheckedColumns`).
-                        reading_from_table->setAccessCheckedColumns(table_expression_data.getSelectedColumnsNames());
+                        /// (`ALIAS` columns included) and for the columns resolved away before planning
+                        /// (`PREWHERE`-only `ALIAS` columns, `indexHint` arguments - see
+                        /// `checkAccessRightsForColumnsResolvedAway`), while the header lists the physical
+                        /// read columns (see `ReadFromTableStep::getAccessCheckedColumns`). For a zero-column
+                        /// read the only selected column is the injected helper one, which is not part of the
+                        /// access contract, so only the resolved-away columns are recorded.
+                        Names access_checked_columns;
+                        if (!table_expression_data.readsOnlyInjectedColumn())
+                            access_checked_columns = table_expression_data.getSelectedColumnsNames();
+                        NameSet access_checked_columns_set(access_checked_columns.begin(), access_checked_columns.end());
+                        for (const auto & column_name : table_expression_data.getAccessCheckedColumnsNames())
+                            if (access_checked_columns_set.insert(column_name).second)
+                                access_checked_columns.push_back(column_name);
+                        reading_from_table->setAccessCheckedColumns(std::move(access_checked_columns));
 
                         query_plan.addStep(std::move(reading_from_table));
                     }
