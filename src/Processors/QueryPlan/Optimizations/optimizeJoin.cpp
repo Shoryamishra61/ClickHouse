@@ -417,6 +417,9 @@ static bool hasOutputShadowingInputName(const ActionsDAG & dag)
     return false;
 }
 
+/// An `ExpressionStep` above a join may be merged into the flattened join graph when the setting
+/// allows it and the expression cannot be applied twice by the name-based merge.
+///
 /// Merging puts the expression into the join graph, where reordering can leave it computed twice from the
 /// raw inputs - once for the join key that decides matching and once for the output column - and can also
 /// evaluate it on rows the original join order would have discarded. An expression whose result or whose
@@ -424,25 +427,7 @@ static bool hasOutputShadowingInputName(const ActionsDAG & dag)
 /// non-deterministic function draws independently in the two places, so the returned rows can violate the
 /// query's own `JOIN ON` condition, a stateful function (`aiEmbed`, `timeSeriesStoreTags`, ...) makes
 /// extra external calls or mutates per-query state, and a function with observable side effects (`sleep`)
-/// spends a different amount of time and accounts different profile events. A lambda without captures is
-/// constant-folded into a `COLUMN` node holding a `ColumnFunction`, which hides the functions of its body
-/// from a plain scan over the function nodes, so the check descends into it with `allNodeFunctions`.
-static bool isSensitiveToEvaluationCount(const ActionsDAG & dag)
-{
-    auto is_insensitive = [](const IFunctionBase & function)
-    {
-        return function.isDeterministicInScopeOfQuery() && !function.isStateful() && !function.hasObservableSideEffects();
-    };
-
-    for (const auto & node : dag.getNodes())
-    {
-        if (!allNodeFunctions(node, is_insensitive))
-            return true;
-    }
-
-    return false;
-}
-
+/// spends a different amount of time and accounts different profile events.
 template <typename T>
 requires std::is_same_v<T, FilterStep> || std::is_same_v<T, ExpressionStep>
 static bool canMergeFilterIntoJoinGraph(const T & filter_step)
@@ -669,6 +654,13 @@ static bool isNullPropagatingFunction(const ActionsDAG::Node & node)
     };
     const auto & name = node.function_base->getName();
     if (!names.contains(name))
+        return false;
+    /// The operands of a join key comparison are brought to a common supertype only when the physical
+    /// join is built (`predicateOperandsToCommonType`), after reordering. With a `Variant`/`Dynamic`/
+    /// `JSON` operand that supertype is `Variant`/`Dynamic`, so a `Nullable` operand is cast to it and a
+    /// NULL key then matches a NULL key: the comparison does not reject a null-extended row.
+    if (std::ranges::any_of(node.children, [](const auto * child)
+            { return isVariant(child->result_type) || isDynamic(child->result_type) || isObject(child->result_type); }))
         return false;
     /// A cast to a non-`Nullable` type raises `CANNOT_INSERT_NULL_IN_ORDINARY_COLUMN` rather than
     /// returning `NULL`; a cast to `Variant`/`Dynamic` returns `NULL` but a join on such a key
@@ -1015,6 +1007,11 @@ static QueryPlan::Node chooseJoinOrder(QueryGraphBuilder query_graph_builder, Qu
     query_graph.join_kinds = std::move(query_graph_builder.join_kinds);
     query_graph.outer_join_conditions = std::move(query_graph_builder.outer_join_conditions);
     query_graph.conflict_ops = std::move(query_graph_builder.conflict_ops);
+    for (size_t i = 0; i < query_graph_builder.inputs.size(); ++i)
+    {
+        if (typeid_cast<const JoinStepLogicalLookup *>(query_graph_builder.inputs[i]->step.get()))
+            query_graph.prepared_storage_relations.set(i);
+    }
 
     LOG_DEBUG(&Poco::Logger::get("QueryPlanOptimizations"), "Optimizing join order for query graph with {} relations", query_graph.relation_stats.size());
 
