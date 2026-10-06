@@ -26,6 +26,37 @@ namespace Setting
     extern const SettingsBool cluster_function_process_archive_on_multiple_nodes;
 }
 
+namespace
+{
+
+/// The lowest worker protocol that carries every data-lake field present in the task besides
+/// `file_bucket_info`. Below it, `serialize` drops those fields silently, which is why a bucketed
+/// task is downgraded for an older worker only when this payload still fits its protocol.
+UInt64 getDataLakePayloadMinProtocolVersion(
+    const DataLakeObjectMetadata & data_lake_metadata, const std::optional<Iceberg::IcebergObjectSerializableInfo> & iceberg_info)
+{
+    UInt64 result = DBMS_CLUSTER_INITIAL_PROCESSING_PROTOCOL_VERSION;
+    if (data_lake_metadata.schema_transform)
+        result = std::max<UInt64>(result, DBMS_CLUSTER_PROCESSING_PROTOCOL_VERSION_WITH_DATA_LAKE_METADATA);
+    if (data_lake_metadata.excluded_rows)
+        result = std::max<UInt64>(result, DBMS_CLUSTER_PROCESSING_PROTOCOL_VERSION_WITH_EXCLUDED_ROWS);
+    if (iceberg_info)
+    {
+        result = std::max<UInt64>(result, DBMS_CLUSTER_PROCESSING_PROTOCOL_VERSION_WITH_ICEBERG_METADATA);
+        if (iceberg_info->record_count || iceberg_info->file_size_in_bytes)
+            result = std::max<UInt64>(result, DBMS_CLUSTER_PROCESSING_PROTOCOL_VERSION_WITH_ICEBERG_FILE_STATS);
+        if (!iceberg_info->identity_partition_columns.empty())
+            result = std::max<UInt64>(result, DBMS_CLUSTER_PROCESSING_PROTOCOL_VERSION_WITH_ICEBERG_IDENTITY_PARTITION_COLUMNS);
+        if (iceberg_info->first_row_id)
+            result = std::max<UInt64>(result, DBMS_CLUSTER_PROCESSING_PROTOCOL_VERSION_WITH_ICEBERG_CDC_READING);
+        if (iceberg_info->deletion_vector)
+            result = std::max<UInt64>(result, DBMS_CLUSTER_PROCESSING_PROTOCOL_VERSION_WITH_ICEBERG_DELETION_VECTORS);
+    }
+    return result;
+}
+
+}
+
 ClusterFunctionReadTaskResponse::ClusterFunctionReadTaskResponse(
     ObjectInfoPtr object, const ContextPtr & context, bool read_is_generation_pinned_)
     : read_is_generation_pinned(read_is_generation_pinned_)
@@ -119,7 +150,8 @@ void ClusterFunctionReadTaskResponse::serialize(WriteBuffer & out, size_t worker
         bucket_info_to_send = nullptr;
     }
 
-    if (bucket_info_to_send && protocol_version < bucket_info_to_send->getMinProtocolVersion() && read_is_generation_pinned)
+    if (bucket_info_to_send && protocol_version < bucket_info_to_send->getMinProtocolVersion() && read_is_generation_pinned
+        && protocol_version >= getDataLakePayloadMinProtocolVersion(data_lake_metadata, iceberg_info))
     {
         /// The read is pinned to one immutable generation of the file (a data-lake snapshot: its
         /// listed files are never rewritten in place, a new version is a new path), so the
@@ -127,7 +159,10 @@ void ClusterFunctionReadTaskResponse::serialize(WriteBuffer & out, size_t worker
         /// reader of this path necessarily sees the footer the split was computed from. Send the
         /// assignment without those fields rather than failing the task: an older worker already
         /// understands `row_group_ids`, so it reads exactly its own buckets, and a rolling upgrade
-        /// keeps working. Everything that is not merely a guard stays on the wire.
+        /// keeps working. Everything that is not merely a guard stays on the wire. The downgrade is
+        /// allowed only when the rest of the payload (e.g. data-lake `excluded_rows`, newer `iceberg_info`
+        /// fields) also fits the worker protocol: otherwise the worker would silently miss deleted rows
+        /// or partition values, so the task is failed below instead.
         if (auto without_guards = bucket_info_to_send->cloneWithoutOverwriteGuards())
             bucket_info_to_send = std::move(without_guards);
     }

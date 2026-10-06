@@ -3,6 +3,7 @@
 
 #if USE_PARQUET
 
+#include <AggregateFunctions/AggregateFunctionGroupBitmapData.h>
 #include <IO/ReadBufferFromMemory.h>
 #include <IO/VarInt.h>
 #include <IO/WriteBufferFromString.h>
@@ -481,6 +482,38 @@ TEST(ClusterFunctionReadTaskResponseSerialization, PinnedGenerationKeepsGuardsFo
     ASSERT_NE(restored_bucket, nullptr);
     EXPECT_EQ(restored_bucket->file_num_row_groups, 3u);
     EXPECT_EQ(restored_bucket->footer_digest, 0xdeadbeefu);
+}
+
+/// A pinned read is downgraded for an old worker only when the rest of the payload fits its
+/// protocol too: a worker that predates `excluded_rows` would silently return deleted rows of a
+/// data-lake file, so the task fails instead of being sent without them.
+TEST(ClusterFunctionReadTaskResponseSerialization, PinnedGenerationKeepsFailingWhenPayloadNeedsNewerWorker)
+{
+    prepareResponseEnvironment();
+
+    auto bucket = std::make_shared<ParquetFileBucketInfo>(std::vector<size_t>{0, 2}, /*file_num_row_groups=*/3);
+    bucket->footer_digest = 0xdeadbeef;
+    auto response = makeResponse(bucket);
+    response.read_source_index.reset();
+    response.read_is_generation_pinned = true;
+
+    constexpr auto BUCKETS_ONLY_WORKER_VERSION = DBMS_CLUSTER_PROCESSING_PROTOCOL_VERSION_WITH_FILE_BUCKETS_INFO;
+
+    /// Nothing else in the payload: the guard-less bucket is sent.
+    {
+        const String str = serializeResponse(response, BUCKETS_ONLY_WORKER_VERSION);
+        ClusterFunctionReadTaskResponse restored;
+        ReadBufferFromMemory in(str);
+        restored.deserialize(in);
+        ASSERT_TRUE(in.eof());
+        const auto restored_bucket = std::dynamic_pointer_cast<ParquetFileBucketInfo>(restored.file_bucket_info);
+        ASSERT_NE(restored_bucket, nullptr);
+        EXPECT_EQ(restored_bucket->row_group_ids, (std::vector<size_t>{0, 2}));
+    }
+
+    response.data_lake_metadata.excluded_rows = std::make_shared<DataLakeObjectMetadata::ExcludedRows>();
+    response.data_lake_metadata.excluded_rows->add(1);
+    EXPECT_THROW(serializeResponse(response, BUCKETS_ONLY_WORKER_VERSION), DB::Exception);
 }
 
 /// The dropped fields are exactly the guard: the clone keeps the assignment and lowers the
