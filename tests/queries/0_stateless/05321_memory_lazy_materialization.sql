@@ -36,7 +36,12 @@ SELECT sum(cityHash64(*)) FROM (SELECT * FROM t_memory_lazy_compressed WHERE v %
 SELECT sum(cityHash64(*)) FROM (SELECT * FROM t_memory_lazy_compressed WHERE v % 3 = 1 ORDER BY v DESC, k LIMIT 1000 SETTINGS query_plan_optimize_lazy_materialization = 0);
 
 SELECT '-- every column is deferred, the main branch reads only the global row index';
-SELECT s, n FROM t_memory_lazy ORDER BY rowNumberInAllBlocks() LIMIT 3 SETTINGS max_threads = 1;
+-- The order of the blocks depends on randomized insert settings, so check that the lazily read
+-- columns belong to the same row and match the result without lazy materialization.
+SELECT k % 97 = toUInt64(s), n IS NULL OR n = 'n' || toString(k) FROM (SELECT k, s, n FROM t_memory_lazy ORDER BY rowNumberInAllBlocks() LIMIT 3) SETTINGS max_threads = 1;
+SELECT (SELECT groupArray((k, s, n)) FROM (SELECT k, s, n FROM t_memory_lazy ORDER BY rowNumberInAllBlocks() LIMIT 3))
+    = (SELECT groupArray((k, s, n)) FROM (SELECT k, s, n FROM t_memory_lazy ORDER BY rowNumberInAllBlocks() LIMIT 3 SETTINGS query_plan_optimize_lazy_materialization = 0))
+SETTINGS max_threads = 1;
 SELECT s, n FROM t_memory_lazy_compressed ORDER BY rand() LIMIT 1000 FORMAT Null;
 
 SELECT '-- a row policy over a column that is not otherwise needed before the LIMIT';
