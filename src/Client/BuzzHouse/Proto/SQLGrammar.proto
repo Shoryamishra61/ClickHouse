@@ -761,6 +761,7 @@ message JoinCore {
     optional JoinType join_op = 4;
     required TableOrSubquery tos = 5;
     required JoinConstraint join_constraint = 6;
+    optional bool lateral = 7;
 }
 
 message ArrayJoin {

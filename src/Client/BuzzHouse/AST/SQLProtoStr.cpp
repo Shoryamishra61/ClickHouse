@@ -1802,6 +1802,10 @@ CONV_FN(JoinCore, jcc)
         ret += JoinConst_Name(jcc.join_const()).substr(2);
     }
     ret += " JOIN ";
+    if (jcc.lateral())
+    {
+        ret += "LATERAL ";
+    }
     TableOrSubqueryToString(ret, jcc.tos());
     if (!no_clause)
     {

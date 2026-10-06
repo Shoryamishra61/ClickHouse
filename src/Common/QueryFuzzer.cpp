@@ -4785,6 +4785,11 @@ void QueryFuzzer::addOrReplacePredicate(ASTSelectQuery * sel, const ASTSelectQue
 
 void QueryFuzzer::fuzzJoinType(ASTTableJoin * table_join)
 {
+    /// Toggle `LATERAL` with any join type. The element drops it afterwards if it would not parse.
+    if (fuzz_rand() % 30 == 0)
+    {
+        table_join->lateral = !table_join->lateral;
+    }
     /// Toggle NATURAL JOIN: derives the join condition from common column names automatically.
     /// When switching to natural, clear any explicit ON / USING clause — they are incompatible.
     if (fuzz_rand() % 50 == 0)
