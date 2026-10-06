@@ -1023,9 +1023,26 @@ getColumnsForNewDataPart(
         if (max_uniq_number_for_low_cardinality != 0)
         {
             /// The statistics are those of the source part: a mutation that changes the values of the column
-            /// makes them stale, which can only make the choice suboptimal, never incorrect.
+            /// makes them stale, which can only make the choice suboptimal, never incorrect. They are keyed
+            /// by the column names in the source part, while the rewritten columns have the names after the
+            /// mutation, so a renamed column looks its statistic up under its old name, as the serialization
+            /// infos above do.
+            auto source_statistics = source_part->loadStatistics();
+            ColumnsStatistics statistics;
+            for (const auto & column : rewritten_columns)
+            {
+                auto rename_it = renamed_columns_to_from.find(column.name);
+                /// The source part's column of this name was renamed away, so its statistic is not this column's.
+                if (rename_it == renamed_columns_to_from.end() && renamed_columns_from_to.contains(column.name))
+                    continue;
+
+                const String & source_name = rename_it == renamed_columns_to_from.end() ? column.name : rename_it->second;
+                if (auto stats_it = source_statistics.find(source_name); stats_it != source_statistics.end())
+                    statistics.emplace(column.name, stats_it->second);
+            }
+
             auto low_cardinality_candidates = chooseColumnsForAutomaticLowCardinality(
-                rewritten_columns, source_part->loadStatistics(), max_uniq_number_for_low_cardinality);
+                rewritten_columns, statistics, max_uniq_number_for_low_cardinality);
 
             appendAutomaticLowCardinalityKind(new_serialization_infos, rewritten_columns, low_cardinality_candidates, settings);
         }
