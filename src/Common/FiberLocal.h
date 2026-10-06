@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstddef>
@@ -10,29 +11,33 @@
 
 #include <base/defines.h>
 
+#include <Common/CacheLine.h>
 #include <Common/VariableContext.h>
 
 namespace FiberLocalSlot
 {
 enum : size_t
 {
-    CurrentThread,
-    TraceContext,
-    InsideSilkFiber,
-    LockMemoryExceptionCounter,
-    LockMemoryExceptionLevel,
-    LockMemoryExceptionBlockFaultInjections,
-    MemoryTrackerBlockerLevel,
-    MemoryTrackerUntrackedAllocationsBlockerCounter,
+    TRACE_CONTEXT,
+    CURRENT_THREAD,
+    INSIDE_SILK_FIBER,
+    LOCK_MEMORY_EXCEPTION_COUNTER,
+    LOCK_MEMORY_EXCEPTION_LEVEL,
+    LOCK_MEMORY_EXCEPTION_BLOCK_FAULT_INJECTIONS,
+    MEMORY_TRACKER_BLOCKER_LEVEL,
+    MEMORY_TRACKER_UNTRACKED_ALLOCATIONS_BLOCKER_COUNTER,
 #if !defined(NDEBUG)
-    MemoryTrackerAlwaysThrowOnAllocation,
+    MEMORY_TRACKER_ALWAYS_THROW_ON_ALLOCATION,
 #endif
 #if defined(SILK_THREAD_LOCAL_STORAGE_SANITIZER)
-    ThreadLocalStorageSanitizerFirstSeen,
-    ThreadLocalStorageSanitizerInside,
+    THREAD_LOCAL_STORAGE_SANITIZER_FIRST_SEEN,
+    THREAD_LOCAL_STORAGE_SANITIZER_INSIDE,
 #endif
-    Count,
+    COUNT,
 };
+
+/// Slots below this are private to a stackful coroutine; the rest stay shared with its thread.
+inline constexpr size_t COROUTINE_LOCAL_COUNT = CURRENT_THREAD;
 }
 
 /// Support defaults while keeping FiberLocal zero-overhead on access and
@@ -41,16 +46,16 @@ constexpr uintptr_t fiberLocalSlotDefault(size_t slot)
 {
     switch (slot)
     {
-        case FiberLocalSlot::MemoryTrackerBlockerLevel:
+        case FiberLocalSlot::MEMORY_TRACKER_BLOCKER_LEVEL:
             return static_cast<uintptr_t>(VariableContext::Max);
         default:
             return 0;
     }
 }
 
-constexpr std::array<uintptr_t, FiberLocalSlot::Count> fiberLocalSlotDefaults()
+constexpr std::array<uintptr_t, FiberLocalSlot::COUNT> fiberLocalSlotDefaults()
 {
-    std::array<uintptr_t, FiberLocalSlot::Count> defaults{};
+    std::array<uintptr_t, FiberLocalSlot::COUNT> defaults{};
     for (size_t slot = 0; slot < defaults.size(); ++slot)
         defaults[slot] = fiberLocalSlotDefault(slot);
     return defaults;
@@ -138,13 +143,21 @@ public:
         thread_storage.slots.swap(saved.slots);
     }
 
+    static void swapCoroutineLocal(FiberLocalStorage & saved) noexcept
+    {
+        std::swap_ranges(
+            thread_storage.slots.begin(),
+            thread_storage.slots.begin() + FiberLocalSlot::COROUTINE_LOCAL_COUNT,
+            saved.slots.begin());
+    }
+
     void destroySlots() noexcept;
 
 private:
 
     /// A fiber may resume on another OS thread, but the compiler may hoist &slots[slot].
 
-    static constexpr size_t slot_count = FiberLocalSlot::Count;
+    static constexpr size_t slot_count = FiberLocalSlot::COUNT;
 
     __attribute__((noinline)) static std::array<uintptr_t, slot_count> & currentSlots() noexcept
     {
@@ -166,9 +179,8 @@ private:
 #elif defined(__aarch64__) && defined(__ELF__)
         __asm__ __volatile__(
             "mrs %0, tpidr_el0\n\t"
-            "add %0, %0, :tprel_hi12:FiberLocalStorageThreadStorage\n\t"
-            "add %0, %0, :tprel_lo12_nc:FiberLocalStorageThreadStorage\n\t"
-            "ldr %0, [%0, %c1]"
+            "add %0, %0, :tprel_hi12:FiberLocalStorageThreadStorage+%c1\n\t"
+            "ldr %0, [%0, :tprel_lo12_nc:FiberLocalStorageThreadStorage+%c1]"
             : "=&r"(value)
             : "i"(slot * sizeof(void *))
             : "memory");
@@ -188,12 +200,11 @@ private:
             : "i"(slot * sizeof(void *)), "r"(value)
             : "memory");
 #elif defined(__aarch64__) && defined(__ELF__)
-        void * address;
+        void * address = nullptr;
         __asm__ __volatile__(
             "mrs %0, tpidr_el0\n\t"
-            "add %0, %0, :tprel_hi12:FiberLocalStorageThreadStorage\n\t"
-            "add %0, %0, :tprel_lo12_nc:FiberLocalStorageThreadStorage\n\t"
-            "str %2, [%0, %c1]"
+            "add %0, %0, :tprel_hi12:FiberLocalStorageThreadStorage+%c1\n\t"
+            "str %2, [%0, :tprel_lo12_nc:FiberLocalStorageThreadStorage+%c1]"
             : "=&r"(address)
             : "i"(slot * sizeof(void *)), "r"(value)
             : "memory");
@@ -207,10 +218,13 @@ private:
 
     struct ThreadStorageCleaner;
 
-    static inline constinit std::array<std::atomic<void (*)(void *)>, slot_count> slot_destructors{};
+    static constinit std::array<std::atomic<void (*)(void *)>, slot_count> slot_destructors;
     static thread_local constinit FiberLocalStorage thread_storage asm("FiberLocalStorageThreadStorage");
 
-    std::array<uintptr_t, slot_count> slots = fiberLocalSlotDefaults();
+    alignas(DB::CH_CACHE_LINE_SIZE) std::array<uintptr_t, slot_count> slots = fiberLocalSlotDefaults();
+    static_assert(
+        sizeof(slots) <= 2 * DB::CH_CACHE_LINE_SIZE,
+        "One slot is one word, and a context switch swaps the whole arena: keep it within two cache lines");
 };
 
 /// Fiber-aware thread_local variable. Zero overhead vs plain TLS on access.
@@ -222,7 +236,7 @@ class FiberLocal
 
 public:
     T get() const requires FiberLocalStoredInline<T> { return FiberLocalStorage::load<T, slot>(); }
-    operator T() const requires FiberLocalStoredInline<T> { return get(); }
+    operator T() const requires FiberLocalStoredInline<T> { return get(); } /// NOLINT(google-explicit-constructor)
     T operator->() const requires (FiberLocalStoredInline<T> && std::is_pointer_v<T>) { return get(); }
 
     FiberLocal & operator=(T value) requires FiberLocalStoredInline<T>
@@ -232,7 +246,7 @@ public:
     }
 
     T & get() const requires (!FiberLocalStoredInline<T>) { return FiberLocalStorage::heapObject<T, slot>(); }
-    operator T &() const requires (!FiberLocalStoredInline<T>) { return get(); }
+    operator T &() const requires (!FiberLocalStoredInline<T>) { return get(); } /// NOLINT(google-explicit-constructor)
     T & operator*() const requires (!FiberLocalStoredInline<T>) { return get(); }
     T * operator->() const requires (!FiberLocalStoredInline<T>) { return &get(); }
 };

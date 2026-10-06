@@ -2,10 +2,12 @@
 
 #include <atomic>
 #include <mutex>
+#include <optional>
 #include <base/types.h>
 #include <Common/Epoll.h>
 #include <Common/StackfulCoroutine.h>
 #include <Common/CoroutineStack.h>
+#include <Common/OpenTelemetryTraceContext.h>
 #include <Poco/Timespan.h>
 
 #if defined(OS_LINUX)
@@ -49,7 +51,13 @@ public:
 class AsyncTaskExecutor
 {
 public:
-    explicit AsyncTaskExecutor(std::unique_ptr<AsyncTask> task_);
+    /// operation_name_ is used as the name of the OpenTelemetry span covering one execution of the task.
+    /// With external_trace_context_ the task runs inside a span owned and finished by the caller instead:
+    /// that context is installed for the duration of every execution and no span is opened here.
+    AsyncTaskExecutor(
+        std::unique_ptr<AsyncTask> task_,
+        String operation_name_,
+        std::optional<OpenTelemetry::TracingContextOnThread> external_trace_context_ = std::nullopt);
 
     /// Resume task execution. This method returns when task is completed or suspended.
     void resume();
@@ -127,6 +135,14 @@ private:
     std::atomic_bool is_cancelled = false;
 
     std::unique_ptr<AsyncTask> task;
+
+    const String operation_name;
+
+    /// Spans created inside the task belong to the query trace.
+    const OpenTelemetry::TracingContextOnThread parent_trace_context;
+
+    /// The context of the caller-owned span the task runs in, if any (see the constructor).
+    const std::optional<OpenTelemetry::TracingContextOnThread> external_trace_context;
 };
 
 String getSocketTimeoutExceededMessageByTimeoutType(AsyncEventTimeoutType type, Poco::Timespan timeout, const String & socket_description);

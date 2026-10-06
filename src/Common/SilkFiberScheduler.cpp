@@ -3,9 +3,11 @@
 #if USE_SILK
 
 #include <Common/CurrentMemoryTracker.h>
+#include <Common/CurrentThread.h>
 #include <Common/Exception.h>
 #include <Common/FiberLocal.h>
 #include <Common/MemoryTrackerSwitcher.h>
+#include <Common/ThreadStatus.h>
 
 #if defined(SILK_THREAD_LOCAL_STORAGE_SANITIZER)
 #    include <Common/SilkThreadLocalStorageSanitizer.h>
@@ -32,7 +34,14 @@ namespace
 /// Therefore, release-acquire is required.
 std::atomic<bool> fiber_scheduler_initialized = false;
 
-constinit FiberLocal<bool, FiberLocalSlot::InsideSilkFiber> inside_silk_fiber;
+constinit FiberLocal<bool, FiberLocalSlot::INSIDE_SILK_FIBER> inside_silk_fiber;
+
+constexpr uint8_t CLICKHOUSE_FIBER_CATEGORY = 1;
+
+bool isClickHouseFiber() noexcept
+{
+    return silk::FiberScheduler::getCurrentFiberId().category == CLICKHOUSE_FIBER_CATEGORY;
+}
 
 struct FiberContext
 {
@@ -47,6 +56,7 @@ struct FiberContext
         inside_silk_fiber = true;
         try
         {
+            DB::ThreadStatus thread_status(DB::ThreadStatus::NoOSThreadTag{});
             return self->task();
         }
         catch (...)
@@ -59,12 +69,30 @@ struct FiberContext
 
 void onFiberResume(silk::Fiber * fiber) noexcept
 {
+    if (!isClickHouseFiber())
+        return;
+
     auto * context = static_cast<FiberContext *>(silk::FiberScheduler::getFiberParameters(fiber));
     FiberLocalStorage::swap(*context->fiber_local_storage);
+
+    /// Nothing runs in a parked fiber, so what onFiberSuspend published must still be published.
+    chassert(!DB::current_thread
+        || DB::current_thread->untracked_memory.load() == DB::current_thread->per_cpu_untracked_memory.contributed);
 }
 
 void onFiberSuspend(silk::Fiber * fiber) noexcept
 {
+    if (!isClickHouseFiber())
+        return;
+
+    /// There can be a practically unbounded number of fibers.
+    /// Each fiber gets a small buffer of untracked memory which it does not publish
+    /// (see ServerSetting::per_cpu_untracked_memory_thread_buffer).
+    /// So to prevent tens of gigabytes of untracked memory, fibers should publish
+    /// that memory buffer to per-CPU counters at suspend.
+    if (DB::current_thread)
+        DB::current_thread->publishUntrackedMemory();
+
     auto * context = static_cast<FiberContext *>(silk::FiberScheduler::getFiberParameters(fiber));
     FiberLocalStorage::swap(*context->fiber_local_storage);
 }
@@ -154,6 +182,7 @@ int spawn(std::function<int()> task, silk::FiberFuture & future)
     return silk::FiberScheduler::run(
         &FiberContext::main,
         FiberContext{ .fiber_local_storage = FiberLocalStorage::create(), .task = std::move(task) },
+        CLICKHOUSE_FIBER_CATEGORY,
         &future);
 }
 
