@@ -2284,6 +2284,10 @@ MergeMutateSelectedEntryPtr StorageMergeTree::selectPartsToMutate(
     /// and the set of applied patches is bounded from above by the data version of the result part.
     /// So a batch of mutations squashed into a single task must not span the version of a patch part:
     /// the commands with a lower version would be evaluated over an update that they must not see.
+    /// Only the max data version of a patch part is taken, although a merged patch part covers a range of versions:
+    /// patch parts are never merged across the version of a known mutation (they would have different
+    /// `getCurrentMutationVersion`, see `MergeTreeMergePredicate::canMergeParts`), so no pending mutation lies
+    /// inside that range, and the range splits a batch exactly when its max version does.
     std::unordered_map<String, std::set<Int64>> patch_versions_by_partition;
     for (const auto & patch : getPatchPartsVectorForInternalUsage())
         patch_versions_by_partition[patch->info.getOriginalPartitionId()].insert(patch->info.getDataVersion());
