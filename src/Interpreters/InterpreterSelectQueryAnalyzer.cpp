@@ -51,7 +51,6 @@ namespace ProfileEvents
 {
     extern const Event QueryAnalysisMicroseconds;
     extern const Event QueryPipelineBuildMicroseconds;
-    extern const Event AutomaticParallelReplicasProbePlansBuilt;
 }
 
 namespace DB
@@ -181,7 +180,7 @@ ContextMutablePtr buildContext(const ContextPtr & context, const SelectQueryOpti
 }
 
 template <typename... Args>
-QueryPlanPtr buildQueryPlanForAutomaticParallelReplicas(
+PlanWithParallelReplicas buildQueryPlanForAutomaticParallelReplicas(
     const ASTPtr & ast,
     const ContextMutablePtr & ctx,
     const SelectQueryOptions & select_options,
@@ -190,31 +189,31 @@ QueryPlanPtr buildQueryPlanForAutomaticParallelReplicas(
     const LoggerPtr & logger,
     Args &&... interpreter_args)
 {
-    /// Every early return is logged: the caller counts it as the plan being unsuitable and relies on
-    /// this to tell a query shape from a setting that rules parallel replicas out.
+    /// Every early return is logged, and says which kind of reason it is: the caller counts the two kinds
+    /// apart, and relies on the log for the specific reason.
     if (!ctx->getSettingsRef()[Setting::allow_experimental_parallel_reading_from_replicas])
     {
         LOG_TRACE(
             logger,
             "Setting 'enable_parallel_replicas' is disabled. Skipping building query plan with parallel "
             "replicas.");
-        return QueryPlanPtr{};
+        return PlanWithParallelReplicas{.plan = nullptr, .skip_reason = PlanWithParallelReplicas::SkipReason::Settings};
     }
     if (!ctx->getSettingsRef()[Setting::parallel_replicas_local_plan])
     {
         LOG_TRACE(logger, "Setting 'parallel_replicas_local_plan' is disabled. Skipping building query plan with parallel replicas.");
-        return QueryPlanPtr{};
+        return PlanWithParallelReplicas{.plan = nullptr, .skip_reason = PlanWithParallelReplicas::SkipReason::Settings};
     }
     if (ctx->getSettingsRef()[Setting::cluster_for_parallel_replicas].value.empty())
     {
         LOG_TRACE(logger, "Setting 'cluster_for_parallel_replicas' is empty. Skipping building query plan with parallel replicas.");
-        return QueryPlanPtr{};
+        return PlanWithParallelReplicas{.plan = nullptr, .skip_reason = PlanWithParallelReplicas::SkipReason::Settings};
     }
     /// If the query is executed by remote*/cluster* function, the following attempt to build a plan with parallel replicas may result in exceptions
     if (ctx->getClientInfo().query_kind == ClientInfo::QueryKind::SECONDARY_QUERY)
     {
         LOG_TRACE(logger, "The query is a secondary query. Skipping building query plan with parallel replicas.");
-        return QueryPlanPtr{};
+        return PlanWithParallelReplicas{.plan = nullptr, .skip_reason = PlanWithParallelReplicas::SkipReason::QueryShape};
     }
     // We shouldn't apply heuristic since this plan is meant to be a plan with enforced parallel replicas usage
     ctx->setSetting("automatic_parallel_replicas_mode", Field{0});
@@ -240,7 +239,7 @@ QueryPlanPtr buildQueryPlanForAutomaticParallelReplicas(
         if (!canQueryPossiblyUseParallelReplicas(single_node_query_tree, eligibility_context))
         {
             LOG_TRACE(logger, "Parallel replicas cannot read anything for this query. Skipping building query plan with parallel replicas.");
-            return QueryPlanPtr{};
+            return PlanWithParallelReplicas{.plan = nullptr, .skip_reason = PlanWithParallelReplicas::SkipReason::QueryShape};
         }
     }
 
@@ -260,9 +259,6 @@ QueryPlanPtr buildQueryPlanForAutomaticParallelReplicas(
     };
     removeSettingsFromQueryTopLevel(ast, settings_overridden_for_this_plan);
 
-    /// Counted here rather than on return: everything below is the cost the eligibility check above
-    /// exists to avoid, and the plan is built whether or not it ends up being used.
-    ProfileEvents::increment(ProfileEvents::AutomaticParallelReplicasProbePlansBuilt);
     InterpreterSelectQueryAnalyzer interpreter(ast, ctx, select_options, std::forward<Args>(interpreter_args)...);
 
     /// This plan exists to be costed and is usually thrown away. Shipping a `GLOBAL IN` / `GLOBAL JOIN`
@@ -288,7 +284,7 @@ QueryPlanPtr buildQueryPlanForAutomaticParallelReplicas(
     if (shippingQueryMaterializesSubqueries(interpreter.getQueryTree(), ctx))
     {
         LOG_TRACE(logger, "Shipping this query would materialize its subqueries. Skipping building a plan to cost");
-        return QueryPlanPtr{};
+        return PlanWithParallelReplicas{.plan = nullptr, .skip_reason = PlanWithParallelReplicas::SkipReason::QueryShape};
     }
     auto plan = std::move(interpreter).extractQueryPlan();
     auto optimization_settings = QueryPlanOptimizationSettings(ctx);
@@ -308,7 +304,8 @@ QueryPlanPtr buildQueryPlanForAutomaticParallelReplicas(
     /// just to plan a candidate that might be thrown away.
     reuseBuiltSets(plan, built_sets);
     plan.optimize(optimization_settings);
-    return std::make_unique<QueryPlan>(std::move(plan));
+    return PlanWithParallelReplicas{
+        .plan = std::make_unique<QueryPlan>(std::move(plan)), .skip_reason = PlanWithParallelReplicas::SkipReason::None};
 }
 }
 

@@ -25,6 +25,26 @@ class QueryPlan;
 
 struct DistributedPlanLocalObject;
 
+/// What the builder of the plan with parallel replicas for automatic parallel replicas produced. When
+/// it built nothing, `skip_reason` says which kind of reason stopped it, so that the optimization can
+/// count it; the builder logs the specific reason itself.
+struct PlanWithParallelReplicas
+{
+    enum class SkipReason : uint8_t
+    {
+        None,
+        /// The settings rule parallel replicas out.
+        Settings,
+        /// The query cannot be read with parallel replicas.
+        QueryShape,
+    };
+
+    std::unique_ptr<QueryPlan> plan;
+    SkipReason skip_reason = SkipReason::None;
+};
+
+using QueryPlanWithParallelReplicasBuilder = std::function<PlanWithParallelReplicas(const BuiltSetsByHashPtr &, const LoggerPtr &)>;
+
 struct QueryPlanOptimizationSettings
 {
     QueryPlanOptimizationSettings(
@@ -271,7 +291,7 @@ struct QueryPlanOptimizationSettings
 
     /// Takes the sets the single-node plan already filled, so the probe plan can adopt them instead
     /// of re-running the same subqueries, and the logger to say why it could not build a plan on.
-    std::function<std::unique_ptr<QueryPlan>(const BuiltSetsByHashPtr &, const LoggerPtr &)> query_plan_with_parallel_replicas_builder;
+    QueryPlanWithParallelReplicasBuilder query_plan_with_parallel_replicas_builder;
 
     bool parallel_replicas_filter_pushdown = false;
     bool enable_parallel_replicas = false;
