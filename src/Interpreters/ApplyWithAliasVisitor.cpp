@@ -11,7 +11,7 @@ namespace DB
 
 void ApplyWithAliasVisitor::visit(ASTPtr & ast, size_t max_expanded_ast_elements)
 {
-    ExpandedASTBudget budget(max_expanded_ast_elements);
+    ExpandedASTBudget budget(max_expanded_ast_elements, *ast);
     Data data;
     data.budget = &budget;
     visit(ast, data);

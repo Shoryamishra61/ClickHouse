@@ -92,7 +92,7 @@ void ApplyWithGlobalVisitor::visit(
 
 void ApplyWithGlobalVisitor::visit(ASTPtr & ast, size_t max_expanded_ast_elements)
 {
-    ExpandedASTBudget budget(max_expanded_ast_elements);
+    ExpandedASTBudget budget(max_expanded_ast_elements, *ast);
     visit(ast, budget);
 }
 

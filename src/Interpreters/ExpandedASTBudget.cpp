@@ -15,6 +15,12 @@ ASTPtr ExpandedASTBudget::clone(const ASTPtr & ast)
 {
     if (max_elements)
     {
+        if (!root_counted)
+        {
+            used_elements += root.checkSize(max_elements);
+            root_counted = true;
+        }
+
         /// Counting before cloning keeps the work proportional to the limit: `checkSize` stops at the
         /// first subtree over the limit, and nothing is copied once the budget is spent.
         used_elements += ast->checkSize(max_elements);

@@ -52,7 +52,7 @@ ContextPtr getSubqueryContext(const ASTSelectQuery & select, const ContextPtr & 
 
 void ApplyWithSubqueryVisitor::visit(ASTPtr & ast, size_t max_expanded_ast_elements)
 {
-    ExpandedASTBudget budget(max_expanded_ast_elements);
+    ExpandedASTBudget budget(max_expanded_ast_elements, *ast);
     Data data;
     data.budget = &budget;
     visit(ast, data);
@@ -60,7 +60,7 @@ void ApplyWithSubqueryVisitor::visit(ASTPtr & ast, size_t max_expanded_ast_eleme
 
 void ApplyWithSubqueryVisitor::visit(ASTPtr & ast, ContextPtr context)
 {
-    ExpandedASTBudget budget(context->getSettingsRef()[Setting::max_expanded_ast_elements]);
+    ExpandedASTBudget budget(context->getSettingsRef()[Setting::max_expanded_ast_elements], *ast);
     Data data;
     data.context = std::move(context);
     data.budget = &budget;
@@ -69,7 +69,7 @@ void ApplyWithSubqueryVisitor::visit(ASTPtr & ast, ContextPtr context)
 
 void ApplyWithSubqueryVisitor::visit(ASTSelectQuery & select, size_t max_expanded_ast_elements)
 {
-    ExpandedASTBudget budget(max_expanded_ast_elements);
+    ExpandedASTBudget budget(max_expanded_ast_elements, select);
     Data data;
     data.budget = &budget;
     visit(select, data);
@@ -77,7 +77,7 @@ void ApplyWithSubqueryVisitor::visit(ASTSelectQuery & select, size_t max_expande
 
 void ApplyWithSubqueryVisitor::visit(ASTSelectWithUnionQuery & select, size_t max_expanded_ast_elements)
 {
-    ExpandedASTBudget budget(max_expanded_ast_elements);
+    ExpandedASTBudget budget(max_expanded_ast_elements, select);
     Data data;
     data.budget = &budget;
     visit(select, data);

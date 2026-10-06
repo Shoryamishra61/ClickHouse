@@ -26,3 +26,9 @@ SELECT count() FROM (WITH 0 AS a0, 1 AS a1, 2 AS a2, 3 AS a3, 4 AS a4, 5 AS a5, 
 -- The limit of the current query is used while collecting the dependencies of a materialized view.
 SET max_expanded_ast_elements = 100;
 CREATE MATERIALIZED VIEW mv_expansion ENGINE = Memory AS WITH c0 AS (SELECT dummy AS x FROM system.one), c1 AS (SELECT a.x FROM c0 AS a, c0 AS b), c2 AS (SELECT a.x FROM c1 AS a, c1 AS b), c3 AS (SELECT a.x FROM c2 AS a, c2 AS b) SELECT x FROM c3; -- { serverError TOO_BIG_AST }
+
+-- The limit applies to the whole expanded query, not only to the copies: a small copy into a large query exceeds it.
+SET max_expanded_ast_elements = 150;
+EXPLAIN AST optimize = 1 WITH (SELECT 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10) AS v0 SELECT (SELECT v0 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1); -- { serverError TOO_BIG_AST }
+SET max_expanded_ast_elements = 1000;
+SELECT (WITH (SELECT 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10) AS v0 SELECT (SELECT v0 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1)) FORMAT Null;
