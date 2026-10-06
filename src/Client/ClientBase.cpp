@@ -1279,6 +1279,16 @@ void ClientBase::initLogsOutputStream()
     }
 }
 
+void ClientBase::checkPagerIsSupported([[maybe_unused]] const String & pager_command)
+{
+#if defined(OS_WINDOWS)
+    /// The pager is started through `ShellCommand`, which is not implemented on Windows. Reject it
+    /// when it is set rather than at the first query result.
+    if (!pager_command.empty())
+        throw Exception(ErrorCodes::NOT_IMPLEMENTED, "The pager is not supported on Windows");
+#endif
+}
+
 void ClientBase::adjustSettings(ContextMutablePtr context)
 {
     /// NOTE: Do not forget to set changed=false to avoid sending it to the server (to avoid breakage read only profiles)
@@ -3931,7 +3941,9 @@ bool ClientBase::processQueryText(const String & text)
     {
         auto set_pager_to = [&](const String & cmd)
         {
-            pager = trim(cmd, [](char c) { return isWhitespaceASCII(c); });
+            String new_pager = trim(cmd, [](char c) { return isWhitespaceASCII(c); });
+            checkPagerIsSupported(new_pager);
+            pager = std::move(new_pager);
             /// Re-apply pretty-format width/row limits — they need to be raised when the
             /// pager is enabled and restored to defaults when it is cleared. Otherwise a
             /// runtime `pager ...` without `--pager` on the command line would keep the

@@ -1482,6 +1482,7 @@ void LocalServer::processConfig()
         throw Exception(ErrorCodes::BAD_ARGUMENTS, "Options '--query' and '--queries-file' cannot be specified at the same time");
 
     pager = getClientConfiguration().getString("pager", "");
+    checkPagerIsSupported(pager);
 
     delayed_interactive = getClientConfiguration().has("interactive") && (!queries.empty() || !queries_files.empty());
     if (!is_interactive || delayed_interactive)

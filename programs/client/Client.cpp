@@ -1504,6 +1504,7 @@ void Client::processConfig()
     }
 
     pager = config().getString("pager", "");
+    checkPagerIsSupported(pager);
     enable_highlight = ConfigHelper::getBool(config(), "highlight", true);
     multiline = config().has("multiline");
     rainbow_parentheses = config().getBool("rainbow_parentheses", true);
