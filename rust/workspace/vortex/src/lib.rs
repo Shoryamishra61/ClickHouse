@@ -132,14 +132,11 @@ impl HostRuntime {
             None => drop(runnable),
             Some(runtime) => runtime.enqueue(queue, runnable),
         };
-        // `Runnable::run` re-raises a panic of the future on the thread that ran it, and that
-        // thread belongs to the caller's pool. Catch it before it gets there.
-        let (runnable, task) = async_task::spawn(
-            async move {
-                let _ = AssertUnwindSafe(future).catch_unwind().await;
-            },
-            schedule,
-        );
+        // A panic of the future is not caught here. Everything Vortex spawns through its `Handle`
+        // already catches it and re-raises it at the join site, and anything else unwinds out of
+        // `Runnable::run` into the `ffi_wrap` of `vortex_ffi_runtime_run`, which reports it as an
+        // error, or through `block_on` into the `ffi_wrap` of the call that is blocking.
+        let (runnable, task) = async_task::spawn(future, schedule);
         runnable.schedule();
         Box::new(HostAbortHandle { task: Some(task) })
     }
@@ -189,6 +186,9 @@ impl HostRuntime {
         // Published only after the unparker is in the list, so that whoever observes the count
         // also observes the unparker.
         self.num_parked.fetch_add(1, Ordering::Release);
+        // Unregisters on the way out, including when a task run below panics and the panic unwinds
+        // through here to the `ffi_wrap` of the blocking call.
+        let _registration = ParkedRegistration { runtime: self, id };
 
         let waker = Waker::from(unparker);
         let mut context = Context::from_waker(&waker);
@@ -205,13 +205,21 @@ impl HostRuntime {
             }
             parker.park();
         };
-
-        self.num_parked.fetch_sub(1, Ordering::Release);
-        {
-            let mut parked = self.parked.lock().unwrap_or_else(|e| e.into_inner());
-            parked.retain(|(parked_id, _)| *parked_id != id);
-        }
         output
+    }
+}
+
+/// A thread inside `HostRuntime::block_on`, removed from the parked list when dropped.
+struct ParkedRegistration<'a> {
+    runtime: &'a HostRuntime,
+    id: u64,
+}
+
+impl Drop for ParkedRegistration<'_> {
+    fn drop(&mut self) {
+        self.runtime.num_parked.fetch_sub(1, Ordering::Release);
+        let mut parked = self.runtime.parked.lock().unwrap_or_else(|e| e.into_inner());
+        parked.retain(|(parked_id, _)| *parked_id != self.id);
     }
 }
 
@@ -783,8 +791,8 @@ impl FinishGuard {
 
 impl Drop for FinishGuard {
     fn drop(&mut self) {
-        // A panicking driver drops its locals while unwinding out of `poll`, before the runtime
-        // catches the panic, so this is how a panic is distinguished from a cancellation.
+        // A panicking driver drops its locals while unwinding out of `poll`, before the panic is
+        // caught, so this is how a panic is distinguished from a cancellation.
         if !self.finished && std::thread::panicking() {
             self.callbacks
                 .finish(Some("panic in the scan driver".to_string()));
@@ -2588,6 +2596,27 @@ mod tests {
                 .any(|name| name.starts_with("async-io") || name.starts_with("blocking")),
             "unexpected library threads: {names:?}"
         );
+    }
+
+    /// A panic of a task that nothing joins is reported by `vortex_ffi_runtime_run`, not swallowed.
+    #[test]
+    fn ffi_runtime_run_reports_panic() {
+        unsafe {
+            let runtime = vortex_ffi_runtime_new(std::ptr::null_mut(), None);
+            let handle = (*runtime)
+                .inner
+                .spawn_on(FFI_VortexTaskQueue::CPU, async { panic!("task failure") }.boxed());
+            drop(handle);
+
+            let mut error: *mut c_char = std::ptr::null_mut();
+            let result = vortex_ffi_runtime_run(runtime, FFI_VortexTaskQueue::CPU, 0, &mut error);
+            assert_eq!(result, -1);
+            let message = CStr::from_ptr(error).to_str().expect("utf-8").to_string();
+            assert!(message.contains("task failure"), "{message}");
+            vortex_ffi_free_string(error);
+
+            vortex_ffi_runtime_free(runtime);
+        }
     }
 
     /// Without a notification callback the runtime advances on the thread inside the call, so one
