@@ -20,6 +20,7 @@
 #include <Interpreters/getColumnFromBlock.h>
 #include <Interpreters/Context.h>
 #include <Interpreters/ExpressionActions.h>
+#include <Interpreters/RequiredSourceColumnsVisitor.h>
 #include <Parsers/IAST.h>
 #include <Databases/enableAllExperimentalSettings.h>
 
@@ -322,9 +323,11 @@ NameSet IMergeTreeReader::getDefaultsDependingOn(const NameSet & candidates, con
             if (!default_desc.expression || affected.contains(name) || columns_in_part.has(name))
                 continue;
 
-            IdentifierNameSet identifiers;
-            default_desc.expression->collectIdentifierNames(identifiers);
-            for (const auto & identifier : identifiers)
+            /// Only the source columns the expression reads, not the formals of its lambdas or its aliases.
+            RequiredSourceColumnsVisitor::Data columns_context;
+            auto expression = default_desc.expression->clone();
+            RequiredSourceColumnsVisitor(columns_context).visit(expression);
+            for (const auto & identifier : columns_context.requiredColumns())
             {
                 if (affected.contains(identifier) || affected.contains(get_name_in_storage(identifier)))
                 {
