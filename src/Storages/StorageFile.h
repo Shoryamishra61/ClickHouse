@@ -293,6 +293,10 @@ public:
         /// will produce. Only meaningful when not reading from an archive and not
         /// using distributed_processing.
         const std::vector<std::string> & getFiles() const { return files; }
+
+        /// Whether a `_path` / `_file` filter is still pending and is applied only in `next`.
+        /// In that case `getFiles` is not the final set of files to read.
+        bool hasDeferredFilter() const { return deferred_filter_actions != nullptr; }
 private:
         std::vector<std::string> files;
 

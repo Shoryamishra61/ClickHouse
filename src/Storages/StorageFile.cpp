@@ -2841,7 +2841,10 @@ void ReadFromFile::initializePipeline(QueryPipelineBuilder & pipeline, const Bui
     /// (`createPathAndFileFilterDAG`), so the optimization respects that pruning. If
     /// the predicate excludes the only path the file is not read at all. It also
     /// means a query against many paths whose predicate prunes down to a single file
-    /// still benefits from the split.
+    /// still benefits from the split. When that filter could not be applied yet (a set
+    /// in it is built later, e.g. `_path IN (subquery)`), it is deferred to
+    /// `FilesIterator::next`, which the per-bucket sources never call: the split is
+    /// then disabled, so the file is still pruned before it is opened.
     ///
     /// The split is also gated on `parallelize_output_from_storages`: if the user has
     /// explicitly disabled output parallelism, we must not create multiple sources
@@ -2862,6 +2865,7 @@ void ReadFromFile::initializePipeline(QueryPipelineBuilder & pipeline, const Bui
         && !storage->distributed_processing
         && FormatFactory::instance().checkFormatHasSplitter(storage->format_name)
         && FormatFactory::instance().checkParallelizeOutputAfterReading(storage->format_name, ctx)
+        && !files_iterator->hasDeferredFilter()
         && files_iterator->getFiles().size() == 1)
     {
         single_file_path = files_iterator->getFiles().front();
