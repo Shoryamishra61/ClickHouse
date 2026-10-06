@@ -418,9 +418,11 @@ def test_dynamic_gcs_disk_renews_a_refresh_token_credential(started_cluster):
 def test_dynamic_gcs_disk_caches_a_long_lived_access_token(started_cluster):
     """The renewal above must not turn into a token exchange per request.
 
-    google-cloud-cpp's caching decorator keeps the access token until it is close to expiring, so a
-    disk whose token endpoint reports a long lifetime exchanges the refresh token exactly once no
-    matter how many GCS requests the queries make.
+    google-cloud-cpp's caching decorator keeps the access token until it is close to expiring, so
+    once a disk whose token endpoint reports a long lifetime has its token, further GCS requests do
+    not exchange the refresh token again. The first round of queries is a warm-up: how many tokens it
+    mints depends on how many credential holders the build keeps for the disk (a build with the
+    distributed cache mints one more for it), not on the number of requests.
     """
     node = started_cluster.instances["node"]
     disk_endpoint = (
@@ -447,14 +449,25 @@ def test_dynamic_gcs_disk_caches_a_long_lived_access_token(started_cluster):
     )
 
     node.query("INSERT INTO gcs_adc_cached SELECT number FROM numbers(1000)")
-    node.query("INSERT INTO gcs_adc_cached SELECT number FROM numbers(1000, 1000)")
-    assert node.query("SELECT count() FROM gcs_adc_cached").strip() == "2000"
     assert node.query("SELECT sum(a) FROM gcs_adc_cached").strip() == str(
-        sum(range(2000))
+        sum(range(1000))
+    )
+    warmed_up, _ = token_exchanges(LONG_LIVED_TOKEN_PORT)
+    assert warmed_up > before, "the disk did not exchange the refresh token at all"
+
+    for i in range(1, 4):
+        node.query(
+            f"INSERT INTO gcs_adc_cached SELECT number FROM numbers({i * 1000}, 1000)"
+        )
+    assert node.query("SELECT count() FROM gcs_adc_cached").strip() == "4000"
+    assert node.query("SELECT sum(a) FROM gcs_adc_cached").strip() == str(
+        sum(range(4000))
     )
 
     after, _ = token_exchanges(LONG_LIVED_TOKEN_PORT)
-    assert after - before == 1, f"expected one token exchange, got {after - before}"
+    assert (
+        after == warmed_up
+    ), f"expected no token exchange after the warm-up, got {after - warmed_up}"
 
     node.query("DROP TABLE gcs_adc_cached SYNC")
 
