@@ -29,7 +29,9 @@ A `SELECT` query can use the plan cache when all of the following hold:
 - The query is a top-level `SELECT` (possibly with `UNION`), run with the analyzer (`enable_analyzer = 1`) and without parallel replicas. The plan cache is disabled for the whole session when `allow_experimental_parallel_reading_from_replicas` is nonzero, including for a local query that would not otherwise use parallel replicas.
 - Queries over **views, joins, subqueries and `IN` subqueries are supported**: views are inlined into the cached plan, and
   subquery/`IN`-set sub-plans re-execute on every run.
-- The query contains no non-deterministic functions (e.g. `now`, `rand`), including inside expanded view bodies.
+- The query contains no non-deterministic functions (e.g. `now`, `rand`), including inside expanded view bodies. Queries calling
+  executable or WebAssembly user-defined functions (directly or from a row policy) are not cached even when such a function is declared
+  deterministic, because a cache hit rebuilds functions through the built-in function factory only.
 - All referenced storages are local, non-temporary tables or views (no table functions, no `system` tables except `system.one`,
   no `Merge`/`Distributed`/`Alias` storages), in databases that assign table UUIDs (e.g. `Atomic`; tables in `Ordinary` or `Lazy` databases
   are not cached, because the plan cannot be bound to the analyzed table identity). Among views, only `SQL SECURITY INVOKER` views are eligible; `SQL SECURITY DEFINER` and
@@ -39,7 +41,7 @@ A `SELECT` query can use the plan cache when all of the following hold:
   such queries are not cached; set `query_plan_cache_allow_scalar_subqueries = 1` to cache them when the tables referenced by scalar
   subqueries are static or stale scalar values are acceptable.
 
-Plans whose steps do not support serialization (e.g. `ORDER BY ... WITH FILL`) are executed normally and simply not cached.
+Plans containing a step that does not support serialization are executed normally and simply not cached.
 
 ## Invalidation {#invalidation}
 
