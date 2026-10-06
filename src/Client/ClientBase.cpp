@@ -5369,6 +5369,14 @@ void ClientBase::recordParseErrorForAIContext(std::string_view query, const Stri
 }
 #endif
 
+void ClientBase::resetServerSessionCaches()
+{
+    server_effective_setting_values.clear();
+#if USE_CLIENT_AI
+    ai_query_log_marker_writable.reset();
+#endif
+}
+
 /// The questions below are asked of the server rather than read from the client context, and
 /// are not guarded by `USE_CLIENT_AI`: `fetchInternalQueryResult` serves the `help` command as
 /// well as the AI agent, and it needs the dialect question in every build.

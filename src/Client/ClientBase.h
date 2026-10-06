@@ -220,6 +220,14 @@ protected:
     /// rather than on the local one.
     std::optional<String> serverEffectiveSettingValue(const String & name);
 
+    /// Drops the cached answers about the server session, to be called once a new session is
+    /// established: a reconnect can land on a different server, which may not know a setting the
+    /// previous one knew, or may run the session under a different settings profile. The sticky
+    /// flags are kept, because they fail closed: `dialect_may_be_changed_by_profile` only pins the
+    /// internal queries to the ClickHouse dialect, and the rows the agent may have left unmarked in
+    /// the query log stay there after a reconnect, so `read_query_log` must not come back.
+    void resetServerSessionCaches();
+
     /// Whether the connected server knows a setting at all. The isolation the internal queries and
     /// the unconfirmed read-only tool install is only real when the server enforces it: a setting
     /// that is not `IMPORTANT` is silently ignored by a server that predates it, and one that is
