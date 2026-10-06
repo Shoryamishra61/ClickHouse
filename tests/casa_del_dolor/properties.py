@@ -151,6 +151,8 @@ possible_properties = {
     #     0.2, 0.2, 0.0, 0.001
     # ),
     "cgroups_memory_usage_observer_wait_time": threshold_generator(0.2, 0.2, 0, 60, 6),
+    "columns_cache_policy": lambda: random.choice(["LRU", "SLRU", "SIEVE"]),
+    "columns_cache_size_ratio": threshold_generator(0.2, 0.2, 0.0, 1.0),
     "compiled_expression_cache_elements_size": threshold_generator(0.2, 0.2, 0, 10000),
     # In bytes (default 128Mi), unlike the element count above
     "compiled_expression_cache_size": threshold_generator(
