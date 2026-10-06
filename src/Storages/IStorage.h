@@ -349,6 +349,8 @@ public:
     /// while a query is being analyzed. A column that can never be encoded answers `false`.
     /// @storage_snapshot is the snapshot the query reads from (may be null): when it holds the parts the
     /// read will use, the answer is taken from them, so it cannot miss a part committed concurrently.
+    /// A wrapper passes its own snapshot to the table it reads, which then answers `true` for any column
+    /// that can be encoded at all, because the parts the wrapper reads later are not known yet.
     /// Unlike getSerializationHints() this is cheap, so query analysis can use it.
     virtual bool hasAutomaticLowCardinalitySerialization(const String & /*column_name*/, const StorageSnapshotPtr & /*storage_snapshot*/) const
     {
