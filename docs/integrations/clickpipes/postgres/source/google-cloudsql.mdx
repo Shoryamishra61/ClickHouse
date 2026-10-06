@@ -78,6 +78,62 @@ Connect to your Cloud SQL Postgres through the admin user and run the below comm
 
    The `clickpipes` publication defines the set of tables whose change events will be streamed to ClickPipes. We recommend against using `FOR ALL TABLES` unless you intend to replicate every table, as including unnecessary tables increases WAL traffic from Postgres to ClickPipes and reduces overall replication efficiency.
 
+## Using IAM database authentication (optional, Private Preview) {#iam-database-authentication}
+
+Instead of a password, ClickPipes can authenticate with the Google Cloud service account that belongs to your ClickHouse Cloud service, using [automatic IAM database authentication](https://cloud.google.com/sql/docs/postgres/authentication#automatic). ClickPipes then connects to your Cloud SQL instance without storing any database credentials.
+
+<Note>
+IAM database authentication is in **Private Preview**. Reach out to the [ClickHouse support team](https://clickhouse.com/support/program) to enable it for your service.
+</Note>
+
+### Get the ClickHouse service account {#get-the-clickhouse-service-account}
+
+Use the [Get ClickPipes service context](/products/cloud/api-reference/clickpipes/click-pipes-service-context-get) API endpoint to get the GCP service account of your ClickHouse service. Its email looks like `<name>@<project>.iam.gserviceaccount.com`. The steps below refer to it as `SERVICE_ACCOUNT_EMAIL`.
+
+### Configure Cloud SQL {#configure-cloud-sql-for-iam}
+
+1. [Enable the Cloud SQL Admin API](https://console.cloud.google.com/apis/library/sqladmin.googleapis.com) in the project that hosts your instance. ClickPipes uses it to look up the instance and to get a short-lived client certificate.
+
+2. Turn on the `cloudsql.iam_authentication` flag on your instance. Changing this flag restarts the instance.
+
+3. Grant the service account the `roles/cloudsql.client` and `roles/cloudsql.instanceUser` IAM roles on the project that hosts your instance:
+
+   ```bash
+   gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+     --member="serviceAccount:SERVICE_ACCOUNT_EMAIL" \
+     --role="roles/cloudsql.client"
+
+   gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+     --member="serviceAccount:SERVICE_ACCOUNT_EMAIL" \
+     --role="roles/cloudsql.instanceUser"
+   ```
+
+4. Create a database user for the service account. For Postgres, the user name is the service account email **without** the `.gserviceaccount.com` suffix:
+
+   ```bash
+   gcloud sql users create "<name>@<project>.iam" \
+     --instance=YOUR_INSTANCE \
+     --type=cloud_iam_service_account
+   ```
+
+5. Connect through the admin user and grant the new user the same privileges as the password-based user above. Create the publication as described in the previous section.
+
+   ```sql
+   GRANT USAGE ON SCHEMA "public" TO "<name>@<project>.iam";
+   GRANT SELECT ON ALL TABLES IN SCHEMA "public" TO "<name>@<project>.iam";
+   ALTER DEFAULT PRIVILEGES IN SCHEMA "public" GRANT SELECT ON TABLES TO "<name>@<project>.iam";
+   ALTER USER "<name>@<project>.iam" WITH REPLICATION;
+   ```
+
+### Create the ClickPipe {#create-the-clickpipe-with-iam}
+
+When you create the ClickPipe, select Google Cloud service account (IAM) authentication. You don't need to enter a username or a password.
+
+- Set **Host** to the instance connection name, in the form `PROJECT:REGION:INSTANCE`. You can also use a DNS name that has a TXT record containing the instance connection name. An IP address is not accepted.
+- ClickPipes connects to the instance's server-side proxy port, **3307**, and not to port 5432. Make sure this port is reachable, and that ClickPipes can reach `sqladmin.googleapis.com`. For a public IP, [add the ClickPipes IPs to your authorized networks](#add-clickpipes-ips-to-firewall).
+- ClickPipes uses Private Service Connect when your service has a [reverse private endpoint](/integrations/clickpipes/networking/gcp-psc) that resolves the instance's PSC DNS name. Otherwise, it connects to the instance's public IP, or to its private IP if the instance has no public one.
+- TLS settings such as the root CA don't apply. The connection is encrypted and the server identity is verified automatically.
+
 [//]: # (TODO Add SSH Tunneling)
 
 ## Add ClickPipes IPs to Firewall {#add-clickpipes-ips-to-firewall}
