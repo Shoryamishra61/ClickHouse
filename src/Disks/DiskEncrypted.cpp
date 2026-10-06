@@ -78,6 +78,11 @@ namespace
         config.has(config_prefix + ".key_aws");
         config.has(config_prefix + ".key_gcp");
         config.has(config_prefix + ".key_azure");
+        /// The options of a key management service are read only to decrypt a key, so they are read only
+        /// when there is such a key. Look them up as well, so that they are known for a disk that gets
+        /// such a key on a configuration reload.
+        config.has(config_prefix + ".no_sign_request");
+        config.has(config_prefix + ".aws_kms_endpoint");
 #endif
 
         for (const std::string & config_key : config_keys)
