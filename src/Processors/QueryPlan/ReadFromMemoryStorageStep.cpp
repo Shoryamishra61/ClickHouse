@@ -432,6 +432,8 @@ protected:
 
         MutableColumns result_columns = getPort().getHeader().cloneEmptyColumns();
         size_t num_rows = 0;
+        /// The size of the whole deferred columns materialized from the blocks.
+        size_t num_read_bytes = 0;
 
         for (const auto & [block_index, rows_in_block] : block_rows)
         {
@@ -445,12 +447,23 @@ protected:
             fillMissingColumns(block_columns, src.rows(), columns, columns, {}, nullptr);
 
             for (size_t i = 0; i < block_columns.size(); ++i)
+            {
+                num_read_bytes += block_columns[i]->byteSize();
                 result_columns[i]->insertRangeFrom(*block_columns[i]->index(*rows_in_block, 0), 0, rows_in_block->size());
+            }
 
             num_rows += rows_in_block->size();
         }
 
         block_rows.clear();
+
+        /// Reports the read progress explicitly, because the automatic accounting of `ISource` uses
+        /// the returned chunk, which holds only the requested rows, while the deferred columns of each
+        /// block are materialized as a whole (and decompressed for a table with `compress = true`).
+        /// The rows are already counted by the main branch, so only the requested rows are reported here,
+        /// the same as the automatic accounting would do.
+        progress(num_rows, num_read_bytes);
+
         return Chunk(std::move(result_columns), num_rows);
     }
 
