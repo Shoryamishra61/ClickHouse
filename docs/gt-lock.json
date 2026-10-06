@@ -7,42 +7,42 @@
       "versionId": "ae00ec2598472ccb8856e4f1f4020869cb1221d8279c1e05e1753221f38f987b",
       "translations": {
         "ar": {
-          "updatedAt": "2026-10-06T11:05:59.587Z",
+          "updatedAt": "2026-10-06T12:21:30.665Z",
           "fileName": "docs.json",
           "postProcessHash": "db3484d5a18fc90de67853c07df9844f7d2969b59d76e844ff92aa43539169a1"
         },
         "fr": {
-          "updatedAt": "2026-10-06T11:05:59.765Z",
+          "updatedAt": "2026-10-06T12:21:30.846Z",
           "fileName": "docs.json",
           "postProcessHash": "db3484d5a18fc90de67853c07df9844f7d2969b59d76e844ff92aa43539169a1"
         },
         "ja": {
-          "updatedAt": "2026-10-06T11:05:58.646Z",
+          "updatedAt": "2026-10-06T12:21:29.777Z",
           "fileName": "docs.json",
           "postProcessHash": "db3484d5a18fc90de67853c07df9844f7d2969b59d76e844ff92aa43539169a1"
         },
         "es": {
-          "updatedAt": "2026-10-06T11:05:58.460Z",
+          "updatedAt": "2026-10-06T12:21:29.570Z",
           "fileName": "docs.json",
           "postProcessHash": "db3484d5a18fc90de67853c07df9844f7d2969b59d76e844ff92aa43539169a1"
         },
         "zh": {
-          "updatedAt": "2026-10-06T11:05:59.401Z",
+          "updatedAt": "2026-10-06T12:21:30.490Z",
           "fileName": "docs.json",
           "postProcessHash": "db3484d5a18fc90de67853c07df9844f7d2969b59d76e844ff92aa43539169a1"
         },
         "pt-BR": {
-          "updatedAt": "2026-10-06T11:05:59.024Z",
+          "updatedAt": "2026-10-06T12:21:30.131Z",
           "fileName": "docs.json",
           "postProcessHash": "db3484d5a18fc90de67853c07df9844f7d2969b59d76e844ff92aa43539169a1"
         },
         "ko": {
-          "updatedAt": "2026-10-06T11:05:58.838Z",
+          "updatedAt": "2026-10-06T12:21:29.952Z",
           "fileName": "docs.json",
           "postProcessHash": "db3484d5a18fc90de67853c07df9844f7d2969b59d76e844ff92aa43539169a1"
         },
         "ru": {
-          "updatedAt": "2026-10-06T11:05:59.208Z",
+          "updatedAt": "2026-10-06T12:21:30.310Z",
           "fileName": "docs.json",
           "postProcessHash": "db3484d5a18fc90de67853c07df9844f7d2969b59d76e844ff92aa43539169a1"
         }
@@ -66102,47 +66102,47 @@
     },
     {
       "fileId": "7ed5349a06a9e9f516a5f7b6af36a424875a6e22f174836fb8715f821a8cd318",
-      "versionId": "b5f9e46b8eaabcff090daed43bb4e1d88114349212a1d7d714ff9073e37ccbcd",
+      "versionId": "07bbc28230e119e28a79a80cce4becc80e2eb22fb63a06928223cee7bb5cafef",
       "translations": {
-        "ru": {
-          "updatedAt": "2026-10-04T00:14:28.658Z",
-          "fileName": "ru/reference/settings/server-settings/_server_settings_outside_source.mdx",
-          "postProcessHash": "0d4c689be34a915c0c3e59956ce1914638bad48f58e20d2838b07a9dc40e91a7"
-        },
         "zh": {
-          "updatedAt": "2026-10-04T00:14:28.659Z",
+          "updatedAt": "2026-10-06T12:21:34.098Z",
           "fileName": "zh/reference/settings/server-settings/_server_settings_outside_source.mdx",
-          "postProcessHash": "0b4e5263258aaa4d549e26ea11fd7c57846a9cc52e1a246d925b49f0612b4b52"
+          "postProcessHash": "b23a780a0ef95b8a2cf215ed60c73b2be15d0b47fb7d58e0bd681f9141d176db"
         },
-        "es": {
-          "updatedAt": "2026-10-04T00:14:28.660Z",
-          "fileName": "es/reference/settings/server-settings/_server_settings_outside_source.mdx",
-          "postProcessHash": "03f19eb2fd399059454b135705a084866ad1f8bc9a6b54bddf3f8bb6450213a2"
-        },
-        "ko": {
-          "updatedAt": "2026-10-04T00:14:28.661Z",
-          "fileName": "ko/reference/settings/server-settings/_server_settings_outside_source.mdx",
-          "postProcessHash": "57aacb7e98897394fd5fd1ab99343e1fd086f71e86cd0192eb97e012b31ea68e"
-        },
-        "pt-BR": {
-          "updatedAt": "2026-10-04T00:14:28.662Z",
-          "fileName": "pt-BR/reference/settings/server-settings/_server_settings_outside_source.mdx",
-          "postProcessHash": "b304251062cc69059dc127cc93a153a6d3d02d25164f9647d773678feb3fc371"
-        },
-        "ja": {
-          "updatedAt": "2026-10-04T00:14:28.662Z",
-          "fileName": "ja/reference/settings/server-settings/_server_settings_outside_source.mdx",
-          "postProcessHash": "1f62b7deceada6e9cf06f2d1cac5641f02d6855ba8d5508868ef88be9be6e6fd"
+        "ru": {
+          "updatedAt": "2026-10-06T12:21:34.099Z",
+          "fileName": "ru/reference/settings/server-settings/_server_settings_outside_source.mdx",
+          "postProcessHash": "1b03b493ef62cdcc768efe3d1bee833dd86d67ea77d7b2e2a65102a912430033"
         },
         "fr": {
-          "updatedAt": "2026-10-04T00:14:28.663Z",
+          "updatedAt": "2026-10-06T12:21:34.100Z",
           "fileName": "fr/reference/settings/server-settings/_server_settings_outside_source.mdx",
-          "postProcessHash": "d500b5648454cfc449aa9f1130c10a5e79db2b22c4b882e228c44d605129cba4"
+          "postProcessHash": "012f90d31d37afec7719fdbaca7c1143317fc8e0c2c54ad6456be2781ff4eb42"
         },
         "ar": {
-          "updatedAt": "2026-10-04T00:14:28.665Z",
+          "updatedAt": "2026-10-06T12:21:34.101Z",
           "fileName": "ar/reference/settings/server-settings/_server_settings_outside_source.mdx",
-          "postProcessHash": "c83ff98b707092fab53428e69a4490d41dbffcfb26baec7d4b5244ef7c2dd86a"
+          "postProcessHash": "cc1bc9e290a4a3de1284e2fac1abf575d7c7d93a19366fb6bfa3c9d4323c1b4a"
+        },
+        "ko": {
+          "updatedAt": "2026-10-06T12:21:34.102Z",
+          "fileName": "ko/reference/settings/server-settings/_server_settings_outside_source.mdx",
+          "postProcessHash": "1f27c8835eac0a5d4112138bea2f23d1aee3939ffc5de8185801e63bf736137a"
+        },
+        "es": {
+          "updatedAt": "2026-10-06T12:21:34.103Z",
+          "fileName": "es/reference/settings/server-settings/_server_settings_outside_source.mdx",
+          "postProcessHash": "c49dd9d727a0064c132de1e2491dfbb7b0308ce1d06dc8678c59d9e9a081a15f"
+        },
+        "ja": {
+          "updatedAt": "2026-10-06T12:21:34.104Z",
+          "fileName": "ja/reference/settings/server-settings/_server_settings_outside_source.mdx",
+          "postProcessHash": "c9a27346e33f745940aa1646404b217c587ef99e1bf8b470974c099102f9332e"
+        },
+        "pt-BR": {
+          "updatedAt": "2026-10-06T12:21:34.105Z",
+          "fileName": "pt-BR/reference/settings/server-settings/_server_settings_outside_source.mdx",
+          "postProcessHash": "f2bae5da31649ec44b2db7ea5ec2f2781fd709433badfdad60544c09596139f4"
         }
       },
       "fileName": "reference/settings/server-settings/_server_settings_outside_source.mdx"
@@ -71549,47 +71549,47 @@
     },
     {
       "fileId": "46c70dce71d7b9b7fc078d40f5feed3e907d5b46917ff2f846979eb5ab5f785a",
-      "versionId": "821a74d122e14fba03bacce1096e71ec76fa1ecda8aa2222d4091820e8178eea",
+      "versionId": "1a5912162b7d7405574b56d530c898f2c74c9189e82683b1653f6fa4c40495d4",
       "translations": {
         "ko": {
-          "updatedAt": "2026-08-26T10:07:48.824Z",
+          "updatedAt": "2026-10-06T12:21:34.094Z",
           "fileName": "ko/concepts/features/configuration/server-config/composable-protocols.mdx",
-          "postProcessHash": "fa35bf0d1e0942221f80b48fec70cb83c726a2f22bfc14817da18ca9dd4db74a"
+          "postProcessHash": "cd1baba3dadc552daee26b9ea4976a2e164919435069cdc578db9d262234def0"
         },
         "ja": {
-          "updatedAt": "2026-08-26T10:07:48.828Z",
+          "updatedAt": "2026-10-06T12:21:34.094Z",
           "fileName": "ja/concepts/features/configuration/server-config/composable-protocols.mdx",
-          "postProcessHash": "89783594354849ed6a3e66c2baee3edb6fd3e637de0a225e72da02ecb1bf9f30"
-        },
-        "pt-BR": {
-          "updatedAt": "2026-08-26T10:07:48.838Z",
-          "fileName": "pt-BR/concepts/features/configuration/server-config/composable-protocols.mdx",
-          "postProcessHash": "2ce786ed82b33efb700f098bd5e5c362ecde0e9a8c1ee9544a60e731e592a7b2"
-        },
-        "ru": {
-          "updatedAt": "2026-08-26T10:07:48.847Z",
-          "fileName": "ru/concepts/features/configuration/server-config/composable-protocols.mdx",
-          "postProcessHash": "58bf9052b3b882db7e40ac78bfa2f0f6d42ba462950a238dfabb2c83f50a6561"
-        },
-        "zh": {
-          "updatedAt": "2026-08-26T10:07:48.850Z",
-          "fileName": "zh/concepts/features/configuration/server-config/composable-protocols.mdx",
-          "postProcessHash": "318911b30daa1d2324927df9d0bd6fc356e73f0d5450e6c847b023ced4ba1209"
+          "postProcessHash": "6d4f9742a20e3fe7bb1b0c0fc91cc103a1b1ee8c7ea4d87b3490d929d6b31c99"
         },
         "fr": {
-          "updatedAt": "2026-08-26T10:07:48.856Z",
+          "updatedAt": "2026-10-06T12:21:34.095Z",
           "fileName": "fr/concepts/features/configuration/server-config/composable-protocols.mdx",
-          "postProcessHash": "e46ddbf489898143bddea2d54f7aa1295390d85f0100b64c90bdfc89cc039a27"
+          "postProcessHash": "59dbf74a4d3be80b74b27bd684d66293b07f2b4c12b55c968b7ddabe02288106"
         },
-        "es": {
-          "updatedAt": "2026-08-26T10:07:48.858Z",
-          "fileName": "es/concepts/features/configuration/server-config/composable-protocols.mdx",
-          "postProcessHash": "bb7729c846af6f5621417f778b7bcd59e4d40384c2bdcd89feb19293b3b01fdf"
+        "pt-BR": {
+          "updatedAt": "2026-10-06T12:21:34.095Z",
+          "fileName": "pt-BR/concepts/features/configuration/server-config/composable-protocols.mdx",
+          "postProcessHash": "93b93b3e2d6184f1bad26b4725a605652bb484ff8fc5204c605c2aa1c803d7d7"
         },
         "ar": {
-          "updatedAt": "2026-08-26T10:07:48.864Z",
+          "updatedAt": "2026-10-06T12:21:34.096Z",
           "fileName": "ar/concepts/features/configuration/server-config/composable-protocols.mdx",
-          "postProcessHash": "06fe217d45a9547289cf7c9236810446b37caefb8b70c26efff7e70c72ceda96"
+          "postProcessHash": "0aa069107292ee57e0384bc47aeaafe2d50e2c42b2dbe7cbc785a85c0daad5ab"
+        },
+        "zh": {
+          "updatedAt": "2026-10-06T12:21:34.096Z",
+          "fileName": "zh/concepts/features/configuration/server-config/composable-protocols.mdx",
+          "postProcessHash": "828e3b94cb4a2979b661eed581caa8fead27201182b6c1f76ee59f478f18b3af"
+        },
+        "ru": {
+          "updatedAt": "2026-10-06T12:21:34.097Z",
+          "fileName": "ru/concepts/features/configuration/server-config/composable-protocols.mdx",
+          "postProcessHash": "e0cd9e64e7bcbaeab54e8606e2c76f7ee99ad26baf9d7cc7cb626544f2723ef7"
+        },
+        "es": {
+          "updatedAt": "2026-10-06T12:21:34.097Z",
+          "fileName": "es/concepts/features/configuration/server-config/composable-protocols.mdx",
+          "postProcessHash": "a82dbed5ab668edcdc1ccdb27e06389478f364a73809cfbea4eb960cea5afa75"
         }
       },
       "fileName": "concepts/features/configuration/server-config/composable-protocols.mdx"
