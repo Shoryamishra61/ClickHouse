@@ -496,7 +496,10 @@ std::optional<Aggregator::AggregatedChunk> Aggregator::mergeAndConvertOneBucketT
                 candidates.push_back(candidate);
                 std::push_heap(candidates.begin(), candidates.end(), candidate_worse);
             }
-            else if (candidate_worse(candidates.front(), candidate))
+            /// `candidates.front()` is the worst kept candidate: replace it when the new one ranks
+            /// strictly ahead of it. In the summing walk over several tables a group popped later
+            /// can still overtake an earlier one once its leftovers from the other tables are merged.
+            else if (candidate_worse(candidate, candidates.front()))
             {
                 std::pop_heap(candidates.begin(), candidates.end(), candidate_worse);
                 if (candidates.back().place)
