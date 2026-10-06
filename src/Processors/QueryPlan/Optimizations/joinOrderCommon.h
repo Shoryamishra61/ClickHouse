@@ -289,7 +289,7 @@ inline std::optional<UInt64> estimateJoinCardinality(
     /// Every row of both sides appears at least once, matched or padded, so the result is at least
     /// the larger side. The sum of both sides is not a lower bound: matched rows appear once.
     if (join_kind == JoinKind::Full)
-        joined_rows = std::max(joined_rows, std::max(lhs, rhs));
+        joined_rows = std::max({joined_rows, lhs, rhs});
 
     return roundToRowCount(std::max(joined_rows, 1.0));
 }
