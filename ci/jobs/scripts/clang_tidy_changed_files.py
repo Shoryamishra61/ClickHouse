@@ -26,6 +26,7 @@ for unrelated pull requests - blocking every merge, including the merge of its
 own fix.
 """
 
+import functools
 import json
 import os
 import re
@@ -57,12 +58,12 @@ HEADER_SUFFIXES = (".h", ".hpp")
 MAX_INCLUDERS_PER_HEADER = 3
 
 # How far the search for those includers follows headers including the changed
-# header, and how many such headers it follows on one level. A header is often
-# included only by other headers (`wide_integer_impl.h` by `wide_integer.h`), so
-# its translation units are found a level or two away; the bounds keep a header
-# included from hundreds of headers from turning into hundreds of searches.
+# header. A header is often included only by other headers (`wide_integer_impl.h`
+# by `wide_integer.h`), so its translation units are found a level or two away.
+# The search runs over an in-memory index of the include directives, so every
+# header on a level is followed: which includers are found must not depend on how
+# their names sort.
 MAX_INCLUDE_DEPTH = 3
-MAX_INCLUDE_FRONTIER = 32
 
 # Files that decide what the clang-tidy checks report, or how this one selects
 # and judges its work, without being analyzed themselves. A change to them alone
@@ -87,15 +88,41 @@ TIDY_CONFIG_PATHS = (
 )
 # Inputs of code generators whose output is C++ that clang-tidy parses, mapped
 # to the suffixes of the headers generated from them: `Foo.proto` becomes
-# `Foo.pb.h` (and `Foo.grpc.pb.h` for a service), a `configure_file` template
-# `Foo.h.in` becomes `Foo.h`. A change to such an input touches no C++ file, yet
-# the code compiled against the regenerated header can stop compiling or start
-# triggering a check. The generated headers live in the build directory and are
-# not analyzed themselves, so a change to an input is covered through the
-# analyzed files that include its generated headers, as if those had changed.
+# `Foo.pb.h` (and `Foo.grpc.pb.h` for a service), a FlatBuffers schema `Foo.fbs`
+# becomes `Foo_generated.h`, a `configure_file` template `Foo.h.in` becomes
+# `Foo.h`. A change to such an input touches no C++ file, yet the code compiled
+# against the regenerated header can stop compiling or start triggering a check.
+# The generated headers live in the build directory and are not analyzed
+# themselves, so a change to an input is covered through the analyzed files that
+# include its generated headers, as if those had changed.
 GENERATOR_INPUTS = {
     ".proto": (".pb.h", ".grpc.pb.h"),
+    ".fbs": ("_generated.h",),
     ".h.in": (".h",),
+}
+# Generated headers whose name does not follow from the name of an input: the
+# generator, its script, or the directory of its inputs (a submodule shows up in
+# the changed files as the bare submodule path), mapped to the headers generated
+# from it. A path matches an entry when it is the entry or lies under it.
+ARROW_IPC_GENERATED_HEADERS = (
+    "File_generated.h",
+    "Message_generated.h",
+    "Schema_generated.h",
+    "SparseTensor_generated.h",
+    "Tensor_generated.h",
+    "feather_generated.h",
+)
+GENERATOR_INPUT_PATHS = {
+    # `contrib/arrow-cmake` regenerates Arrow's IPC metadata bindings from the
+    # schemas in `contrib/arrow` with the `flatc` built from `contrib/flatbuffers`.
+    "contrib/arrow": ARROW_IPC_GENERATED_HEADERS,
+    "contrib/arrow-cmake": ARROW_IPC_GENERATED_HEADERS,
+    "contrib/flatbuffers": ARROW_IPC_GENERATED_HEADERS,
+    # The embedded web UI resources, included by `WebUIRequestHandler.cpp`.
+    "contrib/clickstack": ("ClickStackResources.generated.h",),
+    "contrib/clickstack-cmake": ("ClickStackResources.generated.h",),
+    "contrib/sql-console": ("SQLConsoleResources.generated.h",),
+    "contrib/sql-console-cmake": ("SQLConsoleResources.generated.h",),
 }
 # Where such inputs can live: the analyzed roots, and `contrib`, whose generated
 # headers the analyzed code includes as well - `contrib/prometheus-protobufs`
@@ -198,8 +225,18 @@ def is_tidy_config_path(path):
     return path in TIDY_CONFIG_PATHS
 
 
+def generator_input_path_entry(path):
+    """The entry of `GENERATOR_INPUT_PATHS` that `path` is or lies under, or `None`."""
+    for entry in GENERATOR_INPUT_PATHS:
+        if path == entry or path.startswith(f"{entry}/"):
+            return entry
+    return None
+
+
 def is_generator_input(path):
     """True for an input of a code generator that produces C++ clang-tidy parses."""
+    if generator_input_path_entry(path) is not None:
+        return True
     root = path.split("/", 1)[0]
     return root in GENERATOR_INPUT_ROOTS and path.endswith(tuple(GENERATOR_INPUTS))
 
@@ -236,15 +273,20 @@ def changed_tidy_config_files(changed_files):
 
 def generated_headers(path):
     """The file names of the headers generated from the generator input `path`."""
+    headers = set()
+    entry = generator_input_path_entry(path)
+    if entry is not None:
+        headers.update(GENERATOR_INPUT_PATHS[entry])
     for input_suffix, output_suffixes in GENERATOR_INPUTS.items():
         if path.endswith(input_suffix):
             stem = os.path.basename(path)[: -len(input_suffix)]
-            return [f"{stem}{suffix}" for suffix in output_suffixes]
-    return []
+            headers.update(f"{stem}{suffix}" for suffix in output_suffixes)
+            break
+    return sorted(headers)
 
 
 def changed_generator_inputs(changed_files):
-    """The change's inputs of code generators from `GENERATOR_INPUTS`, sorted."""
+    """The change's inputs of code generators, sorted (see `is_generator_input`)."""
     return sorted(
         path
         for path in {normalize_changed_path(f) for f in changed_files}
@@ -263,38 +305,13 @@ def generated_header_consumers(inputs, repo_dir, limit, is_coverable):
     through the build directory's include path, so it is included by its name
     alone.
     """
-    pathspecs = [
-        f"{root}/*{suffix}"
-        for root in ANALYZED_ROOTS
-        for suffix in SOURCE_SUFFIXES + HEADER_SUFFIXES
-    ]
+    index = include_index(repo_dir)
     consumers = set()
     for path in inputs:
         for header in generated_headers(path):
-            pattern = (
-                r'^[[:space:]]*#[[:space:]]*include[[:space:]]*[<"]([^">]*/)?'
-                + re.escape(header)
-                + '[">]'
-            )
-            completed = subprocess.run(
-                ["git", "grep", "--files-with-matches", "-E", "-e", pattern, "--"]
-                + pathspecs,
-                cwd=repo_dir,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            # `git grep` exits with 1 when nothing matches.
-            if completed.returncode not in (0, 1):
-                raise RuntimeError(
-                    f"git grep for includers of {header} failed: {completed.stderr}"
-                )
+            includers = {includer for includer, _ in index.get(header, ())}
             found = sorted(
-                (
-                    line.strip()
-                    for line in completed.stdout.splitlines()
-                    if line.strip()
-                ),
+                includers,
                 key=lambda f: (not f.endswith(SOURCE_SUFFIXES), f),
             )
             taken = 0
@@ -323,30 +340,31 @@ def load_compile_commands(build_dir):
 _INCLUDE_SPELLING_RE = re.compile(r'^\s*#\s*include\s*[<"](?P<spelling>[^">]+)[">]')
 
 
-def direct_includers(header, repo_dir):
-    """Analyzed files - sources and headers - whose `#include` directive names `header`.
+@functools.lru_cache(maxsize=None)
+def include_index(repo_dir):
+    """File name -> `(includer, spelling)` of every `#include` directive naming it.
 
-    Only real directives count, not a file name mentioned in a comment. The
-    include root of `header` is not known here, so a directive matches when it
-    resolves to `header` relative to the including file, or when its spelling is
-    a path suffix of `header` (`src/Common/Foo.h` as `<Common/Foo.h>`,
-    `base/base/Foo.h` as `<base/Foo.h>`). A bare file name that does not resolve
-    relative to the includer is accepted only when no directive matches more
-    precisely, since it can as well name a same-named header elsewhere.
+    Built once from a single `git grep` over the analyzed files - sources and
+    headers - so that following the include graph is a lookup rather than a
+    search of the tree. Only real directives count, not a file name mentioned in
+    a comment.
     """
-    basename = os.path.basename(header)
-    pattern = (
-        r'^[[:space:]]*#[[:space:]]*include[[:space:]]*[<"]([^">]*/)?'
-        + escape_for_llvm_regex(basename)
-        + '[">]'
-    )
     pathspecs = [
         f"{root}/*{suffix}"
         for root in ANALYZED_ROOTS
         for suffix in SOURCE_SUFFIXES + HEADER_SUFFIXES
     ]
     completed = subprocess.run(
-        ["git", "grep", "--no-color", "-E", "-e", pattern, "--"] + pathspecs,
+        [
+            "git",
+            "grep",
+            "--no-color",
+            "-E",
+            "-e",
+            r"^[[:space:]]*#[[:space:]]*include[[:space:]]*[<\"]",
+            "--",
+        ]
+        + pathspecs,
         cwd=repo_dir,
         capture_output=True,
         text=True,
@@ -354,17 +372,33 @@ def direct_includers(header, repo_dir):
     )
     # `git grep` exits with 1 when nothing matches.
     if completed.returncode not in (0, 1):
-        raise RuntimeError(
-            f"git grep for includers of {header} failed: {completed.stderr}"
-        )
-    precise = set()
-    by_name = set()
+        raise RuntimeError(f"git grep for include directives failed: {completed.stderr}")
+    index = {}
     for line in completed.stdout.splitlines():
         includer, _, text = line.partition(":")
         match = _INCLUDE_SPELLING_RE.match(text)
-        if not match or includer == header:
+        if not match:
             continue
         spelling = match.group("spelling")
+        index.setdefault(os.path.basename(spelling), []).append((includer, spelling))
+    return index
+
+
+def direct_includers(header, repo_dir):
+    """Analyzed files - sources and headers - whose `#include` directive names `header`.
+
+    The include root of `header` is not known here, so a directive matches when
+    it resolves to `header` relative to the including file, or when its spelling
+    is a path suffix of `header` (`src/Common/Foo.h` as `<Common/Foo.h>`,
+    `base/base/Foo.h` as `<base/Foo.h>`). A bare file name that does not resolve
+    relative to the includer is accepted only when no directive matches more
+    precisely, since it can as well name a same-named header elsewhere.
+    """
+    precise = set()
+    by_name = set()
+    for includer, spelling in include_index(repo_dir).get(os.path.basename(header), ()):
+        if includer == header:
+            continue
         relative = os.path.normpath(f"{os.path.dirname(includer)}/{spelling}")
         if relative == header or (
             "/" in spelling and header.endswith(f"/{spelling}")
@@ -414,7 +448,7 @@ def find_includers(header, repo_dir, limit, is_built):
                 )
                 if sibling is not None:
                     siblings.append(sibling)
-                elif len(next_frontier) < MAX_INCLUDE_FRONTIER:
+                else:
                     next_frontier.append(includer)
         for candidate in sorted(sources) + sorted(set(siblings)):
             if candidate not in found:
