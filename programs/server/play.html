@@ -20637,15 +20637,11 @@ function explainSettingName(tok)
     return null;
 }
 
-/// Whether a settings-list value token means "on". Only the two spellings a boolean-ish `EXPLAIN`
-/// setting actually takes are accepted - a non-zero number, or the bare word `true` - and anything
-/// else counts as off, so an unrecognized value never makes the page claim a tree it will not get.
+/// Whether a settings-list value token means "on". `EXPLAIN` settings take integers only (`true` fails with
+/// `INVALID_SETTING_VALUE`), so anything but a non-zero number counts as off.
 function explainSettingIsOn(tok)
 {
-    if (!tok) return false;
-    if (tok.type === TT.Number) return parseFloat(tok.token) !== 0;
-    if (tok.type === TT.BareWord) return tok.token.toLowerCase() === 'true';
-    return false;
+    return !!tok && tok.type === TT.Number && parseFloat(tok.token) !== 0;
 }
 
 /// What the Plan view needs to know about one statement, decided from its tokens alone:
@@ -20702,6 +20698,7 @@ function explainPlanRequest(tokens)
     /// at all. The extent of the list is never needed: the insertion goes at its front.
     let has_settings = false;
     let json_tok = null;
+    let distributed_tok = null;
     const present = new Set();
     for (let k = at; ; )
     {
@@ -20714,6 +20711,7 @@ function explainPlanRequest(tokens)
         if (!sig[v]) break;
         present.add(name);
         if (name === 'json') json_tok = sig[v].tok;
+        if (name === 'distributed') distributed_tok = sig[v].tok;
         ++v;
         if (!sig[v] || sig[v].tok.type !== TT.Comma) break;
         k = v + 1;
@@ -20721,6 +20719,8 @@ function explainPlanRequest(tokens)
 
     /// A `json` the user wrote settles it, with no second call: `json = 1` is the plan, `json = 0` the text alone.
     if (json_tok) return { plan_json: explainSettingIsOn(json_tok), insertion: null, explain_plan: true };
+    /// The server rejects `json` together with `distributed`, so such a plan is text only.
+    if (explainSettingIsOn(distributed_tok)) return { plan_json: false, insertion: null, explain_plan: true };
 
     /// Only the settings the statement does not already mention, so an explicit `indexes = 0` is not
     /// overridden by the entry added here.

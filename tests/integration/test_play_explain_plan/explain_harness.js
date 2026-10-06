@@ -145,13 +145,11 @@ function run(html) {
         { plan: true, sent: 'EXPLAIN PLAN json=1 SELECT 1' });
     check('user json', 'json = 0 opts back out to the indented text', wire('EXPLAIN PLAN json=0 SELECT 1'),
         { plan: false, sent: 'EXPLAIN PLAN json=0 SELECT 1' });
-    check('user json', 'json = true is on', wire('EXPLAIN PLAN json=true SELECT 1'),
-        { plan: true, sent: 'EXPLAIN PLAN json=true SELECT 1' });
-    check('user json', 'json = false is off', wire('EXPLAIN PLAN json=false SELECT 1'),
-        { plan: false, sent: 'EXPLAIN PLAN json=false SELECT 1' });
+    check('user json', 'a boolean literal, which the server rejects, is not a tree', wire('EXPLAIN PLAN json=true SELECT 1'),
+        { plan: false, sent: 'EXPLAIN PLAN json=true SELECT 1' });
     check('user json', 'a quoted setting name is the same setting', wire('EXPLAIN PLAN `json`=1 SELECT 1'),
         { plan: true, sent: 'EXPLAIN PLAN `json`=1 SELECT 1' });
-    check('user json', 'a value that is neither a number nor true/false is not a tree',
+    check('user json', 'a value that is not a number is not a tree',
         wire("EXPLAIN PLAN json='x' SELECT 1"), { plan: false, sent: "EXPLAIN PLAN json='x' SELECT 1" });
     check('user json', 'json behind other entries is still found',
         wire('EXPLAIN PLAN header=1, json=0 SELECT 1'), { plan: false, sent: 'EXPLAIN PLAN header=1, json=0 SELECT 1' });
@@ -174,7 +172,13 @@ function run(html) {
         { plan: true, sent: 'EXPLAIN PLAN json=1 SELECT 1' });
 
     check('user json', 'a signed value is stepped over, not read as a name',
-        wire('EXPLAIN PLAN header=-1, json=0 SELECT 1'), { plan: false, sent: 'EXPLAIN PLAN header=-1, json=0 SELECT 1' });
+        wire('EXPLAIN PLAN header=+1, json=0 SELECT 1'), { plan: false, sent: 'EXPLAIN PLAN header=+1, json=0 SELECT 1' });
+
+    /// The server rejects `json` together with `distributed = 1`, so that plan stays text.
+    check('distributed', 'distributed = 1 is text only', wire('EXPLAIN distributed = 1 SELECT 1'),
+        { plan: false, sent: 'EXPLAIN distributed = 1 SELECT 1' });
+    check('distributed', 'distributed = 0 is planned as usual', wire('EXPLAIN distributed = 0 SELECT 1'),
+        { plan: true, sent: 'EXPLAIN json = 1, indexes = 1, header = 1, actions = 1, distributed = 0 SELECT 1' });
 
     /// Every other kind rejects `json`, so rewriting one would break a working query.
     untouched('other kinds', 'EXPLAIN PIPELINE SELECT 1');
@@ -317,8 +321,8 @@ function run(html) {
         'EXPLAIN PLAN json = 1, header = 1, actions = 1, indexes = 0 SELECT 1');
     check('typed', 'a trailing FORMAT is cut', typed('EXPLAIN SELECT 1 FORMAT TSV', 'FORMAT TSV'),
         'EXPLAIN json = 1, indexes = 1, header = 1, actions = 1 SELECT 1 ');
-    for (const query of ['EXPLAIN PLAN json = 1 SELECT 1', 'EXPLAIN PLAN json = 0 SELECT 1', 'EXPLAIN PIPELINE SELECT 1',
-                         'EXPLAIN AST SELECT 1', 'SELECT 1', ''])
+    for (const query of ['EXPLAIN PLAN json = 1 SELECT 1', 'EXPLAIN PLAN json = 0 SELECT 1', 'EXPLAIN distributed = 1 SELECT 1',
+                         'EXPLAIN PIPELINE SELECT 1', 'EXPLAIN AST SELECT 1', 'SELECT 1', ''])
         check('typed', `no second call for ${JSON.stringify(query)}`, typed(query), null);
     const kind = (query) => H.explainPlanRequest(H.fallbackTokenize(query)).explain_plan;
     check('typed', 'every EXPLAIN PLAN is reported as one, json or not',
