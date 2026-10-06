@@ -67,10 +67,10 @@ struct WindowFunctionNthValue final : public StatelessWindowFunction
         }
 
         --offset;
-        const auto target_row = transform->blocks.move(transform->frame.bounds().start, offset);
+        const auto target_row = transform->blocks.move(transform->frame.bounds().start.location, offset);
         if (!target_row
-            || *target_row < transform->frame.bounds().start
-            || transform->frame.bounds().end <= *target_row)
+            || *target_row < transform->frame.bounds().start.location
+            || transform->frame.bounds().end.location <= *target_row)
         {
             // Offset is outside the frame.
             to.insertDefault();

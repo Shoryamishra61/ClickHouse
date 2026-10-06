@@ -116,8 +116,8 @@ struct WindowFunctionLagLeadImpl final : public StatelessWindowFunction
             transform->current.location, offset * (is_lead ? 1 : -1));
 
         if (!target_row
-            || *target_row < transform->frame.bounds().start
-            || transform->frame.bounds().end <= *target_row)
+            || *target_row < transform->frame.bounds().start.location
+            || transform->frame.bounds().end.location <= *target_row)
         {
             // Offset is outside the frame.
             if (argument_types.size() > 2)
