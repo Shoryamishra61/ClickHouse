@@ -304,6 +304,11 @@ private:
     /// created by the previous leader while this node was a follower must be picked up. Already
     /// known entries are then skipped instead of triggering the "already exists" bug check.
     void loadMutations(bool reloading = false);
+    /// Reads a `mutation_*.txt` entry, reporting an entry that the owner of a shared directory removed meanwhile.
+    MergeTreeMutationEntry loadMutationEntry(const DiskPtr & disk, const String & file_name) const;
+    /// Removes the mutation entries and the deduplication log, which `dropAllData` leaves alone when the table
+    /// occupies the whole disk (`table_disk`).
+    void removeOwnFilesInDiskRootOnDrop(const DiskPtr & disk) override;
 
     /// Load and initialize deduplication logs. Even if deduplication setting
     /// equals zero creates object with deduplication window equals zero.
