@@ -1827,8 +1827,12 @@ ProjectionNames QueryAnalyzer::resolveFunction(QueryTreeNodePtr & node, Identifi
                             false /*allow_table_expression*/,
                             allow_niladic_functions);
                     }
-                    catch (const Exception &)
+                    catch (const Exception & e)
                     {
+                        /// See the `if` special case above: SEMI/ANTI JOIN access violations
+                        /// must not be swallowed by dead-argument folding.
+                        if (e.code() == ErrorCodes::SEMI_ANTI_JOIN_COLUMN_ACCESS_DENIED)
+                            throw;
                         apply_constant_coalesce_optimization = true;
                     }
                 }
