@@ -275,6 +275,11 @@ public:
         return nested_function->getDefaultVersion();
     }
 
+    DataTypePtr getStateType() const override
+    {
+        return this->getStateTypeWithVersionOf(*nested_function);
+    }
+
     UnorderedSetWithMemoryTracking<size_t> getArgumentsThatCanBeOnlyNull() const override
     {
         return nested_function->getArgumentsThatCanBeOnlyNull();

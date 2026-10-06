@@ -105,6 +105,7 @@ public:
     bool isVersioned() const override { return nested_function->isVersioned(); }
     size_t getVersionFromRevision(size_t revision) const override { return nested_function->getVersionFromRevision(revision); }
     size_t getDefaultVersion() const override { return nested_function->getDefaultVersion(); }
+    DataTypePtr getStateType() const override { return this->getStateTypeWithVersionOf(*nested_function); }
 
     /// The adapter shares the nested function's state bytes as-is, so it is state-transparent exactly like the
     /// -If and -Array combinators. Forward the state-representation helpers to the nested function so that states
