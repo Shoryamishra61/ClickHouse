@@ -90,15 +90,25 @@ void MetadataOperationsHolder::commit()
             state = MetadataStorageTransactionState::FAILED;
 
             String details = fmt::format("While committing metadata operation #{}", i);
-            if (auto rollback_failure = rollback(i))
+            const auto rollback_failure = rollback(i);
+            if (rollback_failure)
                 details += ": " + *rollback_failure;
 
             /// The original exception is rethrown as is, so the callers that check its type still can. Some object storages
-            /// (Azure) throw their own exception types, which cannot take the details, so for those they are only logged.
+            /// (Azure) throw their own exception types, which cannot take the details; those are rethrown as is only when the
+            /// rollback completed.
             if (auto * error = current_exception_cast<Exception *>())
             {
                 error->addMessage(details);
                 tryLogCurrentException(__PRETTY_FUNCTION__);
+            }
+            else if (rollback_failure)
+            {
+                /// A partial rollback has to reach the caller, and a foreign exception cannot carry it.
+                Exception report(getCurrentExceptionMessageAndPattern(/*with_stacktrace=*/ true), getCurrentExceptionCode());
+                report.addMessage(details);
+                tryLogException(std::make_exception_ptr(report), __PRETTY_FUNCTION__);
+                report.rethrow();
             }
             else
             {

@@ -3854,12 +3854,15 @@ TEST_F(MetadataPlainRewritableDiskTest, MoveTargetBackupRemovedDuringTransaction
         tx->commit(DB::NoCommitOptions{});
         ADD_FAILURE() << "The commit of a transaction with a failed removal succeeded";
     }
-    catch (const std::runtime_error & e)
+    catch (const Exception & e)
     {
-        EXPECT_THAT(e.what(), testing::HasSubstr("Injected foreign error"));
+        /// The error is foreign, but the rollback did not complete, so the caller gets an `Exception` with both.
+        EXPECT_THAT(e.message(), testing::HasSubstr("Injected foreign error"));
+        EXPECT_THAT(e.message(), testing::HasSubstr("Cannot restore the blob of the file '/A/target'"));
+        EXPECT_THAT(e.message(), testing::HasSubstr("(CORRUPTED_DATA)"));
+        EXPECT_THAT(e.message(), testing::HasSubstr("did not complete"));
     }
 
-    /// The error is foreign, so the report of the rollback goes only to the log; the counter says that it stopped.
     EXPECT_EQ(ProfileEvents::global_counters[ProfileEvents::MetadataTransactionRollbacksFailed] - failed_rollbacks_before, 1u);
 }
 
