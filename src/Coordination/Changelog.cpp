@@ -632,9 +632,15 @@ private:
             if (!merged_changelog)
                 continue;
 
+            /// The merged data is uploaded under an in-progress name first: `writeFile` on the object storage
+            /// writes straight to the final key, and startup keeps a single object per start index, so a merged
+            /// object published before the sources are known to be unchanged could shadow the intact first
+            /// source on the next startup. Startup ignores and removes in-progress objects.
+            const auto merged_in_progress_path = getInProgressPath(merged_changelog->path);
+
             try
             {
-                auto new_file = getDisk()->writeFile(merged_changelog->path);
+                auto new_file = getDisk()->writeFile(merged_in_progress_path);
 
                 auto relink = std::make_shared<LogEntryStorage::ChangelogRelink>();
                 relink->merged = merged_changelog;
@@ -678,17 +684,37 @@ private:
 
                     if (!sources_unchanged)
                     {
-                        LOG_INFO(log, "Planned S3 changelog sources changed during merge, discarding merged file {}", merged_changelog->path);
+                        LOG_INFO(log, "Planned S3 changelog sources changed during merge, discarding merged file {}", merged_in_progress_path);
+                        removeInProgressObject(merged_in_progress_path);
+                        continue;
+                    }
+
+                    /// Publish under the final name only now. `writer_mutex` stays held until the merge is listed,
+                    /// so the sources cannot be rewritten between the validation above and the publication.
+                    try
+                    {
+                        auto reader = getDisk()->readFile(merged_in_progress_path, getReadSettings());
+                        auto writer = getDisk()->writeFile(merged_changelog->path);
+                        copyData(*reader, *writer);
+                        writer->sync();
+                        writer->finalize();
+                    }
+                    catch (...)
+                    {
+                        /// Do not leave a partially written merged object behind to compete with the intact sources.
                         try
                         {
-                            getDisk()->removeFile(merged_changelog->path);
+                            getDisk()->removeFileIfExists(merged_changelog->path);
                         }
                         catch (...)
                         {
-                            tryLogCurrentException(log, fmt::format("Failed to remove discarded merged S3 changelog: {}", merged_changelog->path));
+                            tryLogCurrentException(log, fmt::format("Failed to remove unpublished merged S3 changelog: {}", merged_changelog->path));
                         }
-                        continue;
+                        removeInProgressObject(merged_in_progress_path);
+                        throw;
                     }
+
+                    removeInProgressObject(merged_in_progress_path);
 
                     for (const auto & changelog : to_remove)
                         existing_changelogs.erase(changelog->from_log_index);
@@ -713,9 +739,25 @@ private:
         LOG_INFO(log, "S3 compaction thread stopped");
     }
 
+    /// The in-progress object is ignored and removed on startup, so leaving it behind is harmless.
+    void removeInProgressObject(const std::string & path)
+    {
+        try
+        {
+            getDisk()->removeFileIfExists(path);
+        }
+        catch (...)
+        {
+            tryLogCurrentException(log, fmt::format("Failed to remove in-progress S3 changelog {}", path));
+        }
+    }
+
     /// Removes the sources of the merges whose locations were already switched to the merged object.
     /// With `force` it removes all of them: used on shutdown, when nothing reads the changelog anymore,
     /// so the next startup does not find both the merged object and its sources.
+    /// A merge stays in `relinked_sources` until all of its sources are removed, so a failed removal is
+    /// retried on the next wake-up of the compaction thread or on shutdown. A stale source left behind
+    /// would replay over the merged object on the next startup after a `writeAt` into it.
     void removeRelinkedSources(bool force)
     {
         std::erase_if(
@@ -725,6 +767,7 @@ private:
                 if (!force && !relink->applied)
                     return false;
 
+                bool all_removed = true;
                 for (const auto & [changelog, offset] : relink->sources)
                 {
                     LOG_INFO(log, "Removing merged S3 changelog: {}", changelog->path);
@@ -739,16 +782,18 @@ private:
                             changelog->removed_from_disk = true; /// set BEFORE removeFile
                             try
                             {
-                                changelog->disk->removeFile(changelog->path);
+                                /// The object may already be gone when this is a retry after a partial failure.
+                                changelog->disk->removeFileIfExists(changelog->path);
                             }
                             catch (...)
                             {
-                                tryLogCurrentException(log, fmt::format("Failed to remove merged S3 changelog: {}", changelog->path));
+                                all_removed = false;
+                                tryLogCurrentException(log, fmt::format("Failed to remove merged S3 changelog: {}, will retry", changelog->path));
                             }
                         });
                 }
 
-                return true;
+                return all_removed;
             });
     }
 
