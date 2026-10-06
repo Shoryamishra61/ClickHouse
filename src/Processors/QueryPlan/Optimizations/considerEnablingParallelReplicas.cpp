@@ -865,8 +865,6 @@ void considerEnablingParallelReplicas(
     auto built_sets = collectBuiltSets(query_plan);
     Stopwatch plan_build_watch;
     auto build_result = optimization_settings.query_plan_with_parallel_replicas_builder(built_sets, getLogger("AutoParallelReplicas"));
-    plan_build_microseconds = plan_build_watch.elapsedMicroseconds();
-    ProfileEvents::increment(ProfileEvents::AutoParallelReplicasPlanBuildMicroseconds, plan_build_microseconds);
 
     /// The builder checks what it can before it builds anything, and logs the specific reason when it
     /// stops there. Those are skips, like the ones above, not plans that turned out unsuitable.
@@ -883,6 +881,9 @@ void considerEnablingParallelReplicas(
     }
     chassert(build_result.plan);
     ProfileEvents::increment(ProfileEvents::AutoParallelReplicasPlanBuildAttempts);
+    /// Only a plan that was built is charged as building one; a skip stays in the rest of the optimization.
+    plan_build_microseconds = plan_build_watch.elapsedMicroseconds();
+    ProfileEvents::increment(ProfileEvents::AutoParallelReplicasPlanBuildMicroseconds, plan_build_microseconds);
     auto plan_with_parallel_replicas = std::move(build_result.plan);
 
     const auto * final_node_in_replica_plan = findTopNodeOfReplicasPlan(plan_with_parallel_replicas->getRootNode());
