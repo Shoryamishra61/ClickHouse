@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Tags: zookeeper, no-shared-merge-tree
+# Tags: zookeeper, no-shared-merge-tree, no-replicated-database
 # no-shared-merge-tree: FETCH PARTITION is not supported by SharedMergeTree
+# no-replicated-database: the test creates replicas with explicit Keeper paths and replica names
 # `clearUnusedPatchParts` removes a patch part as soon as the base parts of *its own* replica have been
 # mutated past it by `APPLY PATCHES`, without waiting for the other replicas. A replica that has not
 # executed the `GET_PART` of the patch then still holds the old base part, and no patch is left on any
@@ -47,12 +48,16 @@ SYSTEM STOP REPLICATION QUEUES t_fetch_stale_src_r2;
 ${CLICKHOUSE_CLIENT} --enable_lightweight_update 1 -q "UPDATE t_fetch_stale_src_r1 SET v = 42 WHERE 1"
 ${CLICKHOUSE_CLIENT} -q "ALTER TABLE t_fetch_stale_src_r1 APPLY PATCHES IN PARTITION ID '0' SETTINGS mutations_sync = 1"
 
-# Wait until `r1` has removed the patch part, including from Keeper.
+# Wait until `r1` has removed the patch part, including from Keeper: a part leaves `system.parts`
+# before it is removed from `/replicas/r1/parts`, and the fetch checks the latter.
 for _ in $(seq 1 600)
 do
     patches=$(${CLICKHOUSE_CLIENT} -q "
-        SELECT count() FROM system.parts
-        WHERE database = currentDatabase() AND table = 't_fetch_stale_src_r1' AND startsWith(partition_id, 'patch')")
+        SELECT
+            (SELECT count() FROM system.parts
+             WHERE database = currentDatabase() AND table = 't_fetch_stale_src_r1' AND startsWith(partition_id, 'patch'))
+          + (SELECT count() FROM system.zookeeper
+             WHERE path = '$zk_path/replicas/r1/parts' AND startsWith(name, 'patch'))")
     [ "$patches" -eq 0 ] && break
     sleep 0.1
 done
