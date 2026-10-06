@@ -85,6 +85,12 @@ MergingAggregatedStep::MergingAggregatedStep(
     , should_produce_results_in_order_of_bucket_number(should_produce_results_in_order_of_bucket_number_)
     , memory_bound_merging_of_aggregation_results_enabled(memory_bound_merging_of_aggregation_results_enabled_)
 {
+    /// The parallel-replicas and distributed rewrites build this step from the params of an
+    /// `AggregatingStep`, which may carry the top-K threshold merge set by the first optimization
+    /// pass. The merging transforms go through `Aggregator::mergeBlocks` and never reach
+    /// `Aggregator::mergeAndConvertOneBucketToChunk`, so it would be a silent no-op here. Drop it,
+    /// so that the plan does not claim an optimization the pipeline does not perform.
+    params.threshold_top_k.reset();
 }
 
 void MergingAggregatedStep::applyOrder(SortDescription input_sort_description)
