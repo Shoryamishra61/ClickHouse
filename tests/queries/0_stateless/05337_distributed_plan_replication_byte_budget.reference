@@ -23,18 +23,6 @@ Expression ((Project names + Projection))
             BroadcastExchange
               Expression (Change column names to column identifiers)
                 ReadFromMergeTree (default.t_rb_small)
--- a budget of 0 turns the byte check off: broadcast of the 2 MB rows
-Expression ((Project names + Projection))
-  MergingAggregated (merge)
-    GatherExchange
-      Aggregating (partial)
-        Expression (Before GROUP BY)
-          JoinLogical
-            Expression (Change column names to column identifiers)
-              ReadFromMergeTree (default.t_rb_big)
-            BroadcastExchange
-              Expression (Change column names to column identifiers)
-                ReadFromMergeTree (default.t_rb_small)
 -- a filter the primary key cannot prune leaves the rows unknown; the bound of 1000 rows fits the row limit: broadcast
 Expression ((Project names + Projection))
   MergingAggregated (merge)

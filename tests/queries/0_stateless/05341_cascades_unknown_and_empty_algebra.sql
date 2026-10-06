@@ -5,8 +5,9 @@
 -- is unknown, and an any join emits each left row once. The cost token is stripped from the plan
 -- lines: this test is about rows, and every change of a cost constant would move it otherwise.
 SET enable_analyzer = 1;
--- The plan lines below show the filter moved to PREWHERE; the runner randomizes the move.
-SET optimize_move_to_prewhere = 1;
+-- Each filter stays a step of its own with its own estimate; moved into the read it would vanish
+-- from the plan lines, and the move depends on the storage and is randomized by the runner.
+SET optimize_move_to_prewhere = 0;
 SET enable_parallel_replicas = 0;
 SET explain_query_plan_default = 'legacy';
 SET enable_join_runtime_filters = 0;
