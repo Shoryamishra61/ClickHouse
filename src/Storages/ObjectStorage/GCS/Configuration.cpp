@@ -98,10 +98,13 @@ void StorageGCSConfiguration::fromAST(ASTs & args, ContextPtr context, bool with
     const auto key_value_args = parseKeyValueArguments(args, context);
     auto & auth = s3_settings->auth_settings;
 
-    for (const auto & [name, setting] : {
-             std::pair{"google_adc_client_id", S3AuthSetting::google_adc_client_id},
-             std::pair{"google_adc_client_secret", S3AuthSetting::google_adc_client_secret},
-             std::pair{"google_adc_refresh_token", S3AuthSetting::google_adc_refresh_token}})
+    const std::pair<std::string_view, S3AuthSettingsString> google_adc_settings[] = {
+        {"google_adc_client_id", S3AuthSetting::google_adc_client_id},
+        {"google_adc_client_secret", S3AuthSetting::google_adc_client_secret},
+        {"google_adc_refresh_token", S3AuthSetting::google_adc_refresh_token},
+    };
+
+    for (const auto & [name, setting] : google_adc_settings)
     {
         if (auto it = key_value_args.find(name); it != key_value_args.end())
             auth[setting] = it->second.safeGet<String>();
