@@ -29,14 +29,14 @@ private:
     const char * className() const noexcept override { return "DB::AIProviderHTTPException"; }
 };
 
-/// Fields common to all AI requests.
 struct AIRequest
 {
-    /// SQL name of the AI function that produced this request (e.g. "aiGenerate").
-    /// Emitted by OpenAIProvider as the `X-ClickHouse-AI-Function` header; ignored by other providers.
+    /// Name of the AI SQL function that produced this request, e.g. "aiGenerate".
+    /// Useful for debugging.
     String function_name;
 
-    /// Emitted by OpenAIProvider as the `X-ClickHouse-Query-Id` header when non-empty; ignored by other providers.
+    /// The current query id.
+    /// Useful for debugging.
     String query_id;
 };
 
