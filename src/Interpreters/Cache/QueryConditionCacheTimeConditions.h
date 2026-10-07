@@ -55,6 +55,14 @@ enum class TimeConditionRounding : uint8_t
 /// with second precision), writes go to the grid point above the constant and reads probe the grid
 /// point below it, so entries written during one grid cell are consumed during the next one (e.g.
 /// yesterday's queries prime the cache for today's).
+///
+/// Reusing an entry requires `original condition of the reader` => `derived condition` =>
+/// `original condition of the writer`. A sliding window bounded by the current time on both sides
+/// (`time >= now() - INTERVAL 10 DAY AND time < now()`) shifts both bounds forward, so the later window
+/// is never contained in the earlier one: no choice of grid lets such conditions share a key unless
+/// both constants are aligned to the grid (`time >= today() - 10 AND time < today()`). A grid shared
+/// by all constants of a condition would only make the derived bounds staler, so the grid step is
+/// chosen per constant.
 struct DeterministicTimeCondition
 {
     UInt64 hash;      /// Hash of the derived condition, to be used as the condition hash in the query condition cache.
