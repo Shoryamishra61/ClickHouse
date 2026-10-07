@@ -127,7 +127,7 @@ function makeContext(storage) {
 }
 
 const FUNCTIONS = ['effectiveConnectionUser', 'implicitUserStamp', 'sameConnectionUser', 'sameAsLiveConnectionUser',
-    'serverIdentityKey', 'implicitUsersStorageKey', 'learnedImplicitUser', 'rememberImplicitUser',
+    'serverIdentityKey', 'implicitUsersStorageKey', 'loadImplicitUsers', 'learnedImplicitUser', 'rememberImplicitUser',
     'serverAddressWithoutSession', 'storeCredentials', 'getServerStatus', 'buildCompletionUrl',
     'isAutofilled', 'dropAutofilledStalePassword'];
 
@@ -220,7 +220,7 @@ async function implicitRoundTrip(ctx, server, implicit_user) {
     assertEqual(sameAsLive(ctx, unstamped), false, 'refilled login is not proven to be an unstamped implicit connection');
     ctx.user_elem.value = '';
     assertEqual(sameAsLive(ctx, stamped), true, 'implicit login is the same connection as the stamped implicit one');
-    assertEqual(sameAsLive(ctx, unstamped), true, 'implicit login is the same connection as the unstamped implicit one');
+    assertEqual(sameAsLive(ctx, unstamped), false, 'implicit login with a learned name is not proven to be an unstamped implicit connection');
     return stamped;
 }
 
@@ -269,6 +269,38 @@ scenario('stored-implicit-entry-keeps-its-account', async js => {
     assertEqual(sameAsLive(second, entry), false, 'an entry recorded for alice is not the refilled bob');
     second.user_elem.value = 'alice';
     assertEqual(sameAsLive(second, entry), true, 'an entry recorded for alice is still the explicit alice');
+    /// Implicit to implicit: the live empty field now authenticates as bob, so neither an entry
+    /// stamped alice nor an entry recorded before any name was learned is the live connection.
+    second.user_elem.value = '';
+    assertEqual(sameAsLive(second, entry), false, 'an entry recorded for alice is not the implicit bob');
+    assertEqual(sameAsLive(second, { server: 'http://host:8123/', user: '', implicitUser: '' }), false,
+        'an unstamped implicit entry is not the implicit bob');
+    const third = boot(js);
+    third.url_elem.value = 'http://host:8123/';
+    third.user_elem.value = '';
+    assertEqual(sameAsLive(third, { server: 'http://host:8123/', user: '', implicitUser: '' }), true,
+        'two unstamped implicit connections are the same');
+});
+
+/// `localStorage` that throws or holds a malformed `implicit_users` must not break the page: nothing
+/// counts as learned, and the run still stores the login.
+scenario('implicit-users-storage-best-effort', async js => {
+    const malformed = makeStorage();
+    malformed.setItem('implicit_users', '{not json');
+    const throwing = {
+        getItem: () => { throw new Error('SecurityError: localStorage is not available'); },
+        setItem: () => { throw new Error('SecurityError: localStorage is not available'); },
+    };
+    for (const storage of [malformed, throwing]) {
+        const ctx = boot(js, { storage });
+        ctx.url_elem.value = 'http://host:8123/';
+        ctx.user_elem.value = '';
+        ctx.password_elem.value = 'secret';
+        assertEqual(stampConnection(ctx).implicitUser, '', 'nothing learned from unusable storage');
+        await store(ctx);
+        assertEqual(ctx.stored.length, 1, 'the login is still stored');
+        assertEqual(ctx.stored[0].id, 'default', 'remembered under the server-reported implicit user');
+    }
 });
 
 scenario('implicit-default-round-trip-with-query-string', async js => {

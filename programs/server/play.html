@@ -16763,16 +16763,18 @@ function implicitUserStamp(serverAddress, fieldUser) {
 }
 
 /// Do two connections on the same server (compared separately by `sameServerAddress`) use the same
-/// account? Equal effective users (`effectiveConnectionUser`) always do, including two implicit ones.
-/// An implicit user is additionally the same as an explicit name when its stamp (`implicitUserStamp`)
-/// names it, so a login refilled by the password manager under that name (`storeCredentials`) is the
-/// same connection as the implicit one it was saved from, and does not reset the selected database or
-/// count as a diverged run. A stored connection carries its own stamp, taken when it was recorded,
-/// never the current `learnedImplicitUser`: an entry stamped with no name (or written before the
-/// stamp existed) matches only an implicit live user, failing closed.
+/// account? Equal explicit effective users (`effectiveConnectionUser`) always do. Two implicit ones do
+/// when their stamps (`implicitUserStamp`) are equal: both name the same user, or neither names any.
+/// An implicit user is additionally the same as an explicit name when its stamp names it, so a login
+/// refilled by the password manager under that name (`storeCredentials`) is the same connection as the
+/// implicit one it was saved from, and does not reset the selected database or count as a diverged
+/// run. A stored connection carries its own stamp, taken when it was recorded, never the current
+/// `learnedImplicitUser`: an entry stamped with no name (or written before the stamp existed) matches
+/// only an implicit live user whose name is not known either, failing closed.
 function sameConnectionUser(a_server, a_user, a_implicit_user, b_server, b_user, b_implicit_user) {
     const a = effectiveConnectionUser(a_server, a_user);
     const b = effectiveConnectionUser(b_server, b_user);
+    if (a === '' && b === '') return (a_implicit_user || '') === (b_implicit_user || '');
     if (a === b) return true;
     const a_account = a || a_implicit_user || '';
     const b_account = b || b_implicit_user || '';
@@ -16801,20 +16803,28 @@ function serverIdentityKey(server_address) {
 /// visit is compared with the name the password manager refills on the next one.
 /// (A function rather than a constant: it is consulted at load, by `initial_connection`, before this
 /// point of the script runs.)
+/// Best-effort like `PASSWORDLESS_LOGINS_KEY`: an inaccessible `localStorage` or a malformed entry
+/// reads as nothing learned (so stored implicit connections fail closed) and skips the write, rather
+/// than breaking the page load or the run.
 function implicitUsersStorageKey() { return 'implicit_users'; }
+function loadImplicitUsers() {
+    let users = null;
+    try { users = JSON.parse(localStorage.getItem(implicitUsersStorageKey()) || '{}'); } catch (e) { /* malformed or inaccessible: nothing learned */ }
+    return (users !== null && typeof users === 'object' && !Array.isArray(users)) ? users : {};
+}
 function learnedImplicitUser(server_address) {
     const key = serverIdentityKey(server_address);
     if (key === null) return '';
-    const users = JSON.parse(localStorage.getItem(implicitUsersStorageKey()) || '{}');
-    return Object.hasOwn(users, key) ? users[key] : '';
+    const users = loadImplicitUsers();
+    return (Object.hasOwn(users, key) && typeof users[key] === 'string') ? users[key] : '';
 }
 function rememberImplicitUser(server_address, user) {
     const key = serverIdentityKey(server_address);
     if (key === null || !user) return;
-    const users = JSON.parse(localStorage.getItem(implicitUsersStorageKey()) || '{}');
+    const users = loadImplicitUsers();
     if (users[key] === user) return;
     users[key] = user;
-    localStorage.setItem(implicitUsersStorageKey(), JSON.stringify(users));
+    try { localStorage.setItem(implicitUsersStorageKey(), JSON.stringify(users)); } catch (e) { /* best-effort, see above */ }
 }
 
 /// Has the live target moved away from the connection/selection the query that produced this run
