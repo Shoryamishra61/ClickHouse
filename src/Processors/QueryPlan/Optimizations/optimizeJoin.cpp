@@ -300,6 +300,12 @@ struct QueryGraphBuilder
     /// ON-clause predicates of outer joins, see QueryGraph::outer_join_conditions
     std::unordered_map<JoinActionRef, size_t> outer_join_conditions;
 
+    /// Whether the disjunction push-down already ran on the joins this graph was built from. Reordering
+    /// rebuilds the join steps, and a fresh step would let the push-down run a second time and add the
+    /// same partial predicate again - a filter the read already applies through PREWHERE. Only a plan
+    /// that is optimized more than once reaches that state (the parallel-replicas plan-based path does).
+    bool disjunctions_optimization_applied = false;
+
     /// One record per binary join operator of the original tree, captured for the optional conflict
     /// detector (CD-A/CD-C). Relation ids are local to this (sub)graph and shifted in `uniteGraphs`.
     /// See QueryGraph::conflict_ops / ConflictJoinOp.
@@ -384,6 +390,10 @@ static void uniteGraphs(QueryGraphBuilder & lhs, QueryGraphBuilder rhs)
 
     for (const auto & [action, null_rel] : rhs_outer_conditions_raw)
         lhs.outer_join_conditions[JoinActionRef(action, lhs.expression_actions)] = null_rel + shift;
+
+    /// The mark belongs to the flattened graph as a whole: reordering rebuilds every join step from it,
+    /// so a mark carried by any join of the merged sub-graph has to survive the merge.
+    lhs.disjunctions_optimization_applied |= rhs.disjunctions_optimization_applied;
 }
 
 void buildQueryGraph(QueryGraphBuilder & query_graph, QueryPlan::Node & node, QueryPlan::Nodes & nodes, int join_steps_limit);
@@ -741,6 +751,7 @@ void buildQueryGraph(QueryGraphBuilder & query_graph, QueryPlan::Node & node, Qu
     auto * join_step = typeid_cast<JoinStepLogical *>(node.step.get());
     if (!join_step)
         throw Exception(ErrorCodes::LOGICAL_ERROR, "JoinStepLogical expected");
+    query_graph.disjunctions_optimization_applied |= join_step->isDisjunctionsOptimizationApplied();
     if (node.children.size() != 2)
         throw Exception(ErrorCodes::LOGICAL_ERROR, "JoinStepLogical should have exactly 2 children, but has {}", node.children.size());
 
@@ -1001,6 +1012,8 @@ constexpr bool isSwapOnlyJoinStrictness(JoinStrictness strictness)
 
 static QueryPlan::Node chooseJoinOrder(QueryGraphBuilder query_graph_builder, QueryPlan::Nodes & nodes, JoinStrictness join_strictness)
 {
+    const bool disjunctions_optimization_applied = query_graph_builder.disjunctions_optimization_applied;
+
     QueryGraph query_graph;
     query_graph.relation_stats = std::move(query_graph_builder.relation_stats);
     for (const auto & relation : query_graph.relation_stats)
@@ -1379,6 +1392,8 @@ static QueryPlan::Node chooseJoinOrder(QueryGraphBuilder query_graph_builder, Qu
                 actions_after_join,
                 join_settings,
                 sorting_settings);
+
+            join_step->setDisjunctionsOptimizationApplied(disjunctions_optimization_applied);
 
             /// Diagnostic only: a join is imprecise if any of its leaves was, or had no estimate at
             /// all, in which case its cost stood on a bound or a placeholder.
