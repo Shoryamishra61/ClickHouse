@@ -22,6 +22,7 @@ function cleanup()
     $CLICKHOUSE_CLIENT --multiquery "
     DROP ROW POLICY IF EXISTS ${policy} ON system.one;
     DROP TABLE IF EXISTS t_projection_row_policy;
+    DROP TABLE IF EXISTS t_projection_row_policy_create;
     DROP USER IF EXISTS ${user};
     "
 }
@@ -45,6 +46,18 @@ ENGINE = MergeTree ORDER BY a SETTINGS materialize_projections_on_insert = 1;
 INSERT INTO t_projection_row_policy SELECT number % 3, toString(number % 2) FROM numbers(10);
 "
 
+# The same applies to the projection descriptors which are built when the table is created or attached,
+# including the implicit `minmax_count` projection of a partitioned table, which is still described by
+# the legacy interpreter.
+$CLICKHOUSE_CLIENT --user "${user}" --multiquery "
+DROP TABLE IF EXISTS t_projection_row_policy_create;
+CREATE TABLE t_projection_row_policy_create (a UInt64, b String, PROJECTION p (SELECT b, sum(a), count() GROUP BY b))
+ENGINE = MergeTree PARTITION BY b ORDER BY a SETTINGS materialize_projections_on_insert = 1;
+INSERT INTO t_projection_row_policy_create SELECT number % 3, toString(number % 2) FROM numbers(10);
+DETACH TABLE t_projection_row_policy_create;
+ATTACH TABLE t_projection_row_policy_create;
+"
+
 # The policy is dropped before the check, so the check itself is not affected by it.
 $CLICKHOUSE_CLIENT -q "DROP ROW POLICY ${policy} ON system.one"
 
@@ -56,5 +69,13 @@ SELECT b, sum(a), count() FROM t_projection_row_policy GROUP BY b ORDER BY b
     SETTINGS optimize_aggregation_in_order = 0, parallel_replicas_local_plan = 1,
              parallel_replicas_support_projection = 1, force_optimize_projection = 1;
 DROP TABLE t_projection_row_policy;
+
+SELECT b, sum(a), count() FROM t_projection_row_policy_create GROUP BY b ORDER BY b
+    SETTINGS optimize_aggregation_in_order = 0, parallel_replicas_local_plan = 1,
+             parallel_replicas_support_projection = 1, force_optimize_projection = 1;
+SELECT count(), min(b), max(b) FROM t_projection_row_policy_create
+    SETTINGS optimize_use_implicit_projections = 1, parallel_replicas_local_plan = 1,
+             parallel_replicas_support_projection = 1, force_optimize_projection = 1;
+DROP TABLE t_projection_row_policy_create;
 DROP USER ${user};
 "
