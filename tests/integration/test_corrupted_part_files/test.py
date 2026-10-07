@@ -554,7 +554,20 @@ def test_text_index_corrupted_postings_rank_cursor(started_cluster):
     bash(node1, f"cp {backup} {pst}")
     assert phrase_count() == expected
 
-    bash(node1, f"rm -f {backup}")
+    # The positions of 'aaa' start the .pos file with its document count (2000, a 2-byte varint) and 16 blocks.
+    pos = get_active_part_path(node1, "t_pst") + "skp_idx_txt.pos.idx"
+    pos_backup = "/tmp/t_pst_positions.orig"
+    bash(node1, f"cp {pos} {pos_backup}")
+    assert bash(node1, f"od -An -tu1 -N 3 {pos}").split() == ["208", "15", "16"]
+
+    # 1999 documents in the positions of a 2000-document posting list.
+    bash(node1, f"printf '\\xcf' | dd of={pos} bs=1 seek=0 conv=notrunc status=none")
+    assert "stored document count 1999 does not match the posting list (2000)" in phrase_error()
+
+    bash(node1, f"cp {pos_backup} {pos}")
+    assert phrase_count() == expected
+
+    bash(node1, f"rm -f {backup} {pos_backup}")
     node1.query("DROP TABLE t_pst SYNC")
 
 

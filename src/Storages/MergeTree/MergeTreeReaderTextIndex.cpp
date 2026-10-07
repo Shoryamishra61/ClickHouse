@@ -1221,16 +1221,6 @@ PaddedPODArray<UInt32> MergeTreeReaderTextIndex::phraseSearchBlockedCursors(cons
 
     const size_t num_tokens = unique_tokens.size();
 
-    std::vector<TextIndexBlockedPositionsCodec::Directory> dirs(num_tokens);
-    size_t blocks_total = 0;
-    Stopwatch directory_watch;
-    for (size_t u = 0; u < num_tokens; ++u)
-    {
-        dirs[u] = readPositionsDirectory(*positions_stream, *unique_infos[u], unique_infos[u]->cardinality);
-        blocks_total += dirs[u].numBlocks();
-    }
-    const UInt64 directory_us = directory_watch.elapsedMicroseconds();
-
     Stopwatch candidates_watch;
 
     /// Sharing one stream is safe: every cursor read reseeks and serves blocks from its own buffer.
@@ -1255,7 +1245,18 @@ PaddedPODArray<UInt32> MergeTreeReaderTextIndex::phraseSearchBlockedCursors(cons
             return {};
     }
 
-    PhraseChunkMatcher matcher(*positions_stream, blocked_positions_scratch, dirs, term_to_unique);
+    /// The directory must hold as many documents as the cursor's checked posting list, which bounds every rank.
+    std::vector<TextIndexBlockedPositionsCodec::Directory> directories(num_tokens);
+    size_t blocks_total = 0;
+    Stopwatch directory_watch;
+    for (size_t u = 0; u < num_tokens; ++u)
+    {
+        directories[u] = readPositionsDirectory(*positions_stream, *unique_infos[u], cursors[u].numDocuments());
+        blocks_total += dirs[u].numBlocks();
+    }
+    const UInt64 directory_us = directory_watch.elapsedMicroseconds();
+
+    PhraseChunkMatcher matcher(*positions_stream, blocked_positions_scratch, directories, term_to_unique);
 
     PaddedPODArray<UInt32> matching;
     PaddedPODArray<UInt32> chunk_candidates;
@@ -1314,9 +1315,8 @@ PaddedPODArray<UInt32> MergeTreeReaderTextIndex::phraseSearchBlockedCursors(cons
     }
     match_chunk();
 
-    /// The matcher's own time is subtracted: it runs inside the leapfrog loop.
     const UInt64 elapsed_us = candidates_watch.elapsedMicroseconds();
-    const UInt64 nested_us = matcher.decode_us + matcher.match_us;
+    const UInt64 nested_us = directory_us + matcher.decode_us + matcher.match_us;
     const UInt64 candidates_us = elapsed_us > nested_us ? elapsed_us - nested_us : 0;
 
     ProfileEvents::increment(ProfileEvents::TextIndexPhraseCandidates, num_candidates);

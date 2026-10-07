@@ -46,11 +46,14 @@ TextIndexPostingsRankCursor::TextIndexPostingsRankCursor(MergeTreeReaderStream &
         throw Exception(ErrorCodes::CORRUPTED_DATA,
             "Corrupt text index: {} posting segments of {} documents cannot hold the token's {} documents",
             num_segments, segment_size, cardinality);
+
+    num_documents = cardinality;
 }
 
 TextIndexPostingsRankCursor::TextIndexPostingsRankCursor(FlatPostingsPtr docs)
-    : cursor(std::make_shared<PostingListCursor>(std::move(docs)))
+    : num_documents(docs->size())
 {
+    cursor = std::make_shared<PostingListCursor>(std::move(docs));
 }
 
 UInt64 TextIndexPostingsRankCursor::rank()

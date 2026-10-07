@@ -21,6 +21,7 @@ public:
     bool valid() const { return cursor->valid(); }
     UInt32 docId() const { return cursor->value(); }
     UInt64 rank();
+    UInt64 numDocuments() const { return num_documents; }
 
     void next() { cursor->next(); }
     /// Positions the cursor on the first document >= target, or invalidates it.
@@ -29,6 +30,7 @@ public:
 private:
     PostingListCursorPtr cursor;
     const TokenPostingsInfo * info = nullptr;
+    UInt64 num_documents = 0;
     /// Documents in every segment but the last.
     UInt64 segment_size = 0;
     size_t checked_segment = std::numeric_limits<size_t>::max();
