@@ -366,7 +366,8 @@ struct Options
     bool profiling_system_thread_name = false;
     /// jemalloc: opt_prof_unbias
     bool profiling_unbias = true;
-    /// Dropped feature (`profiling_log`): stored and reported only. jemalloc: opt_prof_log
+    /// Dropped feature (`profiling_log`): parsed and stored only. Like in jemalloc, there is no `opt.prof_log` mallctl
+    /// and the stats output does not print it. jemalloc: opt_prof_log
     bool profiling_log = false;
     /// jemalloc: opt_prof_recent_alloc_max (PROF_RECENT_ALLOC_MAX_DEFAULT)
     ssize_t profiling_recent_alloc_max = 0;

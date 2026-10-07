@@ -840,7 +840,9 @@ je_mallctlbymib(const size_t * numeric_path, size_t numeric_path_length, void * 
     return je_mallctl_by_numeric_path(numeric_path, numeric_path_length, old_value, old_length_ptr, new_value, new_length);
 }
 
-/// NB: does not initialize the allocator (like jemalloc).
+/// NB: does not initialize the allocator itself (like jemalloc), but the printer reads everything through `mallctl`,
+/// which does: the mandatory `epoch` refresh (`statsMallctl`, jemalloc: `je_mallctl`) initializes it on first use,
+/// exactly as jemalloc's `stats_print` does.
 /// jemalloc: je_malloc_stats_print
 JEMALLOC_EXPORT void JEMALLOC_NOTHROW
 je_malloc_stats_print(void (*write_callback)(void *, const char *), void * callback_argument, const char * options_string)
