@@ -221,7 +221,13 @@ public:
         size_t read_bytes,
         std::optional<bool> & should_continue_sampling);
 
-    void markUnsupportedCase() { block->unsupported_case.store(true, std::memory_order_relaxed); }
+    /// Ignored for duplicated reads: they only refine the duplicated-read gate, so a read that cannot be
+    /// measured there must not drop the statistics that decide whether parallel replicas are considered at all.
+    void markUnsupportedCase()
+    {
+        if (!duplicated)
+            block->unsupported_case.store(true, std::memory_order_relaxed);
+    }
 
 private:
     static bool shouldSampleBlock(Statistics & statistics, size_t block_rows);
