@@ -35,9 +35,18 @@ bool QuerySchedulingGroup::accepts(const String & workload_, const ClassifierSet
     return workload == workload_ && settings == settings_;
 }
 
+std::shared_ptr<QuerySchedulingGroup> QuerySchedulingGroup::getRoot()
+{
+    return parent ? parent : shared_from_this();
+}
+
 std::shared_ptr<QuerySchedulingGroup> QuerySchedulingGroup::getGroupFor(
     const String & workload_, const ClassifierSettings & settings_, const std::function<ClassifierPtr()> & make_classifier)
 {
+    // Derived groups are kept by the query's group only, so a query has one level of them.
+    if (parent)
+        return parent->getGroupFor(workload_, settings_, make_classifier);
+
     if (accepts(workload_, settings_))
         return shared_from_this();
 

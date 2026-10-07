@@ -45,8 +45,13 @@ class QuerySchedulingGroup : public std::enable_shared_from_this<QueryScheduling
 public:
     QuerySchedulingGroup(String workload_, const ClassifierSettings & settings_, ClassifierPtr classifier_, std::shared_ptr<QuerySchedulingGroup> parent_ = nullptr);
 
-    /// Unique id of the group, sent to the servers that run tasks of the query's distributed plans.
+    /// Unique id of the group.
     const UUID & getId() const { return id; }
+
+    /// The group of the query itself: this group, or the group this one is derived from. Its id is
+    /// sent to the servers that run tasks of the query's distributed plans, so the tasks of all parts
+    /// of the query find the same groups there, whatever workload and settings each part uses.
+    std::shared_ptr<QuerySchedulingGroup> getRoot();
 
     /// Whether a part of the query with this workload and these scheduling settings belongs to the
     /// group. A part that changes any of them is scheduled as a separate query.
@@ -54,9 +59,10 @@ public:
 
     const ClassifierPtr & getClassifier() const { return classifier; }
 
-    /// Returns the group of a part of the query with this workload and these scheduling settings: this
-    /// group if it accepts them, otherwise the derived group for them, made with a classifier from
-    /// `make_classifier` if there is none.
+    /// Returns the group of a part of the query with this workload and these scheduling settings: the
+    /// query's group if it accepts them, otherwise the derived group for them, made with a classifier
+    /// from `make_classifier` if there is none. Gives the same result for the query's group and for
+    /// any group derived from it.
     std::shared_ptr<QuerySchedulingGroup> getGroupFor(
         const String & workload_, const ClassifierSettings & settings_, const std::function<ClassifierPtr()> & make_classifier);
 

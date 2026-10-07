@@ -222,7 +222,8 @@ struct DistributedQueryTaskDescription
     /// The initiator's changed settings, applied on the worker so query limits and execution-affecting
     /// settings (e.g. max_memory_usage) are honored remotely.
     SettingsChanges settings_changes;
-    /// Id of the initiator's `QuerySchedulingGroup`. The tasks of all distributed plans of one query
+    /// Id of the `QuerySchedulingGroup` of the initiator's query (the root group, also for a part of
+    /// the query with its own workload or settings). The tasks of all distributed plans of one query
     /// carry the same id, so a server schedules all its tasks of the query as one query. Empty in a
     /// task from an initiator that does not send it.
     String scheduling_group_id;

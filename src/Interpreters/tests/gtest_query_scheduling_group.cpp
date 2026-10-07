@@ -88,6 +88,24 @@ TEST(DistributedQuerySchedulingGroups, DerivedGroupKeepsParentAlive)
     EXPECT_EQ(joinAs(groups, "query", "w"), weak_first.lock());
 }
 
+/// Parts of the query find the same groups through the query's group and through a group derived
+/// from it, and every derived group reports the query's group as its root.
+TEST(DistributedQuerySchedulingGroups, DerivedGroupsAreFlat)
+{
+    auto root = makeGroup("w");
+    auto other = root->getGroupFor("other", ClassifierSettings{}, noClassifier);
+    ASSERT_NE(other, root);
+
+    EXPECT_EQ(other->getRoot(), root);
+    EXPECT_EQ(root->getRoot(), root);
+    EXPECT_EQ(other->getGroupFor("w", ClassifierSettings{}, noClassifier), root);
+    EXPECT_EQ(other->getGroupFor("other", ClassifierSettings{}, noClassifier), other);
+
+    auto third = other->getGroupFor("third", ClassifierSettings{}, noClassifier);
+    EXPECT_EQ(third->getRoot(), root);
+    EXPECT_EQ(root->getGroupFor("third", ClassifierSettings{}, noClassifier), third);
+}
+
 /// A part that finds only an expired entry registers its own group.
 TEST(DistributedQuerySchedulingGroups, ExpiredGroupIsReplaced)
 {
