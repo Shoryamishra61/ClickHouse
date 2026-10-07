@@ -1772,8 +1772,13 @@ ProjectionNames QueryAnalyzer::resolveFunction(QueryTreeNodePtr & node, Identifi
       *
       * Otherwise fall through to the generic path, so that the function performs the normal
       * common-supertype unification of all the arguments.
+      *
+      * With `short_circuit_function_evaluation = 'disable'` all the arguments are evaluated
+      * eagerly, so the exceptions in the unreachable arguments are not suppressed either.
       */
-    if (is_special_function_coalesce && !function_node_ptr->getArguments().getNodes().empty())
+    if (is_special_function_coalesce
+        && !function_node_ptr->getArguments().getNodes().empty()
+        && scope.context->getSettingsRef()[Setting::short_circuit_function_evaluation] != ShortCircuitFunctionEvaluation::DISABLE)
     {
         auto & coalesce_args = function_node_ptr->getArguments().getNodes();
         const size_t arg_count = coalesce_args.size();
