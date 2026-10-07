@@ -15,12 +15,13 @@ INSERT INTO {CLICKHOUSE_DATABASE_1:Identifier}.t VALUES (1, 10), (2, 20);
 -- A stand-in appears when the database is loaded, so the table is a stand-in again after a re-attach.
 DETACH DATABASE {CLICKHOUSE_DATABASE_1:Identifier};
 ATTACH DATABASE {CLICKHOUSE_DATABASE_1:Identifier};
+USE {CLICKHOUSE_DATABASE_1:Identifier};
 
-SELECT 'stand-in', engine FROM system.tables WHERE database = {CLICKHOUSE_DATABASE_1:String} AND name = 't';
+SELECT 'stand-in', engine FROM system.tables WHERE database = currentDatabase() AND name = 't';
 
 ALTER TABLE {CLICKHOUSE_DATABASE_1:Identifier}.t UPDATE a = a + 10 WHERE 1 SETTINGS alter_update_mode = 'heavy'; -- { serverError CANNOT_UPDATE_COLUMN }
 
-SELECT 'mutations', count() FROM system.mutations WHERE database = {CLICKHOUSE_DATABASE_1:String} AND table = 't';
+SELECT 'mutations', count() FROM system.mutations WHERE database = currentDatabase() AND table = 't';
 SELECT 'rows', a, b FROM {CLICKHOUSE_DATABASE_1:Identifier}.t ORDER BY a;
 
 DROP DATABASE {CLICKHOUSE_DATABASE_1:Identifier};
