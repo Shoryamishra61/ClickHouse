@@ -40,7 +40,7 @@ using namespace DB::QueryPlanOptimizations;
 namespace ProfileEvents
 {
 extern const Event AutoParallelReplicasPlanBuildAttempts;
-extern const Event AutoParallelReplicasMicroseconds;
+extern const Event AutoParallelReplicasOptimizationMicroseconds;
 extern const Event AutoParallelReplicasPlanBuildMicroseconds;
 extern const Event AutoParallelReplicasSkippedDueToSettings;
 extern const Event AutoParallelReplicasPlanShapeNotSupported;
@@ -315,13 +315,11 @@ std::pair<QueryPlan::Node *, size_t> findCorrespondingNodeInSingleNodePlan(
                 it->second,
                 final_node_in_replica_plan.step->getName(),
                 final_node_in_replica_plan.step->getUniqID());
-            ProfileEvents::increment(ProfileEvents::AutoParallelReplicasPlanNotSuitable);
             return std::make_pair(nullptr, 0);
         }
 
         if (!matched_node->step->supportsDataflowStatisticsCollection())
         {
-            ProfileEvents::increment(ProfileEvents::AutoParallelReplicasPlanNotSuitable);
             LOG_TRACE(
                 getLogger("AutoParallelReplicas"),
                 "Step ({}) doesn't support dataflow statistics collection. Skipping statistics collection",
@@ -733,7 +731,8 @@ void considerEnablingParallelReplicas(
     Stopwatch watch;
     UInt64 plan_build_microseconds = 0;
     SCOPE_EXIT({
-        ProfileEvents::increment(ProfileEvents::AutoParallelReplicasMicroseconds, watch.elapsedMicroseconds() - plan_build_microseconds);
+        ProfileEvents::increment(
+            ProfileEvents::AutoParallelReplicasOptimizationMicroseconds, watch.elapsedMicroseconds() - plan_build_microseconds);
     });
 
     /// Cannot guarantee projection usage with parallel replicas. `buildQueryPlanForAutomaticParallelReplicas`
@@ -909,10 +908,6 @@ void considerEnablingParallelReplicas(
         }
     }
 
-    /// Counted before the call, not after: the attempt is what costs, and it is paid in full even
-    /// when the builder comes back empty because the query cannot use parallel replicas at all.
-    ProfileEvents::increment(ProfileEvents::AutoParallelReplicasPlanBuildAttempts);
-
     /// Hand the probe plan the sets this plan has already filled. It is built and optimized purely to
     /// decide whether replicas pay off, and optimizing it would otherwise re-run every `IN` subquery.
     ///
@@ -924,16 +919,27 @@ void considerEnablingParallelReplicas(
     /// adds no set that collecting later would catch.
     auto built_sets = collectBuiltSets(query_plan);
     Stopwatch plan_build_watch;
-    auto plan_with_parallel_replicas
-        = optimization_settings.query_plan_with_parallel_replicas_builder(built_sets, getLogger("AutoParallelReplicas"));
+    auto build_result = optimization_settings.query_plan_with_parallel_replicas_builder(built_sets, getLogger("AutoParallelReplicas"));
+
+    /// The builder checks what it can before it builds anything, and logs the specific reason when it
+    /// stops there. Those are skips, like the ones above, not plans that turned out unsuitable.
+    switch (build_result.skip_reason)
+    {
+        case PlanWithParallelReplicas::SkipReason::Settings:
+            ProfileEvents::increment(ProfileEvents::AutoParallelReplicasSkippedDueToSettings);
+            return;
+        case PlanWithParallelReplicas::SkipReason::QueryShape:
+            ProfileEvents::increment(ProfileEvents::AutoParallelReplicasPlanShapeNotSupported);
+            return;
+        case PlanWithParallelReplicas::SkipReason::None:
+            break;
+    }
+    chassert(build_result.plan);
+    ProfileEvents::increment(ProfileEvents::AutoParallelReplicasPlanBuildAttempts);
+    /// Only a plan that was built is charged as building one; a skip stays in the rest of the optimization.
     plan_build_microseconds = plan_build_watch.elapsedMicroseconds();
     ProfileEvents::increment(ProfileEvents::AutoParallelReplicasPlanBuildMicroseconds, plan_build_microseconds);
-    if (!plan_with_parallel_replicas)
-    {
-        /// The builder has logged why.
-        ProfileEvents::increment(ProfileEvents::AutoParallelReplicasPlanNotSuitable);
-        return;
-    }
+    auto plan_with_parallel_replicas = std::move(build_result.plan);
 
     const auto * final_node_in_replica_plan = findTopNodeOfReplicasPlan(plan_with_parallel_replicas->getRootNode());
     if (!final_node_in_replica_plan)
@@ -947,7 +953,11 @@ void considerEnablingParallelReplicas(
     const auto [corresponding_node_in_single_replica_plan, single_replica_plan_node_hash]
         = findCorrespondingNodeInSingleNodePlan(*final_node_in_replica_plan, *plan_with_parallel_replicas, query_plan);
     if (!corresponding_node_in_single_replica_plan)
+    {
+        /// `findCorrespondingNodeInSingleNodePlan` has logged why.
+        ProfileEvents::increment(ProfileEvents::AutoParallelReplicasPlanNotSuitable);
         return;
+    }
 
     /// Now we need to identify the reading step that should be instrumented for statistics collection.
     /// It has to be the read parallel replicas will actually coordinate, because the cost model divides its
