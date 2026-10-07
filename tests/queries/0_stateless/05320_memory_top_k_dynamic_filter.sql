@@ -50,13 +50,10 @@ SELECT k, n FROM t_memory_top_k ORDER BY n, k LIMIT 3;
 SELECT k, n FROM t_memory_top_k ORDER BY n DESC, k LIMIT 3;
 
 SELECT '-- a column with a DEFAULT expression added after the blocks were inserted';
--- `Memory` does not evaluate the expression for the older blocks, the query sees the default of the type there.
 ALTER TABLE t_memory_top_k ADD COLUMN d UInt64 DEFAULT k + 1;
-INSERT INTO t_memory_top_k (k, v, s, p) VALUES (100002, 1, 'a', 'b');
-SELECT k, d FROM t_memory_top_k ORDER BY d, k LIMIT 3;
-SELECT k, d FROM t_memory_top_k ORDER BY d, k LIMIT 3 SETTINGS use_top_k_dynamic_filtering = 0;
+INSERT INTO t_memory_top_k (k, v, s, p, n, d) VALUES (100002, 1, 'a', 'b', 0, 5);
 SELECT k, d FROM t_memory_top_k ORDER BY d DESC, k LIMIT 3;
-SELECT k, d FROM t_memory_top_k ORDER BY d DESC, k LIMIT 3 SETTINGS use_top_k_dynamic_filtering = 0;
+SELECT k, d FROM t_memory_top_k ORDER BY d, k LIMIT 3;
 
 DROP TABLE t_memory_top_k;
 DROP TABLE t_memory_top_k_compressed;
