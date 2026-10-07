@@ -406,6 +406,15 @@ bool isLosslessConversion(const DataTypePtr & from, const DataTypePtr & to)
     return from_array && to_array && isLosslessConversion(from_array->getNestedType(), to_array->getNestedType());
 }
 
+bool isCast(const ActionsDAG::Node & node)
+{
+    if (node.type != ActionsDAG::ActionType::FUNCTION || !node.function_base || node.children.size() != 2)
+        return false;
+
+    const auto function_name = node.function_base->getName();
+    return function_name == "CAST" || function_name == "_CAST";
+}
+
 }
 
 bool isLosslessConversionFunction(const ActionsDAG::Node & node)
@@ -416,10 +425,9 @@ bool isLosslessConversionFunction(const ActionsDAG::Node & node)
     const auto function_name = node.function_base->getName();
     const size_t arguments_size = node.children.size();
 
-    const bool is_cast = (function_name == "CAST" || function_name == "_CAST") && arguments_size == 2;
     const bool is_wrapper = (function_name == "toNullable" || function_name == "toLowCardinality") && arguments_size == 1;
 
-    if (!is_cast && !is_wrapper)
+    if (!isCast(node) && !is_wrapper)
         return false;
 
     return isLosslessConversion(node.children.front()->result_type, node.result_type);
@@ -427,24 +435,26 @@ bool isLosslessConversionFunction(const ActionsDAG::Node & node)
 
 RPNBuilderTreeNode unwrapLosslessConversion(const RPNBuilderTreeNode & node)
 {
-    if (!node.isFunction())
-        return node;
-
-    const auto function = node.toFunctionNode();
-    if (!isLosslessConversionFunction(*function.getDAGNode()))
-        return node;
-
-    return unwrapLosslessConversion(function.getArgumentAt(0));
+    return RPNBuilderTreeNode(unwrapLosslessConversion(node.getDAGNode()), node.getContext());
 }
 
 const ActionsDAG::Node * unwrapLosslessConversion(const ActionsDAG::Node * node)
 {
     const auto * node_without_alias = getNodeWithoutAlias(node);
 
-    if (!isLosslessConversionFunction(*node_without_alias))
-        return node;
+    if (isLosslessConversionFunction(*node_without_alias))
+        return unwrapLosslessConversion(node_without_alias->children.front());
 
-    return unwrapLosslessConversion(node_without_alias->children.front());
+    /// `CAST(CAST(x, 'Dynamic'), T)` keeps the value of `x` when `x` converts to `T` losslessly.
+    if (isCast(*node_without_alias))
+    {
+        const auto * to_dynamic = getNodeWithoutAlias(node_without_alias->children.front());
+        if (isCast(*to_dynamic) && isDynamic(to_dynamic->result_type)
+            && isLosslessConversion(to_dynamic->children.front()->result_type, node_without_alias->result_type))
+            return unwrapLosslessConversion(to_dynamic->children.front());
+    }
+
+    return node;
 }
 
 template <typename RPNElement>
