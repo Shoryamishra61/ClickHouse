@@ -20,6 +20,7 @@
 #include <DataTypes/DataTypeTuple.h>
 #include <DataTypes/DataTypeVariant.h>
 #include <DataTypes/DataTypesNumber.h>
+#include <Formats/FormatFactory.h>
 #include <Functions/FunctionFactory.h>
 #include <Interpreters/convertColumnToType.h>
 
@@ -342,6 +343,7 @@ ASTPtr getASTForExternalDatabaseFromQueryTree(ContextPtr context, const QueryTre
     PrepareForExternalDatabaseVisitor visitor(GetSetElementParams{
         .transform_null_in = settings[Setting::transform_null_in],
         .forbid_unknown_enum_values = settings[Setting::validate_enum_literals_in_operators],
+        .format_settings = getFormatSettings(context),
     });
     visitor.visit(new_tree);
     auto * query_node = new_tree->as<QueryNode>();
