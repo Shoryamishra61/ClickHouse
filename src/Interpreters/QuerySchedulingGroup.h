@@ -39,11 +39,13 @@ class QuerySlot;
 ///
 /// Parts of the query that change the workload or a scheduling setting are scheduled as a separate
 /// query: they join a group derived from the query's group, one per distinct workload and settings.
-/// A derived group keeps its parent alive, so the parts that come later find the same groups.
+/// The query's group keeps its derived groups while it lives, so parts with the same workload and
+/// settings that run one after another join the same group. A part that joins a derived group holds
+/// the query's group too (see `Context::setParentSchedulingGroup`).
 class QuerySchedulingGroup : public std::enable_shared_from_this<QuerySchedulingGroup>, private boost::noncopyable
 {
 public:
-    QuerySchedulingGroup(String workload_, const ClassifierSettings & settings_, ClassifierPtr classifier_, std::shared_ptr<QuerySchedulingGroup> parent_ = nullptr);
+    QuerySchedulingGroup(String workload_, const ClassifierSettings & settings_, ClassifierPtr classifier_, std::weak_ptr<QuerySchedulingGroup> parent_ = {});
 
     /// Unique id of the group.
     const UUID & getId() const { return id; }
@@ -76,10 +78,12 @@ private:
     const String workload;
     const ClassifierSettings settings;
     const ClassifierPtr classifier;
-    const std::shared_ptr<QuerySchedulingGroup> parent;
+    /// The query's group for a derived group. Weak, because the query's group holds its derived groups.
+    const std::weak_ptr<QuerySchedulingGroup> parent;
 
     std::mutex derived_mutex;
-    std::vector<std::weak_ptr<QuerySchedulingGroup>> derived TSA_GUARDED_BY(derived_mutex);
+    /// One per distinct workload and settings; a query has few of them.
+    std::vector<std::shared_ptr<QuerySchedulingGroup>> derived TSA_GUARDED_BY(derived_mutex);
 
     std::timed_mutex admission_mutex;
     std::weak_ptr<QuerySlot> query_slot; /// Guarded by `admission_mutex`

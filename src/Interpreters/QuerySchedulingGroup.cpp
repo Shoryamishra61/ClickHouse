@@ -21,7 +21,7 @@ namespace ErrorCodes
 }
 
 QuerySchedulingGroup::QuerySchedulingGroup(
-    String workload_, const ClassifierSettings & settings_, ClassifierPtr classifier_, std::shared_ptr<QuerySchedulingGroup> parent_)
+    String workload_, const ClassifierSettings & settings_, ClassifierPtr classifier_, std::weak_ptr<QuerySchedulingGroup> parent_)
     : id(UUIDHelpers::generateV4())
     , workload(std::move(workload_))
     , settings(settings_)
@@ -37,28 +37,26 @@ bool QuerySchedulingGroup::accepts(const String & workload_, const ClassifierSet
 
 std::shared_ptr<QuerySchedulingGroup> QuerySchedulingGroup::getRoot()
 {
-    return parent ? parent : shared_from_this();
+    if (auto root = parent.lock())
+        return root;
+    return shared_from_this();
 }
 
 std::shared_ptr<QuerySchedulingGroup> QuerySchedulingGroup::getGroupFor(
     const String & workload_, const ClassifierSettings & settings_, const std::function<ClassifierPtr()> & make_classifier)
 {
     // Derived groups are kept by the query's group only, so a query has one level of them.
-    if (parent)
-        return parent->getGroupFor(workload_, settings_, make_classifier);
+    if (auto root = parent.lock())
+        return root->getGroupFor(workload_, settings_, make_classifier);
 
     if (accepts(workload_, settings_))
         return shared_from_this();
 
     std::lock_guard lock{derived_mutex};
-    std::erase_if(derived, [](const auto & group) { return group.expired(); });
-    for (const auto & weak_group : derived)
-    {
-        auto group = weak_group.lock();
-        if (group && group->accepts(workload_, settings_))
+    for (const auto & group : derived)
+        if (group->accepts(workload_, settings_))
             return group;
-    }
-    auto group = std::make_shared<QuerySchedulingGroup>(workload_, settings_, make_classifier(), shared_from_this());
+    auto group = std::make_shared<QuerySchedulingGroup>(workload_, settings_, make_classifier(), weak_from_this());
     derived.push_back(group);
     return group;
 }

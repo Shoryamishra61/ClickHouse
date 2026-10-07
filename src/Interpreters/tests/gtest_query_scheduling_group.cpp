@@ -73,19 +73,19 @@ TEST(DistributedQuerySchedulingGroups, MismatchedPartsShareDerivedGroup)
     EXPECT_EQ(joinAs(groups, "query", "w"), initiator);
 }
 
-/// A derived group keeps the group it is derived from alive, so the parts that come after the last
-/// part of the original group finished still join the same groups.
-TEST(DistributedQuerySchedulingGroups, DerivedGroupKeepsParentAlive)
+/// The query's group keeps its derived groups, so parts with the same workload that run one after
+/// another join the same group, and the derived groups go away with the query's group.
+TEST(DistributedQuerySchedulingGroups, QueryGroupKeepsDerivedGroups)
 {
     DistributedQuerySchedulingGroups groups;
-    auto first = joinAs(groups, "query", "w");
-    auto other = joinAs(groups, "query", "other");
-    std::weak_ptr<QuerySchedulingGroup> weak_first = first;
-    first.reset();
+    auto root = joinAs(groups, "query", "w");
+    std::weak_ptr<QuerySchedulingGroup> weak_other = joinAs(groups, "query", "other");
 
-    ASSERT_FALSE(weak_first.expired());
-    EXPECT_EQ(joinAs(groups, "query", "other"), other);
-    EXPECT_EQ(joinAs(groups, "query", "w"), weak_first.lock());
+    ASSERT_FALSE(weak_other.expired());
+    EXPECT_EQ(joinAs(groups, "query", "other"), weak_other.lock());
+
+    root.reset();
+    EXPECT_TRUE(weak_other.expired());
 }
 
 /// Parts of the query find the same groups through the query's group and through a group derived
