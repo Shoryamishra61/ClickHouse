@@ -741,8 +741,11 @@ void MetadataStorageInMemoryTransaction::moveFile(const std::string & path_from,
         recordFileBefore(path_from);
         recordFileBefore(path_to);
 
-        metadata_storage.files[path_to] = std::move(it_from->second);
-        metadata_storage.files.erase(it_from);
+        /// Re-key the node instead of inserting `path_to` while `it_from` is alive:
+        /// the insertion may rehash `files` and invalidate `it_from`.
+        auto node = metadata_storage.files.extract(it_from);
+        node.key() = path_to;
+        metadata_storage.files.insert(std::move(node));
     });
 }
 
@@ -891,8 +894,11 @@ void MetadataStorageInMemoryTransaction::replaceFile(const std::string & path_fr
             metadata_storage.files.erase(it_to);
         }
 
-        metadata_storage.files[path_to] = std::move(it_from->second);
-        metadata_storage.files.erase(it_from);
+        /// Re-key the node instead of inserting `path_to` while `it_from` is alive:
+        /// the insertion may rehash `files` and invalidate `it_from`.
+        auto node = metadata_storage.files.extract(it_from);
+        node.key() = path_to;
+        metadata_storage.files.insert(std::move(node));
     });
 }
 
