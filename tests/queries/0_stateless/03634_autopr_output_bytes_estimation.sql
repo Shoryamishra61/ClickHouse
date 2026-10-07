@@ -69,33 +69,34 @@ SET enable_parallel_replicas=0, automatic_parallel_replicas_mode=0;
 
 SYSTEM FLUSH LOGS query_log;
 
--- Just checking that the estimation is not too far off.
--- The expected output sizes are calibrated for the `ZSTD(3)` default codec: the estimator serializes
--- output columns with `getDefaultCodec`, so switching the default from `LZ4` to `ZSTD(3)` shrinks the
--- estimate for the queries whose output is dominated by well-compressing data.
--- query_12's value (3rd) is the aggregation state, ~3.6M under `ZSTD(3)` instead of ~11.2M under `LZ4`.
--- query_43's value (11th) is the `URL` output, ~16.8M under `ZSTD(3)` instead of ~48.3M under `LZ4`.
--- The `query_28` value was re-measured. The previously recorded 23722663 dates from 2025-12-31,
--- when the whole array was calibrated on the branch of the pull request that later merged as
--- "Introduce PackedStringRef & PackedStringHashTable"; merging it also overwrote the value master
--- itself had been green with since February, 31064320. Master has produced ~57..58 MB for this
--- query under the pinned settings at least since 2026-04-01: CI binaries of 2026-04-01, 2026-06-10,
--- and 2026-07-26 (before that merge) all measure 57.0..58.8 MB on this dataset, and nine runs in
--- the failing CI job spanned 57843408..59335657, a spread of 1.3%. So nothing regressed around the
--- merge - the estimate is stable, only the golden was stale. The median of those nine runs is
--- recorded here.
--- The ~58 MB is what `Aggregator::estimateSizeOfCompressedState` reports while it serializes the
--- sampled states into a `NullWriteBuffer` instead of into the `CompressedWriteBuffer` wrapped around
--- it, so the figure is the *uncompressed* serialized size of the `MIN(Referer)` states rather than
--- their size on the wire. That is a defect of the estimator, not of this test, and it is what makes
--- the estimate overshoot the actually transferred bytes by ~2.45x for this query.
--- Once the estimator measures the compressed size, this value has to be re-measured again - it goes
--- back to about the previously recorded 23722663.
+-- Check the output estimate against what the replicas actually send (ratio within 2.5x).
+-- The expected values are `NetworkReceiveBytes` on the initiator, measured per query with
+-- `parallel_replicas_local_plan = 0`, `prefer_localhost_replica = 0` and compression forced on every
+-- replica of the cluster. Forcing it is what makes the measurement meaningful: every replica address of
+-- this cluster looks local and is therefore shipped uncompressed by default (see `Cluster.cpp`), which
+-- is several times more bytes than any real cluster transfers. `serialize_query_plan` moves the estimate
+-- by less than 0.4%, so one set of values covers both the query-based and the plan-based implementation.
+--
+-- `parallel_replicas_local_plan` has to be 0 for the measurement: with the local plan on, the local
+-- replica wins the race for the ranges on a warm single-machine cluster and almost nothing crosses the
+-- wire at all - `query_12` measures 5358127 bytes with it off and 4675 with it on, and `query_15` swings
+-- between 3421 and 260928 run to run. With it off the figures repeat within ~0.5%, except `query_12`,
+-- which carries ~15% from how the ranges split between the replicas.
+--
+-- Every query is checked, but a pair also has to differ by more than 100 KB to count: below that the
+-- difference is protocol framing and per-replica fixed cost, which the estimate does not model and should
+-- not. That is what `query_1`, `query_20`, `query_21`, `query_22` and `query_23` live on - a single-row
+-- `COUNT(*)` result still costs about 17 KB on the wire against a 12-byte estimate. Unlike skipping those
+-- rows outright, this still catches an estimate that blows up on them, since that moves the difference
+-- past 100 KB. (Suppressing the progress and profile-event packets with `send_profile_events = 0` and a
+-- large `interactive_delay` only takes 1-6 KB off those transfers, and nothing off the large ones.)
+--
+-- The larger queries land within 1.05x to 1.80x of the transferred bytes: `query_28` 1.05x, `query_15`
+-- 1.16x, `query_43` 1.18x, `query_12` 1.20x, `query_34` 1.69x and `query_10` 1.80x - the last two under
+-- rather than over. Aggregate states are the residual: they are sampled from the hash table and so priced
+-- in hash-table order, while the replicas send them in key order.
 WITH
-    -- `query_12` (index 2) and `query_43` (index 10) are recalibrated for the `ZSTD(3)` default:
-    -- the estimator serializes the output with `getDefaultCodec`, and these two outputs
-    -- (an aggregation state and the `URL` column) compress about 3x better than under `LZ4`.
-    [3, 195461, 2640000, 1100491, 2, 16885, 42323, 9434, 58136394, 203701090, 22000000/*, 641835*/] AS expected_bytes,
+    [17258, 362202, 5372342, 1992487, 17111, 33142, 73083, 58884, 38520304, 130028333, 32692272/*, 641835*/] AS expected_bytes,
     arrayJoin(arrayMap(x -> (untuple(x.1), x.2), arrayZip(res, expected_bytes))) AS res
 SELECT format('{} {} {}', res.1, res.2, res.3)
 FROM
@@ -108,5 +109,5 @@ FROM
       ORDER BY event_time_microseconds
     )
 )
-WHERE (greatest(res.2, res.3) / least(res.2, res.3)) > 2.5 AND NOT (res.2 < 100 AND res.3 < 100);
-
+WHERE (greatest(res.2, res.3) / least(res.2, res.3)) > 2.5
+  AND (greatest(res.2, res.3) - least(res.2, res.3)) > 100000;
