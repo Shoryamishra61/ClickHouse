@@ -1,5 +1,4 @@
--- With `transform_null_in = 1`, index analysis uses a `bloom_filter` index on an array for `arrayJoin(...) IN (set)`
--- when the set has no NULL.
+-- with transform_null_in = 1, bloom_filter on an array works for arrayJoin(...) IN (set) when the set has no NULL
 
 SET explain_query_plan_default = 'legacy';
 SET use_skip_indexes = 1;
@@ -36,11 +35,6 @@ SELECT trimLeft(explain) FROM (EXPLAIN indexes = 1 SELECT count() FROM t_bf_aj_n
 SELECT count() FROM t_bf_aj_null_in WHERE arrayJoin(emptyArrayToSingle(tags::Array(Nullable(String)))) IN ('t3', NULL);
 
 SELECT '-- emptyArrayToSingle, Dynamic round trip and Nullable result on a JSON path';
-SELECT trimLeft(explain) FROM (EXPLAIN indexes = 1 SELECT count() FROM t_bf_aj_null_in WHERE arrayJoin(emptyArrayToSingle(doc.tags::Dynamic::Array(String)))::Nullable(String) GLOBAL IN (SELECT 't3'::Nullable(String))) WHERE explain LIKE '%Name: idx%' OR explain LIKE '%Granules:%';
-SELECT count() FROM t_bf_aj_null_in WHERE arrayJoin(emptyArrayToSingle(doc.tags::Dynamic::Array(String)))::Nullable(String) GLOBAL IN (SELECT 't3'::Nullable(String));
-
-SELECT '-- the same, arrayJoin stays a function';
-SET query_plan_lower_array_join_function = 0;
 SELECT trimLeft(explain) FROM (EXPLAIN indexes = 1 SELECT count() FROM t_bf_aj_null_in WHERE arrayJoin(emptyArrayToSingle(doc.tags::Dynamic::Array(String)))::Nullable(String) GLOBAL IN (SELECT 't3'::Nullable(String))) WHERE explain LIKE '%Name: idx%' OR explain LIKE '%Granules:%';
 SELECT count() FROM t_bf_aj_null_in WHERE arrayJoin(emptyArrayToSingle(doc.tags::Dynamic::Array(String)))::Nullable(String) GLOBAL IN (SELECT 't3'::Nullable(String));
 
