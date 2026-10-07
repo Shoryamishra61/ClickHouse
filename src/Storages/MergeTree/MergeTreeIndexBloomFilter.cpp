@@ -817,7 +817,10 @@ bool MergeTreeIndexConditionBloomFilter::traverseTreeIn(
 
     /// `arrayJoin(col) IN (set)` needs a set element in the granule, same as `hasAny(col, set)`.
     /// `notIn` is not derivable: a granule holding a set element still yields rows outside the set.
-    if (function_name != "in" && function_name != "globalIn")
+    /// `nullIn` selects the same rows as `in` when the set has no NULL.
+    const bool is_null_in_without_null
+        = (function_name == "nullIn" || function_name == "globalNullIn") && prepared_set && !prepared_set->hasNull();
+    if (function_name != "in" && function_name != "globalIn" && !is_null_in_without_null)
         return false;
     if (!column)
         return false;
