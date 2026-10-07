@@ -866,7 +866,9 @@ StoragePtr DatabaseOrdinary::detachTable(ContextPtr /* context_ */, const String
         /// Never overwrite: a previous detached instance of this name may still be alive (see the member comment).
         /// Expired entries are dropped here as well, so the container does not grow with tables nobody re-attaches.
         forgetExpiredDetachedTablesByName(keep_alive);
-        detached_tables_by_name.emplace(table_name, table);
+        /// Track the storage behind a materialized lazy-load stand-in, which the database iterator hands out
+        /// directly and which outlives the stand-in. `mutex` is held, so do not wait for a load in flight.
+        detached_tables_by_name.emplace(table_name, unwrapMaterializedLazyTable(table, /* wait_for_materialization= */ false));
     }
     return table;
 }
