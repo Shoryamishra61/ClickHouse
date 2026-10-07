@@ -129,6 +129,8 @@ static struct InitFiu
     PAUSEABLE(storage_set_pause_during_backup_replay) \
     REGULAR(storage_set_fail_during_backup_replay) \
     ONCE(storage_join_mutate_fail_after_moving_backup_aside) \
+    ONCE(storage_join_mutate_fail_before_commit) \
+    ONCE(storage_join_mutate_fail_putting_backup_back) \
     ONCE(storage_join_mutate_fail_removing_superseded_backups) \
     ONCE(storage_join_publish_fail_during_rollback) \
     REGULAR(file_cache_simulate_evicting_segment) \
