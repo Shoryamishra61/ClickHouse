@@ -1,3 +1,6 @@
+-- Tags: no-fasttest
+-- no-fasttest: needs the RapidJSON parser, which the Fast test build does not include.
+
 -- Deeply nested JSON documents must be rejected with TOO_DEEP_RECURSION instead of exhausting the
 -- thread stack. The RapidJSON parser (allow_simdjson = 0) builds the document iteratively, so it
 -- survives any depth and the depth reaches the consumers that walk the parsed document.
