@@ -123,7 +123,8 @@ class MetadataStorageFromPlainRewritableObjectStorage final : public IMetadataSt
     void onLayoutChanged();
     /// Writes the current state to the snapshot file (or removes the file if the disk is empty) if there were changes.
     /// Only one write is performed even if there were several changes, since the latest state is written.
-    void writeSnapshotIfDirty();
+    /// If `required_generation` is non-zero, nothing is done if a previous write already included the change of this generation.
+    void writeSnapshotIfDirty(UInt64 required_generation = 0);
     void snapshotWriteTask();
 
 public:
@@ -190,8 +191,12 @@ private:
 
     /// Set after every change of the state, cleared when the snapshot write starts.
     std::atomic<bool> snapshot_dirty = false;
+    /// Incremented after every change of the state.
+    std::atomic<UInt64> snapshot_change_generation = 0;
     /// Serializes the snapshot writes.
     std::mutex snapshot_write_mutex;
+    /// The generation of the state in the last successfully written snapshot. Protected by `snapshot_write_mutex`.
+    UInt64 snapshot_written_generation = 0;
     /// Must be the last member: it is deactivated first in the destructor, and the task uses the other members.
     BackgroundSchedulePoolTaskHolder snapshot_write_task;
 };

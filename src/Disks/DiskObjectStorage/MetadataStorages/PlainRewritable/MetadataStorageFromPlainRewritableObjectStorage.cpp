@@ -734,23 +734,33 @@ void MetadataStorageFromPlainRewritableObjectStorage::onLayoutChanged()
     if (!isSnapshotWriter())
         return;
 
+    const UInt64 generation = ++snapshot_change_generation;
     snapshot_dirty = true;
 
     /// When everything was removed from the disk, the snapshot is removed right away regardless of the delay:
     /// this is a single cheap request, and nothing should be left behind in the object storage after the last `DROP`.
     if (snapshot_settings.write_delay_ms == 0 || fs.takeReadOnlySnapshot()->listDirectory("").empty())
-        writeSnapshotIfDirty();
+        writeSnapshotIfDirty(generation);
     else
         snapshot_write_task->scheduleAfter(snapshot_settings.write_delay_ms, /*overwrite=*/ false);
 }
 
-void MetadataStorageFromPlainRewritableObjectStorage::writeSnapshotIfDirty()
+void MetadataStorageFromPlainRewritableObjectStorage::writeSnapshotIfDirty(UInt64 required_generation)
 {
     std::lock_guard lock(snapshot_write_mutex);
+
+    /// Concurrent committers coalesce: if a write that finished while we were waiting for the lock already included
+    /// our change, there is nothing to do. So at most one more write follows the one in progress.
+    if (required_generation && snapshot_written_generation >= required_generation)
+        return;
 
     /// The flag is cleared before taking the state: a change applied after this point sets it again and is written next time.
     if (!snapshot_dirty.exchange(false))
         return;
+
+    /// Every change is applied to the state before its generation is incremented, so the state taken below includes
+    /// all the changes up to this generation.
+    const UInt64 generation = snapshot_change_generation.load();
 
     LoggerPtr log = getLogger("MetadataStorageFromPlainObjectStorage");
     const auto key = layout->constructSnapshotObjectKey();
@@ -773,6 +783,7 @@ void MetadataStorageFromPlainRewritableObjectStorage::writeSnapshotIfDirty()
             ProfileEvents::increment(ProfileEvents::DiskPlainRewritableSnapshotWritten);
             LOG_DEBUG(log, "Written the snapshot file '{}' ({} bytes) with {} directories", key, out->count(), remote_layout.size());
         }
+        snapshot_written_generation = generation;
     }
     catch (...)
     {
