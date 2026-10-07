@@ -103,7 +103,8 @@ void CustomDiskRegistry::scheduleShutdown(const String & name, DiskPtr disk)
     finishShutdown(std::move(disk_to_shutdown));
 }
 
-void CustomDiskRegistry::waitForShutdown(const String & name)
+/// TSA_NO_THREAD_SAFETY_ANALYSIS because TSA does not support `std::unique_lock` used with `std::condition_variable`.
+void CustomDiskRegistry::waitForShutdown(const String & name) TSA_NO_THREAD_SAFETY_ANALYSIS
 {
     std::unique_lock lock(mutex);
     shutdown_finished_cv.wait(lock, [&]() TSA_NO_THREAD_SAFETY_ANALYSIS { return !names_pending_shutdown.contains(name); });
