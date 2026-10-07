@@ -33,4 +33,4 @@ query "temporary_files_codec = 'PCO'" | grep -o -m1 -e 'the session did not enab
 echo "with the opt-in"
 OUTPUT=$(query "enable_pco_codec = 1, temporary_files_codec = 'PCO'")
 echo "$OUTPUT" | grep -o -m1 -e 'the session did not enable it' -e 'requires a column type'
-echo "$OUTPUT" | grep -c 'the session did not enable it'
+echo "$OUTPUT" | grep -c 'the session did not enable it' ||:
