@@ -238,7 +238,7 @@ SELECT count(), sum(x) FROM t_pk_tuple_null_safe WHERE t <=> (NULL, 1);
 SELECT count(), sum(x) FROM t_pk_tuple_null_safe WHERE NOT (t <=> (NULL, 1));
 SELECT count(), sum(x) FROM t_pk_tuple_null_safe WHERE t <=> (5, 1);
 SELECT count() FROM t_pk_tuple_null_safe WHERE t <=> (NULL, 1) SETTINGS force_primary_key = 1;
-SELECT trimLeft(explain) FROM (EXPLAIN indexes = 1 SELECT x FROM t_pk_tuple_null_safe WHERE t <=> (NULL, 1)) WHERE explain LIKE '%Condition:%';
+SELECT trimLeft(explain) FROM (EXPLAIN indexes = 1 SELECT x FROM t_pk_tuple_null_safe WHERE t <=> (NULL, 1) SETTINGS enable_parallel_replicas = 0) WHERE explain LIKE '%Condition:%';
 
 DROP TABLE t_pk_tuple_null_safe;
 
@@ -252,3 +252,34 @@ SELECT count(), sum(x) FROM t_pk_tuple_null_safe_transform WHERE NOT (t <=> (NUL
 SELECT count() FROM t_pk_tuple_null_safe_transform WHERE t <=> (NULL, 1) SETTINGS force_primary_key = 1;
 
 DROP TABLE t_pk_tuple_null_safe_transform;
+
+SELECT 'A NaN nested in an Array is ordered the same way at row level and in the key';
+
+-- An `Array` comparison treats two `NaN` elements as equal and orders a `NaN` after every number,
+-- exactly like `compareAt` in the index, so atoms on `[nan]` stay exact and agree with the real read.
+
+CREATE TABLE t_pk_array_nan (a Array(Float64), x Int32) ENGINE = MergeTree ORDER BY a
+SETTINGS index_granularity = 1;
+
+INSERT INTO t_pk_array_nan VALUES ([nan],1),([1],1),([2],1),([nan, 1],1),([0],1);
+
+SELECT count(), sum(x) FROM t_pk_array_nan WHERE a = [nan];
+SELECT count(), sum(x) FROM t_pk_array_nan WHERE a != [nan];
+SELECT count(), sum(x) FROM t_pk_array_nan WHERE a <= [nan];
+SELECT count(), sum(x) FROM t_pk_array_nan WHERE a > [1];
+SELECT count(), sum(x) FROM t_pk_array_nan WHERE NOT (a < [1]);
+
+DROP TABLE t_pk_array_nan;
+
+CREATE TABLE t_pk_tuple_array_nan (t Tuple(Array(Float64), UInt8), x Int32) ENGINE = MergeTree ORDER BY t
+SETTINGS index_granularity = 1;
+
+INSERT INTO t_pk_tuple_array_nan VALUES (([nan], 1),1),(([1], 1),1),(([nan], 2),1),(([0], 0),1),(([nan, 1], 1),1);
+
+SELECT count(), sum(x) FROM t_pk_tuple_array_nan WHERE t = ([nan], 1);
+SELECT count(), sum(x) FROM t_pk_tuple_array_nan WHERE t != ([nan], 1);
+SELECT count(), sum(x) FROM t_pk_tuple_array_nan WHERE t <= ([nan], 1);
+SELECT count(), sum(x) FROM t_pk_tuple_array_nan WHERE t > ([1], 5);
+SELECT count(), sum(x) FROM t_pk_tuple_array_nan WHERE NOT (t < ([nan], 1));
+
+DROP TABLE t_pk_tuple_array_nan;
