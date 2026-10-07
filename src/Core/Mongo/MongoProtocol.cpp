@@ -316,7 +316,7 @@ void QueryExecutor::authenticate(const String & username, const String & passwor
     {
         auto exception = Exception(ErrorCodes::AUTHENTICATION_FAILED, "Got an empty user name in the 'PLAIN' authentication payload");
         session->onAuthenticationFailure(user_name, address, exception);
-        throw exception;
+        throw exception; /// NOLINT
     }
 
     session->authenticate(user_name, password, address);
