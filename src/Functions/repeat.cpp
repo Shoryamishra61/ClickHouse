@@ -23,13 +23,19 @@ namespace
 struct RepeatImpl
 {
     /// Safety threshold against DoS.
-    /// Compares in `T` before any narrowing, so a 128- or 256-bit count above `UINT64_MAX` is not truncated
-    /// into a small one. `repeat_time` must already be non-negative.
+    /// A 128- or 256-bit count is compared in `T` before any narrowing, so a count above `UINT64_MAX` is not
+    /// truncated into a small one. A narrower count is widened instead, because the threshold does not fit
+    /// into an 8- or 16-bit `T`. `repeat_time` must already be non-negative.
     template <typename T>
     static void checkRepeatTime(T repeat_time)
     {
         static constexpr UInt64 max_repeat_times = 1'000'000;
-        if (repeat_time > static_cast<T>(max_repeat_times))
+        bool too_many;
+        if constexpr (sizeof(T) > sizeof(UInt64))
+            too_many = repeat_time > static_cast<T>(max_repeat_times);
+        else
+            too_many = static_cast<UInt64>(repeat_time) > max_repeat_times;
+        if (too_many)
             throw Exception(ErrorCodes::TOO_LARGE_STRING_SIZE, "Too many times to repeat ({}), maximum is: {}", toString(repeat_time), max_repeat_times);
     }
 
