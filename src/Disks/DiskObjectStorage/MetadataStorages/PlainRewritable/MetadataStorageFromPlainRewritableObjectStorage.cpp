@@ -536,9 +536,11 @@ void MetadataStorageFromPlainRewritableObjectStorage::load(bool is_initial_load,
 
                         if (remove_orphaned_objects)
                         {
+                            /// The explicit file list and the blob keys must survive the rollback, as in `MoveDirectoryOperation`.
+                            DirectoryRemoteInfo directory_info{remote_path, metadata->etag, last_modified.epochTime(), files, has_explicit_file_list};
                             auto write_buf = object_storage->writeObject(
                                 object, WriteMode::Rewrite, /*object_attributes*/ std::nullopt, /*buf_size*/ 128, getWriteSettings());
-                            writeString(original_local_path, *write_buf);
+                            writeString(serializePrefixPath(original_local_path, directory_info), *write_buf);
                             write_buf->finalize();
                         }
 
@@ -672,20 +674,6 @@ void MetadataStorageFromPlainRewritableObjectStorage::load(bool is_initial_load,
         remote_layout[std::move(result.local_path)] = std::move(result.info);
     }
 
-    if (!orphaned_blobs.empty())
-    {
-        for (const auto & [_, info] : remote_layout)
-        {
-            if (!info.has_explicit_file_list)
-                continue;
-            for (const auto & [filename, file_info] : info.files)
-                orphaned_blobs.erase(getBlobKey(info, filename, file_info));
-        }
-
-        for (const auto & [blob_key, local_path] : orphaned_blobs)
-            orphaned_data_objects.emplace_back(layout->constructBlobObjectKey(blob_key), local_path);
-    }
-
     /// Root folder is a special case. Files are stored as /__root/{file-name}, unless the root has switched to the explicit file list.
     /// The root files directory is listed even then, if there may be leftovers of committed removals to reclaim there.
     const bool root_has_explicit_file_list = remote_layout[""].has_explicit_file_list;
@@ -711,6 +699,20 @@ void MetadataStorageFromPlainRewritableObjectStorage::load(bool is_initial_load,
                 .blob_key = {},
             });
         }
+    }
+
+    /// Every live directory is checked, including the implicit ones and the root (listed just above): the source side
+    /// of a hard link stays in an implicit directory under its default key, while the target side is explicit.
+    if (!orphaned_blobs.empty())
+    {
+        for (const auto & [_, info] : remote_layout)
+        {
+            for (const auto & [filename, file_info] : info.files)
+                orphaned_blobs.erase(getBlobKey(info, filename, file_info));
+        }
+
+        for (const auto & [blob_key, local_path] : orphaned_blobs)
+            orphaned_data_objects.emplace_back(layout->constructBlobObjectKey(blob_key), local_path);
     }
 
     LOG_DEBUG(log, "Loaded metadata for {} directories (listed {}, files listed {})",
