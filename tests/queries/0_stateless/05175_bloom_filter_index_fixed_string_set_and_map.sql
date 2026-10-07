@@ -151,6 +151,29 @@ SELECT count() FROM t_bf_map_enum WHERE m['k'] = 'b';
 SELECT count() FROM t_bf_map_enum WHERE m['k'] = 'no_such_label' SETTINGS validate_enum_literals_in_operators = 1; -- { serverError UNKNOWN_ELEMENT_OF_ENUM }
 
 DROP TABLE t_bf_map_enum;
+
+SELECT 'nullable subquery or table set against a mapValues index';
+-- A NULL in the set matches no value of the non-`Nullable` value type; the index must not throw
+-- while casting the set to that type.
+DROP TABLE IF EXISTS t_bf_map_null_set;
+CREATE TABLE t_bf_map_null_set (m Map(String, String), INDEX bf mapValues(m) TYPE bloom_filter GRANULARITY 1)
+ENGINE = MergeTree ORDER BY tuple() SETTINGS index_granularity = 1;
+INSERT INTO t_bf_map_null_set VALUES (map('k', 'a')), (map('k', 'b')), (map());
+OPTIMIZE TABLE t_bf_map_null_set FINAL;
+
+DROP TABLE IF EXISTS t_bf_map_null_set_source;
+CREATE TABLE t_bf_map_null_set_source (s Nullable(String)) ENGINE = Memory;
+INSERT INTO t_bf_map_null_set_source VALUES (NULL), ('b');
+
+SELECT count() FROM t_bf_map_null_set WHERE m['k'] IN (SELECT CAST(NULL AS Nullable(String)));
+SELECT count() FROM t_bf_map_null_set WHERE m['k'] IN (SELECT s FROM t_bf_map_null_set_source);
+SELECT count() FROM t_bf_map_null_set WHERE m['k'] IN (SELECT s FROM t_bf_map_null_set_source) SETTINGS use_skip_indexes = 0;
+SELECT count() FROM t_bf_map_null_set WHERE toNullable(m['k']) IN (SELECT s FROM t_bf_map_null_set_source);
+SELECT count() FROM t_bf_map_null_set WHERE toNullable(m['k']) IN (SELECT s FROM t_bf_map_null_set_source) SETTINGS transform_null_in = 1;
+SELECT count() FROM t_bf_map_null_set WHERE m['k'] IN t_bf_map_null_set_source;
+
+DROP TABLE t_bf_map_null_set_source;
+DROP TABLE t_bf_map_null_set;
 DROP TABLE t_bf_map_uint8_set_source;
 DROP TABLE t_bf_set;
 DROP TABLE t_bf_map;

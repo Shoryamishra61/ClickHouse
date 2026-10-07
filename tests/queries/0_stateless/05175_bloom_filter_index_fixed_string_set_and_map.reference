@@ -60,3 +60,10 @@ unknown enum label against a mapValues index
 0
 0
 1
+nullable subquery or table set against a mapValues index
+0
+1
+1
+1
+1
+1

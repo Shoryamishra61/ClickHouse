@@ -859,6 +859,12 @@ bool MergeTreeIndexConditionBloomFilter::traverseTreeIn(
             if (!bloomFilterHashDomainMatches(type, array_nested_type))
                 return false;
 
+            /// Same as for a set over a plain column above: a NULL of a subquery or table set does not
+            /// cast to a non-`Nullable` value type and matches no stored value.
+            const auto * nullable_column = typeid_cast<const ColumnNullable *>(column.get());
+            if (nullable_column && !array_nested_type->isNullable() && std::ranges::any_of(nullable_column->getNullMapData(), [](UInt8 is_null) { return is_null != 0; }))
+                return false;
+
             const auto & converted_column = castColumn(ColumnWithTypeAndName{column, type, ""}, array_nested_type);
             out.predicate.emplace_back(std::make_pair(position, BloomFilterHash::hashWithColumn(array_nested_type, converted_column, 0, row_size)));
         }
