@@ -445,7 +445,7 @@ const ActionsDAG::Node * unwrapLosslessConversion(const ActionsDAG::Node * node)
     if (isLosslessConversionFunction(*node_without_alias))
         return unwrapLosslessConversion(node_without_alias->children.front());
 
-    /// `CAST(CAST(x, 'Dynamic'), T)` keeps the value of `x` when `x` converts to `T` losslessly.
+    /// x::Dynamic::T keeps the value of x when x converts to T losslessly
     if (isCast(*node_without_alias))
     {
         const auto * to_dynamic = getNodeWithoutAlias(node_without_alias->children.front());
