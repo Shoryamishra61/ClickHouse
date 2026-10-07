@@ -180,6 +180,8 @@ struct ProxyConfiguration
     SSHConfig ssh;
 
     UInt64 connect_timeout_ms = 3000;
+    /// Bounds both every read of the handshake and the whole handshake of a client connection,
+    /// from the accept until the proxy starts relaying it to a backend.
     UInt64 handshake_timeout_ms = 10000;
     UInt64 send_timeout_ms = 300000;
     /// Per-direction relay buffer (for a splice relay, the pipe/chunk size). Larger values raise bulk

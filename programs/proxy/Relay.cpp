@@ -206,6 +206,7 @@ void runRelay(
     /// The handshake is over: leave the short handshake timeout behind, so an ordinary idle gap
     /// between commands, a slow upload, or a long-running query does not tear down the session.
     /// This governs the user-space copy path; the zero-copy splice path does not consult it.
+    client.disarmHandshakeDeadline();
     client.setTimeouts(relay_timeout_ms, relay_timeout_ms);
     backend_socket.setTimeouts(relay_timeout_ms, relay_timeout_ms);
 

@@ -11,6 +11,9 @@
 
 #include <silk/fibers/fiber.h>
 
+#include <cerrno>
+#include <sys/socket.h>
+
 #if USE_SSL
 #include <IO/SilkSecureFiberStreamSocketImpl.h>
 #include <Poco/Net/Context.h>
@@ -26,6 +29,7 @@ namespace ErrorCodes
     extern const int NETWORK_ERROR;
     extern const int SOCKET_TIMEOUT;
     extern const int ATTEMPT_TO_READ_AFTER_EOF;
+    extern const int CANNOT_SCHEDULE_TASK;
 }
 }
 
@@ -49,9 +53,50 @@ Poco::Net::SocketAddress resolveAddress(const String & host, UInt16 port)
     return Poco::Net::SocketAddress(host, port);
 }
 
+HandshakeDeadline::HandshakeDeadline(int fd_, UInt64 timeout_ms_)
+    : fd(fd_)
+    , timeout_ms(timeout_ms_)
+{
+    if (silk::FiberScheduler::run(watch, WatchdogTask{this}, &finished) != 0)
+        throw Exception(ErrorCodes::CANNOT_SCHEDULE_TASK, "Cannot start a fiber for the handshake deadline");
+}
+
+int HandshakeDeadline::watch(WatchdogTask * task) noexcept
+{
+    HandshakeDeadline & self = *task->self;
+    silk::FiberEvent::Future future;
+    self.disarmed.wait(&future);
+    if (silk::FiberFuture::waitWithTimeout(&future, self.timeout_ms * 1'000'000) == ETIMEDOUT)
+    {
+        future.cancel();
+        /// Not disarmed in the meantime: end the handshake. The descriptor stays open until the owner closes it.
+        if (future.wait() == ECANCELED)
+            ::shutdown(self.fd, SHUT_RDWR);
+    }
+    return 0;
+}
+
+void HandshakeDeadline::disarm() noexcept
+{
+    if (joined)
+        return;
+    disarmed.set();
+    [[maybe_unused]] int r = finished.wait();
+    joined = true;
+}
+
+void FiberSocket::armHandshakeDeadline(UInt64 timeout_ms)
+{
+    chassert(adopted_fd >= 0);
+    /// Zero means no timeout, as for the socket timeouts.
+    if (timeout_ms)
+        handshake_deadline = std::make_unique<HandshakeDeadline>(adopted_fd, timeout_ms);
+}
+
 FiberSocket FiberSocket::adopt(int fd)
 {
     FiberSocket result;
+    result.adopted_fd = fd;
     result.socket = Poco::Net::StreamSocket(new Silk::FiberStreamSocketImpl(fd));
     /// Disable Nagle's algorithm: the proxy relays small protocol packets, and without this a
     /// request/response round-trip stalls for tens of milliseconds on Nagle/delayed-ACK.
@@ -98,6 +143,7 @@ String FiberSocket::tlsServerName()
 FiberSocket FiberSocket::adoptTLS(int fd, Poco::Net::Context::Ptr context)
 {
     FiberSocket result;
+    result.adopted_fd = fd;
     result.socket = Poco::Net::StreamSocket(new Silk::SecureFiberStreamSocketImpl(fd, context));
     result.socket.setNoDelay(true);
     result.is_plaintext = false;
@@ -153,6 +199,7 @@ void FiberSocket::setTimeouts(UInt64 receive_ms, UInt64 send_ms)
 
 void FiberSocket::close()
 {
+    disarmHandshakeDeadline();
     try
     {
         if (socket.impl()->initialized())

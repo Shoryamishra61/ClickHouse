@@ -95,6 +95,8 @@ int connectionFiber(HandlerParams * params) noexcept
         {
             client = FiberSocket::adopt(params->fd);
         }
+        /// Bounds everything up to `runRelay`, including the TLS handshake of a secure listener.
+        client.armHandshakeDeadline(ctx.config.handshake_timeout_ms);
 
         dispatch(client, ctx);
     }
