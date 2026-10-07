@@ -222,12 +222,14 @@ share a common interface and can be extended.
 Rules are checked in order; the first whose criteria all match wins. A rule can match on `host`
 (the TLS SNI or the HTTP `Host` header), `user`, `database`, `query_type` (`select`, `insert` or
 `other`; HTTP only), and `protocol`. It routes either to a named `pool` or to a `backend_template`.
-The query type of an HTTP request is taken from the first `query` URL parameter; without it, the
-request body is the query, and the proxy reads the beginning of the body (the first chunk of a
-chunked body, up to 64 KiB) to classify it. A body that is compressed (`Content-Encoding`, or the
-`decompress` URL parameter) is not inspected, so such a request has no query type and matches only
-the rules without `query_type`. The same holds when the inspected beginning of the body ends before
-the first keyword of the query, for example within a long leading comment.
+As in the server, the query of an HTTP request is the first `query` URL parameter followed by the
+request body, so the proxy classifies them together, reading the beginning of the body (the first
+chunk of a chunked body, up to 64 KiB) when the request has one. A body that is compressed
+(`Content-Encoding`, or the `decompress` URL parameter) is not inspected, so unless the `query`
+parameter already contains the first keyword, such a request has no query type and matches only
+the rules without `query_type`. The same holds when the inspected beginning of the query ends before
+its first keyword, for example within a long leading comment, and for `multipart/form-data` requests,
+whose query is assembled from all the `query` parameters of the URL and of the form.
 A rule without `protocol` applies only to the protocols whose connections can have the attributes it
 matches on: `query_type` is known only for `http`, `authorized_key` only for `ssh`, and `host` only for
 `http`, `native` (the SNI of a secure listener) and `tls`. Such a rule does not make the proxy parse the
@@ -285,8 +287,9 @@ Repeated connections can be pinned to the same backend, chosen by a consistent
 
 ### Health monitoring {#health-monitoring}
 
-The proxy periodically probes every backend with a TCP connection, records latency, and marks a
-backend down after a number of consecutive failures (bringing it back up when it recovers). The
+The proxy periodically probes every backend with a TCP connection (and a TLS handshake for a backend
+marked `<secure>1</secure>`, so a backend with a broken certificate is not kept in rotation), records
+latency, and marks a backend down after a number of consecutive failures (bringing it back up when it recovers). The
 probed port is the backend's `<health_check_port>` if set; otherwise the first configured port among
 `tcp_port`, `http_port`, `mysql_port`, `postgresql_port`, `ssh_port` and `raw_port`. A backend
 without any explicit port is probed on the port the listeners that route to it use: the protocol's

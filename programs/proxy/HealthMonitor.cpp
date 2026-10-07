@@ -27,6 +27,7 @@ namespace DB
 namespace ErrorCodes
 {
     extern const int CANNOT_SCHEDULE_TASK;
+    extern const int SUPPORT_IS_DISABLED;
 }
 }
 
@@ -119,7 +120,24 @@ void HealthMonitor::checkBackend(Backend & backend, bool poll_resources)
     const auto started = std::chrono::steady_clock::now();
     try
     {
-        FiberSocket socket = FiberSocket::connect(resolveAddress(backend.config().host, port), config.health_check.timeout_ms);
+        const Poco::Net::SocketAddress address = resolveAddress(backend.config().host, port);
+        FiberSocket socket;
+        if (backend.config().secure)
+        {
+#if USE_SSL
+            /// Every port of a secure backend is reached over TLS (see `connectToBackend`), so the probe has to
+            /// complete the same handshake: a TCP connect alone would keep a backend with a broken certificate
+            /// in rotation, while every client connection to it fails.
+            chassert(client_tls_context);   /// Created at startup whenever any backend is secure.
+            socket = FiberSocket::connectTLS(address, config.health_check.timeout_ms, client_tls_context, backend.config().host);
+#else
+            throw Exception(ErrorCodes::SUPPORT_IS_DISABLED, "Cannot check a secure backend: built without SSL support");
+#endif
+        }
+        else
+        {
+            socket = FiberSocket::connect(address, config.health_check.timeout_ms);
+        }
         const double latency_ms = std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - started).count();
         socket.close();

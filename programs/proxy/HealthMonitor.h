@@ -30,14 +30,15 @@ class Router;
 
 /// Actively monitors backend health and, optionally, resource usage.
 /// A supervisor fiber periodically probes every backend concurrently:
-///   - a TCP connect to the backend's health check port (see `healthCheckPort`) measures latency and liveness;
+///   - a TCP connect (with a TLS handshake for a secure backend) to the backend's health check port
+///     (see `healthCheckPort`) measures latency and liveness;
 ///   - if the backend has monitoring credentials, an HTTP(S) query reads its CPU and memory usage.
 /// Backends are discovered from the router (both statically configured and dynamically created ones).
 class HealthMonitor
 {
 public:
 #if USE_SSL
-    /// @p client_tls_context is used to poll the resources of secure backends; may be null if there are none.
+    /// @p client_tls_context is used to check and poll secure backends; may be null if there are none.
     HealthMonitor(const ProxyConfiguration & config_, Router & router_, Poco::Net::Context::Ptr client_tls_context_);
 #else
     HealthMonitor(const ProxyConfiguration & config_, Router & router_);
