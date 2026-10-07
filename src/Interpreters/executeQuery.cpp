@@ -1079,13 +1079,14 @@ void logExceptionBeforeStart(
     UInt64 elapsed_milliseconds,
     bool internal,
     bool log_as_internal,
-    bool charge_quota_profile_events)
+    bool charge_quota)
 {
     auto query_end_time = std::chrono::system_clock::now();
 
     /// Exception before the query execution.
+    /// A query exempt from quotas (see `IInterpreter::ignoreQuota`) is not charged.
     auto quota = context->getQuota();
-    if (quota)
+    if (quota && charge_quota)
         quota->usedForQuery(normalized_query_hash, QuotaType::ERRORS, 1, /* check_exceeded = */ false);
 
     const Settings & settings = context->getSettingsRef();
@@ -1165,8 +1166,7 @@ void logExceptionBeforeStart(
 
     QueryStatusPtr process_list_elem = context->getProcessListElementSafe();
 
-    /// A query exempt from quotas (see `IInterpreter::ignoreQuota`) is not charged.
-    if (charge_quota_profile_events && chargesQuotaProfileEvents(ast, internal))
+    if (charge_quota && chargesQuotaProfileEvents(ast, internal))
     {
         if (process_list_elem)
             usedQuotaProfileEvents(quota, process_list_elem, normalized_query_hash);
@@ -3534,7 +3534,7 @@ static BlockIO executeQueryImpl(
             txn->onException();
         }
 
-        logExceptionBeforeStart(query_for_logging, normalized_query_hash, context, out_ast, query_span, start_watch.elapsedMilliseconds(), internal, log_as_internal, /* charge_quota_profile_events = */ !quota_ignored);
+        logExceptionBeforeStart(query_for_logging, normalized_query_hash, context, out_ast, query_span, start_watch.elapsedMilliseconds(), internal, log_as_internal, /* charge_quota = */ !quota_ignored);
 
         throw;
     }

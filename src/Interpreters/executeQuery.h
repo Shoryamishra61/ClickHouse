@@ -174,7 +174,7 @@ void logExceptionBeforeStart(
     UInt64 elapsed_milliseconds,
     bool internal,
     bool log_as_internal,
-    bool charge_quota_profile_events = true);
+    bool charge_quota = true);
 
 /// Returns the global AST fuzzer instance with a lock held.
 std::pair<std::shared_ptr<QueryFuzzer>, std::unique_lock<std::mutex>> getGlobalASTFuzzer();
