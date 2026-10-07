@@ -2248,13 +2248,15 @@ CancellationCode StorageMergeTree::killMutation(const String & mutation_id)
 {
     auto component_guard = Coordination::setCurrentComponent("StorageMergeTree::killMutation");
 
-    assertNotReadonly();
-
-    /// Capture the leadership epoch that admits this command. Everything below — the transaction
+    /// Capture the leadership epoch that admits this command BEFORE the admission gate (the same
+    /// pattern as `write` and `prepareMutationEntry`): if it were sampled after the gate, a command
+    /// admitted under one lease that survives a lose-and-reacquire window would inherit the new
+    /// epoch without ever passing the new epoch's gate. Everything below — the transaction
     /// rollback, the cancellation of running part mutations and finally the removal of
     /// `mutation_*.txt` from shared storage — belongs to this epoch; if leadership is lost (and
     /// possibly reacquired) in between, the removal must not happen, see the fence before it.
     const UInt64 admission_epoch = currentLeadershipEpoch();
+    assertNotReadonly();
 
     LOG_TRACE(log, "Killing mutation {}", mutation_id);
     UInt64 mutation_version = MergeTreeMutationEntry::tryParseFileName(mutation_id);
