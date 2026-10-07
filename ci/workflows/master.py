@@ -43,7 +43,7 @@ workflow = Workflow.Config(
         *JobConfigs.sccache_warmup_build_jobs,
         *[
             job.set_run_after(
-                REGULAR_BUILD_NAMES + [JobConfigs.tidy_build_arm_jobs[0].name]
+                REGULAR_BUILD_NAMES + [j.name for j in JobConfigs.tidy_build_arm_jobs]
             )
             for job in SPECIAL_BUILD_JOBS_EXCEPT_WINDOWS
         ],
