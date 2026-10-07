@@ -5,8 +5,10 @@
 #include <Server/IcebergRESTCatalog/IcebergRESTCatalogWarehouse.h>
 #include <Server/IcebergRESTCatalog/IcebergRESTCatalogRouter.h>
 #include <Server/IcebergRESTCatalog/KeeperIcebergRESTCatalogStore.h>
+#include <Common/Exception.h>
 #include <Common/logger_useful.h>
 
+#include <Poco/JSON/Array.h>
 #include <Poco/JSON/Object.h>
 #include <Poco/Net/HTTPResponse.h>
 #include <Poco/URI.h>
@@ -44,6 +46,8 @@ private:
     void handleTableExists(const IcebergRESTCatalogWarehouse & warehouse, const IcebergRESTRouteMatch & match, HTTPServerResponse & response) const;
     void handleDropTable(const IcebergRESTCatalogWarehouse & warehouse, const IcebergRESTRouteMatch & match, const Poco::URI & uri, HTTPServerResponse & response, const Context & context) const;
     void handleUpdateTable(const IcebergRESTCatalogWarehouse & warehouse, const IcebergRESTRouteMatch & match, HTTPServerRequest & request, HTTPServerResponse & response, const Context & context) const;
+    /// The commit that finishes a staged create (`assert-create` on a table that does not exist).
+    void commitCreateTable(const IcebergRESTCatalogWarehouse & warehouse, const IcebergNamespaceName & ns, const String & table, const Poco::JSON::Array & requirements, const Poco::JSON::Array & updates, HTTPServerResponse & response, const Context & context) const;
 
     static void checkNotReadonly(const Context & context, const String & action);
     static void checkDDLAllowed(const Context & context, const String & action);
@@ -53,7 +57,8 @@ private:
 
     Poco::JSON::Object::Ptr readTableMetadata(const IcebergRESTCatalogWarehouse & warehouse, const IcebergTablePointer & pointer) const;
 
-    static void sendLoadTableResult(const String & metadata_location, const Poco::JSON::Object::Ptr & metadata, HTTPServerResponse & response);
+    /// `metadata_location` is empty for a staged table.
+    static void sendLoadTableResult(const std::optional<String> & metadata_location, const Poco::JSON::Object::Ptr & metadata, HTTPServerResponse & response);
 
     /// Reads the whole request body. Returns nullopt after answering 413 if the body exceeds max_size.
     static std::optional<String> readRequestBody(HTTPServerRequest & request, HTTPServerResponse & response, size_t max_size);
@@ -64,6 +69,8 @@ private:
         HTTPServerResponse & response, Poco::Net::HTTPResponse::HTTPStatus status, const String & type, const String & message);
     static void sendNoSuchNamespace(HTTPServerResponse & response, const IcebergNamespaceName & ns);
     static void sendNoSuchTable(HTTPServerResponse & response, const IcebergNamespaceName & ns, const String & table);
+    /// Sends 400 if the exception means the request is invalid. Returns false for other exceptions.
+    static bool maybeSendBadRequestError(HTTPServerResponse & response, const Exception & e);
 
     LoggerPtr log;
     IServer & server;

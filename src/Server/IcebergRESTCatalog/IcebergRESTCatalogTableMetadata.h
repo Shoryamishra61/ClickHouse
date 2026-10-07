@@ -21,12 +21,22 @@ Poco::JSON::Object::Ptr buildInitialTableMetadata(
     Poco::JSON::Object::Ptr write_order,
     std::map<String, String> properties);
 
-/// Checks CommitTableRequest `requirements`. Returns reason of first failed requirement, if any.
+/// `<location>/metadata/v1-<uuid><compression suffix>.metadata.json`, the first file of a table.
+String initialMetadataLocation(const String & location, const String & uuid, const String & compression_suffix);
+
+/// True if `requirements` contain `assert-create`. Such a commit creates the table.
+bool hasAssertCreate(const Poco::JSON::Array & requirements);
+
+/// Checks CommitTableRequest `requirements` against an existing table. Returns reason of first failed requirement, if any.
 std::optional<String> checkTableRequirements(const Poco::JSON::Object & metadata, const Poco::JSON::Array & requirements);
 
 /// Applies CommitTableRequest `updates` array to copy of `metadata`. Returns copy.
 Poco::JSON::Object::Ptr applyTableUpdates(
     const Poco::JSON::Object & metadata, const Poco::JSON::Array & updates, const String & current_metadata_location);
+
+/// Builds the metadata of a staged table from the `updates` of its `assert-create` commit, which describe the whole table.
+/// Throws `BAD_ARGUMENTS` if the result lacks a uuid, location, current schema, default spec or default sort order.
+Poco::JSON::Object::Ptr buildTableMetadataFromUpdates(const Poco::JSON::Array & updates);
 
 /// `<location>/metadata/v<N+1>-<random uuid><compression suffix>.metadata.json`, where N is parsed from the current file name.
 String nextMetadataLocation(

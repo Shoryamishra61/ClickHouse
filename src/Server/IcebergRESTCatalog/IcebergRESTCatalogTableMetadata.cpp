@@ -4,8 +4,10 @@
 
 #include <Common/Exception.h>
 #include <Core/UUID.h>
+#include <IO/ReadHelpers.h>
 #include <IO/WriteHelpers.h>
 #include <Server/IcebergRESTCatalog/IcebergRESTCatalogJSON.h>
+#include <Server/IcebergRESTCatalog/IcebergRESTCatalogWarehouse.h>
 #include <Storages/ObjectStorage/DataLakes/Iceberg/Constant.h>
 #include <Storages/ObjectStorage/DataLakes/Iceberg/SchemaProcessor.h>
 #include <Storages/ObjectStorage/DataLakes/Iceberg/Utils.h>
@@ -172,21 +174,33 @@ std::vector<Poco::JSON::Object::Ptr> getSpecFields(
     return fields;
 }
 
-/// Assigns `field-id` 1000, 1001, ... to the partition fields in order and returns `last-partition-id`.
-/// A `field-id` sent by the client is ignored, like Java's `TableMetadata.newTableMetadata` does.
+/// Validates the partition fields against `schema_ids` and sets their `field-id`. Returns the new `last-partition-id`.
+/// With `reassign_field_ids` the ids are 1000, 1001, ... in order, like Java's `TableMetadata.newTableMetadata`.
 /// Before the table exists no manifest references these ids, so the server owns them. This also rules out duplicates.
-Int64 getLastPartitionId(const Poco::JSON::Object & spec, const std::set<Int64> & schema_ids)
+/// Otherwise a given `field-id` is kept, because a create commit sends back the ids from the staged metadata.
+Int64 preparePartitionFields(
+    const Poco::JSON::Object & spec, const std::set<Int64> & schema_ids, Int64 last_partition_id, bool reassign_field_ids)
 {
-    Int64 last_partition_id = PARTITION_FIELD_ID_START - 1;
+    std::set<Int64> field_ids;
     for (auto & field : getSpecFields(spec, "partition-spec", schema_ids, {f_name, f_transform}))
-        field->set(f_field_id, ++last_partition_id);
+    {
+        Int64 field_id;
+        if (reassign_field_ids || !field->has(f_field_id) || field->isNull(f_field_id))
+            field_id = ++last_partition_id;
+        else
+            field_id = getInteger(*field, f_field_id, "'partition-spec' field");
+        if (!field_ids.insert(field_id).second)
+            throw Exception(ErrorCodes::BAD_ARGUMENTS, "Duplicate field-id {} in 'partition-spec'", field_id);
+        field->set(f_field_id, field_id);
+        last_partition_id = std::max(last_partition_id, field_id);
+    }
     return last_partition_id;
 }
 
-/// Returns the `order-id`. The spec reserves 0 for the unsorted order, so a sorted order gets 1 like in Java and pyiceberg.
-Int64 getSortOrderId(const Poco::JSON::Object & spec, const std::set<Int64> & schema_ids)
+/// Returns true if the order has fields.
+bool validateSortFields(const Poco::JSON::Object & order, const std::set<Int64> & schema_ids)
 {
-    const auto fields = getSpecFields(spec, "write-order", schema_ids, {f_transform, f_direction, f_null_order});
+    const auto fields = getSpecFields(order, "write-order", schema_ids, {f_transform, f_direction, f_null_order});
     for (const auto & field : fields)
     {
         const auto direction = field->getValue<String>(f_direction);
@@ -196,7 +210,7 @@ Int64 getSortOrderId(const Poco::JSON::Object & spec, const std::set<Int64> & sc
         if (null_order != "nulls-first" && null_order != "nulls-last")
             throw Exception(ErrorCodes::BAD_ARGUMENTS, "'write-order' null-order must be 'nulls-first' or 'nulls-last', got '{}'", null_order);
     }
-    return fields.empty() ? 0 : 1;
+    return !fields.empty();
 }
 
 std::set<Int64> getFieldIds(const Poco::JSON::Object::Ptr & schema)
@@ -204,17 +218,6 @@ std::set<Int64> getFieldIds(const Poco::JSON::Object::Ptr & schema)
     std::set<Int64> ids;
     collectAndValidateNestedFields(Poco::Dynamic::Var(schema), ids);
     return ids;
-}
-
-/// Checks the schema is a struct and marks it as schema 0.
-void prepareSchema(Poco::JSON::Object::Ptr schema)
-{
-    if (!schema)
-        throw Exception(ErrorCodes::BAD_ARGUMENTS, "'schema' must be an object");
-    if (schema->optValue<String>(f_type, f_struct) != f_struct)
-        throw Exception(ErrorCodes::BAD_ARGUMENTS, "'schema' must be a struct type");
-    schema->set(f_type, f_struct);
-    schema->set(f_schema_id, 0);
 }
 
 /// Replaces a missing spec with an empty one.
@@ -226,6 +229,184 @@ Poco::JSON::Object::Ptr prepareSpec(Poco::JSON::Object::Ptr spec)
         spec->set(f_fields, Poco::JSON::Array::Ptr(new Poco::JSON::Array));
     }
     return spec;
+}
+
+/// The array element with `id_key == id`, or nullptr.
+Poco::JSON::Object::Ptr findById(const Poco::JSON::Array & array, const String & id_key, Int64 id)
+{
+    for (unsigned i = 0; i < array.size(); ++i)
+    {
+        const auto element = array.getObject(i);
+        if (element && element->has(id_key) && element->getValue<Int64>(id_key) == id)
+            return element;
+    }
+    return nullptr;
+}
+
+/// Specs and sort orders bind to the current schema, like `PartitionSpec.bind` in Java.
+std::set<Int64> getCurrentSchemaFieldIds(const Poco::JSON::Object & metadata, const String & what)
+{
+    const auto current_schema_id = getInteger(metadata, f_current_schema_id, "Table metadata");
+    const auto schema = findById(*getArray(metadata, f_schemas, "Table metadata"), f_schema_id, current_schema_id);
+    if (!schema)
+        throw Exception(ErrorCodes::BAD_ARGUMENTS, "{} needs a current schema, set it first", what);
+    return getFieldIds(schema);
+}
+
+/// The functions below apply one metadata update each. `buildInitialTableMetadata` and the create commit share them.
+
+void assignUUID(Poco::JSON::Object & metadata, const String & uuid)
+{
+    UUID parsed;
+    if (!tryParse(parsed, uuid))
+        throw Exception(ErrorCodes::BAD_ARGUMENTS, "'{}' is not a valid uuid", uuid);
+    metadata.set(f_table_uuid, uuid);
+}
+
+/// The empty base is already version 2, so this only checks the value.
+/// TODO: support format version 3. The file needs `next-row-id`, and snapshots need `first-row-id` and `added-rows`.
+void upgradeFormatVersion(Int64 format_version)
+{
+    if (format_version != 2)
+        throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Only format-version 2 is supported, got {}", format_version);
+}
+
+/// Checks the schema is a struct, assigns the next `schema-id` and returns it. Updates `last-column-id`.
+/// The `last-column-id` of an `add-schema` update is deprecated in the spec and ignored: the field ids say the same.
+/// TODO: reuse an identical existing schema instead of adding a copy, like Java's `TableMetadata.Builder.addSchema`.
+Int64 addSchema(Poco::JSON::Object & metadata, Poco::JSON::Object::Ptr schema)
+{
+    if (!schema)
+        throw Exception(ErrorCodes::BAD_ARGUMENTS, "'schema' must be an object");
+    if (schema->optValue<String>(f_type, f_struct) != f_struct)
+        throw Exception(ErrorCodes::BAD_ARGUMENTS, "'schema' must be a struct type");
+    schema->set(f_type, f_struct);
+    const auto field_ids = getFieldIds(schema);
+
+    auto schemas = getArray(metadata, f_schemas, "Table metadata");
+    const Int64 schema_id = schemas->size();
+    schema->set(f_schema_id, schema_id);
+    schemas->add(schema);
+
+    /// Never decreases.
+    const Int64 highest_field_id = field_ids.empty() ? 0 : *field_ids.rbegin();
+    metadata.set(f_last_column_id, std::max(getInteger(metadata, f_last_column_id, "Table metadata"), highest_field_id));
+    return schema_id;
+}
+
+/// Assigns the next `spec-id` and returns it. Updates `last-partition-id`.
+Int64 addPartitionSpec(Poco::JSON::Object & metadata, Poco::JSON::Object::Ptr spec, bool reassign_field_ids)
+{
+    spec = prepareSpec(spec);
+    const auto last_partition_id = preparePartitionFields(
+        *spec,
+        getCurrentSchemaFieldIds(metadata, "'partition-spec'"),
+        getInteger(metadata, f_last_partition_id, "Table metadata"),
+        reassign_field_ids);
+
+    auto specs = getArray(metadata, f_partition_specs, "Table metadata");
+    const Int64 spec_id = specs->size();
+    spec->set(f_spec_id, spec_id);
+    specs->add(spec);
+    metadata.set(f_last_partition_id, last_partition_id);
+    return spec_id;
+}
+
+/// Returns the `order-id`. The spec reserves 0 for the unsorted order, so a sorted order gets 1 like in Java and pyiceberg.
+Int64 addSortOrder(Poco::JSON::Object & metadata, Poco::JSON::Object::Ptr order)
+{
+    order = prepareSpec(order);
+    const bool sorted = validateSortFields(*order, getCurrentSchemaFieldIds(metadata, "'write-order'"));
+    auto orders = getArray(metadata, f_sort_orders, "Table metadata");
+
+    Int64 order_id = 0;
+    if (sorted)
+    {
+        for (unsigned i = 0; i < orders->size(); ++i)
+            order_id = std::max(order_id, getInteger(*orders->getObject(i), f_order_id, "Sort order"));
+        ++order_id;
+    }
+    else if (findById(*orders, f_order_id, 0))
+    {
+        /// There is one unsorted order per table.
+        return 0;
+    }
+
+    order->set(f_order_id, order_id);
+    orders->add(order);
+    return order_id;
+}
+
+/// Sets `target_key` to `id` after checking that `array_key` has an element with that id.
+void setDefaultId(Poco::JSON::Object & metadata, const String & array_key, const String & item_id_key, const String & target_key, Int64 id)
+{
+    if (!findById(*getArray(metadata, array_key, "Table metadata"), item_id_key, id))
+        throw Exception(ErrorCodes::BAD_ARGUMENTS, "Cannot set '{}': no element of '{}' has {} {}", target_key, array_key, item_id_key, id);
+    metadata.set(target_key, id);
+}
+
+void setCurrentSchema(Poco::JSON::Object & metadata, Int64 schema_id)
+{
+    setDefaultId(metadata, f_schemas, f_schema_id, f_current_schema_id, schema_id);
+}
+
+void setDefaultSpec(Poco::JSON::Object & metadata, Int64 spec_id)
+{
+    setDefaultId(metadata, f_partition_specs, f_spec_id, f_default_spec_id, spec_id);
+}
+
+void setDefaultSortOrder(Poco::JSON::Object & metadata, Int64 order_id)
+{
+    setDefaultId(metadata, f_sort_orders, f_order_id, f_default_sort_order_id, order_id);
+}
+
+/// The handler checks the location against the warehouse bucket.
+void setLocation(Poco::JSON::Object & metadata, const String & location)
+{
+    metadata.set(f_location, stripTrailingSlashes(location));
+}
+
+/// A table with no uuid, location, schema, spec or sort order. The base of a create commit.
+Poco::JSON::Object::Ptr newEmptyTableMetadata()
+{
+    /// Key order follows the Iceberg spec listing so the file reads like the ones Java writes.
+    /// Every key is set here, because `set` on an existing key keeps its position.
+    Poco::JSON::Object::Ptr metadata = new Poco::JSON::Object(Poco::JSON_PRESERVE_KEY_ORDER);
+    metadata->set(f_format_version, 2);
+    metadata->set(f_table_uuid, "");
+    metadata->set(f_location, "");
+    metadata->set(f_last_sequence_number, 0);
+    metadata->set(f_last_updated_ms, nowMs());
+    metadata->set(f_last_column_id, -1);
+    metadata->set(f_current_schema_id, -1);
+    metadata->set(f_schemas, Poco::JSON::Array::Ptr(new Poco::JSON::Array));
+    metadata->set(f_default_spec_id, -1);
+    metadata->set(f_partition_specs, Poco::JSON::Array::Ptr(new Poco::JSON::Array));
+    metadata->set(f_last_partition_id, PARTITION_FIELD_ID_START - 1);
+    metadata->set(f_default_sort_order_id, -1);
+    metadata->set(f_sort_orders, Poco::JSON::Array::Ptr(new Poco::JSON::Array));
+    metadata->set(f_properties, Poco::JSON::Object::Ptr(new Poco::JSON::Object));
+    metadata->set(f_current_snapshot_id, -1);
+    /// Java and pyiceberg write an empty `refs` for a table without snapshots.
+    metadata->set(f_refs, Poco::JSON::Object::Ptr(new Poco::JSON::Object));
+    metadata->set(f_snapshots, Poco::JSON::Array::Ptr(new Poco::JSON::Array));
+    metadata->set(f_snapshot_log, Poco::JSON::Array::Ptr(new Poco::JSON::Array));
+    metadata->set(f_metadata_log, Poco::JSON::Array::Ptr(new Poco::JSON::Array));
+    metadata->set(f_statistics, Poco::JSON::Array::Ptr(new Poco::JSON::Array));
+    metadata->set(f_partition_statistics, Poco::JSON::Array::Ptr(new Poco::JSON::Array));
+    return metadata;
+}
+
+/// A create commit must set everything a CreateTableRequest sets.
+/// TODO: fall back to the unpartitioned spec and the unsorted order when the client sends none, like Java does.
+void validateCreatedMetadata(const Poco::JSON::Object & metadata)
+{
+    if (getString(metadata, f_table_uuid, "Table metadata").empty() || getString(metadata, f_location, "Table metadata").empty()
+        || getInteger(metadata, f_current_schema_id, "Table metadata") < 0 || getInteger(metadata, f_default_spec_id, "Table metadata") < 0
+        || getInteger(metadata, f_default_sort_order_id, "Table metadata") < 0)
+        throw Exception(
+            ErrorCodes::BAD_ARGUMENTS,
+            "A create commit must set the table uuid, location, current schema, default spec and default sort order");
 }
 
 }
@@ -247,57 +428,24 @@ Poco::JSON::Object::Ptr buildInitialTableMetadata(
         properties.erase(it);
     }
 
-    prepareSchema(schema);
-    const auto field_ids = getFieldIds(schema);
-    const Int64 last_column_id = field_ids.empty() ? 0 : *field_ids.rbegin();
+    auto metadata = newEmptyTableMetadata();
+    assignUUID(*metadata, uuid);
+    setLocation(*metadata, location);
+    setCurrentSchema(*metadata, addSchema(*metadata, schema));
+    setDefaultSpec(*metadata, addPartitionSpec(*metadata, partition_spec, /*reassign_field_ids*/ true));
+    setDefaultSortOrder(*metadata, addSortOrder(*metadata, write_order));
 
-    partition_spec = prepareSpec(partition_spec);
-    partition_spec->set(f_spec_id, 0);
-    const auto last_partition_id = getLastPartitionId(*partition_spec, field_ids);
-
-    write_order = prepareSpec(write_order);
-    const auto sort_order_id = getSortOrderId(*write_order, field_ids);
-    write_order->set(f_order_id, sort_order_id);
-
-    Poco::JSON::Object::Ptr properties_json = new Poco::JSON::Object;
+    auto properties_json = getObject(*metadata, f_properties, "Table metadata");
     for (const auto & [key, value] : properties)
         properties_json->set(key, value);
-
-    const auto now_ms = nowMs();
-
-    /// Key order follows the Iceberg spec listing so the file reads like the ones Java writes.
-    Poco::JSON::Object::Ptr metadata = new Poco::JSON::Object(Poco::JSON_PRESERVE_KEY_ORDER);
-    metadata->set(f_format_version, 2);
-    metadata->set(f_table_uuid, uuid);
-    metadata->set(f_location, location);
-    metadata->set(f_last_sequence_number, 0);
-    metadata->set(f_last_updated_ms, now_ms);
-    metadata->set(f_last_column_id, last_column_id);
-    metadata->set(f_current_schema_id, 0);
-    Poco::JSON::Array::Ptr schemas = new Poco::JSON::Array;
-    schemas->add(schema);
-    metadata->set(f_schemas, schemas);
-    metadata->set(f_default_spec_id, 0);
-    Poco::JSON::Array::Ptr partition_specs = new Poco::JSON::Array;
-    partition_specs->add(partition_spec);
-    metadata->set(f_partition_specs, partition_specs);
-    metadata->set(f_last_partition_id, last_partition_id);
-    metadata->set(f_default_sort_order_id, sort_order_id);
-    Poco::JSON::Array::Ptr sort_orders = new Poco::JSON::Array;
-    sort_orders->add(write_order);
-    metadata->set(f_sort_orders, sort_orders);
-    metadata->set(f_properties, properties_json);
-    metadata->set(f_current_snapshot_id, -1);
-    /// Java and pyiceberg write an empty `refs` for a table without snapshots.
-    metadata->set(f_refs, Poco::JSON::Object::Ptr(new Poco::JSON::Object));
-    metadata->set(f_snapshots, Poco::JSON::Array::Ptr(new Poco::JSON::Array));
-    metadata->set(f_snapshot_log, Poco::JSON::Array::Ptr(new Poco::JSON::Array));
-    metadata->set(f_metadata_log, Poco::JSON::Array::Ptr(new Poco::JSON::Array));
-    metadata->set(f_statistics, Poco::JSON::Array::Ptr(new Poco::JSON::Array));
-    metadata->set(f_partition_statistics, Poco::JSON::Array::Ptr(new Poco::JSON::Array));
     return metadata;
 }
 
+String initialMetadataLocation(const String & location, const String & uuid, const String & compression_suffix)
+{
+    /// Same naming as the ClickHouse Iceberg writer: `<location>/metadata/v<version>-<uuid>.metadata.json`, starting at 1.
+    return fmt::format("{}/metadata/v1-{}{}.metadata.json", location, uuid, compression_suffix);
+}
 
 namespace
 {
@@ -403,13 +551,32 @@ void removeProperties(Poco::JSON::Object & metadata, const Poco::JSON::Object & 
         properties->remove(removals->get(i).convert<String>());
 }
 
-/// Spec actions this server knows about but does not apply yet.
+/// Spec actions this server knows about but does not apply to an existing table.
+/// The first nine are applied only by a create commit, where the base is empty. On an existing table they would need
+/// the schema evolution rules (no field id reuse, compatible type changes), which are not implemented.
 const std::set<String> UNSUPPORTED_UPDATE_ACTIONS = {
     "assign-uuid", "upgrade-format-version", "add-schema", "set-current-schema", "add-spec", "set-default-spec",
-    "add-sort-order", "set-default-sort-order", "remove-snapshots", "set-location", "set-statistics", "remove-statistics",
+    "add-sort-order", "set-default-sort-order", "set-location", "remove-snapshots", "set-statistics", "remove-statistics",
     "set-partition-statistics", "remove-partition-statistics", "remove-partition-specs", "remove-schemas",
     "add-encryption-key", "remove-encryption-key",
 };
+
+/// Ids of the elements a create commit added so far. `-1` in a `set-*` update means "the last one added".
+struct LastAddedIds
+{
+    std::optional<Int64> schema_id;
+    std::optional<Int64> spec_id;
+    std::optional<Int64> sort_order_id;
+};
+
+Int64 resolveLastAdded(Int64 id, const std::optional<Int64> & last_added, const String & action)
+{
+    if (id != -1)
+        return id;
+    if (!last_added)
+        throw Exception(ErrorCodes::BAD_ARGUMENTS, "'{}' refers to the last added element, but nothing was added", action);
+    return *last_added;
+}
 
 /// Records the previous metadata file in `metadata-log`, capped by `write.metadata.previous-versions-max`.
 void appendMetadataLog(Poco::JSON::Object & metadata, const String & previous_metadata_location)
@@ -427,6 +594,17 @@ void appendMetadataLog(Poco::JSON::Object & metadata, const String & previous_me
         log->remove(0);
 }
 
+}
+
+bool hasAssertCreate(const Poco::JSON::Array & requirements)
+{
+    for (unsigned i = 0; i < requirements.size(); ++i)
+    {
+        const auto requirement = requirements.getObject(i);
+        if (requirement && requirement->optValue<String>(f_type, "") == "assert-create")
+            return true;
+    }
+    return false;
 }
 
 std::optional<String> checkTableRequirements(const Poco::JSON::Object & metadata, const Poco::JSON::Array & requirements)
@@ -449,7 +627,7 @@ std::optional<String> checkTableRequirements(const Poco::JSON::Object & metadata
 
         if (type == "assert-create")
         {
-            /// Stage-create is not supported, so the table always exists at this point.
+            /// The handler runs this only for an existing table. A create commit takes the other path.
             return "Table already exists";
         }
         else if (type == "assert-table-uuid")
@@ -490,11 +668,13 @@ std::optional<String> checkTableRequirements(const Poco::JSON::Object & metadata
     return std::nullopt;
 }
 
-Poco::JSON::Object::Ptr applyTableUpdates(
-    const Poco::JSON::Object & metadata, const Poco::JSON::Array & updates, const String & current_metadata_location)
+namespace
 {
-    /// Round-trip through text is the simplest deep copy of a Poco JSON tree.
-    auto result = parseJSONObject(toJSONString(metadata), "Table metadata");
+
+/// `creating` enables the updates that describe a new table. They are applied to the empty base only.
+void applyUpdates(Poco::JSON::Object & result, const Poco::JSON::Array & updates, bool creating)
+{
+    LastAddedIds last_added;
 
     for (unsigned i = 0; i < updates.size(); ++i)
     {
@@ -504,23 +684,59 @@ Poco::JSON::Object::Ptr applyTableUpdates(
         const auto action = getString(*update, "action", "Every update");
 
         if (action == "add-snapshot")
-            addSnapshot(*result, getObject(*update, "snapshot", action));
+            addSnapshot(result, getObject(*update, "snapshot", action));
         else if (action == "set-snapshot-ref")
-            setSnapshotRef(*result, *update);
+            setSnapshotRef(result, *update);
         else if (action == "remove-snapshot-ref")
-            removeSnapshotRef(*result, *update);
+            removeSnapshotRef(result, *update);
         else if (action == "set-properties")
-            setProperties(*result, *update);
+            setProperties(result, *update);
         else if (action == "remove-properties")
-            removeProperties(*result, *update);
+            removeProperties(result, *update);
+        else if (creating && action == "assign-uuid")
+            assignUUID(result, getString(*update, "uuid", action));
+        else if (creating && action == "upgrade-format-version")
+            upgradeFormatVersion(getInteger(*update, f_format_version, action));
+        else if (creating && action == "add-schema")
+            last_added.schema_id = addSchema(result, getObject(*update, "schema", action));
+        else if (creating && action == "set-current-schema")
+            setCurrentSchema(result, resolveLastAdded(getInteger(*update, f_schema_id, action), last_added.schema_id, action));
+        else if (creating && action == "add-spec")
+            last_added.spec_id = addPartitionSpec(result, getObject(*update, "spec", action), /*reassign_field_ids*/ false);
+        else if (creating && action == "set-default-spec")
+            setDefaultSpec(result, resolveLastAdded(getInteger(*update, f_spec_id, action), last_added.spec_id, action));
+        else if (creating && action == "add-sort-order")
+            last_added.sort_order_id = addSortOrder(result, getObject(*update, "sort-order", action));
+        else if (creating && action == "set-default-sort-order")
+            setDefaultSortOrder(result, resolveLastAdded(getInteger(*update, "sort-order-id", action), last_added.sort_order_id, action));
+        else if (creating && action == "set-location")
+            setLocation(result, getString(*update, f_location, action));
         else if (UNSUPPORTED_UPDATE_ACTIONS.contains(action))
             throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Update '{}' is not supported", action);
         else
             throw Exception(ErrorCodes::BAD_ARGUMENTS, "Unknown update action '{}'", action);
     }
 
+    result.set(f_last_updated_ms, nowMs());
+}
+
+}
+
+Poco::JSON::Object::Ptr applyTableUpdates(
+    const Poco::JSON::Object & metadata, const Poco::JSON::Array & updates, const String & current_metadata_location)
+{
+    /// Round-trip through text is the simplest deep copy of a Poco JSON tree.
+    auto result = parseJSONObject(toJSONString(metadata), "Table metadata");
+    applyUpdates(*result, updates, /*creating*/ false);
     appendMetadataLog(*result, current_metadata_location);
-    result->set(f_last_updated_ms, nowMs());
+    return result;
+}
+
+Poco::JSON::Object::Ptr buildTableMetadataFromUpdates(const Poco::JSON::Array & updates)
+{
+    auto result = newEmptyTableMetadata();
+    applyUpdates(*result, updates, /*creating*/ true);
+    validateCreatedMetadata(*result);
     return result;
 }
 
