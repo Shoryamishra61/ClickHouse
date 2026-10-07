@@ -88,6 +88,7 @@ namespace ErrorCodes
     extern const int POSTGRESQL_REPLICATION_INTERNAL_ERROR;
     extern const int QUERY_NOT_ALLOWED;
     extern const int FAULT_INJECTED;
+    extern const int INCOMPATIBLE_COLUMNS;
 }
 
 namespace
@@ -1740,13 +1741,24 @@ void PostgreSQLReplicationHandler::consumerFunc()
     }
 
     bool schedule_now = true;
+    auto current_consumer = getConsumer();
     try
     {
-        schedule_now = getConsumer()->consume();
+        schedule_now = current_consumer->consume();
     }
     catch (...)
     {
         tryLogCurrentException(log);
+    }
+
+    /// A broken coordinated consumer must not be retried: it would only keep failing on the same WAL. Go
+    /// dormant and let `coordination_task` tear it down and release the leadership.
+    if (coordination_enabled && current_consumer->isBroken())
+    {
+        LOG_ERROR(log, "The replication consumer is broken, releasing the replication leadership");
+        consumer_broken.store(true);
+        coordination_task->schedule();
+        return;
     }
 
     if (stop_synchronization)
@@ -2057,6 +2069,22 @@ void PostgreSQLReplicationHandler::coordinationFunc()
             }
             leader_node.reset();
             coordination_zookeeper.reset();
+        }
+
+        /// The consumer broke for good. Stop it, so its PostgreSQL replication connection is closed, and
+        /// throw: the handler below releases the leadership, so a peer (or this replica, on its next
+        /// iteration) starts over from the slot's last confirmed LSN.
+        if (consumer_broken.load())
+        {
+            is_active_worker.store(false);
+            consumer_task->deactivate(); /// blocks until the in-flight consume() iteration finishes
+            {
+                std::lock_guard lock(consumer_ptr_mutex);
+                consumer.reset();
+            }
+            consumer_broken.store(false);
+            throw Exception(ErrorCodes::INCOMPATIBLE_COLUMNS,
+                "The replication consumer stopped because a table cannot be replicated any more");
         }
 
         if (leader_node)

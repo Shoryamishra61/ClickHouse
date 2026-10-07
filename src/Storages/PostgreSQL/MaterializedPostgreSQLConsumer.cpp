@@ -37,6 +37,7 @@ namespace ErrorCodes
     extern const int POSTGRESQL_REPLICATION_INTERNAL_ERROR;
     extern const int BAD_ARGUMENTS;
     extern const int ILLEGAL_COLUMN;
+    extern const int INCOMPATIBLE_COLUMNS;
 }
 
 namespace
@@ -1296,6 +1297,25 @@ bool MaterializedPostgreSQLConsumer::isSyncAllowed(Int32 relation_id, const Stri
 void MaterializedPostgreSQLConsumer::markTableAsSkipped(
     Int32 relation_id, const String & relation_name, const String & skip_reason)
 {
+    /// In coordinated mode a table must never be skipped while the consumer keeps running: every later
+    /// commit would still advance the shared slot's `confirmed_flush_lsn`, so the WAL of the skipped table
+    /// would be acknowledged and discarded, and `DETACH`/`ATTACH`, the usual repair path, is rejected in
+    /// coordinated mode. This is the same partial-table-set problem that a failed snapshot load or a
+    /// structure mismatch at startup abort on. Break the consumer instead, without touching any state:
+    /// `consume` rethrows from now on, and the replication handler tears the consumer down and releases
+    /// the leadership, so nothing past the last confirmed LSN is acknowledged.
+    if (coordinated)
+    {
+        broken = true;
+        throw Exception(
+            ErrorCodes::INCOMPATIBLE_COLUMNS,
+            "Table {} cannot be replicated any more {}. A coordinated `MaterializedPostgreSQL` setup does not skip "
+            "tables, so the replication is stopped without advancing the replication slot. "
+            "Recreate the coordinated database after reconciling the PostgreSQL schema to resume replication",
+            relation_name,
+            skip_reason);
+    }
+
     skip_list.insert({relation_id, ""}); /// Empty lsn string means - continue waiting for valid lsn.
     storages.erase(relation_name);
     /// A table can be skipped while it is still waiting for its `start_lsn` (it was added to replication
@@ -1309,12 +1329,10 @@ void MaterializedPostgreSQLConsumer::markTableAsSkipped(
     tables_to_sync.erase(relation_name);
     LOG_WARNING(
         log,
-        "Table {} is skipped from replication stream {}. {} (relation id: {})",
+        "Table {} is skipped from replication stream {}. Please detach this table and reattach to resume replication "
+        "(relation id: {})",
         relation_name,
         skip_reason,
-        coordinated
-            ? "Recreate the coordinated database after reconciling the PostgreSQL schema to resume replication"
-            : "Please detach this table and reattach to resume replication",
         relation_id);
 }
 
@@ -1380,6 +1398,9 @@ void MaterializedPostgreSQLConsumer::setSetting(const SettingChange & setting)
 /// Read binary changes from replication slot via COPY command (starting from current lsn in a slot).
 bool MaterializedPostgreSQLConsumer::consume()
 {
+    if (broken)
+        throw Exception(ErrorCodes::INCOMPATIBLE_COLUMNS, "The coordinated replication consumer stopped because a table cannot be replicated any more");
+
     if (!tables_to_sync.empty())
     {
         syncTables();
@@ -1434,7 +1455,7 @@ bool MaterializedPostgreSQLConsumer::consume()
             }
             catch (const Exception & e)
             {
-                if (e.code() == ErrorCodes::POSTGRESQL_REPLICATION_INTERNAL_ERROR)
+                if (e.code() == ErrorCodes::POSTGRESQL_REPLICATION_INTERNAL_ERROR && !broken)
                     continue;
 
                 throw;
@@ -1443,6 +1464,9 @@ bool MaterializedPostgreSQLConsumer::consume()
     }
     catch (const Exception &)
     {
+        if (broken)
+            throw;
+
         tryLogCurrentException(__PRETTY_FUNCTION__);
         return false;
     }

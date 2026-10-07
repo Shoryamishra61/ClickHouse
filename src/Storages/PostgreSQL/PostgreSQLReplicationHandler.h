@@ -512,6 +512,10 @@ private:
     /// Mirror of "this handler currently holds the leader node", read by `consumerFunc` (which runs on a
     /// different task) to decide whether it may consume. Only written by `coordination_task`.
     std::atomic<bool> is_active_worker = false;
+    /// Set by `consumerFunc` when the consumer of a coordinated setup broke for good (a table would have
+    /// to be skipped, see `MaterializedPostgreSQLConsumer::markTableAsSkipped`). `coordinationFunc` then
+    /// tears the consumer down and releases the leadership.
+    std::atomic<bool> consumer_broken = false;
 };
 
 }

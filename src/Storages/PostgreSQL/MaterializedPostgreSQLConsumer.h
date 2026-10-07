@@ -105,6 +105,10 @@ public:
 
     bool consume();
 
+    /// In coordinated mode a table that would have to be skipped from replication breaks the consumer
+    /// for good: see `markTableAsSkipped`. Once broken, `consume` throws and never advances the slot.
+    bool isBroken() const { return broken; }
+
     /// Called from reloadFromSnapshot by replication handler. This method is needed to move a table back into synchronization
     /// process if it was skipped due to schema changes.
     void updateNested(const String & table_name, StorageInfo nested_storage_info, Int32 table_id, const String & table_start_lsn);
@@ -186,6 +190,9 @@ private:
 
     bool schema_as_a_part_of_table_name;
     const bool coordinated;
+
+    /// Set by `markTableAsSkipped` in coordinated mode.
+    bool broken = false;
 
     String table_to_insert;
 
