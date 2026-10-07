@@ -26,10 +26,10 @@ public:
     /// regardless of `input_format_skip_unknown_fields`.
     bool alwaysSkipsUnknownFields() const override { return true; }
 
-    /// The parser `castColumn`s a decoded numeric column to the requested destination type, and a
-    /// cast from an integer to the `UInt32`-backed `IPv4` is valid, so a numeric source value is
-    /// accepted into an `IPv4` column.
-    NumericValueIntoIPv4Column readsNumericValueIntoIPv4Column() const override { return NumericValueIntoIPv4Column::AnyNumeric; }
+    /// The parser `castColumn`s a decoded numeric column to the requested destination type, and
+    /// `CAST` into the `UInt32`-backed `IPv4` is implemented only from an unsigned integer, so only
+    /// an unsigned integer source column is accepted into an `IPv4` column.
+    NumericValueIntoIPv4Column readsNumericValueIntoIPv4Column() const override { return NumericValueIntoIPv4Column::UnsignedIntegerOnly; }
 
     bool castsStringSourceColumns() const override { return true; }
 

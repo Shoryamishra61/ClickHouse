@@ -140,10 +140,11 @@ public:
     /// regardless of `input_format_skip_unknown_fields`.
     bool alwaysSkipsUnknownFields() const override { return true; }
 
-    /// The parser reads a numeric source column straight into the `UInt32`-backed `IPv4`
-    /// destination (an explicit `Int32` -> `IPv4` read path when the requested type is `IPv4`),
-    /// so a numeric source value is accepted into an `IPv4` column.
-    NumericValueIntoIPv4Column readsNumericValueIntoIPv4Column() const override { return NumericValueIntoIPv4Column::AnyNumeric; }
+    /// The parser reads an ORC `int` source column (inferred as `Int32`) straight into the
+    /// `UInt32`-backed `IPv4` destination through an explicit `Int32` -> `IPv4` read path. Any other
+    /// numeric column is cast to `IPv4`, and `CAST` from a signed integer or a floating-point type
+    /// into `IPv4` is not implemented (ORC has no unsigned integers), so it fails.
+    NumericValueIntoIPv4Column readsNumericValueIntoIPv4Column() const override { return NumericValueIntoIPv4Column::Int32Only; }
 
     bool castsStringSourceColumns() const override { return true; }
 

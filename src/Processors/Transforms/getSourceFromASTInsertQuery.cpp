@@ -731,10 +731,11 @@ String getInsertDataSchemaMismatchDescription(
         /// type, so the supertype rule would otherwise wrongly treat it as compatible. The binary formats
         /// that store typed values are an exception for `IPv4`: `BSONEachRow` reads a BSON `Int32` (and
         /// only that: an inferred `Int64` or `Float64` stays a mismatch), `MsgPack` and `Avro` read an
-        /// integer straight into the `UInt32`-backed `IPv4` column, and the formats that cast a decoded
-        /// source column to the requested type — the columnar `Parquet` / `Arrow` / `ORC` always, `Native`
-        /// under `input_format_native_allow_types_conversion` — accept a numeric column there too
-        /// (`format_numeric_into_ipv4`), so such a numeric value
+        /// integer straight into the `UInt32`-backed `IPv4` column, the formats that cast a decoded
+        /// source column to the requested type — the columnar `Parquet` / `Arrow` always, `Native`
+        /// under `input_format_native_allow_types_conversion` — accept an unsigned integer column there
+        /// (a signed or floating-point one fails the `CAST`), and `ORC` accepts an `Int32` column through
+        /// its explicit `Int32` -> `IPv4` path (`format_numeric_into_ipv4`), so such a numeric value
         /// is valid there and flagging it would be a false positive (`UUID` and `IPv6` still require
         /// binary data of the exact size in those formats, so they stay a mismatch). `FixedString` also rejects a bare number, but only in the typed-token
         /// JSON formats (`SerializationFixedString::deserializeTextJSON` requires a quoted string,
@@ -755,7 +756,10 @@ String getInsertDataSchemaMismatchDescription(
             && (which_expected.isUUID() || which_expected.isIPv6()
                 || (which_expected.isIPv4()
                     && !(format_numeric_into_ipv4 == NumericValueIntoIPv4Column::AnyNumeric
-                         || (format_numeric_into_ipv4 == NumericValueIntoIPv4Column::Int32Only && which_inferred.isInt32())))
+                         || (format_numeric_into_ipv4 == NumericValueIntoIPv4Column::Int32Only && which_inferred.isInt32())
+                         || (format_numeric_into_ipv4 == NumericValueIntoIPv4Column::UnsignedIntegerOnly
+                             && (which_inferred.isUInt8() || which_inferred.isUInt16() || which_inferred.isUInt32()
+                                 || which_inferred.isUInt64()))))
                 || ((format_reads_typed_json_value_tokens || format_stores_typed_numeric_values) && which_expected.isFixedString())
                 || (format_reads_quoted_text_values
                     && (which_expected.isString() || which_expected.isFixedString() || which_expected.isDateOrDate32()

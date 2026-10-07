@@ -15,6 +15,10 @@ enum class NumericValueIntoIPv4Column
     None,
     /// The format accepts only a value whose inferred type is `Int32` for an `IPv4` destination column.
     Int32Only,
+    /// The format accepts only a value whose inferred type is an unsigned integer up to `UInt64` for an
+    /// `IPv4` destination column (the formats that `castColumn` a typed source column: `CAST` into `IPv4`
+    /// is implemented only from `UInt8` / `UInt16` / `UInt32` / `UInt64`).
+    UnsignedIntegerOnly,
     /// The format accepts a numeric value of any type for an `IPv4` destination column.
     AnyNumeric,
 };
@@ -176,14 +180,19 @@ public:
     /// the `UInt32`-backed `IPv4` column: `MsgPack` via its `TypeIndex::IPv4` integer arm and `Avro` via
     /// the `TypeIndex::IPv4` arm of `insertNumber` (`AnyNumeric`), while `BSONEachRow` accepts only a
     /// BSON `Int32` there (`readAndInsertIPv4` rejects `Int64` and `Double`), which schema inference
-    /// reports as `Int32` (`Int32Only`). The formats that cast a decoded
-    /// source column to the requested destination type — the columnar `Parquet` / `Arrow` / `ORC`
-    /// always, `Native` when `input_format_native_allow_types_conversion` is enabled — accept a
-    /// numeric column there too, since it casts cleanly into the `UInt32`-backed `IPv4`. `Values` accepts
-    /// it as well: a value the strict quoted-text path rejects is retried as an expression, and the
-    /// literal is then converted to the destination type like `CAST` does. A caller
+    /// reports as `Int32` (`Int32Only`). The formats that cast a decoded source column to the requested
+    /// destination type — the columnar `Parquet` / `Arrow` always, `Native` when
+    /// `input_format_native_allow_types_conversion` is enabled — accept an unsigned integer column there
+    /// (`UnsignedIntegerOnly`): `CAST` into `IPv4` is implemented only from `UInt8` / `UInt16` /
+    /// `UInt32` / `UInt64`, and a signed or floating-point source column fails the cast. Their inferred
+    /// type is the actual source column type, not a widened one, so it is checked exactly. `ORC` has no
+    /// unsigned integers and reads an `int` column (inferred as `Int32`) through an explicit `Int32` ->
+    /// `IPv4` path, while any other integer width goes through the same failing cast (`Int32Only`).
+    /// `Values` accepts any number: a value the strict quoted-text path rejects is retried as an
+    /// expression, and the literal is then converted to the destination type, while its inferred type is
+    /// widened from the text and does not say anything about the literal's type (`AnyNumeric`). A caller
     /// comparing an inferred schema against an expected one uses this to avoid flagging an inferred
-    /// numeric type going into an `IPv4` column as a structure mismatch for these formats (`AnyNumeric`).
+    /// numeric type going into an `IPv4` column as a structure mismatch for these formats.
     /// (`UUID` and `IPv6` still require binary data of the exact size in every format, so they stay a
     /// mismatch regardless of this capability.)
     virtual NumericValueIntoIPv4Column readsNumericValueIntoIPv4Column() const { return NumericValueIntoIPv4Column::None; }
