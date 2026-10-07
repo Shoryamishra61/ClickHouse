@@ -1831,6 +1831,9 @@ async function main() {
             children.map(c => c.tagName));
         check(name, 'the relay announces itself only for an accepted target',
             posted.filter(p => p.data && p.data.type === 'clickhouse-docs-relay-ready').length === frames, posted);
+        /// A docs page in the relay frame can navigate the top-level window; the document replacing the
+        /// relay must not inherit a live `window.opener` back to the connection-bearing `/play` tab.
+        check(name, 'the relay severs its opener', sandbox.opener === null, sandbox.opener);
     }
 
     /// Guard (dirty-startup Format): clicking "Format" while the saved workspace is still loading

@@ -148,7 +148,7 @@ let add_http_cors_header = (location.protocol != 'file:');
 /// verbatim with every request). So the default connection preserves it instead of clearing `search`
 /// wholesale - otherwise a direct load, or a `clickhouse-credentials` handover that carries no `url`,
 /// would talk to the proxy's default backend instead of the selected one.
-const PAGE_URL_PARAMETERS = ['user'];
+const PAGE_URL_PARAMETERS = ['user', 'password'];
 
 function defaultServerAddress() {
     if (location.protocol == 'file:') return 'http://localhost:8123/';
@@ -164,6 +164,18 @@ function defaultServerAddress() {
 
 if (!document.getElementById('url').value) {
     document.getElementById('url').value = defaultServerAddress();
+}
+
+/// A `password` in the URL is never part of the endpoint: it is dropped from the default address
+/// above and scrubbed from the address bar, so it does not linger in the history, leak through
+/// `Referer`, or reach access logs. This page does not read it - hand credentials over with
+/// `postMessage` instead (see `applyConnectionFromHost`).
+{
+    const url = new URL(location.href);
+    if (url.searchParams.has('password')) {
+        url.searchParams.delete('password');
+        history.replaceState(history.state, '', url);
+    }
 }
 
 if (!document.getElementById('user').value) {

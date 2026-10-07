@@ -10963,6 +10963,11 @@ function applyConnectionFromHost(data) {
         if (docs_url && !(isHTTPEndpoint(docs_url) && isTrustedHostOrigin(docs_url.origin))) docs_url = null;
 
         const relay_opener = window.opener;
+        /// Sever the opener relationship before the iframe starts loading; the handle saved above is
+        /// all the relay handshake needs. Otherwise a docs page could navigate this top-level window
+        /// (`top.location = ...`, `target=_top`), and the document replacing the relay would inherit a
+        /// live `window.opener` pointing back at the connection-bearing `/play` tab.
+        window.opener = null;
         if (docs_url && relay_opener) {
             let credentials = null;
             let docs_frame_ready = false;
