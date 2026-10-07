@@ -58,7 +58,6 @@ namespace ErrorCodes
     extern const int CANNOT_WRITE_TO_OSTREAM;
     extern const int INCOMPATIBLE_SCHEMA;
     extern const int SUPPORT_IS_DISABLED;
-    extern const int NOT_IMPLEMENTED;
     extern const int SNAPPY_UNCOMPRESS_FAILED;
     extern const int UNSUPPORTED_MEDIA_TYPE;
     extern const int ZSTD_DECODER_FAILED;
@@ -524,8 +523,17 @@ public:
                 return;
             }
 
-            auto table = DatabaseCatalog::instance().getTable(getTimeSeriesTableID(), context);
-            PrometheusHTTPProtocolAPI protocol{table, context};
+            /// Resolved on first use rather than up front, so that the endpoints below decide the response
+            /// before a table is involved. A path this server doesn't serve has no table to speak of, and
+            /// resolving one eagerly made such a request fail on a missing or unconfigured table instead of
+            /// reporting that the endpoint doesn't exist.
+            std::optional<PrometheusHTTPProtocolAPI> protocol_holder;
+            auto protocol = [&]() -> PrometheusHTTPProtocolAPI &
+            {
+                if (!protocol_holder)
+                    protocol_holder.emplace(DatabaseCatalog::instance().getTable(getTimeSeriesTableID(), context), context);
+                return *protocol_holder;
+            };
 
             auto query_finish_callback = [&]()
             {
@@ -555,7 +563,7 @@ public:
                     .lookback_delta_param = lookback_delta,
                 };
 
-                protocol.executePromQLQuery(getOutputStream(response), params, query_finish_callback);
+                protocol().executePromQLQuery(getOutputStream(response), params, query_finish_callback);
             }
             else if (uri_path.ends_with("/query"))
             {
@@ -576,11 +584,14 @@ public:
                     .lookback_delta_param = lookback_delta,
                 };
 
-                protocol.executePromQLQuery(getOutputStream(response), params, query_finish_callback);
+                protocol().executePromQLQuery(getOutputStream(response), params, query_finish_callback);
             }
             else if (uri_path.ends_with("/parse_query"))
             {
-                throw Exception(ErrorCodes::NOT_IMPLEMENTED, "The parse_query endpoint is not implemented");
+                /// Like /format_query, this endpoint would only parse the PromQL expression, so it never needs
+                /// a table. It isn't implemented, and a route the server doesn't serve is "not found" in the
+                /// Prometheus HTTP API rather than a bad request: nothing about the request itself is wrong.
+                writeEndpointNotFound(request, response, "The parse_query endpoint is not implemented");
             }
             else if (uri_path.ends_with("/series"))
             {
@@ -589,7 +600,7 @@ public:
                 String end = params->get("end", "");
                 UInt64 limit = getLimitParam();
 
-                protocol.getSeries(getOutputStream(response), match, start, end, limit, query_finish_callback);
+                protocol().getSeries(getOutputStream(response), match, start, end, limit, query_finish_callback);
             }
             else if (uri_path.ends_with("/metadata"))
             {
@@ -598,7 +609,7 @@ public:
                 Int64 limit = getMetadataLimitParam("limit");
                 Int64 limit_per_metric = getMetadataLimitParam("limit_per_metric");
 
-                protocol.getMetadata(getOutputStream(response), metric, limit, limit_per_metric, query_finish_callback);
+                protocol().getMetadata(getOutputStream(response), metric, limit, limit_per_metric, query_finish_callback);
             }
             else if (uri_path.ends_with("/labels"))
             {
@@ -607,7 +618,7 @@ public:
                 String end = params->get("end", "");
                 UInt64 limit = getLimitParam();
 
-                protocol.getLabels(getOutputStream(response), match, start, end, limit, query_finish_callback);
+                protocol().getLabels(getOutputStream(response), match, start, end, limit, query_finish_callback);
             }
             else if (auto label_name = extractLabelValuesName(uri_path))
             {
@@ -616,13 +627,11 @@ public:
                 String end = params->get("end", "");
                 UInt64 limit = getLimitParam();
 
-                protocol.getLabelValues(getOutputStream(response), *label_name, match, start, end, limit, query_finish_callback);
+                protocol().getLabelValues(getOutputStream(response), *label_name, match, start, end, limit, query_finish_callback);
             }
             else
             {
-                LOG_ERROR(log(), "No matching endpoint found for URI: {}, method: {}", maskSensitiveQueryParametersInURI(uri), request.getMethod());
-                response.setStatusAndReason(Poco::Net::HTTPResponse::HTTP_NOT_FOUND);
-                writeString(R"({"status":"error","errorType":"not_found","error":"API endpoint not found"})", getOutputStream(response));
+                writeEndpointNotFound(request, response, "API endpoint not found");
             }
         }
         catch (const Exception & e)
@@ -657,6 +666,23 @@ public:
     }
 
 private:
+    /// Reports a path this server doesn't serve the way the Prometheus HTTP API does: 404 with the "not_found"
+    /// error type. Written here rather than thrown, because the catch block below classifies the failures of an
+    /// endpoint that does exist - and NOT_IMPLEMENTED in particular also comes from PromQL evaluation meeting a
+    /// function or operator it doesn't support, which is a statement about the query, not about the route.
+    void writeEndpointNotFound(const HTTPServerRequest & request, HTTPServerResponse & response, std::string_view error_message)
+    {
+        LOG_ERROR(log(), "No matching endpoint found for URI: {}, method: {}",
+            maskSensitiveQueryParametersInURI(request.getURI()), request.getMethod());
+
+        response.setStatusAndReason(Poco::Net::HTTPResponse::HTTP_NOT_FOUND);
+
+        auto & out = getOutputStream(response);
+        writeString(R"({"status":"error","errorType":"not_found","error":)", out);
+        writeJSONString(error_message, out, FormatSettings{});
+        writeChar('}', out);
+    }
+
     /// Handles the format_query endpoint: parses the PromQL expression given in the 'query' parameter
     /// and writes it back serialized from the parsed tree, i.e. with the whitespace normalized,
     /// the comments removed, and the redundant parentheses dropped.

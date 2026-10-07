@@ -206,6 +206,18 @@ def test_main_http_prefixed_label_values_api():
     assert data["data"] == [label_value]
 
 
+def test_main_http_prefixed_unserved_endpoint_is_not_found():
+    url = (
+        f"http://{node.ip_address}:{MAIN_HTTP_PORT}"
+        f"/prometheus/api/v1/status/runtimeinfo"
+    )
+    response = get_response_to_http_api(url)
+    assert response.status_code == 404, response.text
+    data = response.json()
+    assert data["status"] == "error"
+    assert data["errorType"] == "not_found"
+
+
 def test_main_http_prefixed_and_bare_share_table():
     timestamp = 1_700_001_600.0
     prefixed_metric = "main_http_coexist_prefixed"
