@@ -1895,8 +1895,10 @@ void InterpreterCreateQuery::resolveHierarchicalNames(ASTCreateQuery & create, b
             if (!target_id)
                 continue;
 
-            bool is_hierarchical = target_id.database_name.contains('.') || target_id.table_name.contains('.')
-                || (target_id.database_name.empty() && current_database_is_hierarchical);
+            /// A qualified name has other candidates even without dots: inside `USE a`, `TO b.t` may be `a`.`b.t`.
+            /// `resolveHierarchicalName` returns the name as written at once when that table exists.
+            bool is_hierarchical = !target_id.database_name.empty() || target_id.table_name.contains('.')
+                || current_database_is_hierarchical;
             if (!is_hierarchical)
                 continue;
 

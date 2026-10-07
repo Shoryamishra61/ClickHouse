@@ -62,7 +62,8 @@ void InterpreterUndropQuery::resolveHierarchicalName(ASTUndropQuery & query) con
     /// the error message; a database that does not exist here keeps the name as written: `ON CLUSTER`, it may exist on the
     /// other hosts only.
     std::optional<StorageID> resolved;
-    if (as_written.database_name.contains('.') || as_written.table_name.contains('.') || current_database.contains('.'))
+    /// A qualified name has other candidates even without dots: inside `USE a`, `b.t` may be `a`.`b.t`.
+    if (!as_written.database_name.empty() || as_written.table_name.contains('.') || current_database.contains('.'))
     {
         auto dropped_tables = catalog.getTablesMarkedDropped();
         for (const auto & candidate : DatabaseCatalog::getHierarchicalNameCandidates(as_written, current_database))
