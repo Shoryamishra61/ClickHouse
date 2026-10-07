@@ -331,9 +331,10 @@ The `max_joined_block_size_bytes` combined with this setting is helpful to avoid
     DECLARE(Bool, parallel_non_joined_rows_processing, true, R"(
 Allow multiple threads to process non-joined rows from the right table in parallel during RIGHT and FULL JOINs.
 This can speed up the non-joined phase of hash joins with large right tables.
-This setting only controls unmatched-row emission. Setting it to 0 runs that phase on one thread; it does not restore the serial right-table order of the old `hash` algorithm. Use `ORDER BY` when the query needs a stable order.
+It applies only when the join builds the hash table on several threads (see `parallel_hash_join_threshold`).
+When disabled, or when the join builds the hash table on one thread, a single thread processes the non-joined rows.
+In every case the non-joined rows come out in no fixed order. Use `ORDER BY` when the query needs a stable order.
 )", 0, \
-        {"26.10", true, true, "Applies to RIGHT/FULL hash joins, not specifically `parallel_hash`. The default is unchanged. Setting it to 0 does not restore serial unmatched-row order; use `ORDER BY`."}, \
         {"26.2", true, true, "New setting to enable parallel processing of non-joined rows in RIGHT/FULL parallel_hash joins."}) \
     DECLARE(MaxThreads, max_insert_threads, 0, R"(
 The maximum number of threads to execute the `INSERT` query.
@@ -4251,11 +4252,11 @@ Selecting `grace_hash` explicitly is intended primarily for diagnostic use. To e
 
  When using the `hash` algorithm, the right part of `JOIN` is uploaded into RAM.
 
- Parallelism is chosen automatically from the join kind, `parallel_hash_join_threshold`, and `max_threads`.
+ `INNER`, `LEFT`, `RIGHT` and `FULL` joins can build the hash table on up to `max_threads` threads, and `parallel_hash_join_threshold` decides when they do.
 
 - parallel_hash
 
- Obsolete alias of `hash`. Still accepted for compatibility. Listing it does not control how parallel the join is. Set `parallel_hash_join_threshold = 0` to prefer the parallel layout when `max_threads > 1`.
+ The same as `hash`, kept for compatibility. To build the hash table on several threads whenever the join kind allows it, set `parallel_hash_join_threshold` to `0`.
 
 - partial_merge
 
@@ -9691,11 +9692,15 @@ Throw an exception instead of logging a warning when Hive-style partitioning det
 )", 0, \
         {"26.8", false, true, "New setting to fail the query when Hive-style partitioning detection for an object storage table cannot list the storage, instead of running without the Hive partition columns."}) \
     DECLARE(UInt64, parallel_hash_join_threshold, 100'000, R"(
-When a hash join is used, this threshold decides whether the join may run in parallel.
-If an estimate of the right table size is available and it is below the threshold, the join uses a simpler single-threaded layout.
-At or above the threshold, and also when there is no row-count estimate, the join can use multiple threads (when `max_threads` > 1).
+For an `INNER`, `LEFT`, `RIGHT` or `FULL` hash join, this threshold decides how the hash table is built.
+If the estimated number of rows in the right table is below the threshold, the join builds the hash table as one part, on one thread.
+At or above the threshold, and also when there is no estimate, the join splits the hash table into parts that up to `max_threads` threads fill at the same time.
+With `max_threads = 1`, one thread fills all the parts.
+
+The estimate comes from the query plan, or from the statistics of earlier runs of the same join (see `collect_hash_table_stats_during_joins`).
+`ASOF` joins never get an estimate, and with `query_plan_optimize_join_order_limit = 0` no join gets one.
+Without an estimate the threshold has no effect, and the join always splits the hash table into parts.
 )", 0, \
-        {"26.10", 100'000, 100'000, "The threshold no longer chooses between the `hash` and `parallel_hash` algorithms. When a hash join is used, it decides whether the join may run in parallel. Below the threshold with a right-table estimate, single-threaded execution; at or above it, and also when there is no estimate, multiple threads when `max_threads` > 1. The default is unchanged."}, \
         {"25.5", 0, 100'000, "New setting"}, \
         {"25.4", 0, 0, "New setting"}, \
         {"25.3", 0, 0, "New setting"}) \

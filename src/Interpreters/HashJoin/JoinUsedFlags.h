@@ -4,7 +4,6 @@
 #include <utility>
 #include <vector>
 #include <Core/Joins.h>
-#include <Interpreters/HashJoin/ScatteredBlock.h>
 #include <Interpreters/joinDispatch.h>
 #include <Common/Exception.h>
 
@@ -31,13 +30,10 @@ public:
     std::vector<PendingPerRowFlags> pending_per_worker;
 
     /// Call before the build starts: resizing later would race with the appends.
-    /// `need_flags` is the fallback `getUsedSafe` reads, so publish it here, not from each worker.
-    void setPendingFlagWorkers(size_t num_workers, bool need_flags_ = false)
-    {
-        pending_per_worker.resize(num_workers);
-        if (need_flags_)
-            need_flags = true;
-    }
+    void setPendingFlagWorkers(size_t num_workers) { pending_per_worker.resize(num_workers); }
+
+    /// `need_flags` is the fallback `getUsedSafe` reads, so publish it before the build starts, not from each worker.
+    void setNeedFlags() { need_flags = true; }
 
     /// Dense flags indexed by block_no, built from `pending_per_worker` when the build finishes.
     /// The probe and non-joined phases read and write only this.
@@ -80,20 +76,12 @@ public:
     }
 
     template <JoinKind KIND, JoinStrictness STRICTNESS, JoinMapsKind maps_kind>
-    void reinit(size_t worker_id, UInt32 block_no, size_t rows, const ScatteredBlock::Selector & selector)
+    void reinit(size_t worker_id, UInt32 block_no, size_t rows)
     {
         if constexpr (MapGetter<KIND, STRICTNESS, maps_kind>::flagged)
         {
             chassert(worker_id < pending_per_worker.size());
-            auto & flags = pending_per_worker[worker_id].emplace_back(block_no, UsedFlagsForColumns(rows)).second;
-
-            /// Mark all rows outside of selector as used.
-            /// We should not emit them in RIGHT/FULL JOIN result,
-            /// since they belongs to another shard, which will handle flags for these rows
-            for (auto & flag : flags)
-                flag.store(true);
-            for (size_t index : selector)
-                flags[index].store(false);
+            pending_per_worker[worker_id].emplace_back(block_no, UsedFlagsForColumns(rows));
         }
     }
 
@@ -155,7 +143,9 @@ public:
             }
             else
             {
-                markPerOffsetUsed(f.getOffset());
+                auto & flag = per_offset_flags[f.getOffset()];
+                if (!flag.load(std::memory_order_relaxed))
+                    flag.store(true, std::memory_order_relaxed);
             }
         }
     }
@@ -175,7 +165,9 @@ public:
         }
         else
         {
-            markPerOffsetUsed(offset);
+            auto & flag = per_offset_flags[offset];
+            if (!flag.load(std::memory_order_relaxed))
+                flag.store(true, std::memory_order_relaxed);
         }
     }
 
@@ -227,7 +219,14 @@ public:
             }
             else
             {
-                return markPerOffsetUsedOnce(f.getOffset());
+                auto off = f.getOffset();
+
+                /// fast check to prevent heavy CAS with seq_cst order
+                if (per_offset_flags[off].load(std::memory_order_relaxed))
+                    return false;
+
+                bool expected = false;
+                return per_offset_flags[off].compare_exchange_strong(expected, true);
             }
         }
         else
@@ -255,46 +254,14 @@ public:
         }
         else
         {
-            return markPerOffsetUsedOnce(offset);
+            /// fast check to prevent heavy CAS with seq_cst order
+            if (per_offset_flags[offset].load(std::memory_order_relaxed))
+                return false;
+
+            bool expected = false;
+            return per_offset_flags[offset].compare_exchange_strong(expected, true);
         }
     }
-
-    /// Occupied keys, not cells: an empty cell has no flag to set and would never be counted off.
-    void setUnsetOffsetCount(size_t count) { unset_offset_flags.store(count, std::memory_order_relaxed); }
-
-    /// A counter rather than a scan: RIGHT/FULL asks once per non-joined stream, and the vector is
-    /// as large as the hash table.
-    bool allOffsetFlagsSet() const noexcept { return unset_offset_flags.load(std::memory_order_relaxed) == 0; }
-
-private:
-    void markPerOffsetUsed(size_t offset)
-    {
-        auto & flag = per_offset_flags[offset];
-        /// fast check to avoid a dirtying RMW on every re-match of the same key
-        if (flag.load(std::memory_order_relaxed))
-            return;
-        /// the exchange (not a plain store) keeps `unset_offset_flags` decremented exactly once
-        if (!flag.exchange(true, std::memory_order_relaxed))
-            unset_offset_flags.fetch_sub(1, std::memory_order_relaxed);
-    }
-
-    bool markPerOffsetUsedOnce(size_t offset)
-    {
-        auto & flag = per_offset_flags[offset];
-
-        /// fast check to prevent heavy CAS with seq_cst order
-        if (flag.load(std::memory_order_relaxed))
-            return false;
-
-        bool expected = false;
-        if (!flag.compare_exchange_strong(expected, true))
-            return false;
-
-        unset_offset_flags.fetch_sub(1, std::memory_order_relaxed);
-        return true;
-    }
-
-    std::atomic<size_t> unset_offset_flags{0};
 };
 
 }

@@ -3,6 +3,7 @@
 #include <Interpreters/HashJoin/KeyGetter.h>
 #include <Columns/IColumn.h>
 #include <Common/Arena.h>
+#include <Common/Exception.h>
 #include <Common/PODArray.h>
 
 #include <base/defines.h>
@@ -12,6 +13,12 @@
 
 namespace DB
 {
+
+namespace ErrorCodes
+{
+extern const int LOGICAL_ERROR;
+}
+
 namespace
 {
 
@@ -30,8 +37,7 @@ SlotScatter scatterImpl(
     if constexpr (requires { KeyGetter::has_pre_computed_hashes; })
         static_assert(!KeyGetter::has_pre_computed_hashes, "Bucket routing assumes the map computes the hash it places by");
 
-    /// The range maps learn their real range only after the build, so the default (unshifted) one is
-    /// right here. `dense_keys` below still gathers the full key list, ASOF column included.
+    /// For ASOF the key getter leaves out the ASOF column; `dense_keys` below still gathers it with the other keys.
     KeyGetter key_getter
         = is_asof ? createKeyGetter<KeyGetter, true>(key_columns, key_sizes) : createKeyGetter<KeyGetter, false>(key_columns, key_sizes);
 
@@ -47,14 +53,8 @@ SlotScatter scatterImpl(
         auto key_holder = key_getter.getKeyHolder(selector[i], scratch_pool);
         const auto & key = keyHolderGetKey(key_holder);
 
-        size_t hash_value = 0;
-        if constexpr (requires { key_getter.routingHashForRow(map, selector[i], scratch_pool); })
-            hash_value = key_getter.routingHashForRow(map, selector[i], scratch_pool);
-        else
-            hash_value = map.hash(key);
-
-        const size_t bucket = getBucketOfKey<Map>(key, hash_value);
-        const auto slot = static_cast<UInt32>(slotForBucket(bucket, num_slots));
+        const size_t bucket = getBucketOfKey<Map>(key, map.hash(key));
+        const auto slot = static_cast<UInt32>(BuildSlots::slotForBucket(bucket, num_slots));
         row_to_slot[i] = slot;
         ++counts[slot];
     }
@@ -124,10 +124,11 @@ SlotScatter scatterBlockBySlot(
 #define M(NAME) \
         case HashJoin::Type::NAME: \
             return scatterImpl<HashJoin::Type::NAME>(*maps.NAME, key_columns, key_sizes, selector, num_slots, is_asof);
-            APPLY_FOR_JOIN_VARIANTS(M)
+            APPLY_FOR_TWO_LEVEL_JOIN_VARIANTS(M)
 #undef M
+        default:
+            throw Exception(ErrorCodes::LOGICAL_ERROR, "Hash join map type {} is not split into slots", type);
     }
-    UNREACHABLE();
 }
 
 template SlotScatter scatterBlockBySlot(

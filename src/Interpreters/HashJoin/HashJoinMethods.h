@@ -10,9 +10,8 @@
 #include <Interpreters/castColumn.h>
 #include <base/types.h>
 
-#include <memory>
 #include <optional>
-#include <typeinfo>
+#include <span>
 
 namespace DB
 {
@@ -109,31 +108,6 @@ struct Inserter
     }
 };
 
-/// The one key getter shared by a block's slots, for the getters whose construction reads the whole
-/// block. Type-erased because the concrete type is only known inside the per-key-type dispatch.
-class BlockKeyGetter
-{
-public:
-    template <typename KeyGetter, typename Build>
-    KeyGetter & getOrBuild(Build && build)
-    {
-        if (!getter)
-        {
-            getter = std::make_shared<KeyGetter>(build());
-            built_type = &typeid(KeyGetter);
-        }
-        chassert(*built_type == typeid(KeyGetter));
-        return *static_cast<KeyGetter *>(getter.get());
-    }
-
-private:
-    std::shared_ptr<void> getter;
-    const std::type_info * built_type = nullptr;
-};
-
-template <typename KeyGetter>
-constexpr bool share_key_getter_across_buckets = requires { requires KeyGetter::reads_whole_block_at_construction; };
-
 /// MapsTemplate is one of MapsOne, MapsAll, MapsAsof and MapsSet
 template <JoinKind KIND, JoinStrictness STRICTNESS, typename MapsTemplate>
 class HashJoinMethods
@@ -141,20 +115,19 @@ class HashJoinMethods
     static constexpr bool needs_offset = JoinFeatures<KIND, STRICTNESS, MapsTemplate>::need_flags;
 
 public:
-    static void insertFromBlockImpl(
+    /// Inserts the keys of clause `map_idx` of a block into `maps`. Each slot inserts its rows of `per_slot` under its
+    /// own lock. `slot_dense_keys` holds the key columns that the scatter gathered for each slot, or is empty.
+    static BuildResult insertFromBlockImpl(
         HashJoin & join,
-        HashJoin::Type type,
         MapsTemplate & maps,
-        BlockKeyGetter & block_key_getter,
+        size_t map_idx,
+        std::span<const ScatteredBlock::Selector> per_slot,
+        const std::vector<Columns> & slot_dense_keys,
         const ColumnRawPtrs & key_columns,
         const Sizes & key_sizes,
         UInt32 stored_block_no,
-        const ScatteredBlock::Selector & selector,
-        const Columns * dense_keys,
         ConstNullMapPtr null_map,
-        const JoinCommon::JoinMask & join_mask,
-        Arena & pool,
-        BuildResult & result);
+        const JoinCommon::JoinMask & join_mask);
 
     using MapsTemplateVector = std::vector<const MapsTemplate *>;
 
@@ -173,20 +146,37 @@ public:
         bool is_join_get = false);
 
 private:
-    template <typename KeyGetter, typename HashMap, typename Selector>
-    static void insertFromBlockImplTypeCase(
+    /// The `is_inserted` that `insertFromBlockImpl` reports for a block without rows.
+    static bool isInsertedWithoutRows(const HashJoin & join);
+
+    template <typename KeyGetter, typename HashMap>
+    static BuildResult insertFromBlockImplTypeCase(
         HashJoin & join,
         HashMap & map,
-        BlockKeyGetter & block_key_getter,
+        size_t map_idx,
+        std::span<const ScatteredBlock::Selector> per_slot,
+        const std::vector<Columns> & slot_dense_keys,
         const ColumnRawPtrs & key_columns,
         const Sizes & key_sizes,
         UInt32 stored_block_no,
+        ConstNullMapPtr null_map,
+        const JoinCommon::JoinMask & join_mask);
+
+    /// Inserts the rows of one slot. The `is_inserted` it returns comes from these rows only, without `isInsertedWithoutRows`.
+    /// With `keys_are_dense`, `key_getter` reads the keys gathered for the slot,
+    /// so the key of the `i`-th row of `selector` is at row `i`.
+    template <typename KeyGetter, typename HashMap, typename Selector>
+    static BuildResult insertSlotRows(
+        HashJoin & join,
+        HashMap & map,
+        KeyGetter & key_getter,
+        bool keys_are_dense,
+        const ColumnRawPtrs & key_columns,
+        UInt32 stored_block_no,
         const Selector & selector,
-        const Columns * dense_keys,
         ConstNullMapPtr null_map,
         const JoinCommon::JoinMask & join_mask,
-        Arena & pool,
-        BuildResult & result);
+        Arena & pool);
 
     template <typename AddedColumns>
     static size_t switchJoinRightColumns(

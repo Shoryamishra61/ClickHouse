@@ -15,9 +15,9 @@ opts=(
     --query_plan_optimize_join_order_randomize=0
 )
 
-# Large enough that the size estimate selects the parallel layout.
-# `reserveSlot` sums `hint / num_slots` per slot; a hint not divisible by num_slots (power of two,
-# at most 256) would truncate the expected total.
+# Large enough that the size estimate selects the parallel layout. The preallocation is split
+# evenly between the build slots, and their number is a power of two up to 256. N is a multiple of
+# 256, so the second run reports exactly N preallocated elements.
 N=1024000
 T1="join_hash_cache_stats_t1"; T2="join_hash_cache_stats_t2"
 

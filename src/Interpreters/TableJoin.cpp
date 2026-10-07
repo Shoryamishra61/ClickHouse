@@ -1274,6 +1274,17 @@ bool TableJoin::isEnabledAlgorithm(const std::vector<JoinAlgorithm> & join_algor
     return std::ranges::find(join_algorithms, val) != join_algorithms.end();
 }
 
+bool TableJoin::supportsMultipleDisjuncts(const std::vector<JoinAlgorithm> & join_algorithms)
+{
+    return isEnabledAlgorithm(join_algorithms, JoinAlgorithm::HASH) || isEnabledAlgorithm(join_algorithms, JoinAlgorithm::AUTO);
+}
+
+void TableJoin::checkMultipleDisjunctsSupported() const
+{
+    if (!oneDisjunct() && !supportsMultipleDisjuncts(join_algorithms))
+        throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Only `hash` join supports multiple ORs for keys in JOIN ON section");
+}
+
 size_t TableJoin::getMaxMemoryUsage() const
 {
     return max_memory_usage;
@@ -1327,7 +1338,7 @@ bool allowHashJoinCacheKeys(
     bool is_special_storage,
     bool one_disjunct)
 {
-    if (!TableJoin::isHashFamilyEnabled(join_algorithms))
+    if (!TableJoin::isEnabledAlgorithm(join_algorithms, JoinAlgorithm::HASH))
         return false;
     if (!parallelLayoutKindSupported(kind))
         return false;
@@ -1336,10 +1347,9 @@ bool allowHashJoinCacheKeys(
     return true;
 }
 
-bool preferParallelHashLayout(JoinKind kind, std::optional<UInt64> rhs_size_estimation, UInt64 parallel_hash_join_threshold)
+bool TableJoin::preferParallelHashLayout(std::optional<UInt64> rhs_size_estimation) const
 {
-    /// No estimate means the right side cannot be ruled small, so prefer the parallel layout.
-    return parallelLayoutKindSupported(kind)
+    return parallelLayoutKindSupported(kind())
         && (!rhs_size_estimation || *rhs_size_estimation >= parallel_hash_join_threshold);
 }
 }

@@ -1,7 +1,11 @@
--- Tags: no-random-settings
--- Serial `key8`/`key16` use a 1-bucket `JoinFixedHashMap`. Parallel fill uses
--- `two_level_key8`/`two_level_key16` (256 virtual buckets). Range maps after conversion stay
--- 1-bucket. Layout is pinned by `parallel_hash_join_threshold`, not by `join_algorithm`.
+-- Hash joins on 8-bit and 16-bit keys use a fixed-size map. With the serial layout it is one map
+-- (`key8`, `key16`). With the parallel layout it is split into buckets (`two_level_key8`,
+-- `two_level_key16`). Both layouts must return the same rows for INNER, RIGHT and FULL joins, so each
+-- serial result is printed and the parallel result is compared with it. After a parallel build, the
+-- map of a `UInt32` or `Int32` key with values in a small range becomes a one-bucket range map. This
+-- conversion must not change the result. In both layouts, the fixed-size map serves as a runtime
+-- filter only when `join_runtime_filter_from_fixed_hash_table` is on.
+-- `parallel_hash_join_threshold = 1000000000` builds the serial layout and `0` the parallel one.
 
 DROP TABLE IF EXISTS t_u8_l;
 DROP TABLE IF EXISTS t_u8_r;
@@ -65,179 +69,112 @@ SET max_bytes_before_external_join = 0, max_bytes_ratio_before_external_join = 0
 SET enable_analyzer = 1;
 SET max_threads = 4;
 SET query_plan_join_swap_table = 'false';
+SET query_plan_optimize_join_order_limit = 10;
+SET query_plan_optimize_join_order_randomize = 0;
+SET query_plan_join_shard_by_pk_ranges = 0;
 SET enable_join_fixed_hash_table_conversion = 1;
 SET enable_join_runtime_filters = 1;
 SET join_runtime_filter_min_probe_rows = 0;
 SET join_use_nulls = 1;
 
-SELECT '-- key8 uint8 inner serial';
+SELECT '-- key8 uint8 inner';
 SELECT l.k, l.v, r.v FROM t_u8_l AS l INNER JOIN t_u8_r AS r ON l.k = r.k ORDER BY l.k, l.v, r.v
 SETTINGS parallel_hash_join_threshold = 1000000000, log_comment = '04891_key8_serial';
-SELECT '-- key8 uint8 inner parallel';
-SELECT l.k, l.v, r.v FROM t_u8_l AS l INNER JOIN t_u8_r AS r ON l.k = r.k ORDER BY l.k, l.v, r.v
-SETTINGS parallel_hash_join_threshold = 0, log_comment = '04891_key8_parallel';
+SELECT
+    (SELECT arraySort(groupArray((l.k, l.v, r.v))) FROM t_u8_l AS l INNER JOIN t_u8_r AS r ON l.k = r.k SETTINGS parallel_hash_join_threshold = 0)
+    = (SELECT arraySort(groupArray((l.k, l.v, r.v))) FROM t_u8_l AS l INNER JOIN t_u8_r AS r ON l.k = r.k SETTINGS parallel_hash_join_threshold = 1000000000)
+SETTINGS log_comment = '04891_key8_compare';
 
-SELECT '-- key8 uint8 right serial';
+SELECT '-- key8 uint8 right';
 SELECT r.k, l.v, r.v FROM t_u8_l AS l RIGHT JOIN t_u8_r AS r ON l.k = r.k ORDER BY r.k, l.v, r.v
 SETTINGS parallel_hash_join_threshold = 1000000000;
-SELECT '-- key8 uint8 right parallel';
-SELECT r.k, l.v, r.v FROM t_u8_l AS l RIGHT JOIN t_u8_r AS r ON l.k = r.k ORDER BY r.k, l.v, r.v
-SETTINGS parallel_hash_join_threshold = 0;
+SELECT
+    (SELECT arraySort(groupArray((r.k, l.v, r.v))) FROM t_u8_l AS l RIGHT JOIN t_u8_r AS r ON l.k = r.k SETTINGS parallel_hash_join_threshold = 0)
+    = (SELECT arraySort(groupArray((r.k, l.v, r.v))) FROM t_u8_l AS l RIGHT JOIN t_u8_r AS r ON l.k = r.k SETTINGS parallel_hash_join_threshold = 1000000000);
 
-SELECT '-- key8 uint8 full serial';
+SELECT '-- key8 uint8 full';
 SELECT l.k, r.k, l.v, r.v FROM t_u8_l AS l FULL JOIN t_u8_r AS r ON l.k = r.k ORDER BY l.k, r.k, l.v, r.v
 SETTINGS parallel_hash_join_threshold = 1000000000;
-SELECT '-- key8 uint8 full parallel';
-SELECT l.k, r.k, l.v, r.v FROM t_u8_l AS l FULL JOIN t_u8_r AS r ON l.k = r.k ORDER BY l.k, r.k, l.v, r.v
-SETTINGS parallel_hash_join_threshold = 0;
+SELECT
+    (SELECT arraySort(groupArray((l.k, r.k, l.v, r.v))) FROM t_u8_l AS l FULL JOIN t_u8_r AS r ON l.k = r.k SETTINGS parallel_hash_join_threshold = 0)
+    = (SELECT arraySort(groupArray((l.k, r.k, l.v, r.v))) FROM t_u8_l AS l FULL JOIN t_u8_r AS r ON l.k = r.k SETTINGS parallel_hash_join_threshold = 1000000000);
 
-SELECT '-- key8 int8 inner serial';
+SELECT '-- key8 int8 inner';
 SELECT l.k, l.v, r.v FROM t_i8_l AS l INNER JOIN t_i8_r AS r ON l.k = r.k ORDER BY l.k, l.v, r.v
 SETTINGS parallel_hash_join_threshold = 1000000000;
-SELECT '-- key8 int8 inner parallel';
-SELECT l.k, l.v, r.v FROM t_i8_l AS l INNER JOIN t_i8_r AS r ON l.k = r.k ORDER BY l.k, l.v, r.v
-SETTINGS parallel_hash_join_threshold = 0;
+SELECT
+    (SELECT arraySort(groupArray((l.k, l.v, r.v))) FROM t_i8_l AS l INNER JOIN t_i8_r AS r ON l.k = r.k SETTINGS parallel_hash_join_threshold = 0)
+    = (SELECT arraySort(groupArray((l.k, l.v, r.v))) FROM t_i8_l AS l INNER JOIN t_i8_r AS r ON l.k = r.k SETTINGS parallel_hash_join_threshold = 1000000000);
 
-SELECT '-- key8 int8 right serial';
+SELECT '-- key8 int8 right';
 SELECT r.k, l.v, r.v FROM t_i8_l AS l RIGHT JOIN t_i8_r AS r ON l.k = r.k ORDER BY r.k, l.v, r.v
 SETTINGS parallel_hash_join_threshold = 1000000000;
-SELECT '-- key8 int8 right parallel';
-SELECT r.k, l.v, r.v FROM t_i8_l AS l RIGHT JOIN t_i8_r AS r ON l.k = r.k ORDER BY r.k, l.v, r.v
-SETTINGS parallel_hash_join_threshold = 0;
+SELECT
+    (SELECT arraySort(groupArray((r.k, l.v, r.v))) FROM t_i8_l AS l RIGHT JOIN t_i8_r AS r ON l.k = r.k SETTINGS parallel_hash_join_threshold = 0)
+    = (SELECT arraySort(groupArray((r.k, l.v, r.v))) FROM t_i8_l AS l RIGHT JOIN t_i8_r AS r ON l.k = r.k SETTINGS parallel_hash_join_threshold = 1000000000);
 
-SELECT '-- key8 int8 full serial';
+SELECT '-- key8 int8 full';
 SELECT l.k, r.k, l.v, r.v FROM t_i8_l AS l FULL JOIN t_i8_r AS r ON l.k = r.k ORDER BY l.k, r.k, l.v, r.v
 SETTINGS parallel_hash_join_threshold = 1000000000;
-SELECT '-- key8 int8 full parallel';
-SELECT l.k, r.k, l.v, r.v FROM t_i8_l AS l FULL JOIN t_i8_r AS r ON l.k = r.k ORDER BY l.k, r.k, l.v, r.v
-SETTINGS parallel_hash_join_threshold = 0;
+SELECT
+    (SELECT arraySort(groupArray((l.k, r.k, l.v, r.v))) FROM t_i8_l AS l FULL JOIN t_i8_r AS r ON l.k = r.k SETTINGS parallel_hash_join_threshold = 0)
+    = (SELECT arraySort(groupArray((l.k, r.k, l.v, r.v))) FROM t_i8_l AS l FULL JOIN t_i8_r AS r ON l.k = r.k SETTINGS parallel_hash_join_threshold = 1000000000);
 
-SELECT '-- key16 uint16 inner serial';
+SELECT '-- key16 uint16 inner';
 SELECT l.k, l.v, r.v FROM t_u16_l AS l INNER JOIN t_u16_r AS r ON l.k = r.k ORDER BY l.k, l.v, r.v
 SETTINGS parallel_hash_join_threshold = 1000000000, log_comment = '04891_key16_serial';
-SELECT '-- key16 uint16 inner parallel';
-SELECT l.k, l.v, r.v FROM t_u16_l AS l INNER JOIN t_u16_r AS r ON l.k = r.k ORDER BY l.k, l.v, r.v
-SETTINGS parallel_hash_join_threshold = 0, log_comment = '04891_key16_parallel';
+SELECT
+    (SELECT arraySort(groupArray((l.k, l.v, r.v))) FROM t_u16_l AS l INNER JOIN t_u16_r AS r ON l.k = r.k SETTINGS parallel_hash_join_threshold = 0)
+    = (SELECT arraySort(groupArray((l.k, l.v, r.v))) FROM t_u16_l AS l INNER JOIN t_u16_r AS r ON l.k = r.k SETTINGS parallel_hash_join_threshold = 1000000000)
+SETTINGS log_comment = '04891_key16_compare';
 
-SELECT '-- key16 int16 inner serial';
+SELECT '-- key16 int16 inner';
 SELECT l.k, l.v, r.v FROM t_i16_l AS l INNER JOIN t_i16_r AS r ON l.k = r.k ORDER BY l.k, l.v, r.v
 SETTINGS parallel_hash_join_threshold = 1000000000;
-SELECT '-- key16 int16 inner parallel';
-SELECT l.k, l.v, r.v FROM t_i16_l AS l INNER JOIN t_i16_r AS r ON l.k = r.k ORDER BY l.k, l.v, r.v
-SETTINGS parallel_hash_join_threshold = 0;
+SELECT
+    (SELECT arraySort(groupArray((l.k, l.v, r.v))) FROM t_i16_l AS l INNER JOIN t_i16_r AS r ON l.k = r.k SETTINGS parallel_hash_join_threshold = 0)
+    = (SELECT arraySort(groupArray((l.k, l.v, r.v))) FROM t_i16_l AS l INNER JOIN t_i16_r AS r ON l.k = r.k SETTINGS parallel_hash_join_threshold = 1000000000);
 
-SELECT '-- sparse key16 right serial';
+SELECT '-- sparse key16 right';
 SELECT r.k, l.v, r.v FROM t_sparse_l AS l RIGHT JOIN t_sparse_r AS r ON l.k = r.k ORDER BY r.k, l.v, r.v
 SETTINGS parallel_hash_join_threshold = 1000000000;
-SELECT '-- sparse key16 right parallel';
-SELECT r.k, l.v, r.v FROM t_sparse_l AS l RIGHT JOIN t_sparse_r AS r ON l.k = r.k ORDER BY r.k, l.v, r.v
-SETTINGS parallel_hash_join_threshold = 0;
+SELECT
+    (SELECT arraySort(groupArray((r.k, l.v, r.v))) FROM t_sparse_l AS l RIGHT JOIN t_sparse_r AS r ON l.k = r.k SETTINGS parallel_hash_join_threshold = 0)
+    = (SELECT arraySort(groupArray((r.k, l.v, r.v))) FROM t_sparse_l AS l RIGHT JOIN t_sparse_r AS r ON l.k = r.k SETTINGS parallel_hash_join_threshold = 1000000000);
 
-SELECT '-- sparse key16 full serial';
+SELECT '-- sparse key16 full';
 SELECT l.k, r.k, l.v, r.v FROM t_sparse_l AS l FULL JOIN t_sparse_r AS r ON l.k = r.k ORDER BY l.k, r.k, l.v, r.v
 SETTINGS parallel_hash_join_threshold = 1000000000;
-SELECT '-- sparse key16 full parallel';
-SELECT l.k, r.k, l.v, r.v FROM t_sparse_l AS l FULL JOIN t_sparse_r AS r ON l.k = r.k ORDER BY l.k, r.k, l.v, r.v
-SETTINGS parallel_hash_join_threshold = 0;
+SELECT
+    (SELECT arraySort(groupArray((l.k, r.k, l.v, r.v))) FROM t_sparse_l AS l FULL JOIN t_sparse_r AS r ON l.k = r.k SETTINGS parallel_hash_join_threshold = 0)
+    = (SELECT arraySort(groupArray((l.k, r.k, l.v, r.v))) FROM t_sparse_l AS l FULL JOIN t_sparse_r AS r ON l.k = r.k SETTINGS parallel_hash_join_threshold = 1000000000);
 
-SELECT '-- range conversion after parallel key32';
-SELECT count(*) FROM t_range_l AS l INNER JOIN t_range_r AS r ON l.k = r.k FORMAT NULL
-SETTINGS parallel_hash_join_threshold = 0, enable_join_fixed_hash_table_conversion = 1, log_comment = '04891_range_u32';
-
-SYSTEM FLUSH LOGS query_log, text_log;
-
-SELECT count() > 0 AS triggered
-FROM system.text_log
-WHERE event_date >= yesterday() AND event_time >= now() - 600
-      AND query_id IN (
-          SELECT query_id FROM system.query_log
-          WHERE log_comment = '04891_range_u32' AND current_database = currentDatabase() AND type = 'QueryFinish' AND event_date >= yesterday()
-      )
-      AND message LIKE '%Converted join hash map to fixed hash map%'
-      AND message LIKE '%type: range%'
-      AND message NOT LIKE '%two_level%';
+SELECT count() FROM t_range_l AS l INNER JOIN t_range_r AS r ON l.k = r.k FORMAT Null
+SETTINGS parallel_hash_join_threshold = 0, log_comment = '04891_range_u32';
 
 SELECT '-- range uint32 inner conversion on vs off';
 SELECT
-    (
-        SELECT groupArray((k, lv, rv))
-        FROM
-        (
-            SELECT l.k AS k, l.v AS lv, r.v AS rv
-            FROM t_range_l AS l INNER JOIN t_range_r AS r ON l.k = r.k
-            ORDER BY l.k, l.v, r.v
-            SETTINGS parallel_hash_join_threshold = 0, enable_join_fixed_hash_table_conversion = 1
-        )
-    ) = (
-        SELECT groupArray((k, lv, rv))
-        FROM
-        (
-            SELECT l.k AS k, l.v AS lv, r.v AS rv
-            FROM t_range_l AS l INNER JOIN t_range_r AS r ON l.k = r.k
-            ORDER BY l.k, l.v, r.v
-            SETTINGS parallel_hash_join_threshold = 0, enable_join_fixed_hash_table_conversion = 0
-        )
-    );
+    (SELECT arraySort(groupArray((l.k, l.v, r.v))) FROM t_range_l AS l INNER JOIN t_range_r AS r ON l.k = r.k
+     SETTINGS parallel_hash_join_threshold = 0, enable_join_fixed_hash_table_conversion = 1)
+    = (SELECT arraySort(groupArray((l.k, l.v, r.v))) FROM t_range_l AS l INNER JOIN t_range_r AS r ON l.k = r.k
+       SETTINGS parallel_hash_join_threshold = 0, enable_join_fixed_hash_table_conversion = 0);
 
 SELECT '-- range uint32 right conversion on vs off';
 SELECT
-    (
-        SELECT groupArray((k, lv, rv))
-        FROM
-        (
-            SELECT r.k AS k, l.v AS lv, r.v AS rv
-            FROM t_range_l AS l RIGHT JOIN t_range_r AS r ON l.k = r.k
-            ORDER BY r.k, l.v, r.v
-            SETTINGS parallel_hash_join_threshold = 0, enable_join_fixed_hash_table_conversion = 1
-        )
-    ) = (
-        SELECT groupArray((k, lv, rv))
-        FROM
-        (
-            SELECT r.k AS k, l.v AS lv, r.v AS rv
-            FROM t_range_l AS l RIGHT JOIN t_range_r AS r ON l.k = r.k
-            ORDER BY r.k, l.v, r.v
-            SETTINGS parallel_hash_join_threshold = 0, enable_join_fixed_hash_table_conversion = 0
-        )
-    );
+    (SELECT arraySort(groupArray((r.k, l.v, r.v))) FROM t_range_l AS l RIGHT JOIN t_range_r AS r ON l.k = r.k
+     SETTINGS parallel_hash_join_threshold = 0, enable_join_fixed_hash_table_conversion = 1)
+    = (SELECT arraySort(groupArray((r.k, l.v, r.v))) FROM t_range_l AS l RIGHT JOIN t_range_r AS r ON l.k = r.k
+       SETTINGS parallel_hash_join_threshold = 0, enable_join_fixed_hash_table_conversion = 0);
 
-SELECT count(*) FROM t_range_i32_l AS l INNER JOIN t_range_i32_r AS r ON l.k = r.k FORMAT NULL
-SETTINGS parallel_hash_join_threshold = 0, enable_join_fixed_hash_table_conversion = 1, log_comment = '04891_range_i32';
-
-SYSTEM FLUSH LOGS query_log, text_log;
-
-SELECT count() > 0 AS triggered_i32
-FROM system.text_log
-WHERE event_date >= yesterday() AND event_time >= now() - 600
-      AND query_id IN (
-          SELECT query_id FROM system.query_log
-          WHERE log_comment = '04891_range_i32' AND current_database = currentDatabase() AND type = 'QueryFinish' AND event_date >= yesterday()
-      )
-      AND message LIKE '%Converted join hash map to fixed hash map%'
-      AND message LIKE '%type: range%'
-      AND message NOT LIKE '%two_level%';
+SELECT count() FROM t_range_i32_l AS l INNER JOIN t_range_i32_r AS r ON l.k = r.k FORMAT Null
+SETTINGS parallel_hash_join_threshold = 0, log_comment = '04891_range_i32';
 
 SELECT '-- range int32 inner conversion on vs off';
 SELECT
-    (
-        SELECT groupArray((k, lv, rv))
-        FROM
-        (
-            SELECT l.k AS k, l.v AS lv, r.v AS rv
-            FROM t_range_i32_l AS l INNER JOIN t_range_i32_r AS r ON l.k = r.k
-            ORDER BY l.k, l.v, r.v
-            SETTINGS parallel_hash_join_threshold = 0, enable_join_fixed_hash_table_conversion = 1
-        )
-    ) = (
-        SELECT groupArray((k, lv, rv))
-        FROM
-        (
-            SELECT l.k AS k, l.v AS lv, r.v AS rv
-            FROM t_range_i32_l AS l INNER JOIN t_range_i32_r AS r ON l.k = r.k
-            ORDER BY l.k, l.v, r.v
-            SETTINGS parallel_hash_join_threshold = 0, enable_join_fixed_hash_table_conversion = 0
-        )
-    );
+    (SELECT arraySort(groupArray((l.k, l.v, r.v))) FROM t_range_i32_l AS l INNER JOIN t_range_i32_r AS r ON l.k = r.k
+     SETTINGS parallel_hash_join_threshold = 0, enable_join_fixed_hash_table_conversion = 1)
+    = (SELECT arraySort(groupArray((l.k, l.v, r.v))) FROM t_range_i32_l AS l INNER JOIN t_range_i32_r AS r ON l.k = r.k
+       SETTINGS parallel_hash_join_threshold = 0, enable_join_fixed_hash_table_conversion = 0);
 
 SELECT '-- shared rf key8 serial';
 SELECT 'rf0', count() FROM t_rf_l AS l INNER JOIN t_rf_r AS r ON l.k = r.k
@@ -253,73 +190,22 @@ SETTINGS parallel_hash_join_threshold = 0, join_runtime_filter_from_fixed_hash_t
 
 SYSTEM FLUSH LOGS query_log, text_log;
 
-SELECT '-- hash table layouts';
-SELECT 'key8_serial', count() > 0
-FROM system.text_log
-WHERE event_date >= yesterday() AND event_time >= now() - 600
-      AND message LIKE '%Join hash table type: key8%' AND message NOT LIKE '%two_level_key8%'
-      AND query_id IN (
-          SELECT query_id FROM system.query_log
-          WHERE log_comment = '04891_key8_serial' AND current_database = currentDatabase() AND type = 'QueryFinish' AND event_date >= yesterday()
-      );
-SELECT 'key8_parallel', count() > 0
-FROM system.text_log
-WHERE event_date >= yesterday() AND event_time >= now() - 600
-      AND message LIKE '%Join hash table type: two_level_key8%'
-      AND query_id IN (
-          SELECT query_id FROM system.query_log
-          WHERE log_comment = '04891_key8_parallel' AND current_database = currentDatabase() AND type = 'QueryFinish' AND event_date >= yesterday()
-      );
-SELECT 'key16_serial', count() > 0
-FROM system.text_log
-WHERE event_date >= yesterday() AND event_time >= now() - 600
-      AND message LIKE '%Join hash table type: key16%' AND message NOT LIKE '%two_level_key16%'
-      AND query_id IN (
-          SELECT query_id FROM system.query_log
-          WHERE log_comment = '04891_key16_serial' AND current_database = currentDatabase() AND type = 'QueryFinish' AND event_date >= yesterday()
-      );
-SELECT 'key16_parallel', count() > 0
-FROM system.text_log
-WHERE event_date >= yesterday() AND event_time >= now() - 600
-      AND message LIKE '%Join hash table type: two_level_key16%'
-      AND query_id IN (
-          SELECT query_id FROM system.query_log
-          WHERE log_comment = '04891_key16_parallel' AND current_database = currentDatabase() AND type = 'QueryFinish' AND event_date >= yesterday()
-      );
-
-SELECT '-- shared rf published';
-SELECT 'serial_on', count() > 0
-FROM system.text_log
-WHERE event_date >= yesterday() AND event_time >= now() - 600
-      AND message LIKE '%Published shared fixed-hash-table runtime filter%'
-      AND query_id IN (
-          SELECT query_id FROM system.query_log
-          WHERE log_comment = '04891_rf_serial_on' AND current_database = currentDatabase() AND type = 'QueryFinish' AND event_date >= yesterday()
-      );
-SELECT 'parallel_on', count() > 0
-FROM system.text_log
-WHERE event_date >= yesterday() AND event_time >= now() - 600
-      AND message LIKE '%Published shared fixed-hash-table runtime filter%'
-      AND query_id IN (
-          SELECT query_id FROM system.query_log
-          WHERE log_comment = '04891_rf_parallel_on' AND current_database = currentDatabase() AND type = 'QueryFinish' AND event_date >= yesterday()
-      );
-SELECT 'serial_off', count() = 0
-FROM system.text_log
-WHERE event_date >= yesterday() AND event_time >= now() - 600
-      AND message LIKE '%Published shared fixed-hash-table runtime filter%'
-      AND query_id IN (
-          SELECT query_id FROM system.query_log
-          WHERE log_comment = '04891_rf_serial_off' AND current_database = currentDatabase() AND type = 'QueryFinish' AND event_date >= yesterday()
-      );
-SELECT 'parallel_off', count() = 0
-FROM system.text_log
-WHERE event_date >= yesterday() AND event_time >= now() - 600
-      AND message LIKE '%Published shared fixed-hash-table runtime filter%'
-      AND query_id IN (
-          SELECT query_id FROM system.query_log
-          WHERE log_comment = '04891_rf_parallel_off' AND current_database = currentDatabase() AND type = 'QueryFinish' AND event_date >= yesterday()
-      );
+SELECT '-- per query: map types built, type converted to, runtime filter published';
+SELECT
+    q.log_comment,
+    arraySort(groupUniqArrayIf(extract(t.message, 'Join hash table type: (\\w+)'), t.message LIKE '%Join hash table type: %')) AS built,
+    arraySort(groupUniqArrayIf(extract(t.message, 'type: (\\w+)\\)'), t.message LIKE '%Converted join hash map to fixed hash map%')) AS converted,
+    countIf(t.message LIKE '%Published shared fixed-hash-table runtime filter%') > 0 AS filter_published
+FROM system.text_log AS t
+INNER JOIN
+(
+    SELECT query_id, log_comment FROM system.query_log
+    WHERE event_date >= yesterday() AND current_database = currentDatabase() AND type = 'QueryFinish'
+          AND match(log_comment, '^04891_(key|range|rf)')
+) AS q ON t.query_id = q.query_id
+WHERE t.event_date >= yesterday() AND t.event_time >= now() - 600
+GROUP BY q.log_comment
+ORDER BY q.log_comment;
 
 DROP TABLE t_u8_l;
 DROP TABLE t_u8_r;

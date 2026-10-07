@@ -16,18 +16,26 @@ namespace ErrorCodes
 template <HashJoin::Type type, typename Value, typename Mapped, bool use_offset>
 struct KeyGetterForTypeImpl;
 
-/// Does the hash-table work once per dictionary index rather than once per row. Not aggregation's
-/// `HashMethodSingleLowCardinalityColumn`, which is not const-correct on probe and carries no
-/// `JoinUsedFlags` offset.
+/// Key getter for a single LowCardinality column, tailored to HashJoin. Unlike the aggregation
+/// method `HashMethodSingleLowCardinalityColumn`, this one is const-correct on the probe side
+/// (probe maps expose `const RowRef`/`const RowRefList` and `ConstLookupResult`), produces an
+/// offset-carrying `FindResult` when `use_offset` is set (HashJoin indexes `JoinUsedFlags` by it), and has no null-key
+/// path (chooseMethod only routes here for non-nullable dictionaries). It wraps a base method that
+/// operates on the dictionary's nested column to produce key holders, and deduplicates the
+/// hash-table work per dictionary index within a block — that dedup is the whole point. The
+/// probe/left key may be a plain (non-LowCardinality) column even when this map is chosen (joins
+/// allow plain T vs LowCardinality(T)); such a column is handled by running the base method on it
+/// directly, with no dictionary indirection or deduplication.
 template <typename BaseMethod, typename Mapped, bool use_offset>
 struct LowCardinalityKeyGetterForJoin
 {
     using MappedNonConst = std::remove_const_t<Mapped>;
     static constexpr bool has_mapped = !std::is_same_v<Mapped, void>;
-    using EmplaceResult = BaseMethod::EmplaceResult;
-    using FindResult = BaseMethod::FindResult;
+    using EmplaceResult = typename BaseMethod::EmplaceResult;
+    using FindResult = typename BaseMethod::FindResult;
 
-    /// Resolving a key costs a dictionary lookup, and prefetching would fight the cache below.
+    /// Resolving a key needs a dictionary-index lookup; do not advertise it as cheap, which keeps
+    /// the probe-loop software prefetch path (which would fight the per-dictionary cache) disabled.
     static constexpr bool has_cheap_key_calculation = false;
 
     BaseMethod base;
@@ -37,12 +45,16 @@ struct LowCardinalityKeyGetterForJoin
     std::span<const UInt64> saved_hash;
     ColumnPtr dictionary_holder;
 
-    /// Pointers into the cells, not copies: the join result dereferences them lazily, and a copy
-    /// would dangle - besides not working at all for move-only `AsofRowRefs`.
+    /// Per-dictionary-index probe cache. We cache a POINTER into the hash-table cell (stable for the
+    /// immutable probe phase and for as long as the join result lives — the lazy output dereferences
+    /// these pointers later), not a copy of the mapped value: a copy would dangle. Caching pointers
+    /// also works for any mapped type, including the move-only AsofRowRefs.
     PaddedPODArray<UInt8> visit_cache;       /// 0 = not visited, 1 = found, 2 = not found
     PaddedPODArray<Mapped *> mapped_cache;
     PaddedPODArray<size_t> offset_cache;
 
+    /// The base method runs on the dictionary's nested column for a LowCardinality key, or directly
+    /// on the column itself for a plain key.
     static const IColumn * getBaseColumn(const IColumn * column)
     {
         if (const auto * low_cardinality_column = typeid_cast<const ColumnLowCardinality *>(column))
@@ -53,8 +65,11 @@ struct LowCardinalityKeyGetterForJoin
     LowCardinalityKeyGetterForJoin(const ColumnRawPtrs & key_columns, const Sizes & key_sizes, const ColumnsHashing::HashMethodContextPtr &)
         : base({getBaseColumn(key_columns[0])}, key_sizes, nullptr)
     {
-        /// A join accepts plain T against LowCardinality(T), so the probe key may have no
-        /// dictionary; keys still match because the map stores values, not dictionary indices.
+        /// The build/right key is always LowCardinality (that is why this map was chosen), but the
+        /// probe/left key may be a plain column: joins allow plain T vs LowCardinality(T) without a
+        /// cast. For a plain column there is no dictionary, so `positions` stays null and the base
+        /// method is used directly (no per-dictionary deduplication). The map stores key values, so a
+        /// plain probe and a dictionary-encoded build still produce compatible keys.
         const auto * low_cardinality_column = typeid_cast<const ColumnLowCardinality *>(key_columns[0]);
         if (!low_cardinality_column)
             return;
@@ -72,6 +87,7 @@ struct LowCardinalityKeyGetterForJoin
             offset_cache.assign(dictionary_size, static_cast<size_t>(0));
     }
 
+    /// True when the current column is LowCardinality (dictionary path); false for a plain column.
     ALWAYS_INLINE bool isLowCardinality() const { return positions != nullptr; }
 
     ALWAYS_INLINE size_t getIndexAt(size_t row) const
@@ -91,28 +107,14 @@ struct LowCardinalityKeyGetterForJoin
         return base.getKeyHolder(isLowCardinality() ? getIndexAt(row) : row, pool);
     }
 
-    template <typename Data>
-    ALWAYS_INLINE size_t routingHashForRow(const Data & data, size_t row_, Arena & pool) const
-    {
-        if (!isLowCardinality())
-        {
-            auto key_holder = base.getKeyHolder(row_, pool);
-            return data.hash(keyHolderGetKey(key_holder));
-        }
-
-        const size_t row = getIndexAt(row_);
-        /// The saved hash is of the key value, which is what the map places by.
-        if (row < saved_hash.size())
-            return saved_hash[row];
-
-        auto key_holder = base.getKeyHolder(row, pool);
-        return data.hash(keyHolderGetKey(key_holder));
-    }
-
-    /// No per-index dedup: the row-ref list lives in the cell, so every row has to reach it.
+    /// Build side: every row must be inserted/appended into the real hash-table cell, so there is no
+    /// per-dictionary-index deduplication here (the mapped RowRefList lives in the cell, not behind a
+    /// stable pointer as in aggregation). The dictionary speedup is realized on the probe side only.
     template <typename Data>
     ALWAYS_INLINE EmplaceResult emplaceKey(Data & data, size_t row_, Arena & pool)
     {
+        /// A plain key (no dictionary) is handled directly by the base method. The build side is
+        /// always LowCardinality, so this branch is only reached when a plain key reaches a build.
         if (!isLowCardinality())
             return base.emplaceKey(data, row_, pool);
 
@@ -122,7 +124,10 @@ struct LowCardinalityKeyGetterForJoin
 
         typename Data::LookupResult it;
         bool inserted = false;
-        data.emplace(key_holder, it, inserted, routingHashForRow(data, row_, pool));
+        if (row < saved_hash.size())
+            data.emplace(key_holder, it, inserted, saved_hash[row]);
+        else
+            data.emplace(key_holder, it, inserted);
 
         if constexpr (has_mapped)
         {
@@ -138,6 +143,8 @@ struct LowCardinalityKeyGetterForJoin
     template <typename Data>
     ALWAYS_INLINE FindResult findKey(Data & data, size_t row_, Arena & pool)
     {
+        /// A plain probe key (no dictionary) is looked up directly by the base method. The map stores
+        /// key values, so this finds the rows inserted from the dictionary-encoded build side.
         if (!isLowCardinality())
             return base.findKey(data, row_, pool);
 

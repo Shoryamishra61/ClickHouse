@@ -25,14 +25,14 @@ join inside a materialized view that reads a view
 join in the SELECT of an INSERT with no view attached
 1	['HASH']	['INNER']	['ALL']	[]
 parallel hash
-1	['PARALLEL_HASH']	['INNER']	['ALL']	[]
+1	['HASH']	['INNER']	['ALL']	[]
 parallel hash for the other kinds it is picked for
-05042_join_algorithms_ph_kind_a_left	1	['PARALLEL_HASH']	['LEFT']	['ALL']	[]
-05042_join_algorithms_ph_kind_b_right	1	['PARALLEL_HASH']	['RIGHT']	['ALL']	[]
-05042_join_algorithms_ph_kind_c_full	1	['PARALLEL_HASH']	['FULL']	['ALL']	[]
-05042_join_algorithms_ph_kind_d_asof_left	1	['PARALLEL_HASH']	['LEFT']	['ASOF']	[]
+05042_join_algorithms_ph_kind_a_left	1	['HASH']	['LEFT']	['ALL']	[]
+05042_join_algorithms_ph_kind_b_right	1	['HASH']	['RIGHT']	['ALL']	[]
+05042_join_algorithms_ph_kind_c_full	1	['HASH']	['FULL']	['ALL']	[]
+05042_join_algorithms_ph_kind_d_asof_left	1	['HASH']	['LEFT']	['ASOF']	[]
 parallel hash switching to grace hash
-1	['GRACE_HASH','PARALLEL_HASH']	['INNER']	['ALL']	['join']
+1	['GRACE_HASH','HASH']	['INNER']	['ALL']	['join']
 direct join with a dictionary
 05042_join_algorithms_direct_a_left	1	['DIRECT']	['LEFT']	['ALL']	[]
 05042_join_algorithms_direct_b_inner	1	['DIRECT']	['INNER']	['ALL']	[]

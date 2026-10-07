@@ -1,7 +1,7 @@
 -- Tags: no-random-settings
 -- Fully-matched single-disjunct RIGHT/FULL must emit zero unmatched right rows, leftover right keys
--- must still appear, and nullable right keys must still emit nullmap rows. Covers serial (`hash`)
--- and parallel (`parallel_hash`, threshold 0) layouts.
+-- must still appear, and nullable right keys must still emit nullmap rows. Covers the serial layout
+-- (`parallel_hash_join_threshold = 100000`) and the parallel layout (threshold 0).
 
 SET join_use_nulls = 1;
 SET enable_analyzer = 1;
@@ -30,32 +30,31 @@ INSERT INTO t_r_null VALUES (1, 'one'), (NULL, 'null1'), (2, 'two');
 SET join_algorithm = 'hash';
 SET parallel_hash_join_threshold = 100000;
 
-SELECT 'hash_right_all_matched';
+SELECT 'serial_right_all_matched';
 SELECT count(), countIf(l.id IS NULL)
 FROM t_l AS l
 RIGHT JOIN t_r_matched AS r ON l.id = r.id;
 
-SELECT 'hash_full_all_matched';
+SELECT 'serial_full_all_matched';
 SELECT count(), countIf(l.id IS NULL), countIf(r.id IS NULL)
 FROM t_l AS l
 FULL OUTER JOIN t_r_matched AS r ON l.id = r.id;
 
-SELECT 'hash_right_nullmap';
+SELECT 'serial_right_nullmap';
 SELECT count(), countIf(l.id IS NULL)
 FROM t_l_null AS l
 RIGHT JOIN t_r_null AS r ON l.id = r.id;
 
-SELECT 'hash_right_unmatched';
+SELECT 'serial_right_unmatched';
 SELECT count(), countIf(l.id IS NULL)
 FROM t_l AS l
 RIGHT JOIN t_r_extra AS r ON l.id = r.id;
 
-SELECT 'hash_full_unmatched';
+SELECT 'serial_full_unmatched';
 SELECT count(), countIf(l.id IS NULL), countIf(r.id IS NULL)
 FROM t_l AS l
 FULL OUTER JOIN t_r_extra AS r ON l.id = r.id;
 
-SET join_algorithm = 'parallel_hash';
 SET parallel_hash_join_threshold = 0;
 
 SELECT 'parallel_right_all_matched';

@@ -12,10 +12,6 @@ SET log_queries = 1;
 -- which reverses LEFT and RIGHT. Disable that here so the kinds are the ones the queries are written
 -- with; the block that covers the swap turns it back on for its own queries.
 SET query_plan_join_swap_table = 0;
--- Some right sides below have no size estimate. A `hash` join over such a side takes the parallel layout
--- when it runs on more than one thread, and it then reports `PARALLEL_HASH`. On one thread, the queries
--- that do not set `max_threads` report `HASH`.
-SET max_threads = 1;
 
 DROP TABLE IF EXISTS t1;
 DROP TABLE IF EXISTS t2;

@@ -69,7 +69,6 @@ namespace Setting
     extern const SettingsMaxThreads max_threads;
     extern const SettingsBool allow_general_join_planning;
     extern const SettingsJoinAlgorithm join_algorithm;
-    extern const SettingsUInt64 parallel_hash_join_threshold;
     extern const SettingsBool enable_hash_join_row_store;
     extern const SettingsDouble min_rows_ratio_for_hash_join_row_store;
     extern const SettingsSeconds lock_acquire_timeout;
@@ -683,9 +682,8 @@ static std::pair<JoinClauses, bool /*is_inequal_join*/> buildAllJoinClauses(
     const FunctionNode & function_node)
 {
     const auto & join_algorithms = planner_context->getQueryContext()->getSettingsRef()[Setting::join_algorithm];
-    const auto is_hash_join_enabled = TableJoin::isHashFamilyEnabled(join_algorithms)
-        || TableJoin::isEnabledAlgorithm(join_algorithms, JoinAlgorithm::AUTO);
-    if (is_hash_join_enabled && planner_context->getQueryContext()->getSettingsRef()[Setting::allow_general_join_planning])
+    if (TableJoin::supportsMultipleDisjuncts(join_algorithms)
+        && planner_context->getQueryContext()->getSettingsRef()[Setting::allow_general_join_planning])
     {
         auto join_clauses = buildJoinClauses(
             left_join_actions,
@@ -1209,8 +1207,9 @@ static std::shared_ptr<IJoin> tryCreateJoin(
                 && static_cast<double>(*row_store_output) >= static_cast<double>(*params.rhs_size_estimation) * row_store_ratio));
     table_join->setRowStoreEnabled(enable_row_store);
 
-    const bool use_parallel_layout
-        = preferParallelHashLayout(table_join->kind(), params.rhs_size_estimation, params.parallel_hash_join_threshold);
+    const auto build_layout = table_join->preferParallelHashLayout(params.rhs_size_estimation)
+        ? HashJoinBuildLayout::twoLevel(params.max_threads)
+        : HashJoinBuildLayout::oneBucket(1);
 
     if (table_join->kind() == JoinKind::Paste)
         return std::make_shared<PasteJoin>(table_join, right_table_expression_header);
@@ -1232,7 +1231,6 @@ static std::shared_ptr<IJoin> tryCreateJoin(
     if (algorithm == JoinAlgorithm::HASH ||
         /// partial_merge is preferred, but can't be used for specified kind of join, fallback to hash
         algorithm == JoinAlgorithm::PREFER_PARTIAL_MERGE ||
-        algorithm == JoinAlgorithm::PARALLEL_HASH ||
         algorithm == JoinAlgorithm::DEFAULT)
     {
         if (params.max_bytes_before_external_join > 0 && table_join->getTempDataOnDisk() && GraceHashJoin::isSupported(table_join))
@@ -1246,19 +1244,11 @@ static std::shared_ptr<IJoin> tryCreateJoin(
                 params.grace_hash_join_max_buckets,
                 stats_collecting_params,
                 params.join_any_take_last_row,
-                params.max_threads,
-                use_parallel_layout);
+                build_layout);
         }
 
-        return std::make_shared<HashJoin>(
-            table_join,
-            right_table_expression_header,
-            params.join_any_take_last_row,
-            /*reserve_num_=*/0,
-            /*instance_id_=*/"",
-            stats_collecting_params,
-            params.max_threads,
-            use_parallel_layout);
+        return HashJoin::create(
+            table_join, right_table_expression_header, params.join_any_take_last_row, stats_collecting_params, build_layout);
     }
 
     /// `parallel_full_sorting_merge` uses the same `FullSortingMergeJoin`; the optimizer turns it into a
@@ -1315,8 +1305,7 @@ static std::shared_ptr<IJoin> tryCreateJoin(
                 params.grace_hash_join_max_buckets,
                 stats_collecting_params,
                 params.join_any_take_last_row,
-                params.max_threads,
-                use_parallel_layout);
+                build_layout);
         }
 
         if (MergeJoin::isSupported(table_join))
@@ -1325,17 +1314,9 @@ static std::shared_ptr<IJoin> tryCreateJoin(
                 right_table_expression_header,
                 params.join_any_take_last_row,
                 stats_collecting_params,
-                params.max_threads,
-                use_parallel_layout);
-        return std::make_shared<HashJoin>(
-            table_join,
-            right_table_expression_header,
-            params.join_any_take_last_row,
-            /*reserve_num_=*/0,
-            /*instance_id_=*/"",
-            stats_collecting_params,
-            params.max_threads,
-            use_parallel_layout);
+                build_layout);
+        return HashJoin::create(
+            table_join, right_table_expression_header, params.join_any_take_last_row, stats_collecting_params, build_layout);
     }
 
     return nullptr;
@@ -1351,7 +1332,6 @@ JoinAlgorithmParams::JoinAlgorithmParams(const Context & context)
     max_entries_for_hash_table_stats = context.getServerSettings()[ServerSetting::max_entries_for_hash_table_stats];
     hash_table_key_hash = 0;
     join_output_key_hash = 0;
-    parallel_hash_join_threshold = settings[Setting::parallel_hash_join_threshold];
     enable_hash_join_row_store = settings[Setting::enable_hash_join_row_store];
     min_rows_ratio_for_hash_join_row_store = settings[Setting::min_rows_ratio_for_hash_join_row_store];
 
@@ -1384,7 +1364,6 @@ JoinAlgorithmParams::JoinAlgorithmParams(
     max_entries_for_hash_table_stats = max_entries_for_hash_table_stats_;
     hash_table_key_hash = hash_table_key_hash_;
     join_output_key_hash = join_output_key_hash_;
-    parallel_hash_join_threshold = join_settings.parallel_hash_join_threshold;
     enable_hash_join_row_store = join_settings.enable_hash_join_row_store;
     min_rows_ratio_for_hash_join_row_store = join_settings.min_rows_ratio_for_hash_join_row_store;
 
@@ -1407,7 +1386,7 @@ std::shared_ptr<IJoin> chooseJoinAlgorithm(
     SharedHeader right_table_expression_header,
     const JoinAlgorithmParams & params)
 {
-    if (table_join->getMixedJoinExpression() && !table_join->isHashFamilyEnabled()
+    if (table_join->getMixedJoinExpression() && !table_join->isEnabledAlgorithm(JoinAlgorithm::HASH)
         && !table_join->isEnabledAlgorithm(JoinAlgorithm::GRACE_HASH))
     {
         throw Exception(ErrorCodes::NOT_IMPLEMENTED,
@@ -1444,9 +1423,7 @@ std::shared_ptr<IJoin> chooseJoinAlgorithm(
     if (isCrossOrComma(table_join->kind()) || table_join->isJoinWithConstant())
         return std::make_shared<ConstantJoin>(table_join, right_table_expression_header, params.join_any_take_last_row);
 
-    if (!table_join->oneDisjunct() && !table_join->isHashFamilyEnabled() && !table_join->isEnabledAlgorithm(JoinAlgorithm::AUTO))
-        throw Exception(
-            ErrorCodes::NOT_IMPLEMENTED, "Only `hash` and `parallel_hash` joins support multiple ORs for keys in JOIN ON section");
+    table_join->checkMultipleDisjunctsSupported();
 
     for (auto algorithm : table_join->getEnabledJoinAlgorithms())
     {

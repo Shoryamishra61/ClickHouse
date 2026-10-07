@@ -14,9 +14,6 @@ SET query_plan_join_swap_table = 0;
 -- under test never happens. The ratio has to be named too, and not only the byte threshold, because
 -- it derives a non-zero threshold of its own.
 SET max_bytes_before_external_join = 0, max_bytes_ratio_before_external_join = 0;
--- The right side comes from `numbers` and has no size estimate. On more than one thread the `hash` join
--- would take the parallel layout and report `PARALLEL_HASH`, so the test runs on one thread.
-SET max_threads = 1;
 
 SELECT 'hash switching to partial merge';
 -- The right table of 4000 rows crosses `max_rows_in_join` while it is being built, so the join that

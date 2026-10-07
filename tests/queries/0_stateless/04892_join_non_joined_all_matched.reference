@@ -1,12 +1,12 @@
-hash_right_all_matched
+serial_right_all_matched
 2	0
-hash_full_all_matched
+serial_full_all_matched
 3	0	1
-hash_right_nullmap
+serial_right_nullmap
 3	1
-hash_right_unmatched
+serial_right_unmatched
 3	1
-hash_full_unmatched
+serial_full_unmatched
 4	1	1
 parallel_right_all_matched
 2	0

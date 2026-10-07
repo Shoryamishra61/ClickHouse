@@ -1,4 +1,3 @@
-#include <algorithm>
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
@@ -53,23 +52,13 @@ JoinSwitcher::JoinSwitcher(
     SharedHeader right_sample_block_,
     const bool any_take_last_row_,
     const HashJoinStatsCollectingParams & stats_collecting_params_,
-    size_t max_threads_,
-    bool use_parallel_layout_)
+    HashJoinBuildLayout build_layout_)
     : limits(table_join_->sizeLimits())
     , table_join(table_join_)
     , right_sample_block(right_sample_block_->cloneEmpty())
-    , max_threads(std::max<size_t>(1, max_threads_))
-    , use_parallel_layout(use_parallel_layout_)
+    , build_layout(build_layout_)
 {
-    join = std::make_shared<HashJoin>(
-        table_join,
-        right_sample_block_,
-        any_take_last_row_,
-        /*reserve_num_=*/0,
-        /*instance_id_=*/"",
-        stats_collecting_params_,
-        max_threads,
-        use_parallel_layout);
+    join = HashJoin::create(table_join, right_sample_block_, any_take_last_row_, stats_collecting_params_, build_layout);
     /// Until the build phase ends this join may have to hand its right blocks to `MergeJoin`.
     assert_cast<HashJoin *>(join.get())->keepRightBlocksForAnotherAlgorithm();
     supports_parallel_non_joined_blocks_processing = join->supportParallelNonJoinedBlocksProcessing();

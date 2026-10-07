@@ -104,7 +104,6 @@ namespace Setting
     extern const SettingsBool allow_suspicious_types_in_order_by;
     extern const SettingsNonZeroUInt64 grace_hash_join_initial_buckets;
     extern const SettingsNonZeroUInt64 grace_hash_join_max_buckets;
-    extern const SettingsUInt64 parallel_hash_join_threshold;
 }
 
 
@@ -996,7 +995,7 @@ static std::shared_ptr<IJoin> tryCreateJoin(
     SharedHeader right_sample_block,
     std::unique_ptr<QueryPlan> & joined_plan,
     ContextPtr context,
-    bool use_parallel_layout)
+    HashJoinBuildLayout build_layout)
 {
     if (context->getSettingsRef()[Setting::enable_hash_join_row_store]
         && context->getSettingsRef()[Setting::min_rows_ratio_for_hash_join_row_store] == 0.0)
@@ -1007,7 +1006,7 @@ static std::shared_ptr<IJoin> tryCreateJoin(
 
     /// Preserve the set of algorithms that accepted CROSS and comma joins before they were handled by ConstantJoin.
     const auto is_cross_join_compatible = algorithm == JoinAlgorithm::DEFAULT || algorithm == JoinAlgorithm::AUTO
-        || algorithm == JoinAlgorithm::HASH || algorithm == JoinAlgorithm::PARALLEL_HASH
+        || algorithm == JoinAlgorithm::HASH
         || algorithm == JoinAlgorithm::PREFER_PARTIAL_MERGE;
 
     if (is_cross_join_compatible && isCrossOrComma(analyzed_join->kind()))
@@ -1038,7 +1037,6 @@ static std::shared_ptr<IJoin> tryCreateJoin(
     if (algorithm == JoinAlgorithm::HASH ||
         /// partial_merge is preferred, but can't be used for specified kind of join, fallback to hash
         algorithm == JoinAlgorithm::PREFER_PARTIAL_MERGE ||
-        algorithm == JoinAlgorithm::PARALLEL_HASH ||
         algorithm == JoinAlgorithm::DEFAULT)
     {
         const auto & settings = context->getSettingsRef();
@@ -1058,20 +1056,12 @@ static std::shared_ptr<IJoin> tryCreateJoin(
                     settings[Setting::grace_hash_join_max_buckets],
                     HashJoinStatsCollectingParams{},
                     /*any_take_last_row_=*/false,
-                    settings[Setting::max_threads],
-                    use_parallel_layout);
+                    build_layout);
             }
         }
 
-        return std::make_shared<HashJoin>(
-            analyzed_join,
-            right_sample_block,
-            /*any_take_last_row_=*/false,
-            /*reserve_num_=*/0,
-            /*instance_id_=*/"",
-            HashJoinStatsCollectingParams{},
-            settings[Setting::max_threads],
-            use_parallel_layout);
+        return HashJoin::create(
+            analyzed_join, right_sample_block, /*any_take_last_row_=*/false, HashJoinStatsCollectingParams{}, build_layout);
     }
 
     if (algorithm == JoinAlgorithm::FULL_SORTING_MERGE || algorithm == JoinAlgorithm::PARALLEL_FULL_SORTING_MERGE)
@@ -1132,8 +1122,7 @@ static std::shared_ptr<IJoin> tryCreateJoin(
                     settings[Setting::grace_hash_join_max_buckets],
                     HashJoinStatsCollectingParams{},
                     /*any_take_last_row_=*/false,
-                    settings[Setting::max_threads],
-                    use_parallel_layout);
+                    build_layout);
             }
         }
 
@@ -1143,17 +1132,9 @@ static std::shared_ptr<IJoin> tryCreateJoin(
                 right_sample_block,
                 /*any_take_last_row_=*/false,
                 HashJoinStatsCollectingParams{},
-                settings[Setting::max_threads],
-                use_parallel_layout);
-        return std::make_shared<HashJoin>(
-            analyzed_join,
-            right_sample_block,
-            /*any_take_last_row_=*/false,
-            /*reserve_num_=*/0,
-            /*instance_id_=*/"",
-            HashJoinStatsCollectingParams{},
-            settings[Setting::max_threads],
-            use_parallel_layout);
+                build_layout);
+        return HashJoin::create(
+            analyzed_join, right_sample_block, /*any_take_last_row_=*/false, HashJoinStatsCollectingParams{}, build_layout);
     }
     return nullptr;
 }
@@ -1163,14 +1144,14 @@ static std::shared_ptr<IJoin> chooseJoinAlgorithm(
 {
     auto right_sample_block = joined_plan->getCurrentHeader();
     /// The old analyzer has no join-order pass, so the right side is sized by walking `joined_plan`.
-    const bool use_parallel_layout = preferParallelHashLayout(
-        analyzed_join->kind(),
-        QueryPlanOptimizations::estimateReadRowsCount(*joined_plan->getRootNode()).estimated_rows,
-        context->getSettingsRef()[Setting::parallel_hash_join_threshold]);
+    const auto rhs_size_estimation = QueryPlanOptimizations::estimateReadRowsCount(*joined_plan->getRootNode()).estimated_rows;
+    const auto build_layout = analyzed_join->preferParallelHashLayout(rhs_size_estimation)
+        ? HashJoinBuildLayout::twoLevel(context->getSettingsRef()[Setting::max_threads])
+        : HashJoinBuildLayout::oneBucket(1);
     const auto & join_algorithms = analyzed_join->getEnabledJoinAlgorithms();
     for (const auto alg : join_algorithms)
     {
-        auto join = tryCreateJoin(alg, analyzed_join, left_sample_columns, right_sample_block, joined_plan, context, use_parallel_layout);
+        auto join = tryCreateJoin(alg, analyzed_join, left_sample_columns, right_sample_block, joined_plan, context, build_layout);
         if (join)
             return join;
     }

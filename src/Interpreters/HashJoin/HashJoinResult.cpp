@@ -8,7 +8,6 @@
 namespace ProfileEvents
 {
 extern const Event HashJoinProbeMicroseconds;
-extern const Event HashJoinProbeGatherMicroseconds;
 }
 
 namespace DB
@@ -277,22 +276,18 @@ Block HashJoinResult::generateBlock(
         columns = std::move(state->columns);
     }
 
+    if (properties.is_join_get)
     {
-        ProfileEventTimeIncrement<Microseconds> gather_watch(ProfileEvents::HashJoinProbeGatherMicroseconds);
-
-        if (properties.is_join_get)
-        {
-            lazy_output.buildJoinGetOutput(
-                state->rows_to_reserve, columns,
-                off_data + state->row_ref_begin, off_data + state->row_ref_end);
-        }
-        else
-        {
-            rows_added = lazy_output.buildOutput(
-                state->rows_to_reserve, state->block, state->offsets, columns,
-                off_data + state->row_ref_begin, off_data + state->row_ref_end,
-                state->state_row_offset, state->state_row_limit, state->state_bytes_limit);
-        }
+        lazy_output.buildJoinGetOutput(
+            state->rows_to_reserve, columns,
+            off_data + state->row_ref_begin, off_data + state->row_ref_end);
+    }
+    else
+    {
+        rows_added = lazy_output.buildOutput(
+            state->rows_to_reserve, state->block, state->offsets, columns,
+            off_data + state->row_ref_begin, off_data + state->row_ref_end,
+            state->state_row_offset, state->state_row_limit, state->state_bytes_limit);
     }
 
     IColumn::Offsets offsets;

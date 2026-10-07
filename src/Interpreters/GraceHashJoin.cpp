@@ -893,8 +893,8 @@ IBlocksStreamPtr GraceHashJoin::getDelayedBlocks()
 
 GraceHashJoin::InMemoryJoinPtr GraceHashJoin::makeInMemoryJoin(const String & bucket_id, size_t reserve_num)
 {
-    /// `max_threads` still matters even though inserts here are serialized: the fill streams
-    /// address worker slots by their own id.
+    /// The join gets `max_threads` workers although the inserts here are serialized, because each fill stream
+    /// finds its worker by its own id.
     ///
     /// The serial layout is deliberate. 256 buckets of empty buffers would count against
     /// `max_bytes_before_external_join` and would not shrink as Grace adds file buckets.
@@ -906,8 +906,7 @@ GraceHashJoin::InMemoryJoinPtr GraceHashJoin::makeInMemoryJoin(const String & bu
         reserve_num,
         bucket_id,
         HashJoinStatsCollectingParams{},
-        max_threads,
-        /*use_parallel_layout=*/false);
+        HashJoinBuildLayout::oneBucket(max_threads));
     /// A bucket that outgrows memory is rebucketed, which reads its right blocks back out - and that
     /// can happen at any point, so these blocks are never dropped.
     join->keepRightBlocksForAnotherAlgorithm();

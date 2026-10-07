@@ -5,6 +5,7 @@
 #include <shared_mutex>
 
 #include <Core/Block.h>
+#include <Interpreters/HashJoin/HashJoin.h>
 #include <Interpreters/HashTablesStatistics.h>
 #include <Interpreters/IJoin.h>
 #include <Interpreters/TableJoin.h>
@@ -38,8 +39,7 @@ public:
         SharedHeader right_sample_block_,
         bool any_take_last_row_,
         const HashJoinStatsCollectingParams & stats_collecting_params_,
-        size_t max_threads_,
-        bool use_parallel_layout_);
+        HashJoinBuildLayout build_layout_);
 
     std::string getName() const override { return "JoinSwitcher"; }
 
@@ -146,8 +146,8 @@ public:
     /// conservative and never claim to preserve the left stream order. See issue #110662.
     bool preservesLeftBlockOrder() const override { return false; }
 
-    bool supportParallelJoin() const override { return use_parallel_layout && max_threads > 1; }
-    size_t getMaxBuildThreads() const override { return max_threads; }
+    bool supportParallelJoin() const override { return build_layout.num_slots > 1; }
+    size_t getMaxBuildThreads() const override { return build_layout.num_build_workers; }
     bool supportParallelNonJoinedBlocksProcessing() const override { return supports_parallel_non_joined_blocks_processing; }
 
     void onBuildPhaseFinish() override;
@@ -184,8 +184,7 @@ private:
     mutable SharedMutex switch_mutex;
     std::shared_ptr<TableJoin> table_join;
     const Block right_sample_block;
-    const size_t max_threads;
-    const bool use_parallel_layout;
+    const HashJoinBuildLayout build_layout;
     bool supports_parallel_non_joined_blocks_processing = false;
 
     /// Drain HashJoin onto MergeJoin. Caller holds exclusive `switch_mutex`.

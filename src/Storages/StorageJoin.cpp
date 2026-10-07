@@ -4,7 +4,6 @@
 #include <Storages/TableLockHolder.h>
 #include <Interpreters/HashJoin/HashJoin.h>
 #include <Interpreters/HashJoin/KeyGetter.h>
-#include <Common/HashTable/HashTable.h>
 #include <Interpreters/Context.h>
 #include <Interpreters/DatabaseCatalog.h>
 #include <Parsers/ASTCreateQuery.h>
@@ -67,18 +66,15 @@ namespace ErrorCodes
 namespace
 {
 
-/// Filled from one thread, then shared unchanged, so always the serial map layout.
+/// Filled from one thread, then shared unchanged. A `SELECT` from the table can read only the serial map layout.
 HashJoinPtr makeStorageJoinHashJoin(std::shared_ptr<TableJoin> table_join, Block right_sample_block, bool overwrite)
 {
-    return std::make_shared<HashJoin>(
+    return HashJoin::create(
         std::move(table_join),
         std::make_shared<const Block>(std::move(right_sample_block)),
         overwrite,
-        /*reserve_num_=*/0,
-        /*instance_id_=*/"",
         HashJoinStatsCollectingParams{},
-        /*max_threads_=*/1,
-        /*use_parallel_layout_=*/false);
+        HashJoinBuildLayout::oneBucket(1));
 }
 
 }
@@ -1111,21 +1107,11 @@ private:
     template <typename Map>
     static void insertKey(MutableColumns & columns, const KeyLayout & layout, typename Map::const_iterator & it)
     {
-        /// A `FixedHashMapCell` has no key of its own: the key is the cell index, exposed as hash.
-        const auto key = [&]
-        {
-            using CellKey = std::remove_cvref_t<decltype(it->getKey())>;
-            if constexpr (std::is_same_v<CellKey, VoidKey>)
-                return static_cast<typename Map::key_type>(it.getHash());
-            else
-                return it->getKey();
-        }();
-
         if (layout.whole_key_pos)
-            columns[*layout.whole_key_pos]->insertData(rawData(key), rawSize(key));
+            columns[*layout.whole_key_pos]->insertData(rawData(it->getKey()), rawSize(it->getKey()));
         else
             for (const auto & slot : layout.packed)
-                columns[slot.output_pos]->insertData(rawData(key) + slot.offset, slot.width);
+                columns[slot.output_pos]->insertData(rawData(it->getKey()) + slot.offset, slot.width);
     }
 
     template <typename Map>

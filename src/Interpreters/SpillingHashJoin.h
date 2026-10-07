@@ -17,6 +17,7 @@ namespace DB
 
 class HashJoin;
 class GraceHashJoin;
+struct HashJoinBuildLayout;
 
 /// An IJoin wrapper that automatically switches to GraceHashJoin to spill to disk when memory limits are exceeded.
 ///
@@ -49,8 +50,7 @@ public:
         size_t max_num_buckets_,
         const HashJoinStatsCollectingParams & stats_collecting_params_,
         bool any_take_last_row_,
-        size_t max_threads_,
-        bool use_parallel_layout_);
+        HashJoinBuildLayout build_layout_);
 
     ~SpillingHashJoin() override;
 
@@ -74,7 +74,7 @@ public:
     StepAnalysisReport getAnalysisReport() const override;
 
     bool supportParallelJoin() const override;
-    size_t getMaxBuildThreads() const override { return max_threads; }
+    size_t getMaxBuildThreads() const override;
     bool supportParallelNonJoinedBlocksProcessing() const override;
     bool isParallelNonJoinedProcessingEnabled() const override;
 
@@ -94,18 +94,18 @@ public:
     void onBuildPhaseFinish() override;
     void onProbePhaseFinish(std::optional<size_t> matched_right_rows) override;
 
-    /// Forwarded to the join actually chosen in `onBuildPhaseFinish`. An in-memory
-    /// `HashJoin` still gets its post-build optimizations: right-table reranging, conversion to a
-    /// fixed hash map, and publishing the shared runtime filter.
-    /// After a spill `chosen_join` is a `GraceHashJoin`. That class does not override these methods.
-    /// Forwarding keeps the spilled path exactly as it is today.
-    /// `GraceHashJoin` itself runs the post-build phase only when the right table ended up in a
-    /// single bucket. Multi-bucket spills skip it: a hash table holding one bucket cannot produce
-    /// a runtime filter valid for the whole right table.
     bool canSpillToDisk() const override { return true; }
     size_t getSpillableBytes() const override;
     void requestSpill(JoinBuildContext context) override;
 
+    /// Forwarded to the join actually chosen in `onBuildPhaseFinish`, so that an in-memory
+    /// `HashJoin` still gets its post-build optimizations (right-table reranging, conversion to a
+    /// fixed hash map, publishing the shared runtime filter).
+    /// After a spill `chosen_join` is a `GraceHashJoin`, which does not override these methods, so
+    /// forwarding keeps the spilled path exactly as it is today: `GraceHashJoin` itself runs the
+    /// post-build phase only when the right table ended up in a single bucket. Multi-bucket spills
+    /// skip it, because a hash table holding one bucket cannot produce a runtime filter valid for
+    /// the whole right table.
     bool hasPostBuildPhase() const override;
     void runPostBuildPhase() override;
 
@@ -115,14 +115,14 @@ private:
     enum class State
     {
         COLLECTING, // Right-side blocks are being collected in HashJoin, no spilling yet.
-        GRACE_HASH_JOIN, // Spilled to disk and switched to GraceHashJoin, but some worker chunks may still be unconverted.
+        GRACE_HASH_JOIN, // Spilled to disk and switched to GraceHashJoin, but the blocks of some workers may still be unconverted.
         IN_MEMORY_JOIN // All blocks fit in memory, using HashJoin directly without switching.
     };
 
     /// `spill_immediately` is for the memory-pressure path: the new GraceHashJoin repartitions as it
     /// takes the data over, instead of holding all of it in bucket 0 until the next spill request.
     void switchToGraceHashJoin(JoinBuildContext context, bool spill_immediately = false);
-    void tryConvertChunks(JoinBuildContext context);
+    void tryConvertWorkers(JoinBuildContext context);
 
     LoggerPtr log;
     std::shared_ptr<TableJoin> table_join;
@@ -133,10 +133,9 @@ private:
     size_t max_num_buckets;
     bool any_take_last_row;
     size_t max_bytes_before_external_join;
-    const size_t max_threads;
 
     SharedMutex switch_mutex;
-    std::atomic<size_t> next_chunk_to_convert{0};
+    std::atomic<size_t> next_worker_to_convert{0};
     mutable std::mutex totals_mutex;
     bool supports_parallel_non_joined_blocks_processing{false};
 
