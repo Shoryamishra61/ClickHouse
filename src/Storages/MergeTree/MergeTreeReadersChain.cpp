@@ -517,6 +517,18 @@ void MergeTreeReadersChain::executeActionsBeforePrewhere(
 
     /// If some columns absent in part, then evaluate default values
     std::vector<size_t> positions_filled_by_defaults;
+
+    /// The sort-key columns of `MergeOnKey` patches missing in the part were already filled with
+    /// their defaults by `executeSortingKeyExpressions`, before any patch was applied.
+    if (!result.columns_filled_by_defaults.empty())
+    {
+        for (size_t pos = 0; pos < read_columns.size(); ++pos)
+        {
+            if (read_columns[pos] && result.columns_filled_by_defaults.contains(result_header.getByPosition(pos).name))
+                positions_filled_by_defaults.push_back(pos);
+        }
+    }
+
     if (should_evaluate_missing_defaults)
     {
         /// Exactly the columns left null by `fillMissingColumns` are the ones the pass below produces.
@@ -780,7 +792,11 @@ Block MergeTreeReadersChain::executeSortingKeyExpressions(const Block & result_h
             for (size_t pos = 0; pos < num_columns; ++pos)
             {
                 if (is_missing_key_column(pos))
+                {
                     read_result.columns[pos] = columns_with_defaults[pos];
+                    /// `executeActionsBeforePrewhere` evaluates it again if a patch overwrites a column its `DEFAULT` reads.
+                    read_result.columns_filled_by_defaults.insert(result_header.getByPosition(pos).name);
+                }
             }
         }
     }
