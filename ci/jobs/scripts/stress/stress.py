@@ -439,7 +439,14 @@ def get_options(i: int, upgrade_check: bool, encrypted_storage: bool) -> str:
         client_options.append("join_algorithm='{}'".format(",".join(selected)))
         if "grace_hash" in selected:
             # `grace_hash` needs a spill threshold, which is not provided by default.
+            # The ratio alone resolves to zero when the server has no memory limit,
+            # so also set an absolute threshold; the smaller of the two is used.
             client_options.append("max_bytes_ratio_before_external_join=0.5")
+            client_options.append(
+                "max_bytes_before_external_join={}".format(
+                    random.choice([1 << 20, 100 << 20, 1 << 30])
+                )
+            )
         if selected[0] == "auto":
             # The low limit makes auto switch from hash to partial_merge. It is safe
             # only when auto is actually selected: the planner takes the first
