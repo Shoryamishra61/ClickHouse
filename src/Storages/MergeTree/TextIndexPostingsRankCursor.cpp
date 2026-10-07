@@ -22,6 +22,10 @@ TextIndexPostingsRankCursor::TextIndexPostingsRankCursor(MergeTreeReaderStream &
 
     /// A compressed cursor prepares no segment until it is first positioned.
     cursor->advance(0);
+    if (!cursor->valid())
+        throw Exception(ErrorCodes::CORRUPTED_DATA,
+            "Corrupt text index: posting list of {} documents in {} segments yields no documents",
+            info->cardinality, info->offsets.size());
 
     /// Writers seal segments at a fixed size, so a segment's first rank follows from its index.
     const UInt64 num_segments = info->offsets.size();
