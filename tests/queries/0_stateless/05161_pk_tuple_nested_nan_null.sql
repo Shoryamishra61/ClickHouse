@@ -52,6 +52,7 @@ INSERT INTO t_pk_tuple_null_transform VALUES ((NULL,1)),((2,2)),((3,3));
 
 SELECT count() FROM t_pk_tuple_null_transform WHERE t = (NULL, 1);
 SELECT count() FROM t_pk_tuple_null_transform WHERE t != (NULL, 1);
+SELECT count() FROM (SELECT * FROM t_pk_tuple_null_transform WHERE t != (NULL, 1));
 SELECT count() FROM t_pk_tuple_null_transform WHERE t = (2, 2);
 
 DROP TABLE t_pk_tuple_null_transform;

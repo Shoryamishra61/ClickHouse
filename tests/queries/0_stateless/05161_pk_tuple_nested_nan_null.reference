@@ -16,7 +16,8 @@ a NaN in the key data
 2
 a NULL in the constant, through a key transform
 0
-0
+2
+2
 1
 IN and NOT IN agree with the rows they return
 0	0
