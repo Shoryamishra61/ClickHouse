@@ -17,8 +17,9 @@ SETTINGS index_granularity = 128, min_bytes_for_wide_part = 0, min_rows_for_wide
 
 INSERT INTO t_autopr_min_bytes
 SELECT number, number = 50000,
-       concat(hex(SHA256(toString(number))), hex(SHA256(toString(number + 1))),
-              hex(SHA256(toString(number + 2))), hex(SHA256(toString(number + 3))))
+       -- 256 hex characters that hardly compress; `sipHash128` because builds without SSL have no `SHA256`.
+       concat(hex(sipHash128(number, 1)), hex(sipHash128(number, 2)), hex(sipHash128(number, 3)), hex(sipHash128(number, 4)),
+              hex(sipHash128(number, 5)), hex(sipHash128(number, 6)), hex(sipHash128(number, 7)), hex(sipHash128(number, 8)))
 FROM numbers(100000);
 
 SET enable_analyzer = 1, enable_parallel_replicas = 1, automatic_parallel_replicas_mode = 1,
