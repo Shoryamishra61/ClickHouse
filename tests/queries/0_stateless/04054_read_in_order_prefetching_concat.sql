@@ -214,6 +214,25 @@ FROM (
     )
 ) SETTINGS query_plan_push_limit_by_into_sort = 1;
 
+-- With a `LIMIT`, the later streams are usually never consumed, so prefetching them only
+-- competes with the current stream. Expect no PrefetchingConcat and a correct result.
+SELECT 'no_prefetching_order_by_limit';
+SELECT count() > 0 FROM (
+    EXPLAIN PIPELINE SELECT * FROM t_prefetching_concat
+    WHERE path LIKE '%file.log'
+    ORDER BY path
+    LIMIT 10
+) WHERE explain LIKE '%PrefetchingConcat%';
+
+SELECT 'order_by_limit_correctness';
+SELECT arraySort(groupArray(path)) = (SELECT arraySort(groupArray(path)) FROM (SELECT path FROM t_prefetching_concat ORDER BY path LIMIT 10 SETTINGS optimize_read_in_order = 0))
+FROM (
+    SELECT path FROM t_prefetching_concat
+    WHERE path LIKE '%file.log'
+    ORDER BY path
+    LIMIT 10
+);
+
 DROP TABLE t_prefetching_concat;
 
 -- PrefetchingConcat should NOT be used with multiple parts whose ranges

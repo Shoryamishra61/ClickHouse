@@ -26,5 +26,9 @@ order_by_limit_by_multi_stream
 1	1
 order_by_limit_by_correctness
 1	1
+no_prefetching_order_by_limit
+0
+order_by_limit_correctness
+1
 no_prefetching_multi_part
 0

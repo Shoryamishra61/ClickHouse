@@ -2178,14 +2178,16 @@ Pipe ReadFromMergeTree::spreadMarkRangesAmongStreamsWithOrder(
         /// `SELECT * ... ORDER BY key` query in
         /// `tests/performance/read_in_order_single_part.xml`, which guards
         /// against this regression.
-        ///
-        /// Note: a `LIMIT` from the query is not propagated to
-        /// `input_order_info->limit` whenever a filter is in the plan
-        /// (`buildSortingDAG` zeroes it out for any `PREWHERE`,
-        /// row-level filter, `FilterStep`, etc.), so a separate `LIMIT`
-        /// guard here would be unreachable given the filter requirement
-        /// above.
         if (!query_info.prewhere_info && !query_info.row_level_filter)
+            return false;
+
+        /// With a `LIMIT` on the sort, the query usually stops long before the later
+        /// streams are reached, so prefetching them only burns CPU and IO that competes
+        /// with the stream actually being consumed. `buildSortingDAG` zeroes
+        /// `input_order_info->limit` when there is a filter, so check the query limit
+        /// carried in `query_task_size_limit` instead. See the `WHERE URL LIKE ...
+        /// ORDER BY ... LIMIT N` queries in `tests/performance/lazyMaterialization.xml`.
+        if (query_task_size_limit)
             return false;
 
         /// PrefetchingConcat is only safe when all streams reference the same
