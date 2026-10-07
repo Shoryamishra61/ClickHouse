@@ -252,7 +252,8 @@ public:
     /// With a cache, the statistics of a column are read from disk only when they are not cached, and the
     /// returned objects are shared with other callers, so they must not be modified.
     ColumnsStatistics loadStatistics(const NameSet & required_columns = {}, StatisticsCache * cache = nullptr) const;
-    /// Loads the statistics of all columns into the cache (prewarming). Best-effort: an error is logged, not thrown.
+    /// Loads the statistics of all columns into the cache (prewarming), unless the cache is already filled up to
+    /// `statistics_cache_prewarm_ratio`. Best-effort: an error is logged, not thrown.
     void loadStatisticsToCache(StatisticsCache & cache) const;
     /// Removes the statistics of all columns of the part from the cache.
     void removeStatisticsFromCache(StatisticsCache * cache) const;

@@ -13,6 +13,7 @@
 #include <Compression/getCompressionCodecForFile.h>
 #include <Core/Defines.h>
 #include <Core/NamesAndTypes.h>
+#include <Core/ServerSettings.h>
 #include <Core/Settings.h>
 #include <Core/UUID.h>
 #include <DataTypes/DataTypeAggregateFunction.h>
@@ -121,6 +122,11 @@ namespace DimensionalMetrics
 
 namespace DB
 {
+
+namespace ServerSetting
+{
+    extern const ServerSettingsDouble statistics_cache_prewarm_ratio;
+}
 
 namespace MergeTreeSetting
 {
@@ -1513,6 +1519,12 @@ ColumnsStatistics IMergeTreeDataPart::loadStatistics(const NameSet & required_co
 
 void IMergeTreeDataPart::loadStatisticsToCache(StatisticsCache & cache) const
 {
+    /// Once the cache is filled up to `statistics_cache_prewarm_ratio`, the statistics of a new part would
+    /// only be read from disk to evict other entries, so prewarming is skipped.
+    double ratio_to_prewarm = storage.getContext()->getServerSettings()[ServerSetting::statistics_cache_prewarm_ratio];
+    if (static_cast<double>(cache.sizeInBytes()) >= static_cast<double>(cache.maxSizeInBytes()) * ratio_to_prewarm)
+        return;
+
     /// Prewarming runs after the part is committed (insert, merge, fetch) or while the table is being
     /// loaded, so a failure to read the statistics (an I/O error, a corrupted file) must not fail the
     /// operation: an insert would report an error for a part that is already visible, and a retry would
