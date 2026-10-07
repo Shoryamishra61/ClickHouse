@@ -913,8 +913,8 @@ PostingList MergeTreeReaderTextIndex::readAllPostingsForToken(std::string_view t
     return result;
 }
 
-/// Repeated terms reuse one posting list and one position stream.
-struct PhraseTerms
+/// Repeated tokens reuse one posting list and one position stream.
+struct PhraseTokens
 {
     std::vector<std::string_view> unique_tokens;
     std::vector<const TokenPostingsInfo *> unique_infos;
@@ -924,12 +924,12 @@ struct PhraseTerms
 namespace
 {
 
-/// Nothing to match if a term is missing from the granule or carries no positions.
-std::optional<PhraseTerms> resolvePhraseTerms(
+/// Nothing to match if a token is missing from the granule or carries no positions.
+std::optional<PhraseTokens> resolvePhraseTokens(
     const TokenToPostingsInfosMap & all_token_infos, const VectorWithMemoryTracking<String> & phrase_tokens)
 {
-    PhraseTerms terms;
-    terms.term_to_unique.reserve(phrase_tokens.size());
+    PhraseTokens phrase;
+    phrase.term_to_unique.reserve(phrase_tokens.size());
     for (const auto & token : phrase_tokens)
     {
         auto it = all_token_infos.find(token);
@@ -937,16 +937,16 @@ std::optional<PhraseTerms> resolvePhraseTerms(
             return {};
 
         size_t unique_idx = 0;
-        while (unique_idx < terms.unique_tokens.size() && terms.unique_tokens[unique_idx] != token)
+        while (unique_idx < phrase.unique_tokens.size() && phrase.unique_tokens[unique_idx] != token)
             ++unique_idx;
-        if (unique_idx == terms.unique_tokens.size())
+        if (unique_idx == phrase.unique_tokens.size())
         {
-            terms.unique_tokens.emplace_back(it->first);
-            terms.unique_infos.push_back(it->second.get());
+            phrase.unique_tokens.emplace_back(it->first);
+            phrase.unique_infos.push_back(it->second.get());
         }
-        terms.term_to_unique.push_back(unique_idx);
+        phrase.term_to_unique.push_back(unique_idx);
     }
-    return terms;
+    return phrase;
 }
 
 double postingsDensity(const TokenPostingsInfo & info)
@@ -971,15 +971,15 @@ double postingsDensity(const TokenPostingsInfo & info)
 
 /// Same rule as the postings intersection: the leapfrog pays off only when the sparsest list can skip
 /// whole blocks of the densest one, otherwise every posting block is decoded anyway.
-bool useRankCursors(const PhraseTerms & terms, TextIndexPostingsIntersectionAlgorithm algorithm)
+bool useRankCursors(const PhraseTokens & phrase, TextIndexPostingsIntersectionAlgorithm algorithm)
 {
-    /// A single-term phrase needs no intersection: every row holding the token matches.
-    if (terms.term_to_unique.size() == 1 || algorithm == TextIndexPostingsIntersectionAlgorithm::BruteForce)
+    /// A single-token phrase needs no intersection: every row holding the token matches.
+    if (phrase.term_to_unique.size() == 1 || algorithm == TextIndexPostingsIntersectionAlgorithm::BruteForce)
         return false;
 
     double min_density = std::numeric_limits<double>::max();
     double max_density = 0.0;
-    for (const auto * info : terms.unique_infos)
+    for (const auto * info : phrase.unique_infos)
     {
         /// A flat list (embedded or raw) is walked by index; anything else needs the block index to seek in.
         const bool is_flat = info->header & PostingsSerialization::Flags::RawPostings;
@@ -1113,11 +1113,11 @@ private:
 
 }
 
-PaddedPODArray<UInt32> MergeTreeReaderTextIndex::phraseSearchBlocked(const PhraseTerms & terms)
+PaddedPODArray<UInt32> MergeTreeReaderTextIndex::phraseSearchBlocked(const PhraseTokens & phrase)
 {
-    const auto & unique_tokens = terms.unique_tokens;
-    const auto & unique_infos = terms.unique_infos;
-    const auto & term_to_unique = terms.term_to_unique;
+    const auto & unique_tokens = phrase.unique_tokens;
+    const auto & unique_infos = phrase.unique_infos;
+    const auto & term_to_unique = phrase.term_to_unique;
 
     Stopwatch candidates_watch;
 
@@ -1213,11 +1213,11 @@ PaddedPODArray<UInt32> MergeTreeReaderTextIndex::phraseSearchBlocked(const Phras
     return matching;
 }
 
-PaddedPODArray<UInt32> MergeTreeReaderTextIndex::phraseSearchBlockedCursors(const PhraseTerms & terms)
+PaddedPODArray<UInt32> MergeTreeReaderTextIndex::phraseSearchBlockedCursors(const PhraseTokens & phrase)
 {
-    const auto & unique_tokens = terms.unique_tokens;
-    const auto & unique_infos = terms.unique_infos;
-    const auto & term_to_unique = terms.term_to_unique;
+    const auto & unique_tokens = phrase.unique_tokens;
+    const auto & unique_infos = phrase.unique_infos;
+    const auto & term_to_unique = phrase.term_to_unique;
 
     const size_t num_tokens = unique_tokens.size();
 
@@ -1252,7 +1252,7 @@ PaddedPODArray<UInt32> MergeTreeReaderTextIndex::phraseSearchBlockedCursors(cons
     for (size_t u = 0; u < num_tokens; ++u)
     {
         directories[u] = readPositionsDirectory(*positions_stream, *unique_infos[u], cursors[u].numDocuments());
-        blocks_total += dirs[u].numBlocks();
+        blocks_total += directories[u].numBlocks();
     }
     const UInt64 directory_us = directory_watch.elapsedMicroseconds();
 
@@ -1326,14 +1326,14 @@ PaddedPODArray<UInt32> MergeTreeReaderTextIndex::phraseSearchBlockedCursors(cons
 
 PaddedPODArray<UInt32> MergeTreeReaderTextIndex::phraseSearch(const TextSearchQuery & search_query)
 {
-    auto terms = resolvePhraseTerms(granule->getAnalyzer().getAllTokenInfos(), search_query.getPhraseTokens());
-    if (!terms)
+    auto phrase = resolvePhraseTokens(granule->getAnalyzer().getAllTokenInfos(), search_query.getPhraseTokens());
+    if (!phrase)
         return {};
 
-    if (useRankCursors(*terms, intersection_algorithm))
-        return phraseSearchBlockedCursors(*terms);
+    if (useRankCursors(*phrase, intersection_algorithm))
+        return phraseSearchBlockedCursors(*phrase);
 
-    return phraseSearchBlocked(*terms);
+    return phraseSearchBlocked(*phrase);
 }
 
 void MergeTreeReaderTextIndex::applyPostingsPhrase(
