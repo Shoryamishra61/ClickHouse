@@ -901,12 +901,37 @@ private:
 
             auto disk = getDisk();
             const auto in_progress_path = getInProgressPath(current_file_description->path);
+
+            /// The upload to `new_path` is atomic (startup requires an object storage disk), so a failure here leaves
+            /// either nothing at `new_path` or, when `new_path` is the path of the segment reopened by `writeAt`, its
+            /// intact previous version. A crash after the upload but before the old object is removed below leaves
+            /// two objects for the same start index: startup keeps the larger one, which is the new one, because it
+            /// starts with a copy of the old one, and removes the other. The in-progress object is not needed for
+            /// recovery in either case.
+            try
             {
                 auto reader = disk->readFile(in_progress_path, getReadSettings());
                 auto writer = disk->writeFile(new_path);
                 copyData(*reader, *writer);
                 writer->sync();
                 writer->finalize();
+            }
+            catch (...)
+            {
+                /// Do not leave an unacknowledged object behind to compete with the intact old one for the same
+                /// start index. Never remove the old object itself.
+                if (new_path != current_file_description->path)
+                {
+                    try
+                    {
+                        disk->removeFileIfExists(new_path);
+                    }
+                    catch (...)
+                    {
+                        tryLogCurrentException(log, fmt::format("Failed to remove unpublished S3 changelog {}", new_path));
+                    }
+                }
+                throw;
             }
 
             /// A segment reopened by `writeAt` was published under its old name. The object at `new_path`
@@ -935,7 +960,20 @@ private:
                 tryLogCurrentException(log, fmt::format("Failed to remove in-progress S3 changelog {}", in_progress_path));
             }
 
-            existing_changelogs[current_file_description->from_log_index] = current_file_description;
+            /// `writeAt` into a segment that is broken at end rotates to a new segment with the same start index
+            /// instead of reopening it. Remove the superseded object now, so it does not compete with the new one
+            /// on the next startup. `writeAt` already dropped the locations of its entries from `entry_storage`.
+            auto & listed = existing_changelogs[current_file_description->from_log_index];
+            if (listed && listed != current_file_description && listed->disk == disk && listed->path != new_path)
+            {
+                listed->withWriteLock(
+                    [&]
+                    {
+                        listed->removed_from_disk = true;
+                        disk->removeFileIfExists(listed->path);
+                    });
+            }
+            listed = current_file_description;
 
             entry_storage.addLogLocations(std::move(unflushed_indices_with_log_location));
             unflushed_indices_with_log_location.clear();
@@ -4458,6 +4496,19 @@ Changelog::Changelog(
                     "(s3_experimental_changelog). Please disable one of them.");
             }
 
+            /// The writer publishes a segment by uploading it to its final `changelog_*` key, sometimes over the
+            /// object that holds the previous version of the same segment (a rewrite by `writeAt`). That is crash-safe
+            /// only because an object storage upload is atomic: a failed or interrupted upload never leaves a partial
+            /// object visible, and a replaced object is either the old or the new one. A local disk gives neither.
+            if (!getS3LogDisk()->isRemote())
+            {
+                throw DB::Exception(
+                    DB::ErrorCodes::BAD_ARGUMENTS,
+                    "Disk '{}' configured as s3_log_disk is not an object storage disk. "
+                    "The experimental S3 changelog (s3_experimental_changelog) requires an object storage disk",
+                    getS3LogDisk()->getName());
+            }
+
             /// In this mode startup scans only `old_log_storage_disk*` and `s3_log_disk`; the regular local log
             /// disks are not read. Leftover changelogs there would be durable history silently dropped from
             /// recovery, so fail closed instead: the operator has to declare those disks as old log disks (they
@@ -4561,6 +4612,37 @@ Changelog::Changelog(
                 file_description->disk = disk;
 
                 LOG_TRACE(log, "Found {} on {}", changelog_file, disk->getName());
+
+                /// The S3 changelog writer publishes a new version of a segment (a rewrite by `writeAt`, or a merge
+                /// starting at the same index) before it removes the old one, so a crash in between leaves two
+                /// objects with the same start index on the same disk. The new version always starts with a full
+                /// copy of the old one, so keep the larger object and remove the other, rather than let the listing
+                /// order decide. The removed one must not survive: it would come back once the kept one is removed.
+                if (keeper_context->isS3ExperimentalChangelog())
+                {
+                    auto existing_it = existing_changelogs.find(file_description->from_log_index);
+                    if (existing_it != existing_changelogs.end() && existing_it->second->disk == disk)
+                    {
+                        const auto existing_size = disk->getFileSize(existing_it->second->path);
+                        const auto new_size = disk->getFileSize(file_description->path);
+                        const bool keep_existing = existing_size >= new_size;
+                        const auto & stale_path = keep_existing ? file_description->path : existing_it->second->path;
+                        LOG_WARNING(
+                            log,
+                            "Found two S3 changelogs starting at index {}: {} ({} bytes) and {} ({} bytes), removing the smaller {}",
+                            file_description->from_log_index,
+                            existing_it->second->path,
+                            existing_size,
+                            file_description->path,
+                            new_size,
+                            stale_path);
+                        disk->removeFile(stale_path);
+                        if (keep_existing)
+                            continue;
+                        existing_it->second = std::move(file_description);
+                        continue;
+                    }
+                }
                 auto [changelog_it, inserted] = existing_changelogs.insert_or_assign(file_description->from_log_index, std::move(file_description));
 
                 if (!inserted)

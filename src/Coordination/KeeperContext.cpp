@@ -125,10 +125,12 @@ void KeeperContext::initialize(const Poco::Util::AbstractConfiguration & config,
             "then re-enable it after a successful startup");
 
     initializeFeatureFlags(config);
-    initializeDisks(config);
 
+    /// Read before `initializeDisks`, so that the node storage overlap check can see the S3 log disk.
     s3_experimental_changelog = config.getBool("keeper_server.coordination_settings.s3_experimental_changelog", false);
     s3_log_disk_name = config.getString("keeper_server.coordination_settings.s3_log_disk", "");
+
+    initializeDisks(config);
 
     if (config.has("keeper_server.precommit_sleep_ms_for_testing"))
         precommit_sleep_ms_for_testing = config.getInt64("keeper_server.precommit_sleep_ms_for_testing");
@@ -265,6 +267,9 @@ void KeeperContext::initializeDataDisk(const String & config_elem, const Poco::U
                 other_storages.emplace_back(disk_name);
             for (const auto & disk_name : old_snapshot_disk_names)
                 other_storages.emplace_back(disk_name);
+            /// The S3 changelog disk may still hold changelogs even if the feature is currently disabled.
+            if (!s3_log_disk_name.empty())
+                other_storages.emplace_back(s3_log_disk_name);
 
             const auto * data_disk_name = std::get_if<std::string>(&data_storage);
             const std::optional<fs::path> data_path = localDiskPath(getDisk(data_storage));
