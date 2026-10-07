@@ -163,9 +163,8 @@ AIProviderPtr createAIProvider(const String & provider_name, const String & endp
 /// Build an error message from a provider's non-200 HTTP response, for use in an exception that is logged.
 String formatProviderError(int status_code, const String & response_body);
 
-/// Replace control characters (including `\t \n \r`) with spaces so provider-controlled text cannot
-/// forge log lines or corrupt a terminal when embedded in a logged exception, and an untrusted value
-/// cannot inject extra lines when sent as an HTTP header.
-String sanitizeForLog(std::string_view input);
+/// Replace control characters (including `\t \n \r`) with spaces.
+/// Needed to block provider-controlled text from forging log lines or corrupt a terminal when embedded in a logged exception.
+String sanitize(std::string_view input);
 
 }

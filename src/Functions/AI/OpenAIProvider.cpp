@@ -27,7 +27,7 @@ void setCommonHeaders(Poco::Net::HTTPRequest & http_request, const AIRequest & a
     chassert(!ai_request.function_name.empty());
     http_request.set("X-ClickHouse-AI-Function", ai_request.function_name);
     if (!ai_request.query_id.empty())
-        http_request.set("X-ClickHouse-Query-Id", sanitizeForLog(ai_request.query_id));
+        http_request.set("X-ClickHouse-Query-Id", sanitize(ai_request.query_id));
 }
 
 }

@@ -505,7 +505,7 @@ ColumnPtr FunctionBaseAI::executeImpl(const ColumnsWithTypeAndName & arguments, 
     auto timeouts = ConnectionTimeouts::getHTTPTimeouts(settings, getContext()->getServerSettings());
     timeouts.receive_timeout = Poco::Timespan(static_cast<int64_t>(timeout_sec) /*s*/, 0 /*us*/);
 
-    const String query_id = getContext()->getCurrentQueryId();
+    const String & query_id = getContext()->getClientInfo().initial_query_id;
 
     auto result_col = removeNullable(result_type)->createColumn();
     auto null_map_col = prompt_nullable ? ColumnUInt8::create(input_rows_count, static_cast<UInt8>(0)) : nullptr;
@@ -576,7 +576,7 @@ ColumnPtr FunctionBaseAI::executeImpl(const ColumnsWithTypeAndName & arguments, 
 
                 /// `raw_finish_reason` is provider-controlled text; sanitize control characters before
                 /// interpolating it into an exception message that reaches the logs and `system.query_log`.
-                const String safe_finish_reason = sanitizeForLog(ai_response.raw_finish_reason);
+                const String safe_finish_reason = sanitize(ai_response.raw_finish_reason);
 
                 /// Reject incomplete responses, throw plain DB::Exception so it is classified as non-retriable
                 switch (ai_response.finish_reason)
