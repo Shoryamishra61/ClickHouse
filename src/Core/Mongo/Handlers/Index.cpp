@@ -10,6 +10,7 @@ namespace DB::ErrorCodes
 {
 extern const int BAD_ARGUMENTS;
 extern const int NOT_IMPLEMENTED;
+extern const int UNKNOWN_IDENTIFIER;
 }
 
 namespace DB::MongoProtocol
@@ -99,29 +100,55 @@ std::vector<Document> IndexHandler::handle(const std::vector<OpMessageSection> &
               * nothing about what a Mongo client can do instead - insert a document that has the
               * field first.
               */
-            if (!objectExists(executor, "TABLE", collection.getQualifiedName()))
-                throw Exception(
+            auto missing_collection_error = [&]
+            {
+                return Exception(
                     ErrorCodes::NOT_IMPLEMENTED,
                     "Can not create an index on the collection '{}.{}', which does not exist: an index is created on the columns of an "
                     "existing collection, so insert a document first",
                     collection.database,
                     collection.collection);
+            };
 
-            if (!fieldIsAColumn(collection, column_name, executor))
-                throw Exception(
+            auto missing_field_error = [&]
+            {
+                return Exception(
                     ErrorCodes::NOT_IMPLEMENTED,
                     "Can not create an index on the field '{}', which is not a column of the collection '{}.{}': insert a document that "
                     "has the field first",
                     column_name,
                     collection.database,
                     collection.collection);
+            };
+
+            if (!objectExists(executor, "TABLE", collection.getQualifiedName()))
+                throw missing_collection_error();
+
+            if (!fieldIsAColumn(collection, column_name, executor))
+                throw missing_field_error();
 
             auto sql_query = fmt::format(
                 "ALTER TABLE {} ADD INDEX IF NOT EXISTS {} ({}) TYPE bloom_filter(0.02) GRANULARITY 8",
                 collection.getQualifiedName(),
                 backQuoteIfNeed(column_name),
                 backQuoteIfNeed(column_name));
-            executor->execute(sql_query);
+
+            /// Another session may drop the collection, or the column, between the probes above
+            /// and the `ALTER`. The probes are repeated on such an error, so that the command
+            /// answers what the probes would have, rather than leak the `UNKNOWN_TABLE` or
+            /// `UNKNOWN_IDENTIFIER` of the `ALTER`.
+            try
+            {
+                executor->execute(sql_query);
+            }
+            catch (const Exception & e)
+            {
+                if (failedOnMissingCollection(e, executor, collection))
+                    throw missing_collection_error();
+                if (e.code() == ErrorCodes::UNKNOWN_IDENTIFIER && !fieldIsAColumn(collection, column_name, executor))
+                    throw missing_field_error();
+                throw;
+            }
         }
     }
 
