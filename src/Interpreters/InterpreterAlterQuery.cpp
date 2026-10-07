@@ -399,8 +399,8 @@ BlockIO runCommandSegments(CommandSegments & segments, const StoragePtr & table,
                 /// materializes the stand-in in any case.
                 StoragePtr engine_table = resolveStorageProxyLoading(table);
                 /// Pin the current state of an external table (e.g. Iceberg) before validating, as
-                /// `InterpreterDeleteQuery` does: otherwise the mutation is validated against stale metadata
-                /// and executed against the state that `mutate` refreshes on entry.
+                /// `InterpreterDeleteQuery` does: `mutate` executes the mutation against this same state
+                /// and does not refresh it again.
                 engine_table->updateExternalDynamicMetadataIfExists(context);
                 auto metadata_snapshot = engine_table->getInMemoryMetadataPtr(context, true);
                 engine_table->checkMutationIsPossible(*mutation_commands, settings);

@@ -1054,7 +1054,12 @@ void StorageMaterializedView::checkAlterPartitionIsPossible(
 void StorageMaterializedView::mutate(const MutationCommands & commands, ContextPtr local_context)
 {
     checkStatementCanBeForwarded();
-    getTargetTable()->mutate(commands, local_context);
+    /// The interpreter refreshes the external metadata of the outermost storage only, which is the view
+    /// itself, so refresh it for the target (e.g. `IcebergLocal`) here, see `StorageObjectStorage::mutate`.
+    /// The refresh is a hook of the engine that a lazy-load stand-in does not forward.
+    auto target = resolveStorageProxyLoading(getTargetTable());
+    target->updateExternalDynamicMetadataIfExists(local_context);
+    target->mutate(commands, local_context);
 }
 
 void StorageMaterializedView::renameInMemory(const StorageID & new_table_id)
