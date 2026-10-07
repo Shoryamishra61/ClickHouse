@@ -1443,10 +1443,9 @@ void AggregatingTransform::consume(Chunk chunk)
         tryEmitQueryResultPreview(num_rows, num_bytes);
 }
 
-void AggregatingTransform::activateQueryResultPreviews()
+QueryResultPreviewsControl * AggregatingTransform::getQueryResultPreviewsControl()
 {
-    if (query_result_previews)
-        query_result_previews->control.activate();
+    return query_result_previews ? &query_result_previews->control : nullptr;
 }
 
 void AggregatingTransform::tryEmitQueryResultPreview(UInt64 num_rows, UInt64 num_bytes)

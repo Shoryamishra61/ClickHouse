@@ -64,7 +64,7 @@ public:
     /// are passed along without touching the accumulated state.
     bool supportsQueryResultPreviews() const override { return true; }
 
-    void activateQueryResultPreviews() override;
+    QueryResultPreviewsControl * getQueryResultPreviewsControl() override;
 
 protected:
     void consume(Chunk chunk) override;

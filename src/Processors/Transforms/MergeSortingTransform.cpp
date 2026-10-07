@@ -59,10 +59,9 @@ MergeSortingTransform::MergeSortingTransform(
     }
 }
 
-void MergeSortingTransform::activateQueryResultPreviews()
+QueryResultPreviewsControl * MergeSortingTransform::getQueryResultPreviewsControl()
 {
-    if (query_result_previews)
-        query_result_previews->control.activate();
+    return query_result_previews ? &query_result_previews->control : nullptr;
 }
 
 IProcessor::PipelineUpdate MergeSortingTransform::updatePipeline()

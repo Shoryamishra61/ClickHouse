@@ -96,12 +96,14 @@ private:
     static UInt64 clockNanoseconds();
 };
 
-/// Implemented by processors that can emit preview chunks. `QueryPipeline::complete` activates an
-/// emitter after verifying that every processor downstream of it supports preview chunks.
+/// Implemented by processors that can emit preview chunks. `QueryPipeline::complete` activates the
+/// control of a preview-emitting stage after verifying that every processor downstream of its
+/// participants supports preview chunks and never mixes them with chunks of another source.
 class IQueryResultPreviewEmitter
 {
 public:
-    virtual void activateQueryResultPreviews() = 0;
+    /// The control shared by all participants of the stage; nullptr when this processor cannot emit previews.
+    virtual QueryResultPreviewsControl * getQueryResultPreviewsControl() = 0;
     virtual ~IQueryResultPreviewEmitter() = default;
 };
 
