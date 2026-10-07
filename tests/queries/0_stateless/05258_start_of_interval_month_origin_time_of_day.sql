@@ -68,3 +68,13 @@ SELECT
     countIf(toStartOfInterval(boundary, INTERVAL 1 MONTH, origin) != boundary),
     countIf(boundary > origin AND toStartOfInterval(if(boundary > origin, boundary - toIntervalMillisecond(1), origin), INTERVAL 1 MONTH, origin) >= boundary)
 FROM numbers(200);
+
+-- The bucket start keeps the time of day of the origin when the UTC offset changes on its day after midnight:
+-- clocks in `Europe/Amsterdam` move from 02:00 to 03:00 on 2021-03-28.
+SELECT 'DST';
+WITH toDateTime('2021-02-28 03:30:00', 'Europe/Amsterdam') AS origin
+SELECT t, toStartOfInterval(t, INTERVAL 1 MONTH, origin, 'Europe/Amsterdam')
+FROM (SELECT arrayJoin([toDateTime('2021-03-28 03:29:59', 'Europe/Amsterdam'), toDateTime('2021-03-28 03:30:00', 'Europe/Amsterdam'), toDateTime('2021-03-28 03:45:00', 'Europe/Amsterdam'), toDateTime('2021-03-28 04:30:00', 'Europe/Amsterdam')]) AS t);
+SELECT
+    toStartOfInterval(toDateTime64('2021-03-28 03:45:00', 3, 'Europe/Amsterdam'), INTERVAL 1 QUARTER, toDateTime64('2020-12-28 03:30:00.500', 3, 'Europe/Amsterdam'), 'Europe/Amsterdam'),
+    toStartOfInterval(toDateTime('2021-03-28 03:45:00', 'Europe/Amsterdam'), INTERVAL 1 YEAR, toDateTime('2020-03-28 03:30:00', 'Europe/Amsterdam'), 'Europe/Amsterdam');

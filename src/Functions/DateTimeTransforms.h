@@ -1269,11 +1269,13 @@ struct ToStartOfInterval<IntervalKind::Kind::Month>
         /// The bucket start is checked exactly, so a bucket boundary is rounded to itself.
         /// `offset` is in whole seconds and `t` is non-negative, so `offset > scaled_time` is the same as
         /// `offset * scale_multiplier > t`, but cannot overflow near the top of the `DateTime64` range.
-        Int64 offset = time_zone.addMonths(time_zone.toDate(scaled_origin), month_multiplier) - time_zone.toDate(scaled_origin);
+        /// `addMonths` keeps the time of day of the origin, also when the UTC offset changes on the day of the bucket
+        /// start between midnight and that time, which the difference between the midnights would not account for.
+        Int64 offset = time_zone.addMonths(scaled_origin, month_multiplier) - scaled_origin;
         while (month_multiplier >= months && offset > scaled_time)
         {
             month_multiplier -= months;
-            offset = time_zone.addMonths(time_zone.toDate(scaled_origin), month_multiplier) - time_zone.toDate(scaled_origin);
+            offset = time_zone.addMonths(scaled_origin, month_multiplier) - scaled_origin;
         }
         return offset;
     }
