@@ -225,7 +225,7 @@ static ActionsAndName splitSingleAndFilter(ActionsDAG & dag, const ActionsDAG::N
 
 /// Can the atom be evaluated before the atoms that precede it in the AND chain? It is evaluated on more rows then,
 /// so it must be cheap (no functions that are worth to execute lazily) and all its functions must be unable to throw,
-/// be stateless and have no observable side effects. See setting `short_circuit_function_evaluation_reorder_arguments`.
+/// be stateless, have no observable side effects and be deterministic in the scope of the query. See setting `short_circuit_function_evaluation_reorder_arguments`.
 static bool canBeMovedToTheFrontOfAndChain(const ActionsDAG::Node * node)
 {
     std::stack<const ActionsDAG::Node *> nodes;
@@ -248,6 +248,7 @@ static bool canBeMovedToTheFrontOfAndChain(const ActionsDAG::Node * node)
             const auto & function = *node->function_base;
             if (function.isStateful()
                 || function.hasObservableSideEffects()
+                || !function.isDeterministicInScopeOfQuery()
                 || function.isSuitableForShortCircuitArgumentsExecution(arguments)
                 || function.canThrow(arguments))
                 return false;
@@ -259,9 +260,10 @@ static bool canBeMovedToTheFrontOfAndChain(const ActionsDAG::Node * node)
     return true;
 }
 
-/// Does the atom contain stateful functions or functions with observable side effects (like `sleep`)?
+/// Does the atom contain stateful functions, functions with observable side effects (like `sleep`),
+/// or functions that are not deterministic in the scope of the query (like `rand` or `rowNumberInBlock`)?
 /// Such an atom must not be evaluated on fewer rows than in the original order, so no atom can be moved in front of it.
-static bool hasStatefulOrObservableFunctions(const ActionsDAG::Node * node)
+static bool hasOrderSensitiveFunctions(const ActionsDAG::Node * node)
 {
     std::stack<const ActionsDAG::Node *> nodes;
     nodes.push(node);
@@ -271,7 +273,9 @@ static bool hasStatefulOrObservableFunctions(const ActionsDAG::Node * node)
         nodes.pop();
 
         if (node->type == ActionsDAG::ActionType::FUNCTION
-            && (node->function_base->isStateful() || node->function_base->hasObservableSideEffects()))
+            && (node->function_base->isStateful()
+                || node->function_base->hasObservableSideEffects()
+                || !node->function_base->isDeterministicInScopeOfQuery()))
             return true;
 
         for (const auto * child : node->children)
@@ -325,7 +329,7 @@ static std::optional<ActionsAndName> trySplitSingleAndFilter(ActionsDAG & dag, c
         {
             if (canBeMovedToTheFrontOfAndChain(atom))
                 return splitSingleAndFilter(dag, atom);
-            if (hasStatefulOrObservableFunctions(atom))
+            if (hasOrderSensitiveFunctions(atom))
                 break;
         }
     }

@@ -77,3 +77,10 @@ SELECT log_comment, ProfileEvents['SleepFunctionMicroseconds']
 FROM system.query_log
 WHERE current_database = currentDatabase() AND type = 'QueryFinish' AND log_comment LIKE '05259_sleep_%'
 ORDER BY log_comment;
+
+-- A heavy argument with functions that are not deterministic in the scope of the query (`blockSize`) is not executed
+-- on fewer rows than in the original order either: the block would be smaller after filtering by the cheap condition.
+SELECT sum(intDiv(100, blockSize()) = 10 AND number % 2 = 1) FROM numbers(100)
+SETTINGS short_circuit_function_evaluation = 'enable', short_circuit_function_evaluation_reorder_arguments = 1, max_block_size = 10;
+SELECT count() FROM numbers(100) WHERE intDiv(100, blockSize()) = 10 AND number % 2 = 1
+SETTINGS short_circuit_function_evaluation = 'enable', short_circuit_function_evaluation_reorder_arguments = 1, max_block_size = 10;

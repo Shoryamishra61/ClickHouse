@@ -342,19 +342,22 @@ static bool isCheapForShortCircuitEvaluation(const ActionsDAG::Node * node, std:
     return res;
 }
 
-/// Does the node contain functions that are stateful or have observable side effects (like `sleep`)?
+/// Does the node contain functions that are stateful, have observable side effects (like `sleep`),
+/// or are not deterministic in the scope of the query (like `rand` or `rowNumberInBlock`)?
 /// Such a node must not be executed on fewer rows than in the original order.
-static bool hasStatefulOrObservableFunctions(const ActionsDAG::Node * node, std::unordered_map<const ActionsDAG::Node *, bool> & cache)
+static bool hasOrderSensitiveFunctions(const ActionsDAG::Node * node, std::unordered_map<const ActionsDAG::Node *, bool> & cache)
 {
     if (auto it = cache.find(node); it != cache.end())
         return it->second;
 
     bool res = false;
     if (node->type == ActionsDAG::ActionType::FUNCTION
-        && (node->function_base->isStateful() || node->function_base->hasObservableSideEffects()))
+        && (node->function_base->isStateful()
+            || node->function_base->hasObservableSideEffects()
+            || !node->function_base->isDeterministicInScopeOfQuery()))
         res = true;
     else
-        res = std::ranges::any_of(node->children, [&](const auto * child) { return hasStatefulOrObservableFunctions(child, cache); });
+        res = std::ranges::any_of(node->children, [&](const auto * child) { return hasOrderSensitiveFunctions(child, cache); });
 
     cache[node] = res;
     return res;
@@ -371,7 +374,7 @@ static std::unordered_set<const ActionsDAG::Node *> processShortCircuitFunctions
     /// Firstly, find all short-circuit functions and get their settings.
     std::unordered_map<const ActionsDAG::Node *, IFunctionBase::ShortCircuitSettings> short_circuit_nodes;
     std::unordered_map<const ActionsDAG::Node *, bool> is_cheap_cache;
-    std::unordered_map<const ActionsDAG::Node *, bool> has_observable_functions_cache;
+    std::unordered_map<const ActionsDAG::Node *, bool> has_order_sensitive_functions_cache;
     for (const auto & node : nodes)
     {
         IFunctionBase::ShortCircuitSettings short_circuit_settings;
@@ -383,7 +386,8 @@ static std::unordered_set<const ActionsDAG::Node *> processShortCircuitFunctions
             /// It is safe: the cheap argument is executed on all rows anyway (it is not lazy), and the heavy one is
             /// executed on a subset of the rows it was executed on before.
             /// In the `force_enable` mode all arguments are lazy, so there is no cheap argument that is executed anyway.
-            /// The heavy argument must not contain stateful functions or functions with observable side effects (like `sleep`),
+            /// The heavy argument must not contain stateful functions, functions with observable side effects (like `sleep`)
+            /// or functions that are not deterministic in the scope of the query (like `rand`),
             /// because executing them on fewer rows changes what an observer sees.
             if (reorder_arguments
                 && short_circuit_function_evaluation == ShortCircuitFunctionEvaluation::ENABLE
@@ -391,7 +395,7 @@ static std::unordered_set<const ActionsDAG::Node *> processShortCircuitFunctions
                 && short_circuit_settings.arguments_with_disabled_lazy_execution.size() == 1
                 && short_circuit_settings.arguments_with_disabled_lazy_execution.contains(0)
                 && !isCheapForShortCircuitEvaluation(node.children[0], is_cheap_cache)
-                && !hasStatefulOrObservableFunctions(node.children[0], has_observable_functions_cache))
+                && !hasOrderSensitiveFunctions(node.children[0], has_order_sensitive_functions_cache))
             {
                 for (size_t i = 1; i < node.children.size(); ++i)
                 {
@@ -433,7 +437,8 @@ static std::unordered_set<const ActionsDAG::Node *> processShortCircuitFunctions
 
 /// Can the node be executed on more rows than it is executed on now, with no difference but the time?
 /// The nodes that are not executed lazily are executed on all rows already. For a lazily executed node,
-/// all functions that are executed lazily must be unable to throw, be stateless and have no observable side effects.
+/// all functions that are executed lazily must be unable to throw, be stateless, have no observable side effects
+/// and be deterministic in the scope of the query.
 static bool canBeExecutedOnMoreRows(
     const ActionsDAG::Node * node,
     const std::unordered_set<const ActionsDAG::Node *> & lazy_executed_nodes,
@@ -458,6 +463,7 @@ static bool canBeExecutedOnMoreRows(
             else
                 res = !node->function_base->isStateful()
                     && !node->function_base->hasObservableSideEffects()
+                    && node->function_base->isDeterministicInScopeOfQuery()
                     && !node->function_base->canThrow(getDataTypesWithConstInfoFromNodes(node->children))
                     && std::ranges::all_of(node->children, [&](const auto * child) { return canBeExecutedOnMoreRows(child, lazy_executed_nodes, cache); });
             break;
