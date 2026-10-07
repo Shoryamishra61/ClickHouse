@@ -87,7 +87,7 @@ MergeTreeTransaction::State MergeTreeTransaction::getState() const
     return COMMITTED;
 }
 
-/// KILL QUERY has no notifier, so poll for it.
+/// KILL QUERY and shutdown have no notifier, so poll for them.
 MergeTreeTransaction::StateWaitResult
 MergeTreeTransaction::waitStateChange(CSN current_state_csn) const
 {

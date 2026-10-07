@@ -123,11 +123,6 @@ void TransactionManager::shutdown()
     if (stop_flag.exchange(true))
         return;
     txn_log.notifyUpdated();
-    {
-        std::lock_guard lock{running_list_mutex};
-        for (const auto & [_, txn] : running_list)
-            txn->notifyStateChange();
-    }
     if (updating_thread)
         updating_thread->join();
 
