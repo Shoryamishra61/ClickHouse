@@ -37,8 +37,7 @@ namespace
 {
 
 /// `ZXC` is experimental, usable on untyped spill data (unlike `PCO` and `ALP`, which require a column
-/// type and so cannot compress temporary files at all - see `temporaryFilesCodecIsGated`), and,
-/// unlike `PCO`, always compiled in.
+/// type and so cannot compress temporary files at all), and, unlike `PCO`, always compiled in.
 const String experimental_codec = "ZXC";
 const String plain_codec = "LZ4";
 
@@ -142,11 +141,12 @@ TEST(ExperimentalSpillCodecPlanSetting, EmittedOnlyWhenSpillingCanReachTheCodec)
     EXPECT_FALSE(spillCodecAuthorizationMustBeSerialized(true, true, /*compression_codec=*/""));
     EXPECT_FALSE(spillCodecAuthorizationMustBeSerialized(true, false, experimental_codec));
 
-    /// A codec that cannot compress untyped data at all makes the spill itself fail with the same error
-    /// on every peer, with and without the opt-in, so there is nothing to communicate - and classifying
-    /// it must not throw at plan-serialization time, because the query may never actually spill. The same
-    /// goes for a codec string that does not resolve at all.
-    EXPECT_FALSE(spillCodecAuthorizationMustBeSerialized(true, true, "ALP"));
+    /// A gated codec that cannot compress untyped data at all still carries the opt-in, so a remote peer
+    /// passes the session gate and reports the same typed-only error as a local spill. Classifying it must
+    /// not throw at plan-serialization time, because the query may never actually spill.
+    EXPECT_TRUE(spillCodecAuthorizationMustBeSerialized(true, true, "ALP"));
+    /// An ungated codec that cannot compress untyped data fails identically on every peer, and so does a
+    /// codec string that does not resolve at all: there is nothing to communicate.
     EXPECT_FALSE(spillCodecAuthorizationMustBeSerialized(true, true, "T64('bit')"));
     EXPECT_FALSE(spillCodecAuthorizationMustBeSerialized(true, true, "NO_SUCH_CODEC"));
 }

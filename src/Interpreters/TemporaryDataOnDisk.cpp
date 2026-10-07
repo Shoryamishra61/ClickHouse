@@ -117,24 +117,15 @@ bool temporaryFilesCodecIsGated(const String & compression_codec)
     if (compression_codec.empty())
         return false;
 
-    const auto & factory = CompressionCodecFactory::instance();
-
     /// This can run while a plan is being serialized, for a query that may never spill, so it must
-    /// classify rather than throw. A codec that cannot compress untyped data at all (`SZ3`, `PCO`, ...)
-    /// makes the spill itself fail with the same `getCodec` error on every peer, with and without the
-    /// session opt-in - there is nothing to communicate, and classifying it below would be pointless.
-    /// The same goes for a codec string that cannot be resolved at all: the spill fails with the
-    /// identical error wherever the plan runs.
-    try
-    {
-        if (!factory.getReasonUnsafeForUntypedData(compression_codec).empty())
-            return false;
-        return CompressionCodecFactory::isCodecStringGated(compression_codec);
-    }
-    catch (const Exception &)
-    {
-        return false;
-    }
+    /// classify rather than throw - `isCodecStringGated` treats a codec string that cannot be resolved at
+    /// all as not gated: the spill fails with the identical error wherever the plan runs.
+    ///
+    /// A gated codec that cannot compress untyped data at all (`PCO`, `ALP`, ...) is still reported as
+    /// gated: the spill fails on every peer, but `getCodec` checks the session gate first, so a peer that
+    /// did not receive the initiator's opt-in would report the gate instead of the actual typed-only
+    /// error the initiator reports for a local spill.
+    return CompressionCodecFactory::isCodecStringGated(compression_codec);
 }
 
 bool spillCodecAuthorizedBySession(const Settings & settings)
