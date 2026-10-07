@@ -1490,6 +1490,19 @@ def find_base_release_build(info, build_type):
     return find_master_build(commits, build_type)
 
 
+# TEMP: compare the PR's Iceberg suites against the exact 26.6.8.7 release build.
+# The PR workflow calls these jobs "master_head", but that mode keeps the PR's
+# test definitions; "release_base" replaces them with the old revision's tests.
+ICEBERG_REFERENCE_SHA = "7d517d94ef268330a7ee49460332764f92f38d5b"
+
+
+def iceberg_reference_build(build_type):
+    return (
+        "https://clickhouse-builds.s3.us-east-1.amazonaws.com/REFs/26.6/"
+        f"{ICEBERG_REFERENCE_SHA}/{build_type}/clickhouse"
+    )
+
+
 # The number of distinct "slower" queries that fails the whole performance
 # check when the cumulative `release_base` mode has no previous master run to
 # compute a delta against. `report.py` embeds a status into `report.html`, but
@@ -2284,8 +2297,7 @@ def main():
 
     if Utils.is_arm():
         if compare_against_master:
-            link_for_ref_ch = find_prev_build(info, "build_arm_release")
-            assert link_for_ref_ch, "reference clickhouse build has not been found"
+            link_for_ref_ch = iceberg_reference_build("build_arm_release")
         elif compare_against_release:
             link_for_ref_ch = find_base_release_build(info, "build_arm_release")
             assert link_for_ref_ch, "reference clickhouse build has not been found"
@@ -2293,8 +2305,7 @@ def main():
             assert False
     elif Utils.is_amd():
         if compare_against_master:
-            link_for_ref_ch = find_prev_build(info, "build_amd_release")
-            assert link_for_ref_ch, "reference clickhouse build has not been found"
+            link_for_ref_ch = iceberg_reference_build("build_amd_release")
         elif compare_against_release:
             link_for_ref_ch = find_base_release_build(info, "build_amd_release")
             assert link_for_ref_ch, "reference clickhouse build has not been found"
@@ -2303,6 +2314,7 @@ def main():
     else:
         Utils.raise_with_error("Unknown processor architecture")
 
+    print(f"Reference build for this Iceberg comparison: {link_for_ref_ch}")
     reference_warning = (
         LOCAL_REFERENCE_FALLBACK_WARNING
         if info.is_local_run and link_for_ref_ch.startswith(LATEST_MASTER_BUILD_PREFIX)
@@ -2328,16 +2340,15 @@ def main():
             strict=True,
         )
 
-    test_keyword = args.test
-
-    # Selected up front (after the release_base vintage checkout above): Configure needs the list for the S3 decision.
-    test_files = test_discovery.list_test_files("./tests/performance/")
-    # TODO: in PRs filter test files against changed files list if only tests has been changed
-    # changed_files = info.get_custom_data("changed_files")
-    if test_keyword:
-        test_files = [file for file in test_files if test_keyword in file]
-    else:
-        test_files = test_files[batch_num::total_batches]
+    # TEMP: run every Iceberg suite (local and S3), distributed across all six
+    # shards on each architecture. Filtering with --test used to skip sharding
+    # and would run the entire suite independently in every shard.
+    test_files = [
+        file
+        for file in test_discovery.list_test_files("./tests/performance/")
+        if file.startswith("iceberg_suite_") and (not args.test or args.test in file)
+    ]
+    test_files = test_files[batch_num::total_batches]
     print(f"Job Batch: [{batch_num}/{total_batches}]")
     print(f"Test Files ({len(test_files)}): [{test_files}]")
     assert test_files
