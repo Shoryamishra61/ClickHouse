@@ -33,11 +33,13 @@ public:
     };
 
     /// Each overload throws `TOO_BIG_AST` when the substituted copies exceed `max_expanded_ast_elements`
-    /// (zero means no limit). The overload with a context takes the limit from its settings.
+    /// (zero means no limit). The overloads with a budget charge it instead, so that the sibling fragments
+    /// of one query, such as the predicate and the assignments of an `UPDATE`, share a single limit.
     static void visit(ASTPtr & ast, size_t max_expanded_ast_elements);
-    static void visit(ASTPtr & ast, ContextPtr context);
+    static void visit(ASTPtr & ast, ContextPtr context, ExpandedASTBudget & budget);
     static void visit(ASTSelectQuery & select, size_t max_expanded_ast_elements);
     static void visit(ASTSelectWithUnionQuery & select, size_t max_expanded_ast_elements);
+    static void visit(ASTSelectWithUnionQuery & select, ExpandedASTBudget & budget);
 
 private:
     static void visit(ASTPtr & ast, const Data & data);

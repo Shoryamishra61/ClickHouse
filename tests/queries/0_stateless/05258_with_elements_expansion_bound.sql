@@ -42,3 +42,15 @@ SET max_expanded_ast_elements = 10000;
 ALTER TABLE mv_modify_expansion MODIFY QUERY WITH c0 AS (SELECT x FROM t_expansion_src), c1 AS (SELECT a.x FROM c0 AS a, c0 AS b) SELECT x FROM c1;
 DROP VIEW mv_modify_expansion;
 DROP TABLE t_expansion_src;
+
+-- The expressions of all mutation commands of one query, and the predicate and the assignments of an
+-- `UPDATE`, share one limit: each of them fits alone, but not together.
+SET max_expanded_ast_elements = 500, mutations_sync = 2, enable_lightweight_update = 1;
+CREATE TABLE t_expansion_mutation (x UInt64, y UInt64) ENGINE = MergeTree ORDER BY tuple() SETTINGS enable_block_number_column = 1, enable_block_offset_column = 1;
+INSERT INTO t_expansion_mutation VALUES (1, 1);
+ALTER TABLE t_expansion_mutation UPDATE x = 2 WHERE x IN (WITH c0 AS (SELECT 1 AS x), c1 AS (SELECT a.x FROM c0 AS a, c0 AS b), c2 AS (SELECT a.x FROM c1 AS a, c1 AS b), c3 AS (SELECT a.x FROM c2 AS a, c2 AS b) SELECT x FROM c3);
+ALTER TABLE t_expansion_mutation UPDATE x = 3 WHERE x IN (WITH c0 AS (SELECT 1 AS x), c1 AS (SELECT a.x FROM c0 AS a, c0 AS b), c2 AS (SELECT a.x FROM c1 AS a, c1 AS b), c3 AS (SELECT a.x FROM c2 AS a, c2 AS b) SELECT x FROM c3), UPDATE y = 3 WHERE y IN (WITH c0 AS (SELECT 1 AS x), c1 AS (SELECT a.x FROM c0 AS a, c0 AS b), c2 AS (SELECT a.x FROM c1 AS a, c1 AS b), c3 AS (SELECT a.x FROM c2 AS a, c2 AS b) SELECT x FROM c3); -- { serverError TOO_BIG_AST }
+UPDATE t_expansion_mutation SET x = 4 WHERE x IN (WITH c0 AS (SELECT 1 AS x), c1 AS (SELECT a.x FROM c0 AS a, c0 AS b), c2 AS (SELECT a.x FROM c1 AS a, c1 AS b), c3 AS (SELECT a.x FROM c2 AS a, c2 AS b) SELECT x FROM c3);
+UPDATE t_expansion_mutation SET x = x IN (WITH c0 AS (SELECT 1 AS x), c1 AS (SELECT a.x FROM c0 AS a, c0 AS b), c2 AS (SELECT a.x FROM c1 AS a, c1 AS b), c3 AS (SELECT a.x FROM c2 AS a, c2 AS b) SELECT x FROM c3) WHERE y IN (WITH c0 AS (SELECT 1 AS x), c1 AS (SELECT a.x FROM c0 AS a, c0 AS b), c2 AS (SELECT a.x FROM c1 AS a, c1 AS b), c3 AS (SELECT a.x FROM c2 AS a, c2 AS b) SELECT x FROM c3); -- { serverError TOO_BIG_AST }
+SELECT x, y FROM t_expansion_mutation;
+DROP TABLE t_expansion_mutation;
