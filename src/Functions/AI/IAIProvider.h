@@ -42,7 +42,7 @@ struct AIRequest
 
 /** Parameters for a single AI chat completion request.
   *
-  * Each row processed by an AI function produces one AIChatRequest.
+  * Each row processed by an AI chat function produces one AIChatRequest.
   * The provider serializes it into the HTTP body format expected by the API.
   */
 struct AIChatRequest : AIRequest
