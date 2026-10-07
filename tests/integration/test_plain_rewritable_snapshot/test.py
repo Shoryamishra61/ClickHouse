@@ -64,6 +64,14 @@ def event(node, name):
     return int(node.query(f"SELECT value FROM system.events WHERE event = '{name}'").strip() or 0)
 
 
+# The server log is kept across restarts and repeated runs of the tests, so only the new occurrences are counted.
+RECONCILED_LOG_LINE = "had changes after the snapshot"
+
+
+def reconciled_count(node):
+    return int(node.count_in_log(RECONCILED_LOG_LINE).strip())
+
+
 def wait_for(condition, timeout=30):
     deadline = time.monotonic() + timeout
     while True:
@@ -90,10 +98,11 @@ def test_snapshot_is_written_and_loaded_on_restart(start_cluster):
 
     # On startup the state comes from the snapshot, and the object storage listing
     # confirms that nothing changed after it was written.
+    reconciled_before = reconciled_count(writer)
     writer.restart_clickhouse()
     assert event(writer, "DiskPlainRewritableSnapshotRead") >= 1
     assert writer.query("SELECT count(), sum(id) FROM t_snapshot") == "20\t190\n"
-    assert not writer.contains_in_log("had changes after the snapshot")
+    assert reconciled_count(writer) == reconciled_before
 
     # The snapshot is a copy of the state: the disk works without it and recreates it.
     writer.stop_clickhouse()
@@ -129,10 +138,11 @@ def test_stale_snapshot_is_reconciled_with_listing(start_cluster):
     writer.stop_clickhouse()
     put_snapshot(stale_snapshot)
     stale_etag = snapshot_etag()
+    reconciled_before = reconciled_count(writer)
     writer.start_clickhouse()
 
     assert event(writer, "DiskPlainRewritableSnapshotRead") >= 1
-    assert writer.contains_in_log("had changes after the snapshot")
+    assert reconciled_count(writer) > reconciled_before
     assert writer.query("SELECT count(), sum(id) FROM t_stale") == "30\t435\n"
     assert writer.query(f"SELECT count() FROM system.remote_data_paths WHERE disk_name = 'disk_snapshot' AND local_path LIKE '%{removed_table_uuid}%'") == "0\n"
     # The reconciled state is published.
