@@ -167,6 +167,10 @@ public:
             : IDataType::getSerialization(column, *it->second);
     }
 
+    /// There is no loaded part holding prebuilt serializations to share, so the readers build them from
+    /// `serialization_infos` themselves (see `IMergeTreeReader::getColumnAndSerializationInPart`).
+    SerializationPtr tryGetSerialization(const String & /* column_name */) const override { return nullptr; }
+
     String getTableName() const override { return table_name; }
 
     size_t getRowCount() const override
