@@ -316,7 +316,7 @@ namespace
             result_offsets_builder.insertOne(arr_size);
 
             const auto elems_size_old = res_elems.size();
-            if (elems_size_old + arr_size > res_elems.capacity())
+            if (elems_size_old + arr_size > res_elems.capacity()) [[unlikely]]
                 reserveSourceIfDroppedEmpty(res_elems, arr_offset, src_elems.size(), evidence_offset);
             res_elems.resize(elems_size_old + arr_size);
             memcpy(&res_elems[elems_size_old], &src_elems[arr_offset], arr_size * sizeof(T));
@@ -346,7 +346,7 @@ namespace
 
                 /// copy elements for SIMD_BYTES arrays at once
                 const auto elems_size_old = res_elems.size();
-                if (elems_size_old + chunk_size > res_elems.capacity())
+                if (elems_size_old + chunk_size > res_elems.capacity()) [[unlikely]]
                     reserveSourceIfDroppedEmpty(res_elems, chunk_offset, src_elems.size(), evidence_offset);
                 res_elems.resize(elems_size_old + chunk_size);
                 memcpy(&res_elems[elems_size_old], &src_elems[chunk_offset], chunk_size * sizeof(T));
