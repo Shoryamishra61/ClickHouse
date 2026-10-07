@@ -77,7 +77,7 @@ do
     # previously configured value on an empty input (`... .value || user`) would keep authenticating to
     # the newly handed-over server with the credentials of the old one, which is the very leak the
     # handover exists to prevent.
-    credentials=$(echo "$content" | grep -qE "\|\| (user|password)\b" && echo sticky || echo replaced)
+    credentials=$(echo "$content" | grep -qE "\.value \|\| (user|password)\b" && echo sticky || echo replaced)
     # That default endpoint keeps the query string of the served URL as well, minus the page's own
     # parameters: a proxy can expose one origin as several backends and select between them with
     # `?cluster=a`, and the query string of the configured address is part of the endpoint identity
@@ -214,7 +214,7 @@ echo "schema credential_store=${credential_store} credential_retrieval=${credent
 # `/play` probes the credentials on open only when `?url=` names its own endpoint: the browser may
 # autofill the login saved for this page while the initial ping is in flight.
 content=$(fetch_page play)
-initial_probe=$(echo "$content" | grep -qxF "checkURL(isOwnServerTarget(url_elem.value));" \
+initial_probe=$(echo "$content" | grep -qxF "if (!is_docs_relay) checkURL(isOwnServerTarget(url_elem.value));" \
     && ! echo "$content" | grep -qxF "checkURL(true);" \
     && echo endpoint || echo any)
 echo "play initial_probe=${initial_probe}"
