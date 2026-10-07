@@ -143,3 +143,12 @@ LAYOUT(COMPLEX_KEY_HASHED()) LIFETIME(MIN 0 MAX 0);
 SELECT dictHas('d_zero', tuple(-0.0::Float64)), dictGet('d_zero', 'v', tuple(-0.0::Float64));
 DROP DICTIONARY d_zero;
 DROP TABLE t_dict_zero;
+
+SELECT 'BFloat16';
+SELECT uniqExact(x), uniq(x), uniqHLL12(x), uniqCombined(x), uniqCombined64(x) FROM (SELECT arrayJoin([0.0::BFloat16, -0.0::BFloat16]) AS x);
+SELECT uniqExact(x, 1), uniq(tuple(x)) FROM (SELECT arrayJoin([0.0::BFloat16, -0.0::BFloat16]) AS x);
+SELECT groupUniqArray(x) FROM (SELECT arrayJoin([[0.0::BFloat16], [-0.0::BFloat16]]) AS x);
+SELECT length(groupArrayDistinct(x)), length(groupUniqArray(tuple(x))) FROM (SELECT arrayJoin([0.0::BFloat16, -0.0::BFloat16]) AS x);
+SELECT arrayIntersect([[0.0::BFloat16]], [[-0.0::BFloat16]]);
+SELECT count() FROM (SELECT arrayJoin([0.0::BFloat16, -0.0::BFloat16]) AS x GROUP BY x);
+SELECT materialize(-0.0::BFloat16) IN (0.0::BFloat16);
