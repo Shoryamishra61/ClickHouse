@@ -171,7 +171,7 @@ namespace Setting
     extern const SettingsUInt64 max_ast_depth;
     extern const SettingsUInt64 max_ast_elements;
     extern const SettingsString polyglot_dialect;
-    extern const SettingsBool allow_experimental_logsql_dialect;
+    extern const SettingsBool enable_logsql_dialect;
     extern const SettingsString logsql_database;
     extern const SettingsString logsql_table;
     extern const SettingsString logsql_time_column;
@@ -773,7 +773,7 @@ ASTPtr ClientBase::parseQuery(const char *& pos, const char * end, const Setting
             parser = std::make_unique<ParserLogsQLQuery>(
                 settings[Setting::logsql_database], settings[Setting::logsql_table],
                 settings[Setting::logsql_time_column], settings[Setting::logsql_message_column],
-                raw_query_begin ? raw_query_begin : pos, end, settings[Setting::allow_experimental_logsql_dialect], settings[Setting::max_parser_depth],
+                raw_query_begin ? raw_query_begin : pos, end, settings[Setting::enable_logsql_dialect], settings[Setting::max_parser_depth],
                 settings[Setting::max_query_size]);
         else if (dialect == Dialect::trino)
             parser = std::make_unique<ParserTrinoQuery>(max_length, settings[Setting::max_parser_depth], settings[Setting::max_parser_backtracks], end, settings[Setting::enable_trino_dialect], settings[Setting::allow_settings_after_format_in_insert], settings[Setting::implicit_select]);
@@ -3113,7 +3113,7 @@ void ClientBase::processParsedSingleQuery(
             "dialect",
             "enable_json_ast_dialect",
             "enable_trino_dialect",
-            "allow_experimental_logsql_dialect",
+            "enable_logsql_dialect",
             "allow_experimental_polyglot_dialect",
             "polyglot_dialect"};
         SettingsChanges parse_dialect_settings;
