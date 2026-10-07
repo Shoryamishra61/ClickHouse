@@ -1,19 +1,11 @@
-before the rename	1000	499500
-attach refused: 1
-still detached	1
-nothing attached	0
-reused name refused: 1
-still detached	1
-nothing attached	0
-swapped names refused: 1
-still detached	1
-nothing attached	0
-reloaded part not served	0
-reloaded part detached	1
+renamed refused	1	0
+reused refused	1	0
+swapped refused	1	0
+readded refused	1	0
 unchanged schema attaches	1000	499500
 dropped column attaches	1000	499500
 dropped and added columns attach	1000	499500	7000
-re-added column refused: 1
-still detached	1
-nothing attached	0
+retyped column attaches	1000	499500	String
 persistent virtual column attaches	500	124750	3500
+reloaded part not served	0
+reloaded part detached	1
