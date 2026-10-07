@@ -984,7 +984,8 @@ std::optional<UInt128> getModificationHashWithRefreshedMetadata(const StoragePtr
 /// introspection path marks the scope instead, and `StorageView::getModificationHash` returns nullopt
 /// whenever it is reached inside it. The consistency consumers (the query result cache and
 /// `REFRESH ... IF CHANGED`) do not set the flag: they must describe the rows the view actually
-/// returns, and they gate access separately.
+/// returns, and they gate access separately. Inside the scope, `canComputeModificationHash` also
+/// requires `SELECT` on every column of each table the hash covers.
 class ModificationHashIntrospectionScope
 {
 public:
@@ -1000,5 +1001,13 @@ private:
 
 /// Whether the current thread is inside a `ModificationHashIntrospectionScope`.
 bool isModificationHashIntrospection();
+
+/// Whether the user of `context` may have the modification hash of the table `database`.`table` with
+/// the columns `columns` computed. Ordinarily `SELECT` on the table or on at least one of its columns
+/// is enough, matching `InterpreterSelectQuery`: the hash then only gates a cache or a refresh of
+/// what the user reads. Inside a `ModificationHashIntrospectionScope` the hash is exposed as a value,
+/// and since it covers the whole table, `SELECT` on a single column would reveal changes to the
+/// columns the user cannot read. There the user must be able to read every column.
+bool canComputeModificationHash(const ContextPtr & context, const String & database, const String & table, const ColumnsDescription & columns);
 
 }

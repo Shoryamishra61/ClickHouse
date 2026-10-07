@@ -1032,25 +1032,21 @@ protected:
                     std::optional<UInt128> modification_hash;
                     try
                     {
+                        /// Fail closed for every non-`INVOKER` view this row's hash reaches, including
+                        /// through a wrapper engine (`Merge`, the local shard of `Distributed`), whose
+                        /// own storage is not a view, and require `SELECT` on every column of each table
+                        /// it covers - see `ModificationHashIntrospectionScope` and
+                        /// `canComputeModificationHash`.
+                        ModificationHashIntrospectionScope introspection_scope;
+
                         /// `getModificationHash` can perform credentialed I/O for external engines (`URL`,
                         /// object storage, `Distributed`). A `system.tables` row only requires `SHOW TABLES`,
                         /// so a user who can see the row but has no `SELECT` on the table must not be able to
-                        /// trigger those probes through this column. Require `SELECT` access (table-level, or
-                        /// at least one column - matching `InterpreterSelectQuery` and the query-cache helper);
-                        /// otherwise leave the value NULL.
+                        /// trigger those probes through this column. And the hash covers the whole table, so
+                        /// `SELECT` on some columns only would let a user poll it for changes to the columns
+                        /// they cannot read. Require `SELECT` on the whole table; otherwise leave the value NULL.
                         bool can_read = table && metadata_snapshot
-                            && access->isGranted(AccessType::SELECT, database_name, table_name);
-                        if (!can_read && table && metadata_snapshot)
-                        {
-                            for (const auto & column : metadata_snapshot->getColumns())
-                            {
-                                if (access->isGranted(AccessType::SELECT, database_name, table_name, column.name))
-                                {
-                                    can_read = true;
-                                    break;
-                                }
-                            }
-                        }
+                            && canComputeModificationHash(context, database_name, table_name, metadata_snapshot->getColumns());
                         /// A non-trivial `SELECT` row policy hides some rows of the table from the caller, but
                         /// the hash covers the whole table, so it would reveal changes to filtered-out rows
                         /// while the caller's visible result stays the same. Fail closed, matching
@@ -1064,11 +1060,6 @@ protected:
                         }
                         if (can_read)
                         {
-                            /// Fail closed for every non-`INVOKER` view this row's hash reaches, including
-                            /// through a wrapper engine (`Merge`, the local shard of `Distributed`), whose
-                            /// own storage is not a view - see `ModificationHashIntrospectionScope`.
-                            ModificationHashIntrospectionScope introspection_scope;
-
                             /// A `SQL SECURITY DEFINER` / `NONE` view reads its stored SELECT under an
                             /// effective context rather than the caller's. Its modification hash consequently
                             /// tracks source tables the caller may not be allowed to read, which would expose

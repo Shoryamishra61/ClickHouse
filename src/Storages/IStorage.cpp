@@ -1,5 +1,6 @@
 #include <Storages/IStorage.h>
 
+#include <Access/ContextAccess.h>
 #include <Disks/IStoragePolicy.h>
 #include <Common/CurrentThread.h>
 #include <Common/StringUtils.h>
@@ -558,6 +559,24 @@ ModificationHashIntrospectionScope::~ModificationHashIntrospectionScope()
 bool isModificationHashIntrospection()
 {
     return modification_hash_introspection;
+}
+
+bool canComputeModificationHash(const ContextPtr & context, const String & database, const String & table, const ColumnsDescription & columns)
+{
+    const auto access = context->getAccess();
+    if (access->isGranted(AccessType::SELECT, database, table))
+        return true;
+
+    bool any_granted = false;
+    bool all_granted = true;
+    for (const auto & column : columns)
+    {
+        if (access->isGranted(AccessType::SELECT, database, table, column.name))
+            any_granted = true;
+        else
+            all_granted = false;
+    }
+    return isModificationHashIntrospection() ? any_granted && all_granted : any_granted;
 }
 
 }
