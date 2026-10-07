@@ -15,6 +15,10 @@ SET use_query_condition_cache=0;
 -- pipeline and make them assert nothing about the path they name.
 SET max_rows_to_group_by = 0;
 
+-- Both of those passes and `optimize_aggregation_in_order` are gated by `query_plan_enable_optimizations`,
+-- which is randomized: with it off, the `oba_skip_merging_*` queries stay on the merging pipeline too.
+SET query_plan_enable_optimizations = 1;
+
 -- Every aggregation path under test needs more than one aggregating stream, and `max_threads` is
 -- randomized in CI. `group_by_two_level_threshold` is randomized too and decides single- vs two-level
 -- aggregation, so each query below pins it to the level it means to exercise.
