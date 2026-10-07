@@ -1,10 +1,12 @@
 -- Tags: no-random-merge-tree-settings
 -- Regression test for `Join is supported only for pipelines with one output port, got N and M` (a
 -- logical error) with `parallel_sorted_merge`. The algorithm shards the join by primary-key ranges at
--- plan time, but a data-dependent `PREWHERE` can prune one side down to a single empty stream at
--- pipeline-building time (the empty-parts shortcut of `ReadFromMergeTree`), so the stream counts
--- diverge. `JoinStep` then falls back from the by-shards pipeline to the plain single-stream merge
--- join, merging each side's per-shard streams (sorted by the join keys) back into one sorted stream.
+-- plan time, and a data-dependent `PREWHERE` can prune one side down to no parts at all at
+-- pipeline-building time (the empty-parts shortcut of `ReadFromMergeTree`). That side used to collapse
+-- to a single empty stream, so the stream counts of the two sides diverged. Now an empty side keeps one
+-- output port per shard (`ReadFromMergeTree::getNumStreamsWhenNothingToRead`), the counts stay equal and
+-- the join runs sharded. (`JoinStep` still degrades a diverged join to the single-stream merge join as a
+-- safety net, but no query shape is known to reach it.)
 
 DROP TABLE IF EXISTS psmj_div;
 CREATE TABLE psmj_div (c0 UInt64, c1 UInt64, s String) ENGINE = MergeTree ORDER BY (c0, c1) SETTINGS index_granularity = 8;
@@ -21,24 +23,30 @@ SET max_threads = 8;
 SET optimize_read_in_order = 1, query_plan_read_in_order = 1, query_plan_join_shard_by_pk_ranges = 0, query_plan_join_swap_table = 0, enable_parallel_replicas = 0;
 
 -- `c0 > 1000` is a data-dependent range on the primary key: no part contains such a row, so the left
--- side is fully pruned to a single stream while the sharded right side keeps several streams. That
--- divergence used to raise the logical error; it must return 0 rows now.
+-- side is fully pruned while the sharded right side keeps several streams. That used to raise the
+-- logical error; it must return 0 rows now.
 SELECT count() FROM psmj_div AS a ALL INNER JOIN psmj_div AS b ON b.c0 = a.c0 PREWHERE a.c0 > 1000;
 
--- Non-empty output through the fallback: a `RIGHT` join with `PREWHERE a.c0 > 1000` prunes the left
--- (`a`) side to a single empty stream while the sharded right (`b`) side keeps several non-empty
--- per-shard streams. Every merged `b` row must reach the output: a row that the merge drops or
--- duplicates changes the count or the checksum. Compare against the hash join, which does not use this
+-- Non-empty output: a `RIGHT` join with `PREWHERE a.c0 > 1000` prunes the left (`a`) side to no parts
+-- while the sharded right (`b`) side keeps several non-empty per-shard streams. Every `b` row must reach
+-- the output: a row that the join drops or duplicates changes the count or the checksum. Compare against the hash join, which does not use this
 -- pipeline. Must be 1.
 SELECT
     (SELECT (count(), sum(cityHash64(a.c0, a.c1, b.c0, b.c1))) FROM psmj_div AS a ALL RIGHT JOIN psmj_div AS b ON b.c0 = a.c0 PREWHERE a.c0 > 1000)
   = (SELECT (count(), sum(cityHash64(a.c0, a.c1, b.c0, b.c1))) FROM psmj_div AS a ALL RIGHT JOIN psmj_div AS b ON b.c0 = a.c0 PREWHERE a.c0 > 1000 SETTINGS join_algorithm = 'hash');
 
--- The divergence only arises when the `PREWHERE` prunes one side to zero rows: with any surviving row
--- both sides stay sharded and equal, so the results above cannot distinguish the sorted merge from an
--- unordered `resize(1)`. Assert the sorted merge in the plan instead. Must be 1.
-SELECT count() > 0 FROM (
-    EXPLAIN PIPELINE SELECT count() FROM psmj_div AS a ALL RIGHT JOIN psmj_div AS b ON b.c0 = a.c0 PREWHERE a.c0 > 1000
-) WHERE explain ILIKE '%MergingSortedTransform%';
+-- The side pruned to zero parts keeps one port per shard, so the join is not degraded: it runs sharded
+-- and is reported as `PARALLEL_SORTED_MERGE`, not as a degraded `SORTED_MERGE`. Must be 1.
+SELECT countIf(explain LIKE '%Sharding:%') = 1 FROM (
+    EXPLAIN ANALYZE SELECT count() FROM psmj_div AS a ALL RIGHT JOIN psmj_div AS b ON b.c0 = a.c0 PREWHERE a.c0 > 1000
+);
+
+SELECT count() FROM psmj_div AS a ALL RIGHT JOIN psmj_div AS b ON b.c0 = a.c0 PREWHERE a.c0 > 1000
+FORMAT Null SETTINGS log_queries = 1, log_comment = '04895_pruned_side';
+
+SYSTEM FLUSH LOGS query_log;
+SELECT used_join_algorithms
+FROM system.query_log
+WHERE current_database = currentDatabase() AND type = 'QueryFinish' AND log_comment = '04895_pruned_side';
 
 DROP TABLE psmj_div;

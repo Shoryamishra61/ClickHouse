@@ -2,7 +2,9 @@
 -- `full_sorting_merge`, so `system.query_log.used_join_algorithms` must report the variant that was
 -- selected and actually ran, not `FULL_SORTING_MERGE`. The `parallel_sorted_merge` variant is reported
 -- only when the join was built sharded (`JoinStep` degrades it to a single-stream `sorted_merge` if the
--- stream counts of the two sides diverge at pipeline-building time).
+-- stream counts of the two sides diverge at pipeline-building time). That degradation is a safety net
+-- that no known query shape reaches: a side pruned to zero parts keeps one port per shard, which
+-- `04895_parallel_sorted_merge_join_shard_stream_divergence` checks together with the reported algorithm.
 
 DROP TABLE IF EXISTS smj_rep_left;
 DROP TABLE IF EXISTS smj_rep_right;

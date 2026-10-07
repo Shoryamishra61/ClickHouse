@@ -182,8 +182,8 @@ QueryPipelineBuilderPtr JoinStep::updatePipeline(QueryPipelineBuilders pipelines
             /// streams that are each sorted by the join keys (its pre-join sort is always a sort by them, so
             /// there is no other kind of multi-stream input here):
             ///  - the plan sharded this join by primary-key ranges, but the stream counts diverged at
-            ///    pipeline-building time (e.g. a data-dependent `PREWHERE` pruned one side down to a single
-            ///    empty stream), so the per-shard pipeline cannot be built;
+            ///    pipeline-building time, so the per-shard pipeline cannot be built (a safety net: a side
+            ///    pruned to zero parts keeps one port per shard, see `getNumStreamsWhenNothingToRead`);
             ///  - the input is a join below that was sharded, while this one was not, and the sharding pass
             ///    left the pre-join sort partitioned per shard (`PartitionedFinishSorting`).
             /// Degrade to the single-stream merge join instead of failing: merging the streams preserves
