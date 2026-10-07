@@ -1380,7 +1380,7 @@ public:
     String getSignatureString() const override
     {
         if constexpr (FuncLabel::name[0] == 'p')
-            return "(Tuple, Float | UInt) -> Tuple";
+            return "(Tuple, const Float | UInt) -> Tuple";
         else
             return "(Tuple) -> Tuple";
     }
@@ -1697,7 +1697,7 @@ struct L2SquaredNormTraits
 struct LpNormTraits
 {
     static constexpr auto name = "LpNorm";
-    static constexpr auto signature = "(Tuple | Array | QBit, Float | UInt) -> Float64";
+    static constexpr auto signature = "(Tuple | Array | QBit, const Float | UInt) -> Float64";
 
     static constexpr auto CreateTupleFunction = FunctionLpNorm::create;
     static constexpr auto CreateArrayFunction = createFunctionArrayLpNorm;
@@ -1774,7 +1774,7 @@ struct L2SquaredDistanceTraits
 struct LpDistanceTraits
 {
     static constexpr auto name = "LpDistance";
-    static constexpr auto signature = "(Tuple | Array | QBit, Tuple | Array | QBit, Float | UInt) -> Float64";
+    static constexpr auto signature = "(Tuple | Array | QBit, Tuple | Array | QBit, const Float | UInt) -> Float64";
 
     static constexpr auto CreateTupleFunction = FunctionLpDistance::create;
     static constexpr auto CreateArrayFunction = createFunctionArrayLpDistance;

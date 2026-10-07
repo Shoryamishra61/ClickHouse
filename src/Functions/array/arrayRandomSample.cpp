@@ -36,12 +36,12 @@ public:
     bool isDeterministic() const override { return false; }
     bool isDeterministicInScopeOfQuery() const override { return false; }
 
-    /// The runtime enforces that `samples` is a const `UInt*` column. The DSL does not
-    /// model "must be const", so the signature accepts any `UInt*` and lets the runtime
-    /// reject non-const callers.
+    /// `samples` must be a constant `UInt*`. On the column-less types-only path the
+    /// constness cannot be decided, so it is still enforced by `getArgumentsThatAreAlwaysConstant`
+    /// and `executeImpl`.
     String getSignatureString() const override
     {
-        return "(Array(T), UInt) -> Array(T)";
+        return "(Array(T), const UInt) -> Array(T)";
     }
 
     DataTypePtr getReturnTypeImpl(const ColumnsWithTypeAndName & arguments) const override

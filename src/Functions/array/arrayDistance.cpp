@@ -737,9 +737,9 @@ public:
         /// types is `BFloat16` or `Float32`, otherwise `Float64`. (We do not
         /// return `BFloat16` even for `Array(BFloat16)` pairs because SIMD
         /// support for BFloat16 is too limited to compute the distance.)
-        /// `LpDistance` carries an extra `p` argument — covered by the
-        /// trailing `[Integer | Float]`.
-        return "(Array(A : NativeNumber | BFloat16), Array(B : NativeNumber | BFloat16), [Integer | Float])"
+        /// `LpDistance` carries an extra `p` argument, which must be a numeric
+        /// constant — covered by the trailing `[const Integer | Float]`.
+        return "(Array(A : NativeNumber | BFloat16), Array(B : NativeNumber | BFloat16), [const Integer | Float])"
                " -> selectIf(isFloat32OrSmaller(leastSupertype(A, B)), Float32, Float64)";
     }
 

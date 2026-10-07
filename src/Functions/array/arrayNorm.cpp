@@ -198,11 +198,11 @@ public:
         /// 1-arg norms (`array<L1|L2|L2Squared|Linf>Norm`) and the 2-arg `arrayLpNorm` share
         /// the same nested-element → return-type table: arrays of BFloat16 or Float32
         /// produce a Float32 result, everything else falls back to Float64. The trailing
-        /// `[Integer | Float]` covers LpNorm's `p` argument (a numeric constant; constness is
-        /// enforced separately in `initConstParams`).
-        return
-            "(Array(Float32 | BFloat16), [Integer | Float]) -> Float32"
-            " OR (Array(NativeNumber), [Integer | Float]) -> Float64";
+        /// `[const Integer | Float]` covers LpNorm's `p` argument, which must be a numeric constant.
+        /// A single alternative (rather than one per result type) keeps a non-constant `p`
+        /// reported as `ILLEGAL_COLUMN` instead of a type mismatch of the other alternative.
+        return "(Array(T : NativeNumber | BFloat16), [const Integer | Float])"
+               " -> selectIf(isFloat32OrSmaller(T), Float32, Float64)";
     }
 
     DataTypePtr getReturnTypeImpl(const ColumnsWithTypeAndName & arguments) const override
