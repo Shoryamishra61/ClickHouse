@@ -22,9 +22,7 @@ SELECT 'stand-in', engine FROM system.tables WHERE database = currentDatabase() 
 -- Reading a system table only inspects tables and must not load them.
 SELECT 'in system.parts', count() FROM system.parts WHERE database = currentDatabase() AND table = 't';
 SELECT 'in system.parts_columns', count() FROM system.parts_columns WHERE database = currentDatabase() AND table = 't';
--- The server-wide form only inspects tables as well.
-SYSTEM UNLOAD PRIMARY KEY;
-SELECT 'still stand-in', engine FROM system.tables WHERE database = currentDatabase() AND name = 't';
+-- The server-wide `SYSTEM UNLOAD PRIMARY KEY` is checked in a separate `no-parallel` test.
 
 -- A `SYSTEM` command addressed to the table is an access to it, so it resolves the stand-in instead of
 -- refusing the table as not a `MergeTree` table.
