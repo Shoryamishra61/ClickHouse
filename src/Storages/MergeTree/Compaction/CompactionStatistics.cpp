@@ -1580,10 +1580,12 @@ UInt64 estimateNeededMemoryForMerge(
     /// quotients over the merged volume. A compact part keeps every column's marks in one marks file, so its
     /// single stream carries one mark per column per granule - or, with write_marks_for_substreams_in_compact_parts
     /// (MergeTreeDataPartWriterCompact switches to per-substream marks when the mark type has substreams), one
-    /// mark per substream per granule. The substreams are counted like the wide output's streams
-    /// (countOutputStreams), which can only over-count the compact writer's (it never shares Nested offsets
-    /// across columns, and the wide part's shared-data bucket count is not below the compact one by default),
-    /// and never below the column count. Marks are written uncompressed into the compressor (compress_marks)
+    /// mark per substream per granule. The compact writer's marks follow ColumnsSubstreams, a per-column list
+    /// in which a Nested offsets stream shared by sibling columns (share_nested_offsets) appears once per column,
+    /// so the substreams are counted per column (countOutputStreams over each column alone, which never
+    /// deduplicates a stream name across columns) and summed; that count can only over-count the compact
+    /// writer's (the wide part's shared-data bucket count is not below the compact one by default), and is
+    /// never below the column count. Marks are written uncompressed into the compressor (compress_marks)
     /// or straight into the file, so the uncompressed mark size bounds both.
     const auto estimate_output_granules = [](UInt64 rows, UInt64 uncompressed_bytes, const MergeTreeSettings & writer_settings)
     {
@@ -1607,9 +1609,13 @@ UInt64 estimateNeededMemoryForMerge(
     {
         output_marks_per_granule = output_columns.size();
         if (settings[MergeTreeSetting::write_marks_for_substreams_in_compact_parts])
-            output_marks_per_granule = std::max(
-                output_marks_per_granule,
-                countOutputStreams(part_view_output_columns, source_and_patch_parts, settings, default_filled_dynamic_columns).total);
+        {
+            size_t output_compact_substreams = 0;
+            for (const auto & column : part_view_output_columns)
+                output_compact_substreams
+                    += countOutputStreams({column}, source_and_patch_parts, settings, default_filled_dynamic_columns).total;
+            output_marks_per_granule = std::max(output_marks_per_granule, output_compact_substreams);
+        }
     }
     const UInt64 output_marks_bytes_per_stream = marks_bytes_for_stream(output_granules, output_marks_per_granule);
     const UInt64 output_marks_bytes = saturatingStreamsTimesBuffer(output_marks_bytes_per_stream, output_streams);
@@ -2503,7 +2509,9 @@ UInt64 estimateNeededMemoryForMerge(
                 /// The marks of the rebuilt projection, written twice like its data (temporary parts, then
                 /// the read-back merge), at the projection's own granularity settings; a compact part's
                 /// single stream carries one mark per projection column per granule, or one per substream
-                /// with write_marks_for_substreams_in_compact_parts (counted like the base output above).
+                /// with write_marks_for_substreams_in_compact_parts. countRebuiltProjectionStreams already sums
+                /// per-column counts without deduplicating stream names across columns, matching the per-column
+                /// ColumnsSubstreams the compact writer marks (see the base output above).
                 const UInt64 projection_granules
                     = estimate_output_granules(projection_rows, projection_uncompressed_bytes, projection_settings);
                 size_t projection_compact_marks_per_granule = projection.sample_block.columns();
