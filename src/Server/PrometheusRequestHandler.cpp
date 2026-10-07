@@ -696,17 +696,34 @@ private:
         writeChar('}', out);
     }
 
-    /// Handles the status/buildinfo endpoint, which clients such as Grafana use to identify the backend.
-    /// It reports the ClickHouse version and commit hash in the shape of the Prometheus response; the other
-    /// fields describe a Prometheus build and are left empty. For the full build information of this
-    /// ClickHouse instance, query the `system.build_options` table.
+    /// The Prometheus API level this server implements, reported as `version` by the status/buildinfo endpoint.
+    /// Clients read that field as the version of a Prometheus server and gate features on it, so it has to
+    /// describe the API rather than the ClickHouse release: Grafana compares it against 2.24.0 to decide whether
+    /// the label endpoints accept `match[]`, and falls back to the much more expensive /api/v1/series when they
+    /// don't. A ClickHouse version string loses that comparison - it is not a Prometheus version, and with four
+    /// components it is not even valid semantic versioning - so clients would take the slow path against a server
+    /// that does support `match[]`. 2.24.0 is the Prometheus release that added it, and is what other
+    /// Prometheus-compatible backends report for the same reason. Raise this only together with the API surface
+    /// it claims, since each value promises the endpoints and parameters that Prometheus release had.
+    static constexpr std::string_view PROMETHEUS_API_COMPATIBILITY_VERSION = "2.24.0";
+
+    /// Handles the status/buildinfo endpoint, which clients such as Grafana call to identify the backend.
+    /// `version` reports the implemented Prometheus API level rather than the ClickHouse version, because that
+    /// is what clients read the field as - see PROMETHEUS_API_COMPATIBILITY_VERSION. `revision` reports the
+    /// commit this server was built from, which is what the field means in Prometheus too. The ClickHouse
+    /// version is reported alongside them under a name Prometheus does not define, so that whoever reads this
+    /// response can still tell which backend answered; clients ignore fields they don't know. The remaining
+    /// fields describe a Go build and are left empty. For the full build information of this ClickHouse
+    /// instance, query the `system.build_options` table.
     static void writeBuildInfo(WriteBuffer & out)
     {
         writeString(R"({"status":"success","data":{"version":)", out);
-        writeJSONString(VERSION_STRING, out, FormatSettings{});
+        writeJSONString(PROMETHEUS_API_COMPATIBILITY_VERSION, out, FormatSettings{});
         writeString(R"(,"revision":)", out);
         writeJSONString(GIT_HASH, out, FormatSettings{});
-        writeString(R"(,"branch":"","buildUser":"","buildDate":"","goVersion":""}})", out);
+        writeString(R"(,"branch":"","buildUser":"","buildDate":"","goVersion":"","clickhouseVersion":)", out);
+        writeJSONString(VERSION_STRING, out, FormatSettings{});
+        writeString(R"(}})", out);
     }
 
     /// Parses an optional integer parameter of the metadata endpoint; an absent parameter defaults to -1 (no limit).
