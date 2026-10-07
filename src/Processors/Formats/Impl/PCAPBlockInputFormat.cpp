@@ -559,9 +559,12 @@ Chunk PCAPBlockInputFormat::read()
             col_protocols_offsets->insertValue(col_protocols_data->size());
         }
 
-        /// Ethernet.
+        /// Ethernet. The columns describe the outermost link layer only: a recursive `find_pdu`
+        /// would also find a tunneled Ethernet frame and report its header and VLAN tag as if
+        /// they belonged to the captured packet.
         auto insert_null_string = [](ColumnString & col, ColumnUInt8 & nullmap) { col.insertDefault(); nullmap.insertValue(1); };
-        if (auto * eth = pdu->find_pdu<Tins::EthernetII>())
+        const auto * eth = dynamic_cast<const Tins::EthernetII *>(pdu);
+        if (eth)
         {
             if (need[COL_ETH_SRC]) { String s = eth->src_addr().to_string(); col_eth_src->insertData(s.data(), s.size()); col_eth_src_null->insertValue(0); }
             if (need[COL_ETH_DST]) { String s = eth->dst_addr().to_string(); col_eth_dst->insertData(s.data(), s.size()); col_eth_dst_null->insertValue(0); }
@@ -574,7 +577,8 @@ Chunk PCAPBlockInputFormat::read()
 
         if (need[COL_VLAN_ID])
         {
-            if (const auto * vlan = pdu->find_pdu<Tins::Dot1Q>())
+            /// The outer 802.1Q tag directly follows the link-layer header.
+            if (const auto * vlan = dynamic_cast<const Tins::Dot1Q *>(pdu->inner_pdu()))
             {
                 col_vlan_id->insertValue(static_cast<UInt16>(vlan->id()));
                 col_vlan_id_null->insertValue(0);
@@ -592,7 +596,7 @@ Chunk PCAPBlockInputFormat::read()
         if (need[COL_ETH_TYPE])
         {
             String name;
-            if (const auto * eth = pdu->find_pdu<Tins::EthernetII>())
+            if (eth)
             {
                 const Tins::PDU * inner = eth->inner_pdu();
                 while (inner != nullptr && inner->pdu_type() == Tins::PDU::DOT1Q)

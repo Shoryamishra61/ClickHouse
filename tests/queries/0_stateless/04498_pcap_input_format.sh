@@ -143,6 +143,12 @@ SELECT number, protocols, eth_type, ip_version, src_addr, dst_addr, ip_protocol,
 FROM file('$DATA_DIR/tunnel.pcap', PCAP)
 ORDER BY number FORMAT TSV"
 
+echo "--- tunneled Ethernet: Ethernet columns describe the outer link layer ---"
+$CLICKHOUSE_LOCAL -q "
+SELECT number, link_type, eth_src, eth_dst, eth_type, vlan_id, ip_protocol, dst_port
+FROM file('$DATA_DIR/vxlan.pcap', PCAP)
+ORDER BY number FORMAT TSV"
+
 echo "--- subset of columns (only number, dst_port) ---"
 $CLICKHOUSE_LOCAL -q "
 SELECT number, dst_port FROM file('$DATA_DIR/packets.pcap', PCAP) ORDER BY number FORMAT TSV"

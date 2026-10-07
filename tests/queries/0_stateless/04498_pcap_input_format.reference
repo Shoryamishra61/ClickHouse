@@ -95,6 +95,8 @@ truncated.pcap	0	0	0
 --- tunnels: IP columns describe the outer header ---
 1	['ETHERNET_II','IPv6','IP','TCP','RAW']	IPv6	6	2001:db8::1	2001:db8::2	IPv4	64	\N	\N
 2	['ETHERNET_II','IP','IPv6','UDP']	IP	4	::ffff:192.0.2.1	::ffff:192.0.2.2	IPv6	64	\N	\N
+--- tunneled Ethernet: Ethernet columns describe the outer link layer ---
+1	ETHERNET_II	66:77:88:99:aa:bb	00:11:22:33:44:55	IP	\N	UDP	4789
 --- subset of columns (only number, dst_port) ---
 1	80
 2	67

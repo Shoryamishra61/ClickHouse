@@ -33,9 +33,11 @@ def ipv6(next_header, payload):
     )
 
 
-def ethernet(payload, vlan_id=None, ether_type=0x0800):
-    """Ethernet II carrying IPv4 (or IPv6 with `ether_type` 0x86DD), optionally behind a single 802.1Q tag."""
-    frame = bytes.fromhex("00112233445566778899aabb")
+def ethernet(payload, vlan_id=None, ether_type=0x0800, addresses="00112233445566778899aabb"):
+    """Ethernet II carrying IPv4 (or IPv6 with `ether_type` 0x86DD), optionally behind a single 802.1Q tag.
+
+    `addresses` is the destination then the source MAC address, as hex."""
+    frame = bytes.fromhex(addresses)
     if vlan_id is not None:
         frame += struct.pack(">HH", 0x8100, vlan_id)
     return frame + struct.pack(">H", ether_type) + payload
@@ -147,3 +149,13 @@ tunnels = [
     ethernet(ipv4(41, ipv6(17, udp))),
 ]
 write_pcap(out_dir / "tunnel.pcap", [(packet, len(packet)) for packet in tunnels])
+
+# An untagged outer frame tunneling a VLAN-tagged tenant frame in VXLAN (UDP port
+# 4789, VNI 100). The Ethernet columns and `vlan_id` describe the outer link layer,
+# so `vlan_id` is `NULL` and the MAC addresses are the outer ones, even if the
+# inner frame is decoded.
+vxlan_header = bytes.fromhex("08000000") + struct.pack(">I", 100 << 8)
+inner_frame = ethernet(ipv4(6, tcp), vlan_id=99, addresses="020000000002020000000001")
+vxlan_payload = vxlan_header + inner_frame
+vxlan = ethernet(ipv4(17, struct.pack(">HHHH", 54321, 4789, 8 + len(vxlan_payload), 0) + vxlan_payload))
+write_pcap(out_dir / "vxlan.pcap", [(vxlan, len(vxlan))])

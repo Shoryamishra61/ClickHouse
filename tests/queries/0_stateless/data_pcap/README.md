@@ -18,3 +18,6 @@ rewrite each other's files.
   `payload`.
 - `tunnel.pcap` — IPv4 TCP tunneled in IPv6 and IPv6 UDP tunneled in IPv4, so the
   IP columns must describe the outer header and not the tunneled packet.
+- `vxlan.pcap` — an untagged Ethernet frame tunneling a VLAN-tagged Ethernet
+  frame in VXLAN, so the Ethernet columns and `vlan_id` must describe the outer
+  link layer and not the tunneled frame.
