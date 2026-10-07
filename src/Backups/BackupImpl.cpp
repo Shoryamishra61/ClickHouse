@@ -311,10 +311,11 @@ void BackupImpl::open()
                 if (!params.is_internal_backup)
                     createLockFile();
 
-                /// `createLockFile` can already have read the lock back and found this attempt's own
-                /// contents in it. Reading it a second time right away cannot make that ownership any
-                /// more certain, and it can fail on its own: that would abort an uncontended backup and
-                /// leave behind a lock nothing can remove, because removal needs a readable lock too.
+                /// `createLockFile` can already have proven the lock is ours: it created the lock exclusively,
+                /// or read it back and found this attempt's own contents in it. Reading it a second time right
+                /// away cannot make that ownership any more certain, and it can fail on its own: that would
+                /// abort an uncontended backup and leave behind a lock nothing can remove, because removal
+                /// needs a readable lock too.
                 if (!lock_file_verified_on_create)
                 {
                     fiu_do_on(FailPoints::backup_fail_lock_file_check_after_creation,
@@ -1008,6 +1009,10 @@ void BackupImpl::createLockFile()
                 ErrorCodes::FAULT_INJECTED, "Failpoint backup_fail_lock_file_write_after_commit is triggered");
         });
         created_own_lock_file = true;
+        /// A backend with conditional-create semantics has just created the lock exclusively, so reading it
+        /// back right away cannot tell anything new. Elsewhere the write ran in rewrite mode and could have
+        /// raced with another backup, so the caller still checks the lock.
+        lock_file_verified_on_create = writer->supportsAtomicCreateIfNotExists();
     }
     catch (...)
     {

@@ -225,8 +225,8 @@ private:
     /// failed lock write it is set only on a backend that creates the lock exclusively: elsewhere the
     /// matching contents `removeLockFile` relies on may sit in a lock this attempt wrote over.
     bool created_own_lock_file = false;
-    /// `createLockFile` has read the lock file back and found this attempt's own contents in it, so
-    /// there is nothing for an immediate re-check to add.
+    /// `createLockFile` has created the lock file exclusively, or read it back and found this attempt's own
+    /// contents in it, so there is nothing for an immediate re-check to add.
     bool lock_file_verified_on_create = false;
     const LoggerPtr log;
 };
