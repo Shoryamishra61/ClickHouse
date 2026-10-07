@@ -24,9 +24,6 @@
 #include <Common/CurrentThread.h>
 #include <Interpreters/ProcessList.h>
 
-
-namespace fs = std::filesystem;
-
 namespace DB
 {
 namespace Setting
