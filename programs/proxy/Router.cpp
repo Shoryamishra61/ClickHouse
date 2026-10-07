@@ -141,8 +141,17 @@ void Router::runFirstSeenHook(const String & command, const char * kind, const S
 
     {
         std::unique_lock lock(first_seen_mutex);
-        if (seen.size() >= max_seen_names && !seen.contains(value))
+        while (seen.size() >= max_seen_names && !seen.contains(value))
+        {
             std::erase_if(seen, [](const auto & entry) { return entry.second; });
+            if (seen.size() < max_seen_names)
+                break;
+
+            /// Every entry is a hook in flight, so nothing can be evicted: wait for one of them to finish
+            /// (each is bounded by `timeout_ms`) instead of growing the map beyond the limit.
+            silk::FiberScheduler::ThreadModeScope thread_mode;
+            first_seen_finished.wait(lock);
+        }
 
         auto [it, inserted] = seen.emplace(value, false);
         if (!inserted)
