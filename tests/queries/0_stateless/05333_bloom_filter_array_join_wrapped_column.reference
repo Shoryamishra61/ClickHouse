@@ -1,0 +1,30 @@
+-- emptyArrayToSingle, value is not the default
+Name: idx_tags
+Granules: 1/10
+1
+Name: idx_tags
+Granules: 2/10
+2
+-- emptyArrayToSingle, value is the default
+2
+3
+-- Dynamic round trip
+Name: idx_tags
+Granules: 1/10
+1
+Name: idx_tags
+Granules: 1/10
+1
+Name: idx_tags
+Granules: 1/10
+1
+-- Dynamic round trip that changes the value
+1
+-- both on a JSON path
+Name: idx_doc_tags
+Granules: 1/10
+1
+-- both on a JSON path, arrayJoin stays a function
+Name: idx_doc_tags
+Granules: 1/10
+1
