@@ -6,7 +6,6 @@
 
 #include <StatusPage.h>
 
-#include <Common/Base64.h>
 #include <Common/Exception.h>
 #include <Common/logger_useful.h>
 
@@ -17,12 +16,15 @@
 
 #include <silk/fibers/fiber.h>
 
+#include <Poco/Ascii.h>
+#include <Poco/Net/HTTPBasicCredentials.h>
 #include <Poco/Net/SocketAddress.h>
 #include <Poco/String.h>
 #include <Poco/URI.h>
 
 #include <fmt/format.h>
 
+#include <algorithm>
 #include <optional>
 
 
@@ -203,6 +205,7 @@ void handleHTTP(FiberSocket & client, const FrontendContext & ctx)
     };
 
     std::optional<String> param_user;
+    bool param_password = false;
     std::optional<String> param_database;
     std::optional<String> param_session_id;
     std::optional<String> param_query;
@@ -213,8 +216,10 @@ void handleHTTP(FiberSocket & client, const FrontendContext & ctx)
     {
         if (key == "user")
             assign_first(param_user, value);
+        else if (key == "password")
+            param_password = true;
         else if (key == "database")
-            assign_first(param_database, value);
+            param_database = value;     /// Unlike the above, a setting: the server applies them in order, so the last one wins.
         else if (key == "session_id")
             assign_first(param_session_id, value);
         else if (key == "query")
@@ -231,7 +236,9 @@ void handleHTTP(FiberSocket & client, const FrontendContext & ctx)
     std::optional<String> header_host;
     std::optional<String> header_user;
     std::optional<String> header_database;
-    std::optional<String> basic_auth_user;
+    std::optional<String> header_authorization;
+    bool seen_content_type = false;
+    bool multipart_form_data = false;
     HTTPBodyFraming body_framing;
     String header;
     while (reader.readLine(header, 64 * 1024) && !header.empty())
@@ -263,18 +270,35 @@ void handleHTTP(FiberSocket & client, const FrontendContext & ctx)
             body_framing.expect_continue |= Poco::icompare(value, "100-continue") == 0;
         else if (name == "host")
             assign_first(header_host, Poco::toLower(stripPort(value)));   /// DNS hostnames are case-insensitive.
+        else if (name == "content-type")
+        {
+            if (!seen_content_type)
+                multipart_form_data = Poco::toLower(value).starts_with("multipart/form-data");
+            seen_content_type = true;
+        }
         else if (name == "x-clickhouse-user")
             assign_first(header_user, value);
         else if (name == "x-clickhouse-database")
             assign_first(header_database, value);
-        else if (name == "authorization" && value.starts_with("Basic ") && !basic_auth_user)
+        else if (name == "authorization")
+            assign_first(header_authorization, value);
+    }
+
+    /// The user from the `Authorization` header, parsed as in `authenticateUserByHTTP`:
+    /// `Poco::Net::HTTPRequest::getCredentials` splits the first header into a scheme and the rest
+    /// at any whitespace, and the scheme is compared case-insensitively.
+    std::optional<String> basic_auth_user;
+    if (header_authorization && *header_authorization != "never")
+    {
+        const String & value = *header_authorization;
+        const auto is_space = [](char c) { return Poco::Ascii::isSpace(c); };
+        const auto scheme_end = std::find_if(value.begin(), value.end(), is_space);
+        const auto info_begin = std::find_if_not(scheme_end, value.end(), is_space);
+        if (Poco::icompare(String(value.begin(), scheme_end), "Basic") == 0)
         {
             try
             {
-                const String decoded = base64Decode(value.substr(6));
-                const size_t sep = decoded.find(':');
-                if (sep != String::npos)
-                    basic_auth_user = decoded.substr(0, sep);
+                basic_auth_user = Poco::Net::HTTPBasicCredentials(String(info_begin, value.end())).getUsername();
             }
             catch (...)  // NOLINT(bugprone-empty-catch)
             {
@@ -283,27 +307,56 @@ void handleHTTP(FiberSocket & client, const FrontendContext & ctx)
         }
     }
 
+    /// The server ignores empty `X-ClickHouse-User` and `X-ClickHouse-Database` headers.
+    if (header_user && header_user->empty())
+        header_user.reset();
+    if (header_database && header_database->empty())
+        header_database.reset();
+
     /// The same precedence as in `authenticateUserByHTTP`: the `X-ClickHouse-User` header wins,
-    /// then the query parameters, and the `Authorization` header is only used if neither is present.
+    /// then the query parameters, and the `Authorization` header is only used if neither
+    /// a `user` nor a `password` parameter is present.
     attributes.host = header_host.value_or("");
     attributes.database = header_database.value_or(param_database.value_or(""));
     attributes.session_id = param_session_id.value_or("");
-    if (param_query)
+
+    /// As in `DynamicQueryHandler::getQuery`, the query is the first `query` URL parameter, a line break,
+    /// and then the request body (`ConcatReadBuffer`), so the parameter and the body are classified together.
+    /// With `multipart/form-data`, the query is concatenated from all the `query` parameters of the URL
+    /// and of the form, so it is not classified.
+    const bool has_body = body_framing.chunked || body_framing.content_length.value_or(0) > 0;
+    if (ctx.router.needsQueryType(ListenerProtocol::HTTP) && !multipart_form_data && (param_query || has_body))
     {
-        attributes.query_type = classifyQuery(*param_query);
-    }
-    else if (ctx.router.needsQueryType(ListenerProtocol::HTTP) && !param_decompress)
-    {
-        /// With `decompress=1` the body is in the compressed native format and cannot be inspected.
-        if (auto query_prefix = readQueryPrefixFromBody(client, reader, body_framing))
-            attributes.query_type = classifyQuery(query_prefix->data, query_prefix->is_prefix);
+        String query_head;
+        if (param_query && !param_query->empty())
+            query_head = *param_query + "\n";
+
+        bool is_prefix = false;
+        if (has_body)
+        {
+            /// With `decompress=1` the body is in the compressed native format and cannot be inspected.
+            std::optional<QueryPrefix> body_prefix;
+            if (!param_decompress)
+                body_prefix = readQueryPrefixFromBody(client, reader, body_framing);
+
+            if (body_prefix)
+            {
+                query_head += body_prefix->data;
+                is_prefix = body_prefix->is_prefix;
+            }
+            else
+            {
+                is_prefix = true;
+            }
+        }
+        attributes.query_type = classifyQuery(query_head, is_prefix);
     }
 
     if (header_user)
         attributes.user = *header_user;
     else if (param_user)
         attributes.user = *param_user;
-    else if (basic_auth_user)
+    else if (basic_auth_user && !param_password)
         attributes.user = *basic_auth_user;
 
     /// Endpoints the proxy serves itself, without a user or a backend.
