@@ -1,7 +1,6 @@
 #include <Functions/AI/OpenAIProvider.h>
 #include <IO/HTTPCommon.h>
 #include <Common/Exception.h>
-#include <Common/StringUtils.h>
 
 #include <Poco/Net/HTTPRequest.h>
 #include <Poco/Net/HTTPResponse.h>
@@ -23,13 +22,12 @@ namespace ErrorCodes
 namespace
 {
 
-/// Sets the header to `value` with ASCII control characters removed. Skipped when the result is empty.
-/// Query ids from the native and gRPC protocols are not sanitized.
-void setSanitizedHeader(Poco::Net::HTTPRequest & http_request, const String & name, String value)
+void setCommonHeaders(Poco::Net::HTTPRequest & http_request, const AIRequest & ai_request)
 {
-    std::erase_if(value, [](unsigned char c) { return isControlASCII(c) || c == 0x7F; });
-    if (!value.empty())
-        http_request.set(name, value);
+    chassert(!ai_request.function_name.empty());
+    http_request.set("X-ClickHouse-AI-Function", ai_request.function_name);
+    if (!ai_request.query_id.empty())
+        http_request.set("X-ClickHouse-Query-Id", sanitizeForLog(ai_request.query_id));
 }
 
 }
@@ -41,7 +39,7 @@ OpenAIProvider::OpenAIProvider(const String & endpoint_, const String & api_key_
 {
 }
 
-void OpenAIProvider::call(const AIRequest & ai_request, const ConnectionTimeouts & timeouts, AIResponse & response)
+void OpenAIProvider::call(const AIChatRequest & ai_request, const ConnectionTimeouts & timeouts, AIResponse & response)
 {
     response = {};
 
@@ -80,10 +78,7 @@ void OpenAIProvider::call(const AIRequest & ai_request, const ConnectionTimeouts
     http_request.setContentType("application/json");
     if (!api_key.empty()) /// not all providers need API key
         http_request.set("Authorization", "Bearer " + api_key);
-    chassert(!ai_request.function_name.empty());
-    http_request.set("X-ClickHouse-AI-Function", ai_request.function_name);
-    setSanitizedHeader(http_request, "X-ClickHouse-Query-Id", ai_request.query_id);
-    setSanitizedHeader(http_request, "X-ClickHouse-Initial-Query-Id", ai_request.initial_query_id);
+    setCommonHeaders(http_request, ai_request);
     http_request.setContentLength(body.size());
 
     auto & out_stream = session->sendRequest(http_request);
@@ -194,10 +189,7 @@ void OpenAIProvider::embed(
     http_request.setContentType("application/json");
     if (!api_key.empty()) /// not all providers need API key
         http_request.set("Authorization", "Bearer " + api_key);
-    chassert(!ai_embedding_request.function_name.empty());
-    http_request.set("X-ClickHouse-AI-Function", ai_embedding_request.function_name);
-    setSanitizedHeader(http_request, "X-ClickHouse-Query-Id", ai_embedding_request.query_id);
-    setSanitizedHeader(http_request, "X-ClickHouse-Initial-Query-Id", ai_embedding_request.initial_query_id);
+    setCommonHeaders(http_request, ai_embedding_request);
     http_request.setContentLength(body.size());
 
     auto & out_stream = session->sendRequest(http_request);

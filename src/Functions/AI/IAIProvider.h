@@ -29,12 +29,23 @@ private:
     const char * className() const noexcept override { return "DB::AIProviderHTTPException"; }
 };
 
+/// Fields common to all AI requests.
+struct AIRequest
+{
+    /// SQL name of the AI function that produced this request (e.g. "aiGenerate").
+    /// Emitted by OpenAIProvider as the `X-ClickHouse-AI-Function` header; ignored by other providers.
+    String function_name;
+
+    /// Emitted by OpenAIProvider as the `X-ClickHouse-Query-Id` header when non-empty; ignored by other providers.
+    String query_id;
+};
+
 /** Parameters for a single AI chat completion request.
   *
-  * Each row processed by an AI function produces one AIRequest.
+  * Each row processed by an AI function produces one AIChatRequest.
   * The provider serializes it into the HTTP body format expected by the API.
   */
-struct AIRequest
+struct AIChatRequest : AIRequest
 {
     /// Constant instruction that guides the model's behavior (persona, format, constraints).
     /// Sent as a system message (OpenAI) or top-level field (Anthropic).
@@ -61,18 +72,6 @@ struct AIRequest
 
     /// Maximum number of tokens the model may generate in its response. This is a per-request limit, not a per-query limit.
     UInt64 max_tokens = 0;
-
-    /// SQL name of the AI function that produced this request (e.g. "aiGenerate").
-    /// Emitted by OpenAIProvider as the `X-ClickHouse-AI-Function` header; ignored by other providers.
-    String function_name;
-
-    /// `current_query_id` of the query (or the background mutation task) that produced this request.
-    /// Emitted by OpenAIProvider as the `X-ClickHouse-Query-Id` header when non-empty; ignored by other providers.
-    String query_id;
-
-    /// `initial_query_id` of the query that produced this request. Same on every shard of a distributed query; empty for a background mutation.
-    /// Emitted by OpenAIProvider as the `X-ClickHouse-Initial-Query-Id` header when non-empty; ignored by other providers.
-    String initial_query_id;
 };
 
 /// Canonical, provider-independent reason the model stopped generating. Each provider maps its
@@ -110,7 +109,7 @@ struct AIResponse
   * Embedding APIs typically accept multiple inputs per call, so inputs is a vector.
   * The provider serializes it into the HTTP body format expected by the API.
   */
-struct AIEmbeddingRequest
+struct AIEmbeddingRequest : AIRequest
 {
     /// Texts to embed. Providers send these in a single batched HTTP request.
     VectorWithMemoryTracking<String> inputs;
@@ -121,18 +120,6 @@ struct AIEmbeddingRequest
     /// Optional target dimensionality for the output vectors. 0 means use the model's native size.
     /// Supported by OpenAI's `text-embedding-3-*` models; providers that ignore it return the native size.
     UInt64 dimensions = 0;
-
-    /// SQL name of the AI function that produced this request (e.g. "aiEmbed").
-    /// Emitted by OpenAIProvider as the `X-ClickHouse-AI-Function` header; ignored by other providers.
-    String function_name;
-
-    /// `current_query_id` of the query (or the background mutation task) that produced this request.
-    /// Emitted by OpenAIProvider as the `X-ClickHouse-Query-Id` header when non-empty; ignored by other providers.
-    String query_id;
-
-    /// `initial_query_id` of the query that produced this request. Same on every shard of a distributed query; empty for a background mutation.
-    /// Emitted by OpenAIProvider as the `X-ClickHouse-Initial-Query-Id` header when non-empty; ignored by other providers.
-    String initial_query_id;
 };
 
 /// Response from a single embedding request. `embeddings` is aligned 1:1 with `AIEmbeddingRequest::inputs`.
@@ -158,7 +145,7 @@ public:
 
     /// Send a chat completion request. Replaces the contents of `response`, filling the token counts
     /// before the payload is validated: so a failed request can still update token counts.
-    virtual void call(const AIRequest & ai_request, const ConnectionTimeouts & timeouts, AIResponse & response) = 0;
+    virtual void call(const AIChatRequest & ai_request, const ConnectionTimeouts & timeouts, AIResponse & response) = 0;
 
     /// Whether this provider exposes an embeddings endpoint.
     virtual bool supportsEmbeddings() const { return false; }
@@ -177,7 +164,8 @@ AIProviderPtr createAIProvider(const String & provider_name, const String & endp
 String formatProviderError(int status_code, const String & response_body);
 
 /// Replace control characters (including `\t \n \r`) with spaces so provider-controlled text cannot
-/// forge log lines or corrupt a terminal when embedded in a logged exception.
+/// forge log lines or corrupt a terminal when embedded in a logged exception, and an untrusted value
+/// cannot inject extra lines when sent as an HTTP header.
 String sanitizeForLog(std::string_view input);
 
 }
