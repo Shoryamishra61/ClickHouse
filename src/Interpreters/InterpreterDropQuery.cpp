@@ -155,6 +155,26 @@ BlockIO InterpreterDropQuery::executeToTable(ASTDropQuery & query)
     return res;
 }
 
+/// Loads the lazy stand-ins of the tables whose row count `table->totalRows` delegates to. Loading
+/// a `StorageTableProxy` keeps the same object in the catalog, which then forwards `totalRows` to
+/// the loaded storage, so the delegating storage sees the count when it looks up its target again.
+/// The bound only guards against a cycle.
+static void loadRowCountTargets(StoragePtr table)
+{
+    for (size_t depth = 0; table && depth < max_storage_proxy_depth; ++depth)
+    {
+        if (const auto * alias = dynamic_cast<const StorageAlias *>(table.get()))
+            table = alias->tryGetTargetTable();
+        else if (const auto * materialized_view = dynamic_cast<const StorageMaterializedView *>(table.get());
+                 materialized_view && materialized_view->hasInnerTable())
+            table = materialized_view->tryGetTargetTable();
+        else
+            return;
+        if (table)
+            table = resolveStorageProxyLoading(table);
+    }
+}
+
 /// `IF EMPTY` must not drop a table whose contents it cannot vouch for. The row count a storage
 /// derives from its metadata is exact whenever it is reported, but many storages cannot report
 /// one, and some deliberately withhold it when their metadata is self-contradictory (see
@@ -169,6 +189,8 @@ BlockIO InterpreterDropQuery::executeToTable(ASTDropQuery & query)
 /// by the target's row count. A `lazy_load_tables` database hands out a `StorageTableProxy`, which
 /// reports no row count until it is loaded, so the stand-in is loaded first: otherwise `IF EMPTY`
 /// would refuse to drop an empty table that nobody has touched since the database was attached.
+/// An `Alias` and a materialized view with an inner table report the row count of their target,
+/// which they look up in the catalog themselves, so the stand-ins along that chain are loaded too.
 bool InterpreterDropQuery::isTableEmpty(const StoragePtr & table_or_proxy, ASTDropQuery::Kind kind) const
 {
     const StoragePtr table = resolveStorageProxyLoading(table_or_proxy);
@@ -180,6 +202,7 @@ bool InterpreterDropQuery::isTableEmpty(const StoragePtr & table_or_proxy, ASTDr
         if (!materialized_view || !materialized_view->hasInnerTable())
             return true;
     }
+    loadRowCountTargets(table);
     auto rows = table->totalRows(getContext());
     return rows && *rows == 0;
 }
