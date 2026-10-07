@@ -1559,18 +1559,40 @@ namespace
         /// is the only way inference learns that there is nothing left to try.
         bool produceMoreURLs()
         {
-            const size_t size_before = url_options_to_check.size();
             const size_t max_addresses = getContext()->getSettingsRef()[Setting::glob_expansion_max_elements];
 
+            /// Everything within the limit has been tried, and there is more.
+            if (limit_exceeded)
+                throwTooManyAddressesForDescription(description, ',', '|', caller, max_addresses);
+
+            const size_t size_before = url_options_to_check.size();
+            const size_t addresses_before = buffered_addresses;
+
             /// As in the glob iterator: stay within the limit, and ask for one past it only when the
-            /// caller has read everything that is allowed, so that it is the reader that hits it.
-            size_t target = std::min<size_t>(URL_GLOB_BATCH_SIZE, max_addresses - std::min(max_addresses, size_before));
+            /// caller has read everything that is allowed, so that it is the reader that hits it. The
+            /// limit is on the addresses of both stages together, as for reading, so the failover
+            /// options (`|`) of every URL count, not the URLs: `example-{1,2}-{1|2}` is four addresses.
+            size_t target = std::min<size_t>(URL_GLOB_BATCH_SIZE, max_addresses - std::min(max_addresses, buffered_addresses));
             if (target == 0)
                 target = 1;
 
             String url;
-            while (url_options_to_check.size() - size_before < target && url_producer(url))
-                url_options_to_check.push_back(getFailoverOptions(url, description, max_addresses, caller));
+            while (buffered_addresses - addresses_before < target && url_producer(url))
+            {
+                auto options = getFailoverOptions(url, description, max_addresses, caller);
+                /// The URL that crosses the limit is not buffered: inference may still stop at one of
+                /// the addresses before it, and only if it does not, the next call reports the limit.
+                if (buffered_addresses + options.size() > max_addresses)
+                {
+                    limit_exceeded = true;
+                    break;
+                }
+                buffered_addresses += options.size();
+                url_options_to_check.push_back(std::move(options));
+            }
+
+            if (url_options_to_check.size() == size_before && limit_exceeded)
+                throwTooManyAddressesForDescription(description, ',', '|', caller, max_addresses);
 
             return url_options_to_check.size() != size_before;
         }
@@ -1658,6 +1680,10 @@ namespace
         const String description;
         const RemoteDescriptionCaller caller;
         std::vector<std::vector<String>> url_options_to_check;
+        /// The failover options of all URLs in `url_options_to_check`.
+        size_t buffered_addresses = 0;
+        /// The producer generated a URL whose options do not fit into the limit any more.
+        bool limit_exceeded = false;
         size_t current_index = 0;
         size_t scanned_options = 0;
         String current_url_option;
