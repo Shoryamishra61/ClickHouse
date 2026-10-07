@@ -5457,9 +5457,12 @@ void MergeTreeData::checkAlterIsPossible(const AlterCommands & commands, Context
         MergeTreeSettingsPtr alter_effective_settings = getSettings();
         if (new_metadata.settings_changes)
         {
-            const auto & effective_changes = new_metadata.settings_changes->as<const ASTSetQuery &>().changes;
+            auto effective_changes = new_metadata.settings_changes->as<const ASTSetQuery &>().changes;
+            /// The settings constraints below compare the resolved `disk`, so it is resolved here. A changed
+            /// `disk` is a fresh definition and is checked as one, before anything registers the disk unchecked.
+            MergeTreeSettings::resolveDiskSetting(effective_changes, local_context, /*is_loading_from_existing_metadata=*/!disk_setting_changed);
             auto copy = getDefaultSettings();
-            copy->applyChanges(effective_changes, getContext(), /*is_loading_from_existing_metadata=*/true);
+            copy->applyChanges(effective_changes, local_context, /*is_loading_from_existing_metadata=*/true);
             alter_effective_settings = std::move(copy);
         }
 
@@ -5541,7 +5544,7 @@ void MergeTreeData::checkAlterIsPossible(const AlterCommands & commands, Context
             {
                 /// Use default settings + new and check if doesn't affect part format settings
                 auto copy = getDefaultSettings();
-                copy->applyChanges(new_changes, local_context, /*is_loading_from_existing_metadata=*/true);
+                copy->applyChangesLeavingDiskUnresolved(new_changes);
                 String reason;
                 if (!canUsePolymorphicParts(*copy, reason) && !reason.empty())
                     throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Can't change settings. Reason: {}", reason);
@@ -10330,7 +10333,7 @@ void MergeTreeData::checkColumnFilenamesForCollision(const StorageInMemoryMetada
     if (metadata.settings_changes)
     {
         const auto & changes = metadata.settings_changes->as<const ASTSetQuery &>().changes;
-        settings->applyChanges(changes, getContext(), /*is_loading_from_existing_metadata=*/true);
+        settings->applyChangesLeavingDiskUnresolved(changes);
     }
 
     checkColumnFilenamesForCollision(metadata.getColumns(), *settings, throw_on_error);
