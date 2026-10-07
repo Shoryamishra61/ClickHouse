@@ -16755,11 +16755,45 @@ function effectiveConnectionUser(serverAddress, fieldUser) {
 
 /// The implicit user to stamp next to a stored connection (a result snapshot, a history entry, a
 /// selection): the name the server was last reported to authenticate a request without a user as
-/// (`learnedImplicitUser`), or empty when the connection names its user explicitly or the name is not
-/// known. The stamp is taken when the connection is recorded, so a stored connection keeps denoting
-/// the account it was used with even when the server's `default_session_user` changes later.
+/// (`learnedImplicitUser`), or empty when the connection names its user explicitly. The stamp is taken
+/// when the connection is recorded, so a stored connection keeps denoting the account it was used with
+/// even when the server's `default_session_user` changes later.
+/// When the name is not known yet, the stamp is a marker of this page visit
+/// (`pendingImplicitUserStamp`) instead: the name is typically learned moments later in the same visit
+/// (`checkCredentials`, or the `storeCredentials` probe of the very run being recorded), and then the
+/// marker resolves to it (`resolvedImplicitUser`), so a run launched before the name was known is not
+/// mistaken for a different connection than the one it ran on.
 function implicitUserStamp(serverAddress, fieldUser) {
-    return effectiveConnectionUser(serverAddress, fieldUser) ? '' : learnedImplicitUser(serverAddress);
+    if (effectiveConnectionUser(serverAddress, fieldUser)) return '';
+    return learnedImplicitUser(serverAddress) || pendingImplicitUserStamp();
+}
+
+/// The state of this page visit for the implicit users: a random id for the markers stamped while the
+/// name was not known (`pendingImplicitUserStamp`), and the first name learned for each server
+/// (`serverIdentityKey`) during this visit. Kept on the function rather than in a `let`, because it is
+/// consulted at load, by `initial_connection`, before this point of the script runs.
+function implicitUserVisitState() {
+    if (!implicitUserVisitState.state)
+        implicitUserVisitState.state = {id: Date.now().toString(36) + Math.random().toString(36).slice(2), learned: {}};
+    return implicitUserVisitState.state;
+}
+
+/// The stamp of an implicit connection whose name is not known yet: it starts with a NUL, which no
+/// real user name has, and names this visit, so a marker persisted by an earlier visit (a history
+/// entry, a saved result snapshot) never resolves and fails closed like an empty stamp.
+function pendingImplicitUserStamp() {
+    return '\u0000pending:' + implicitUserVisitState().id;
+}
+
+/// The account a stored stamp denotes: the stamp itself, or for a marker of this visit the first name
+/// learned for the server since (empty if none yet). A marker of another visit denotes no known name.
+function resolvedImplicitUser(serverAddress, stamp) {
+    if (!stamp) return '';
+    if (!stamp.startsWith('\u0000')) return stamp;
+    if (stamp !== pendingImplicitUserStamp()) return '';
+    const key = serverIdentityKey(serverAddress);
+    const learned = implicitUserVisitState().learned;
+    return (key !== null && Object.hasOwn(learned, key)) ? learned[key] : '';
 }
 
 /// Do two connections on the same server (compared separately by `sameServerAddress`) use the same
@@ -16769,15 +16803,19 @@ function implicitUserStamp(serverAddress, fieldUser) {
 /// refilled by the password manager under that name (`storeCredentials`) is the same connection as the
 /// implicit one it was saved from, and does not reset the selected database or count as a diverged
 /// run. A stored connection carries its own stamp, taken when it was recorded, never the current
-/// `learnedImplicitUser`: an entry stamped with no name (or written before the stamp existed) matches
-/// only an implicit live user whose name is not known either, failing closed.
+/// `learnedImplicitUser`: an entry stamped with no name (or written before the stamp existed, or by an
+/// earlier visit before the name was known) matches only an implicit live user whose name is not known
+/// either, failing closed. Only a marker stamped earlier in this visit takes the name learned since
+/// (`resolvedImplicitUser`).
 function sameConnectionUser(a_server, a_user, a_implicit_user, b_server, b_user, b_implicit_user) {
     const a = effectiveConnectionUser(a_server, a_user);
     const b = effectiveConnectionUser(b_server, b_user);
-    if (a === '' && b === '') return (a_implicit_user || '') === (b_implicit_user || '');
+    const a_implicit = resolvedImplicitUser(a_server, a_implicit_user);
+    const b_implicit = resolvedImplicitUser(b_server, b_implicit_user);
+    if (a === '' && b === '') return a_implicit === b_implicit;
     if (a === b) return true;
-    const a_account = a || a_implicit_user || '';
-    const b_account = b || b_implicit_user || '';
+    const a_account = a || a_implicit;
+    const b_account = b || b_implicit;
     return a_account !== '' && a_account === b_account;
 }
 
@@ -16821,6 +16859,8 @@ function learnedImplicitUser(server_address) {
 function rememberImplicitUser(server_address, user) {
     const key = serverIdentityKey(server_address);
     if (key === null || !user) return;
+    const learned = implicitUserVisitState().learned;
+    if (!Object.hasOwn(learned, key)) learned[key] = user;
     const users = loadImplicitUsers();
     if (users[key] === user) return;
     users[key] = user;

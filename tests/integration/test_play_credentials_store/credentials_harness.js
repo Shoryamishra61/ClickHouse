@@ -126,7 +126,8 @@ function makeContext(storage) {
     return ctx;
 }
 
-const FUNCTIONS = ['effectiveConnectionUser', 'implicitUserStamp', 'sameConnectionUser', 'sameAsLiveConnectionUser',
+const FUNCTIONS = ['effectiveConnectionUser', 'implicitUserStamp', 'implicitUserVisitState', 'pendingImplicitUserStamp',
+    'resolvedImplicitUser', 'sameConnectionUser', 'sameAsLiveConnectionUser',
     'serverIdentityKey', 'implicitUsersStorageKey', 'loadImplicitUsers', 'learnedImplicitUser', 'rememberImplicitUser',
     'serverAddressWithoutSession', 'storeCredentials', 'getServerStatus', 'buildCompletionUrl',
     'isAutofilled', 'dropAutofilledStalePassword'];
@@ -156,6 +157,12 @@ function connectionIdentity(ctx) {
 function stampConnection(ctx) {
     return JSON.parse(vm.runInContext(
         'JSON.stringify({server: url_elem.value, user: user_elem.value, implicitUser: implicitUserStamp(url_elem.value, user_elem.value)})', ctx));
+}
+
+/// The account the stamp of the live fields denotes (`resolvedImplicitUser`): empty while nothing is
+/// learned, whether the stamp is empty or a marker of this visit.
+function stampedAccount(ctx) {
+    return vm.runInContext('resolvedImplicitUser(url_elem.value, implicitUserStamp(url_elem.value, user_elem.value))', ctx);
 }
 
 /// Do the identity gates (selected database, run divergence, history restore) see the stored
@@ -191,8 +198,10 @@ async function implicitRoundTrip(ctx, server, implicit_user) {
     if (before.status_url.includes('user=') || before.completion_url.includes('user='))
         throw new Error(`the empty-field request unexpectedly carries a user parameter: ${before.status_url}`);
     assertEqual(connectionIdentity(ctx), '', 'identity of the fully implicit connection is not guessed');
+    /// Recorded before the name is learned, like the snapshot of a run launched on a fresh visit.
     const unstamped = stampConnection(ctx);
-    assertEqual(unstamped.implicitUser, '', 'nothing to stamp before the implicit user is learned');
+    if (!unstamped.implicitUser.startsWith('\u0000pending:'))
+        throw new Error(`an implicit connection is not stamped with a visit marker before the name is learned: ${JSON.stringify(unstamped)}`);
     await store(ctx);
     assertEqual(ctx.fetched.length, 1, 'the implicit user is asked from the server');
     assertEqual(ctx.fetched[0].url, before.status_url, 'the probe is the empty-field request');
@@ -213,15 +222,20 @@ async function implicitRoundTrip(ctx, server, implicit_user) {
     assertEqual(status.u, implicit_user, 'refilled login authenticates as the same user');
 
     /// The refilled login is the same connection as the implicit one it was saved from, so the
-    /// identity gates (selected database, run divergence, history restore) see no change. An entry
-    /// recorded before the name was learned cannot be proven to be that account, so it fails closed.
+    /// identity gates (selected database, run divergence, history restore) see no change. That
+    /// includes an entry recorded earlier in this visit, before the name was learned: its marker
+    /// resolves to the name learned since (a run in flight while `storeCredentials` learns it).
     assertEqual(connectionIdentity(ctx), implicit_user, 'identity of the refilled login');
     assertEqual(sameAsLive(ctx, stamped), true, 'refilled login is the same connection as the stamped implicit one');
-    assertEqual(sameAsLive(ctx, unstamped), false, 'refilled login is not proven to be an unstamped implicit connection');
+    assertEqual(sameAsLive(ctx, unstamped), true, 'refilled login is the same connection as an implicit one recorded earlier in this visit');
     ctx.user_elem.value = '';
     assertEqual(sameAsLive(ctx, stamped), true, 'implicit login is the same connection as the stamped implicit one');
-    assertEqual(sameAsLive(ctx, unstamped), false, 'implicit login with a learned name is not proven to be an unstamped implicit connection');
-    return stamped;
+    assertEqual(sameAsLive(ctx, unstamped), true, 'implicit login is the same connection as an implicit one recorded earlier in this visit');
+    /// An entry with no name at all (written before the stamp existed) cannot be proven to be that
+    /// account, so it fails closed.
+    assertEqual(sameAsLive(ctx, { server, user: '', implicitUser: '' }), false,
+        'implicit login with a learned name is not proven to be an unstamped implicit connection');
+    return { stamped, unstamped };
 }
 
 scenario('implicit-default-round-trip', async js => {
@@ -235,19 +249,22 @@ scenario('implicit-default-round-trip', async js => {
 scenario('refilled-login-same-identity-after-reload', async js => {
     const storage = makeStorage();
     const first = boot(js, { storage });
-    const entry = await implicitRoundTrip(first, 'http://host:8123/', 'alice');
+    const { stamped: entry, unstamped } = await implicitRoundTrip(first, 'http://host:8123/', 'alice');
     const second = boot(js, { storage });
     second.url_elem.value = 'http://host:8123';
     second.user_elem.value = 'alice';
     assertEqual(sameAsLive(second, entry), true, 'refilled login after reload (cosmetic URL difference)');
+    /// A marker of the previous visit is not resolved by this one: it fails closed.
+    assertEqual(sameAsLive(second, unstamped), false, 'refilled login after reload vs a marker of the previous visit');
     second.user_elem.value = 'bob';
     assertEqual(sameAsLive(second, entry), false, 'another explicit user after reload');
     second.user_elem.value = '';
     assertEqual(stampConnection(second).implicitUser, 'alice', 'the learned user survives a reload');
+    assertEqual(sameAsLive(second, unstamped), false, 'implicit login after reload vs a marker of the previous visit');
     second.url_elem.value = 'http://other:8123/';
-    assertEqual(stampConnection(second).implicitUser, '', 'nothing learned for another server');
+    assertEqual(stampedAccount(second), '', 'nothing learned for another server');
     second.url_elem.value = 'http://host:8123/?cluster=b';
-    assertEqual(stampConnection(second).implicitUser, '', 'nothing learned for another query string');
+    assertEqual(stampedAccount(second), '', 'nothing learned for another query string');
 });
 
 /// A stored entry keeps denoting the account it was recorded with: when the server later reports a
@@ -256,7 +273,7 @@ scenario('refilled-login-same-identity-after-reload', async js => {
 scenario('stored-implicit-entry-keeps-its-account', async js => {
     const storage = makeStorage();
     const first = boot(js, { storage });
-    const entry = await implicitRoundTrip(first, 'http://host:8123/', 'alice');
+    const { stamped: entry } = await implicitRoundTrip(first, 'http://host:8123/', 'alice');
     const second = boot(js, { storage });
     second.implicit_user = 'bob';
     second.url_elem.value = 'http://host:8123/';
@@ -296,11 +313,46 @@ scenario('implicit-users-storage-best-effort', async js => {
         ctx.url_elem.value = 'http://host:8123/';
         ctx.user_elem.value = '';
         ctx.password_elem.value = 'secret';
-        assertEqual(stampConnection(ctx).implicitUser, '', 'nothing learned from unusable storage');
+        assertEqual(stampedAccount(ctx), '', 'nothing learned from unusable storage');
         await store(ctx);
         assertEqual(ctx.stored.length, 1, 'the login is still stored');
         assertEqual(ctx.stored[0].id, 'default', 'remembered under the server-reported implicit user');
     }
+});
+
+/// A run launched on a fresh visit with an empty field is snapshotted before the implicit user is
+/// known; `storeCredentials` (or `checkCredentials`) learns it while the run is in flight. The
+/// completed snapshot must still be the live connection, or the run would count as diverged and lose
+/// `run=1`. The marker only takes the first name learned for that server, not later ones or other
+/// servers' names.
+scenario('run-snapshot-before-implicit-user-learned', async js => {
+    const ctx = boot(js);
+    ctx.implicit_user = 'alice';
+    ctx.url_elem.value = 'http://host:8123/';
+    ctx.user_elem.value = '';
+    ctx.password_elem.value = 'secret';
+    const run_snapshot = stampConnection(ctx);
+    ctx.url_elem.value = 'http://other:8123/';
+    const other_snapshot = stampConnection(ctx);
+    assertEqual(sameAsLive(ctx, other_snapshot), true, 'same unknown implicit user on the other server');
+    ctx.url_elem.value = 'http://host:8123/';
+    assertEqual(sameAsLive(ctx, run_snapshot), true, 'the live connection before the name is learned');
+    await store(ctx);
+    assertEqual(stampConnection(ctx).implicitUser, 'alice', 'learned');
+    assertEqual(sameAsLive(ctx, run_snapshot), true, 'the snapshot of the in-flight run is still the live connection');
+    ctx.user_elem.value = 'alice';
+    assertEqual(sameAsLive(ctx, run_snapshot), true, 'and the refilled login');
+    ctx.user_elem.value = 'bob';
+    assertEqual(sameAsLive(ctx, run_snapshot), false, 'but not another explicit user');
+    ctx.user_elem.value = '';
+    ctx.implicit_user = 'bob';
+    await store(ctx);
+    assertEqual(stampConnection(ctx).implicitUser, 'bob', 'relearned');
+    assertEqual(sameAsLive(ctx, run_snapshot), false, 'the marker keeps the first learned account');
+    ctx.url_elem.value = 'http://other:8123/';
+    assertEqual(sameAsLive(ctx, other_snapshot), true, 'nothing learned for the other server yet');
+    ctx.user_elem.value = 'alice';
+    assertEqual(sameAsLive(ctx, other_snapshot), false, 'a name learned for one server does not resolve the marker for another');
 });
 
 scenario('implicit-default-round-trip-with-query-string', async js => {
