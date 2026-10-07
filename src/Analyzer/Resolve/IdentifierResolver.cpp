@@ -26,6 +26,7 @@
 #include <Analyzer/TableNode.h>
 #include <Analyzer/ArrayJoinNode.h>
 #include <Analyzer/JoinNode.h>
+#include <Analyzer/QueryNode.h>
 #include <Analyzer/InDepthQueryTreeVisitor.h>
 
 #include <Analyzer/Resolve/IdentifierResolver.h>
@@ -633,6 +634,33 @@ QueryTreeNodePtr IdentifierResolver::tryResolveIdentifierFromTableColumns(const 
     return {};
 }
 
+/// Returns true if `target` is `root` itself or is nested below `root` in a join tree.
+static bool joinSubtreeContains(const IQueryTreeNode * root, const IQueryTreeNode * target)
+{
+    if (!root)
+        return false;
+
+    if (root == target)
+        return true;
+
+    if (const auto * join = root->as<JoinNode>())
+        return joinSubtreeContains(join->getLeftTableExpressionNode().get(), target)
+            || joinSubtreeContains(join->getRightTableExpressionNode().get(), target);
+
+    if (const auto * cross_join = root->as<CrossJoinNode>())
+    {
+        for (const auto & table_expression : cross_join->getTableExpressions())
+            if (joinSubtreeContains(table_expression.get(), target))
+                return true;
+        return false;
+    }
+
+    if (const auto * array_join = root->as<ArrayJoinNode>())
+        return joinSubtreeContains(array_join->getTableExpressionNode().get(), target);
+
+    return false;
+}
+
 /** SQL says an alias replaces the name of the table it stands for, so `t.x` does not refer to `t AS c`.
   * ClickHouse accepts both spellings, which is harmless while the name means nothing else in the query.
   * Inside a subquery it is not: an enclosing query that selects from `t` gives `t.x` a second reading,
@@ -662,7 +690,8 @@ QueryTreeNodePtr IdentifierResolver::tryResolveIdentifierFromTableColumns(const 
   * ordinary subquery - so the matcher reports `UNKNOWN_IDENTIFIER`, which is what the hidden name means.
   *
   * An enclosing scope counts only while it is not resolving its own join tree, except for its `JOIN ... ON`
-  * expressions, where both sides are already resolved and a correlated subquery can read them. A subquery
+  * expressions, where both sides are already resolved and a correlated subquery can read them; there only
+  * the table expressions under that `JOIN` count, because the `ON` expression cannot read the others. A subquery
   * that sits in a `FROM` or `JOIN` of that query cannot read a column of its siblings - `validateFromClause` rejects such
   * a correlated column with `Lateral joins are not supported` - so there is no second reading to choose
   * from there, and the qualifier keeps addressing the aliased table expression. This also keeps the
@@ -711,13 +740,31 @@ bool IdentifierResolver::tableNameIsHiddenByAlias(
           *
           * The `ON` expression of a `JOIN` is resolved while the `JOIN` node is still in the resolve
           * process too, but it is not inside a table expression: both sides are already registered, and a
-          * correlated subquery there does read their columns, so that scope counts.
+          * correlated subquery there does read their columns, so the table expressions under that `JOIN`
+          * count, and only them.
           */
-        if (!outer_scope->table_expressions_in_resolve_process.empty() && !outer_scope->resolving_join_on_expression)
-            continue;
+        const IQueryTreeNode * visible_join_subtree = nullptr;
+        if (!outer_scope->table_expressions_in_resolve_process.empty())
+        {
+            /** `resolving_join_on_expression` is inherited by nested scopes, so it marks an `ON` expression of
+              * this query only when it points into the join tree of this query.
+              *
+              * The `ON` expression sees only the tables under its own `JOIN`: in `t0, t1 JOIN t2 ON ...` it
+              * cannot read `t0`, which is also registered only when it precedes the `JOIN`, so a table outside
+              * that subtree must not hide anything.
+              */
+            const auto * outer_query_node = outer_scope->scope_node->as<QueryNode>();
+            if (!outer_scope->resolving_join_on_expression || !outer_query_node
+                || !joinSubtreeContains(outer_query_node->getJoinTreeNode().get(), outer_scope->resolving_join_on_expression))
+                continue;
+            visible_join_subtree = outer_scope->resolving_join_on_expression;
+        }
 
         for (const auto & [outer_table_expression_node, outer_table_expression_data] : outer_scope->table_expression_node_to_data)
         {
+            if (visible_join_subtree && !joinSubtreeContains(visible_join_subtree, outer_table_expression_node.get()))
+                continue;
+
             if (identifier_column_qualifier_parts == 2)
             {
                 /// `database.table` addresses a table expression only while it has no alias of its own.
@@ -1634,33 +1681,6 @@ QueryTreeNodePtr createProjectionForUsing(const ColumnNode & using_column_node, 
     function_node->setAlias(using_column_node.getColumnName());
 
     return function_node;
-}
-
-/// Returns true if `target` is `root` itself or is nested below `root` in a join tree.
-static bool joinSubtreeContains(const IQueryTreeNode * root, const IQueryTreeNode * target)
-{
-    if (!root)
-        return false;
-
-    if (root == target)
-        return true;
-
-    if (const auto * join = root->as<JoinNode>())
-        return joinSubtreeContains(join->getLeftTableExpressionNode().get(), target)
-            || joinSubtreeContains(join->getRightTableExpressionNode().get(), target);
-
-    if (const auto * cross_join = root->as<CrossJoinNode>())
-    {
-        for (const auto & table_expression : cross_join->getTableExpressions())
-            if (joinSubtreeContains(table_expression.get(), target))
-                return true;
-        return false;
-    }
-
-    if (const auto * array_join = root->as<ArrayJoinNode>())
-        return joinSubtreeContains(array_join->getTableExpressionNode().get(), target);
-
-    return false;
 }
 
 SemiAntiJoinSideChecker::SemiAntiJoinSideChecker(

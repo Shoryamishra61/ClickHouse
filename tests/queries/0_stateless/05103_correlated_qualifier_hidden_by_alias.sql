@@ -179,5 +179,19 @@ SELECT count() FROM cte_qualifier WHERE EXISTS (
     SELECT 1 FROM cte_qualifier AS c WHERE c.grp = cte_qualifier.grp AND c.val > cte_qualifier.val)
 SETTINGS analyzer_alias_hides_table_name = 1, analyzer_compatibility_prefer_alias_over_subcolumn = 1, enable_materialized_cte = 1;
 
+SELECT 'a JOIN ON subquery sees only the tables under its JOIN';
+-- `t, u JOIN v ON ...` is `(t, u) JOIN v`, so the `ON` expression reads `t` and the name is hidden there:
+-- the subquery is correlated, which is not supported yet - exactly like the same query with `t` aliased.
+SELECT count() FROM t_qualifier_alias, t_qualifier_other AS u JOIN t_qualifier_other AS v ON u.id = v.id AND EXISTS (
+    SELECT 1 FROM t_qualifier_alias AS c WHERE t_qualifier_alias.id = c.id AND c.val = 30)
+SETTINGS analyzer_alias_hides_table_name = 1; -- { serverError NOT_IMPLEMENTED }
+SELECT count() FROM t_qualifier_alias AS o, t_qualifier_other AS u JOIN t_qualifier_other AS v ON u.id = v.id AND EXISTS (
+    SELECT 1 FROM t_qualifier_alias AS c WHERE o.id = c.id AND c.val = 30); -- { serverError NOT_IMPLEMENTED }
+-- In `u JOIN v ON ..., t` the `ON` expression cannot read `t`, so `t` does not hide the name of the inner
+-- `t AS c`, and the qualifier keeps addressing it.
+SELECT count() FROM t_qualifier_other AS u JOIN t_qualifier_other AS v ON u.id = v.id AND EXISTS (
+    SELECT 1 FROM t_qualifier_alias AS c WHERE t_qualifier_alias.id = c.id AND c.val = 30), t_qualifier_alias
+SETTINGS analyzer_alias_hides_table_name = 1;
+
 DROP TABLE t_qualifier_alias;
 DROP TABLE t_qualifier_other;

@@ -46,3 +46,5 @@ an enclosing materialized CTE is addressed by the name of the CTE
 2
 0
 2
+a JOIN ON subquery sees only the tables under its JOIN
+3
