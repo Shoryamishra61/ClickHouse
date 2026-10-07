@@ -417,6 +417,9 @@ public:
     /// applying, so we never end up with some children in `read_in_order` while the parent falls
     /// back to full sort (mixing row-limit semantics across siblings).
     bool requestReadingInOrder(size_t prefix_size, int direction, size_t read_limit, size_t query_limit = 0, bool apply_pk_selectivity_check = false, bool check_only = false);
+    /// Whether `requestReadingInOrder` accepts a reverse direction. With `FINAL`, only the engines whose merge
+    /// does not depend on the direct order of rows can read in reverse order.
+    bool canReadInReverseOrder() const;
     bool setVirtualRowConversions(ActionsDAG virtual_row_conversion_);
     void resetVirtualRowConversions() { virtual_row_conversion = nullptr; }
     bool readsInOrder() const;
