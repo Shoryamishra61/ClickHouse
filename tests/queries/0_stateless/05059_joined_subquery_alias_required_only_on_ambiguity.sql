@@ -108,6 +108,14 @@ SELECT * FROM (SELECT 1 AS a) PASTE JOIN (SELECT 2 AS b), (SELECT 3 AS a); -- { 
 SELECT COLUMNS('a') FROM (SELECT 1 AS a) PASTE JOIN (SELECT 2 AS b), (SELECT 3 AS a); -- { serverError ALIAS_REQUIRED }
 SELECT a FROM (SELECT 1 AS a) PASTE JOIN (SELECT 2 AS b), (SELECT 3 AS a); -- { serverError ALIAS_REQUIRED }
 
+SELECT '-- PASTE JOIN does not validate the duplicate column names of unions and table functions, so they still require an alias';
+SELECT number FROM (SELECT 1 AS number) PASTE JOIN view(SELECT 5 AS number); -- { serverError ALIAS_REQUIRED }
+SELECT * FROM (SELECT 1 AS number) PASTE JOIN view(SELECT 5 AS number); -- { serverError ALIAS_REQUIRED }
+SELECT number FROM (SELECT 1 AS number) PASTE JOIN (SELECT 5 AS number UNION ALL SELECT 6); -- { serverError ALIAS_REQUIRED }
+SELECT * FROM (SELECT 1 AS number) PASTE JOIN (SELECT 5 AS number UNION ALL SELECT 6); -- { serverError ALIAS_REQUIRED }
+SELECT number, v.number FROM (SELECT 1 AS number) PASTE JOIN view(SELECT 5 AS number) AS v;
+SELECT * FROM (SELECT 1 AS a) PASTE JOIN view(SELECT 5 AS b) FORMAT TSVWithNames;
+
 SELECT '-- ARRAY JOIN keeps the columns of the table expression it wraps';
 SELECT arr FROM (SELECT [1] AS arr) ARRAY JOIN arr INNER JOIN (SELECT 0 AS arr) AS rhs ON true; -- { serverError ALIAS_REQUIRED }
 SELECT x FROM (SELECT [1] AS arr, 2 AS x) ARRAY JOIN arr INNER JOIN (SELECT 0 AS x) AS rhs ON true; -- { serverError ALIAS_REQUIRED }

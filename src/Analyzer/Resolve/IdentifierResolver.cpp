@@ -1227,6 +1227,27 @@ QueryTreeNodePtr IdentifierResolver::getUnaliasedSubqueryOrTableFunctionSource(c
     return nullptr;
 }
 
+QueryTreeNodePtr IdentifierResolver::getUnaliasedTableExpressionRequiringAlias(
+    const QueryTreeNodePtr & first_resolved_expression,
+    const QueryTreeNodePtr & second_resolved_expression,
+    bool combined_by_paste_join,
+    const IdentifierResolveScope & scope)
+{
+    for (const auto * resolved_expression : {&first_resolved_expression, &second_resolved_expression})
+    {
+        auto unaliased_table_expression = getUnaliasedSubqueryOrTableFunctionSource(*resolved_expression, scope);
+        if (!unaliased_table_expression)
+            continue;
+
+        if (combined_by_paste_join && unaliased_table_expression->getNodeType() == QueryTreeNodeType::QUERY)
+            continue;
+
+        return unaliased_table_expression;
+    }
+
+    return nullptr;
+}
+
 /** An identifier that resolves to a column of several table expressions of a join can be pinned to one of them only by
   * qualifying it with the name or alias of that table expression. A subquery, union or table function without an alias
   * has no such name, so with `joined_subquery_requires_alias` enabled the ambiguity is reported as a missing alias
@@ -1247,15 +1268,10 @@ static QueryTreeNodePtr getUnaliasedTableExpressionOfAmbiguousIdentifier(
     if (!scope.context->getSettingsRef()[Setting::joined_subquery_requires_alias])
         return nullptr;
 
-    /// `PASTE JOIN` concatenates the operands positionally and allows equally named columns. Its duplicate column names are
-    /// validated separately (see QueryAnalyzer::checkDuplicateTableNamesOrAliasForPasteJoin).
-    if (const auto * join = join_node->as<const JoinNode>(); join && join->getKind() == JoinKind::Paste)
-        return nullptr;
-
-    auto unaliased_table_expression = IdentifierResolver::getUnaliasedSubqueryOrTableFunctionSource(first_resolved_identifier, scope);
-    if (!unaliased_table_expression)
-        unaliased_table_expression = IdentifierResolver::getUnaliasedSubqueryOrTableFunctionSource(second_resolved_identifier, scope);
-    return unaliased_table_expression;
+    const auto * join = join_node->as<const JoinNode>();
+    bool combined_by_paste_join = join && join->getKind() == JoinKind::Paste;
+    return IdentifierResolver::getUnaliasedTableExpressionRequiringAlias(
+        first_resolved_identifier, second_resolved_identifier, combined_by_paste_join, scope);
 }
 
 [[noreturn]] static void throwAliasRequiredForAmbiguousIdentifier(

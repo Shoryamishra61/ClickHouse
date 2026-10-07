@@ -74,6 +74,20 @@ public:
       */
     static QueryTreeNodePtr getUnaliasedSubqueryOrTableFunctionSource(const QueryTreeNodePtr & resolved_expression, const IdentifierResolveScope & scope);
 
+    /** For two equally named columns of different table expressions combined by a join, return the unaliased subquery, union
+      * or table function (see getUnaliasedSubqueryOrTableFunctionSource) that makes them unqualifiable, or nullptr.
+      *
+      * `PASTE JOIN` concatenates the operands positionally and allows equally named columns: the duplicate column names of
+      * its unaliased subqueries are validated separately (see QueryAnalyzer::checkDuplicateTableNamesOrAliasForPasteJoin),
+      * so when `combined_by_paste_join` is set, an unaliased subquery does not require an alias. That validation does not
+      * cover unions and table functions, so they still require it.
+      */
+    static QueryTreeNodePtr getUnaliasedTableExpressionRequiringAlias(
+        const QueryTreeNodePtr & first_resolved_expression,
+        const QueryTreeNodePtr & second_resolved_expression,
+        bool combined_by_paste_join,
+        const IdentifierResolveScope & scope);
+
     static std::shared_ptr<TableNode> tryResolveTableIdentifier(
         const Identifier & table_identifier,
         const ContextPtr & context);

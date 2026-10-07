@@ -2849,17 +2849,15 @@ void QueryAnalyzer::validateMatchedColumnsFromJoinCanBeQualified(
         if (first_column_source == second_column_source)
             continue;
 
-        /// `PASTE JOIN` concatenates its operands positionally and allows equally named columns. Its duplicate column names
-        /// are validated separately (see checkDuplicateTableNamesOrAliasForPasteJoin). Only the join that actually combines
-        /// these two columns is exempt: a `PASTE JOIN` elsewhere in the tree says nothing about them.
+        /// `PASTE JOIN` concatenates its operands positionally and allows equally named columns of unaliased subqueries (see
+        /// IdentifierResolver::getUnaliasedTableExpressionRequiringAlias). Only the join that actually combines these two
+        /// columns matters: a `PASTE JOIN` elsewhere in the tree says nothing about them.
         const auto * combining_join = findInnermostJoinCombiningTableExpressions(join_tree_node, first_column_source, second_column_source);
-        if (const auto * combining_join_node = combining_join ? combining_join->as<JoinNode>() : nullptr;
-            combining_join_node && combining_join_node->getKind() == JoinKind::Paste)
-            continue;
+        const auto * combining_join_node = combining_join ? combining_join->as<JoinNode>() : nullptr;
+        bool combined_by_paste_join = combining_join_node && combining_join_node->getKind() == JoinKind::Paste;
 
-        auto unaliased_table_expression = IdentifierResolver::getUnaliasedSubqueryOrTableFunctionSource(first_node, scope);
-        if (!unaliased_table_expression)
-            unaliased_table_expression = IdentifierResolver::getUnaliasedSubqueryOrTableFunctionSource(matched_nodes[i], scope);
+        auto unaliased_table_expression = IdentifierResolver::getUnaliasedTableExpressionRequiringAlias(
+            first_node, matched_nodes[i], combined_by_paste_join, scope);
         if (!unaliased_table_expression)
             continue;
 

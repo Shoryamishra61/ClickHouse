@@ -61,6 +61,10 @@ plus(1, item_id)	plus(1, brand)	plus(1, other)
 -- PASTE JOIN allows equally named columns, but only for the columns it combines itself
 a	b	c
 1	2	3
+-- PASTE JOIN does not validate the duplicate column names of unions and table functions, so they still require an alias
+1	5
+a	b
+1	5
 -- ARRAY JOIN keeps the columns of the table expression it wraps
 1
 0
