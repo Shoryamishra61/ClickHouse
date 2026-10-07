@@ -10,6 +10,11 @@
 namespace DB
 {
 
+namespace ErrorCodes
+{
+    extern const int ABORTED;
+}
+
 CustomDiskRegistry::CustomDiskRegistry()
     : log(getLogger("CustomDiskRegistry"))
 {
@@ -102,12 +107,19 @@ void CustomDiskRegistry::waitForShutdown(const String & name)
 {
     std::unique_lock lock(mutex);
     shutdown_finished_cv.wait(lock, [&]() TSA_NO_THREAD_SAFETY_ANALYSIS { return !names_pending_shutdown.contains(name); });
+
+    /// Nothing notifies about the last reference to the old disk being dropped, so there is nothing to wait for.
+    if (hasLingeringDisk(name))
+        throw Exception(ErrorCodes::ABORTED,
+            "Cannot create custom disk {}: the previous disk with the same definition, which is no longer used by any "
+            "table or database, is still referenced and has not been destroyed yet. Try again later",
+            backQuote(name));
 }
 
-bool CustomDiskRegistry::isShutdownPending(const String & name) const
+bool CustomDiskRegistry::isShutdownPending(const String & name)
 {
     std::lock_guard lock(mutex);
-    return names_pending_shutdown.contains(name);
+    return names_pending_shutdown.contains(name) || hasLingeringDisk(name);
 }
 
 void CustomDiskRegistry::shutdown()
@@ -159,6 +171,9 @@ void CustomDiskRegistry::finishShutdown(DiskToShutdown disk_to_shutdown)
         {
             LOG_DEBUG(log, "Custom disk {} is still referenced after being unregistered, it will not be shut down explicitly",
                 backQuote(disk_to_shutdown.name));
+
+            std::lock_guard lock(mutex);
+            lingering_disks.emplace(disk_to_shutdown.name, disk);
         }
         else
         {
@@ -187,6 +202,25 @@ void CustomDiskRegistry::removePendingName(const String & name)
     chassert(it != names_pending_shutdown.end());
     if (it != names_pending_shutdown.end())
         names_pending_shutdown.erase(it);
+}
+
+bool CustomDiskRegistry::hasLingeringDisk(const String & name)
+{
+    bool alive = false;
+    auto [begin, end] = lingering_disks.equal_range(name);
+    for (auto it = begin; it != end;)
+    {
+        if (it->second.expired())
+        {
+            it = lingering_disks.erase(it);
+        }
+        else
+        {
+            alive = true;
+            ++it;
+        }
+    }
+    return alive;
 }
 
 }

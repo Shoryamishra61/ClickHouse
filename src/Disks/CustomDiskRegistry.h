@@ -46,9 +46,11 @@ public:
     void scheduleShutdown(const String & name, DiskPtr disk);
     /// Waits until the disk `name` released earlier has been shut down. A new disk created with the
     /// same definition uses the same metadata and data, so it must not overlap with the old one.
+    /// Throws if the old disk was not shut down because something still references it, and it is still alive.
     void waitForShutdown(const String & name);
-    /// Whether the disk `name` has been released and is not shut down yet.
-    bool isShutdownPending(const String & name) const;
+    /// Whether the disk `name` has been released and is not gone yet: either not shut down yet, or still
+    /// referenced after its shutdown was skipped.
+    bool isShutdownPending(const String & name);
 
     /// Waits for the scheduled shutdowns. The disks released after that are shut down in place.
     void shutdown();
@@ -63,6 +65,9 @@ private:
     void run();
     void finishShutdown(DiskToShutdown disk_to_shutdown);
     void removePendingName(const String & name) TSA_REQUIRES(mutex);
+    /// Whether a released disk `name`, not shut down because it was still referenced, is still alive.
+    /// Forgets the ones that are gone.
+    bool hasLingeringDisk(const String & name) TSA_REQUIRES(mutex);
 
     LoggerPtr log;
 
@@ -73,6 +78,9 @@ private:
     /// The names of the released disks that are not shut down yet.
     std::multiset<String> names_pending_shutdown TSA_GUARDED_BY(mutex);
     std::condition_variable shutdown_finished_cv;
+    /// The released disks that were not shut down because something still referenced them. A new disk
+    /// with the same name must not be created while the old one is alive.
+    std::multimap<String, std::weak_ptr<IDisk>> lingering_disks TSA_GUARDED_BY(mutex);
     bool shutdown_called TSA_GUARDED_BY(mutex) = false;
     /// Started on the first scheduled shutdown.
     std::unique_ptr<ThreadFromGlobalPoolNoTracingContextPropagation> thread TSA_GUARDED_BY(mutex);
