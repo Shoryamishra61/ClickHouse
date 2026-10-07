@@ -618,7 +618,7 @@ protected:
     /// replaced the verbatim text, so the parser-only settings pinned for it are not sent with the query.
     std::shared_ptr<const Settings> current_query_settings_before_verbatim_pin;
 
-    /// The `dialect`, `enable_json_ast_dialect`, `enable_trino_dialect` and `allow_experimental_logsql_dialect`
+    /// The `dialect`, `enable_json_ast_dialect`, `enable_trino_dialect` and `enable_logsql_dialect`
     /// values the current query text was accepted with, kept only when the query's own `SETTINGS` clause changed them.
     /// `pinOutboundDialect` restores them for the outbound settings, so a query-local
     /// `SETTINGS dialect = ...` cannot change how this very query text is parsed on the other side.
