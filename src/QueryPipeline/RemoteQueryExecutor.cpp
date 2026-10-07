@@ -891,6 +891,24 @@ RemoteQueryExecutor::ReadResult RemoteQueryExecutor::readAsync()
 #endif
 }
 
+void RemoteQueryExecutor::throwIfColumnLessResultFromOldServer() const
+{
+    /// The result of the remote query has no columns, so its rows can travel only as the row count of
+    /// a column-less block. An older server drops such blocks instead, and the rows of its part of the
+    /// result would be lost silently. Every replica the query was sent to answers at least with the end
+    /// of the stream, so checking at each `Data` and `EndOfStream` packet refuses such a query before
+    /// any of its result is used. Only a header that is known to describe the result can tell that.
+    if (header_describes_result && header->columns() == 0
+        && connections->getMinQueriedServerRevision() < DBMS_MIN_REVISION_WITH_COLUMN_LESS_BLOCK_ROW_COUNT)
+        throw Exception(
+            ErrorCodes::NOT_IMPLEMENTED,
+            "The result of the query sent to {} has no columns, and its rows cannot be received from a server "
+            "that speaks protocol revision {}: that requires revision {}. Upgrade the remote server",
+            connections->dumpAddresses(),
+            connections->getMinQueriedServerRevision(),
+            DBMS_MIN_REVISION_WITH_COLUMN_LESS_BLOCK_ROW_COUNT);
+}
+
 RemoteQueryExecutor::ReadResult RemoteQueryExecutor::processPacket(Packet packet)
 {
     switch (packet.type)
@@ -919,18 +937,7 @@ RemoteQueryExecutor::ReadResult RemoteQueryExecutor::processPacket(Packet packet
             /// Note: `packet.block.rows() > 0` means it's a header block.
             /// We can actually return it, and the first call to RemoteQueryExecutor::read
             /// will return earlier. We should consider doing it.
-            /// The result of the remote query has no columns, so its rows can travel only as the row count of
-            /// a column-less block. An older server drops such blocks instead, and the rows of its part of the
-            /// result would be lost silently. A server sends at least the header block for a query that returns
-            /// data, so this refuses such a query before any of its data is used.
-            if (header->columns() == 0 && connections->getMinQueriedServerRevision() < DBMS_MIN_REVISION_WITH_COLUMN_LESS_BLOCK_ROW_COUNT)
-                throw Exception(
-                    ErrorCodes::NOT_IMPLEMENTED,
-                    "The result of the query sent to {} has no columns, and its rows cannot be received from a server "
-                    "that speaks protocol revision {}: that requires revision {}. Upgrade the remote server",
-                    connections->dumpAddresses(),
-                    connections->getMinQueriedServerRevision(),
-                    DBMS_MIN_REVISION_WITH_COLUMN_LESS_BLOCK_ROW_COUNT);
+            throwIfColumnLessResultFromOldServer();
 
             /// A block with no columns carries its number of rows in the block info.
             if (packet.block.rows() > 0 || packet.block.info.num_rows_without_columns > 0)
@@ -965,6 +972,10 @@ RemoteQueryExecutor::ReadResult RemoteQueryExecutor::processPacket(Packet packet
             break;
 
         case Protocol::Server::EndOfStream:
+            /// An older server sends neither the header block nor the rows of a result with no columns,
+            /// so the end of the stream can be the first packet of the query.
+            throwIfColumnLessResultFromOldServer();
+
             if (!connections->hasActiveConnections())
             {
                 finished = true;
