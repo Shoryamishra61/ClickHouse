@@ -7,44 +7,44 @@
       "versionId": "ae00ec2598472ccb8856e4f1f4020869cb1221d8279c1e05e1753221f38f987b",
       "translations": {
         "ar": {
-          "updatedAt": "2026-10-07T07:04:27.643Z",
+          "updatedAt": "2026-10-07T10:37:50.527Z",
           "fileName": "docs.json",
-          "postProcessHash": "6bfbd058b36d2c7e36bae8f48208fcca701c390bdc9052dfea67e727d3304d91"
+          "postProcessHash": "3afa100e263a57ed8447a4268e61c206b11c0d7a372eedcd529fbfd9f7fa5f69"
         },
         "fr": {
-          "updatedAt": "2026-10-07T07:04:27.841Z",
+          "updatedAt": "2026-10-07T10:37:50.695Z",
           "fileName": "docs.json",
-          "postProcessHash": "6bfbd058b36d2c7e36bae8f48208fcca701c390bdc9052dfea67e727d3304d91"
+          "postProcessHash": "3afa100e263a57ed8447a4268e61c206b11c0d7a372eedcd529fbfd9f7fa5f69"
         },
         "ja": {
-          "updatedAt": "2026-10-07T07:04:26.675Z",
+          "updatedAt": "2026-10-07T10:37:49.515Z",
           "fileName": "docs.json",
-          "postProcessHash": "6bfbd058b36d2c7e36bae8f48208fcca701c390bdc9052dfea67e727d3304d91"
+          "postProcessHash": "3afa100e263a57ed8447a4268e61c206b11c0d7a372eedcd529fbfd9f7fa5f69"
         },
         "es": {
-          "updatedAt": "2026-10-07T07:04:26.483Z",
+          "updatedAt": "2026-10-07T10:37:49.345Z",
           "fileName": "docs.json",
-          "postProcessHash": "6bfbd058b36d2c7e36bae8f48208fcca701c390bdc9052dfea67e727d3304d91"
+          "postProcessHash": "3afa100e263a57ed8447a4268e61c206b11c0d7a372eedcd529fbfd9f7fa5f69"
         },
         "zh": {
-          "updatedAt": "2026-10-07T07:04:27.459Z",
+          "updatedAt": "2026-10-07T10:37:50.332Z",
           "fileName": "docs.json",
-          "postProcessHash": "6bfbd058b36d2c7e36bae8f48208fcca701c390bdc9052dfea67e727d3304d91"
+          "postProcessHash": "3afa100e263a57ed8447a4268e61c206b11c0d7a372eedcd529fbfd9f7fa5f69"
         },
         "pt-BR": {
-          "updatedAt": "2026-10-07T07:04:27.063Z",
+          "updatedAt": "2026-10-07T10:37:49.903Z",
           "fileName": "docs.json",
-          "postProcessHash": "6bfbd058b36d2c7e36bae8f48208fcca701c390bdc9052dfea67e727d3304d91"
+          "postProcessHash": "3afa100e263a57ed8447a4268e61c206b11c0d7a372eedcd529fbfd9f7fa5f69"
         },
         "ko": {
-          "updatedAt": "2026-10-07T07:04:26.866Z",
+          "updatedAt": "2026-10-07T10:37:49.710Z",
           "fileName": "docs.json",
-          "postProcessHash": "6bfbd058b36d2c7e36bae8f48208fcca701c390bdc9052dfea67e727d3304d91"
+          "postProcessHash": "3afa100e263a57ed8447a4268e61c206b11c0d7a372eedcd529fbfd9f7fa5f69"
         },
         "ru": {
-          "updatedAt": "2026-10-07T07:04:27.262Z",
+          "updatedAt": "2026-10-07T10:37:50.115Z",
           "fileName": "docs.json",
-          "postProcessHash": "6bfbd058b36d2c7e36bae8f48208fcca701c390bdc9052dfea67e727d3304d91"
+          "postProcessHash": "3afa100e263a57ed8447a4268e61c206b11c0d7a372eedcd529fbfd9f7fa5f69"
         }
       },
       "fileName": "docs.json"
@@ -73355,47 +73355,47 @@
     },
     {
       "fileId": "318c223e4ebaa07418c1168d9465fe68c2c3df4f5a62cdae9cda2096ebfa1a8b",
-      "versionId": "6981e2c4d20e8b637d45b951934c5590acf6e74505c59662ede2e5c32b303b34",
+      "versionId": "9e67a4c95f245614b591fd630d688c98e9ffaf6306bc834a2eb7a9f47c1f685d",
       "translations": {
+        "ru": {
+          "updatedAt": "2026-10-07T10:37:54.888Z",
+          "fileName": "ru/concepts/features/performance/caches/query-cache.mdx",
+          "postProcessHash": "20e7f49686a8103a3e60988bfd071127069f35d279f765d8cb27147f19288c7f"
+        },
         "es": {
-          "updatedAt": "2026-09-24T10:24:06.899Z",
+          "updatedAt": "2026-10-07T10:37:54.889Z",
           "fileName": "es/concepts/features/performance/caches/query-cache.mdx",
-          "postProcessHash": "a1739aa6c8e18b416868aa4f52bf1c087ce2a55fcb1746cf138b3dbb2e5534bb"
+          "postProcessHash": "419e8dae4232adab227462c6806aae609c4744326aa7b85deb029fa654def50c"
         },
         "ja": {
-          "updatedAt": "2026-09-24T10:24:06.900Z",
+          "updatedAt": "2026-10-07T10:37:54.890Z",
           "fileName": "ja/concepts/features/performance/caches/query-cache.mdx",
-          "postProcessHash": "ef441522d1521829210383989b4a16f61da4e17d022221f1753fb46e33ad0572"
-        },
-        "ko": {
-          "updatedAt": "2026-09-24T10:24:06.900Z",
-          "fileName": "ko/concepts/features/performance/caches/query-cache.mdx",
-          "postProcessHash": "128f74cffb929f596837214b319d04c1a14157105c68c16993dc757159aab0c8"
+          "postProcessHash": "ab1e71c31a131f94f7a6aca7f3bb3a37b605f3bc0efd0a7d6e305a81697d80ba"
         },
         "pt-BR": {
-          "updatedAt": "2026-09-24T10:24:06.901Z",
+          "updatedAt": "2026-10-07T10:37:54.890Z",
           "fileName": "pt-BR/concepts/features/performance/caches/query-cache.mdx",
-          "postProcessHash": "4ddfd92892e48cbe1dae6e739de1e8070b18c45133a41d08705f563f92a63363"
-        },
-        "ru": {
-          "updatedAt": "2026-09-24T10:24:06.901Z",
-          "fileName": "ru/concepts/features/performance/caches/query-cache.mdx",
-          "postProcessHash": "a0dc24c76492b53a179f9279123c49e6bfbbb69b969c3a5d5665b7e487b16cd4"
+          "postProcessHash": "32bf5b0e09cb89b8b90c4d5551c30b96603f03f0df8672bcc7d1eeb56477cb68"
         },
         "zh": {
-          "updatedAt": "2026-09-24T10:24:06.902Z",
+          "updatedAt": "2026-10-07T10:37:54.891Z",
           "fileName": "zh/concepts/features/performance/caches/query-cache.mdx",
-          "postProcessHash": "6182782e009718483398d3656139cfea4a691b7db88da6cf0cc4d623a9f02bef"
-        },
-        "ar": {
-          "updatedAt": "2026-09-24T10:24:06.902Z",
-          "fileName": "ar/concepts/features/performance/caches/query-cache.mdx",
-          "postProcessHash": "248581034d685e557f0f2dcf5a13c29bc92f58bc7845fe7f4424effe252f26b5"
+          "postProcessHash": "3843b3a512e94e190fc2198f83ae0b86d2112efc3a5a87d9ca7214b4dbcfe85b"
         },
         "fr": {
-          "updatedAt": "2026-09-24T10:24:06.903Z",
+          "updatedAt": "2026-10-07T10:37:54.892Z",
           "fileName": "fr/concepts/features/performance/caches/query-cache.mdx",
-          "postProcessHash": "8ed3b0a421962cddaff26a439fc30bd67b1b240af09dced4c85e7c1067b53dca"
+          "postProcessHash": "a9a413d230d4af925f9f3b0873f016d7e12ef426ed02ae8a0dc50d8aff35d28e"
+        },
+        "ko": {
+          "updatedAt": "2026-10-07T10:37:54.893Z",
+          "fileName": "ko/concepts/features/performance/caches/query-cache.mdx",
+          "postProcessHash": "aa3caeb29d1793cfacab8c2588d5efa08e03846d9a885f63e3f88cdce4c811cc"
+        },
+        "ar": {
+          "updatedAt": "2026-10-07T10:37:54.893Z",
+          "fileName": "ar/concepts/features/performance/caches/query-cache.mdx",
+          "postProcessHash": "0fb2afc8a54c70ea5d0aa7affc3a8096df28f8c9715e9d497837bd7c76814ca1"
         }
       },
       "fileName": "concepts/features/performance/caches/query-cache.mdx"
