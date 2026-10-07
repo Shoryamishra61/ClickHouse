@@ -5,31 +5,24 @@
 #include <Access/Common/AccessFlags.h>
 #include <Access/Common/AccessRightsElement.h>
 #include <Access/RowPolicy.h>
-#include <Core/Settings.h>
 #include <Interpreters/Context.h>
 #include <Interpreters/DatabaseCatalog.h>
-#include <Interpreters/ExpressionContainsColumnMatcher.h>
 #include <Interpreters/executeDDLQueryOnCluster.h>
 #include <Interpreters/removeOnClusterClauseIfNeeded.h>
 #include <Parsers/Access/ASTCreateRowPolicyQuery.h>
 #include <Parsers/Access/ASTRolesOrUsersSet.h>
 #include <Parsers/Access/ASTRowPolicyName.h>
 #include <Storages/IStorage.h>
+#include <Storages/getEffectiveRowPolicyFilter.h>
 #include <boost/range/algorithm/sort.hpp>
 
 
 namespace DB
 {
 
-namespace Setting
-{
-    extern const SettingsBool analyzer_compatibility_prefer_alias_over_subcolumn;
-}
-
 namespace ErrorCodes
 {
     extern const int ACCESS_ENTITY_ALREADY_EXISTS;
-    extern const int BAD_ARGUMENTS;
 }
 
 namespace
@@ -48,19 +41,7 @@ namespace
         if (!table)
             return;
 
-        auto metadata_snapshot = table->getInMemoryMetadataPtr(context, /* bypass_metadata_cache = */ false);
-        const auto & columns = metadata_snapshot->getColumns();
-
-        auto is_column_qualifier = makeTupleColumnQualifierCheck(
-            [&](const String & name) { return columns.tryGetColumn(GetColumnsOptions(GetColumnsOptions::All).withSubcolumns(), name); },
-            NameSet{full_name.table_name, full_name.database + "." + full_name.table_name},
-            context->getSettingsRef()[Setting::analyzer_compatibility_prefer_alias_over_subcolumn]);
-
-        if (const auto * matcher = findColumnMatcherInExpression(*filter, is_column_qualifier))
-            throw Exception(ErrorCodes::BAD_ARGUMENTS,
-                "Column matcher {} is not allowed in a row policy filter expression; list the columns explicitly. In filter {}",
-                matcher->formatForErrorMessage(),
-                filter->formatForErrorMessage());
+        checkRowPolicyFilterMatchersAgainstStorage(filter, *table, context);
     }
 
     void updateRowPolicyFromQueryImpl(

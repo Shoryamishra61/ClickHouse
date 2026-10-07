@@ -32,7 +32,8 @@ const IAST * findColumnMatcherInExpression(const IAST & ast, const IsColumnQuali
 /// qualifier also names the table, in which case it expands into the table columns.
 ///
 /// `try_get_column` looks up a column (or subcolumn) of the table by name, `table_names` are the names under which
-/// the table can be referenced (its name, `database.name`, its alias).
+/// the table can be referenced (its name, `database.name`, its alias). A qualifier that starts with one of them,
+/// e.g. `t.tup.*` or `db.t.tup.*`, is also looked up as a column without that prefix.
 IsColumnQualifier makeTupleColumnQualifierCheck(
     std::function<std::optional<NameAndTypePair>(const String &)> try_get_column,
     NameSet table_names,

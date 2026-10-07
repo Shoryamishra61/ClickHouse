@@ -52,6 +52,11 @@ SELECT 'tuple matcher in a filter', groupArray(id) FROM tup_05227 SETTINGS addit
 SELECT count() FROM tup_05227 SETTINGS additional_table_filters = {'tup_05227': 'not ignore(tup_05227.*)'}; -- { serverError BAD_ARGUMENTS }
 CREATE ROW POLICY OR REPLACE p_05227 ON tup_05227 USING greatest(tup.*) > 0 TO ALL;
 SELECT 'tuple matcher in a row policy', groupArray(id) FROM tup_05227;
+-- The qualifier of a Tuple column can itself be qualified with the table.
+SELECT 'table-qualified tuple matcher in a filter', groupArray(id) FROM tup_05227 SETTINGS additional_table_filters = {'tup_05227': 'greatest(tup_05227.tup.*) > 0'};
+SELECT 'database-qualified tuple matcher in a filter', groupArray(id) FROM tup_05227 SETTINGS additional_table_filters = {'tup_05227': 'greatest(${CLICKHOUSE_DATABASE}.tup_05227.tup.*) > 0'};
+CREATE ROW POLICY OR REPLACE p_05227 ON tup_05227 USING greatest(tup_05227.tup.*) > 0 TO ALL;
+SELECT 'table-qualified tuple matcher in a row policy', groupArray(id) FROM tup_05227;
 -- When the table exists, a qualified matcher is checked against its columns when the policy is created or altered.
 CREATE ROW POLICY OR REPLACE p_05227 ON tup_05227 USING not ignore(tup_05227.*) TO ALL; -- { serverError BAD_ARGUMENTS }
 CREATE ROW POLICY OR REPLACE p_05227 ON tup_05227 USING not ignore(no_such_column.*) TO ALL; -- { serverError BAD_ARGUMENTS }
@@ -65,6 +70,11 @@ DROP TABLE IF EXISTS late_05227;
 CREATE ROW POLICY OR REPLACE p_05227 ON late_05227 USING not ignore(late_05227.*) TO ALL;
 CREATE TABLE late_05227 (id UInt32) ENGINE = MergeTree ORDER BY id;
 SELECT count() FROM late_05227; -- { serverError BAD_ARGUMENTS }
+-- Also when the policy is applied to a source table of Merge, or of a view.
+CREATE VIEW late_view_05227 AS SELECT * FROM late_05227;
+SELECT count() FROM merge(currentDatabase(), '^late_05227\$'); -- { serverError BAD_ARGUMENTS }
+SELECT count() FROM late_view_05227; -- { serverError BAD_ARGUMENTS }
+DROP VIEW late_view_05227;
 DROP ROW POLICY p_05227 ON late_05227;
 DROP TABLE late_05227;
 

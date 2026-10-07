@@ -94,7 +94,15 @@ IsColumnQualifier makeTupleColumnQualifierCheck(
         if (prefer_table_over_column && table_names.contains(name))
             return false;
 
+        /// The qualifier is resolved as an identifier in the scope of the table, so it may be the name of a column,
+        /// e.g. `tup` or a nested `tup.inner`, or the name of a column qualified with the table, e.g. `t.tup`.
         auto column = try_get_column(name);
+        for (auto it = table_names.begin(); !column && it != table_names.end(); ++it)
+        {
+            const auto & table_name = *it;
+            if (name.size() > table_name.size() + 1 && name.starts_with(table_name) && name[table_name.size()] == '.')
+                column = try_get_column(name.substr(table_name.size() + 1));
+        }
         if (!column)
             return false;
 
