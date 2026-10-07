@@ -2783,6 +2783,36 @@ void IMergeTreeDataPart::assertColumnsReadableAtCurrentMetadataVersion(
             continue;
         }
 
+        /// A remembered `MODIFY COLUMN` that changed the type of a column the part holds under its old
+        /// type: the part predates the change and has not applied it. Reading the data itself would still
+        /// convert from the part's own type, but `ReplicatedMergeTree` selects the on-fly alter conversions
+        /// by the part's metadata version, so at the current version the pending conversion is skipped and,
+        /// for example, skip indices built over the old values would be used as if they were current.
+        /// `MergeTree` selects them by the data version, which this file does not affect: there the part is
+        /// converted as usual (and refusing it would break a table loaded with such a mutation pending).
+        if (command.type == MutationCommand::READ_COLUMN)
+        {
+            if (!command.data_type || !storage.supportsReplication())
+                continue;
+
+            auto part_column = part_columns.tryGetByName(command.column_name);
+            if (part_column && !part_column->type->equals(*command.data_type))
+                throw Exception(
+                    ErrorCodes::CORRUPTED_DATA,
+                    "Part {} has no {} and still holds column {} of type {}, which mutation {} changed to {} after the "
+                    "part's data was written (its data version is {}), so the part has not applied that change. Reading "
+                    "it at the table's current version would skip the pending conversion. Restore the file with the "
+                    "part's own metadata version, or drop the part",
+                    name,
+                    METADATA_VERSION_FILE_NAME,
+                    command.column_name,
+                    part_column->type->getName(),
+                    *command.mutation_version,
+                    command.data_type->getName(),
+                    part_data_version);
+            continue;
+        }
+
         if (command.type != MutationCommand::RENAME_COLUMN)
             continue;
 
