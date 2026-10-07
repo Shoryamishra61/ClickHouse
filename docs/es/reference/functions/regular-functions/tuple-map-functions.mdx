@@ -597,6 +597,39 @@ SELECT mapContainsValueLike(a, 'a%') FROM tab;
 └───────────────────────────────┘
 ```
 
+## mapEntries {#mapEntries}
+
+Introducido en: v26.10.0
+
+Devuelve los pares clave-valor de un mapa como un array de tuplas con nombre, con los campos `key` y `value`.
+Se conservan las claves duplicadas.
+
+**Sintaxis**
+
+```sql
+mapEntries(map)
+```
+
+**Argumentos**
+
+* `map` — Mapa del que se extraen las entradas. [`Map(K, V)`](/es/reference/data-types/map)
+
+**Valor devuelto**
+
+Devuelve un array con los pares clave-valor del mapa. [`Array(Tuple(key K, value V))`](/es/reference/data-types/array)
+
+**Ejemplos**
+
+**Ejemplo de uso**
+
+```sql title=Query
+SELECT mapEntries(map('k1', 'v1', 'k2', 'v2'))
+```
+
+```response title=Response
+[('k1','v1'),('k2','v2')]
+```
+
 ## mapExists {#mapExists}
 
 Introducido en: v23.4.0
@@ -947,6 +980,41 @@ SELECT mapPopulateSeries([1, 2, 4], [11, 22, 44], 5)
 
 ```response title=Response
 ([1,2,3,4,5],[11,22,0,44,0])
+```
+
+## mapRemove {#mapRemove}
+
+Introducido en: v26.10.0
+
+Elimina de un mapa todas las entradas cuya clave sea igual a la clave especificada. Si varias entradas tienen la misma clave, se eliminan todas las entradas coincidentes.
+Los valores NULL se comparan como valores: una clave de eliminación NULL no coincide con una clave que no sea NULL, y los componentes NULL de las claves compuestas coinciden con otros componentes NULL.
+Para tipos de clave con un supertipo común, las claves NaN siguen la semántica de búsqueda en mapas, por lo que una clave de eliminación NaN coincide con una clave NaN del mapa.
+
+**Sintaxis**
+
+```sql
+mapRemove(map, key)
+```
+
+**Argumentos**
+
+* `map` — Mapa del que se eliminarán las entradas coincidentes. [`Map(K, V)`](/es/reference/data-types/map)
+* `key` — Clave cuyas entradas coincidentes se eliminarán. El tipo debe ser comparable con el tipo de clave del mapa. [`Any`](/es/reference/data-types/index)
+
+**Valor devuelto**
+
+Devuelve el mapa con todas las entradas cuya clave no coincide con la clave especificada. [`Map(K, V)`](/es/reference/data-types/map)
+
+**Ejemplos**
+
+**Ejemplo de uso**
+
+```sql title=Query
+SELECT mapRemove(map('k1', 1, 'k2', 2), 'k1')
+```
+
+```response title=Response
+{'k2':2}
 ```
 
 ## mapReverseSort {#mapReverseSort}

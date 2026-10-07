@@ -394,7 +394,7 @@ SETTINGS convert_query_to_cnf = true;
 * `polyglot` — يترجم SQL من لهجات أخرى، مثل MySQL وPostgreSQL، إلى ClickHouse SQL. يتطلب الإعداد التجريبي `allow_experimental_polyglot_dialect`.
 * `promql` — PromQL (لغة استعلام Prometheus)، ويُقيَّم على جدول TimeSeries ويُضبط من خلال الإعدادات `promql_database` و`promql_table` و`promql_evaluation_time`.
 * `clickhouse_json` — بدلًا من نص SQL، يُفسَّر الاستعلام على أنه JSON AST (ناتج `parseQueryToJSON`). يظل استعلام `SET` معروفًا بصيغته العادية، بحيث يمكن التبديل مجددًا إلى لهجة أخرى. يتطلب الإعداد التجريبي `enable_json_ast_dialect`.
-* `logsql` — LogsQL، لغة استعلام السجلات في VictoriaLogs، وتُترجَم إلى استعلامات `SELECT` على جدول السجلات المُهيَّأ عبر الإعدادين `logsql_database` و`logsql_table`. يتطلب الإعداد التجريبي `allow_experimental_logsql_dialect`.
+* `logsql` — LogsQL، لغة استعلام السجلات في VictoriaLogs، وتُترجَم إلى استعلامات `SELECT` على جدول السجلات المُهيَّأ عبر الإعدادين `logsql_database` و`logsql_table`. يتطلب الإعداد التجريبي `enable_logsql_dialect`.
 * `trino` — Trino SQL: يترجم صياغة Trino (`ARRAY[...]` و`TRY_CAST` و`UNNEST` وغيرها) ويطابق أسماء دوال Trino مع نظيراتها في ClickHouse. يتطلب الإعداد التجريبي `enable_trino_dialect`.
 
 ## discard_query_data {#discard_query_data}
@@ -1954,6 +1954,14 @@ SELECT idx, i FROM null_in WHERE i IN (1, NULL) SETTINGS transform_null_in = 1;
 
 انتظر حتى تصبح التغييرات التي تم تثبيتها مرئية فعليًا في أحدث لقطة
 
+## weight {#weight}
+
+<SettingsInfoBlock type="Double" default_value="1" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1"},{"label": "إعداد استعلام جديد: الوزن الأساسي لجدولة الاستعلام ضمن عبء العمل الذي ينتمي إليه، ويستخدمه مُجدوِل عبء العمل `fair`."}]}]} />
+
+الوزن الأساسي لجدولة الاستعلام ضمن عبء العمل الذي ينتمي إليه، ويستخدمه مُجدوِل عبء العمل `fair` (راجع إعداد عبء العمل `scheduler`). عندما تتنافس الاستعلامات داخل عبء العمل نفسه، تحصل الاستعلامات ذات الوزن الأعلى على حصة أكبر تتناسب مع وزنها من المورد المُشارَك زمنيًا (CPU وIO). ويتجاهل المُجدوِل الافتراضي `fifo` هذا الإعداد. أما القيمة غير الموجبة (`<= 0`) فلا معنى لها في توزيع الحصص العادلة، وتُعامَل على أنها القيمة الافتراضية `1.0`.
+
 ## عبء العمل {#workload}
 
 <SettingsInfoBlock type="String" default_value="default" />
@@ -1982,6 +1990,14 @@ SELECT idx, i FROM null_in WHERE i IN (1, NULL) SETTINGS transform_null_in = 1;
 * عدد صحيح موجب — المهلة بالمللي ثانية.
 * 0 — مهلة لا نهائية: ينتظر الاستعلام القبول إلى أجل غير مسمّى (الافتراضي). ومع ذلك قد يُرفض
   فورًا عند بلوغ حد `max_waiting_queries` الخاص بعبء العمل.
+
+## workload_priority {#workload_priority}
+
+<SettingsInfoBlock type="Int64" default_value="0" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "0"},{"label": "إعداد استعلام جديد: أولوية جدولة الاستعلام ضمن عبء العمل الخاص به، ويستخدمه مُجدول عبء العمل `priority`."}]}]} />
+
+يحدّد أولوية جدولة الاستعلام ضمن عبء العمل الخاص به، ويستخدمه مُجدول عبء العمل `priority` (راجع إعداد عبء العمل `scheduler`). كلما انخفضت القيمة ارتفعت الأولوية؛ فالقيمة الافتراضية `0` هي نقطة الأساس المحايدة، والقيمة السالبة ترفع أولوية الاستعلام فوق المستوى الافتراضي، بينما تخفضها القيمة الموجبة. تُعالَج الاستعلامات ذات الأولوية المتساوية بحسب ترتيب وصولها. وتتجاهل المُجدولات الأخرى هذا الإعداد.
 
 ## write_full_path_in_iceberg_metadata {#write_full_path_in_iceberg_metadata}
 

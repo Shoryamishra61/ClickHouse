@@ -177,10 +177,11 @@ import SystemTableCloud from '/snippets/zh/_system_table_cloud.mdx';
 * `ProfileEvent_TextIndexLazySegmentsBuilt` ([UInt64](/zh/reference/data-types/int-uint)) — 在惰性倒排列表模式下实际读取并解码的分段数量 (缓存未命中) 。
 * `ProfileEvent_TextIndexLazyBruteForceIntersections` ([UInt64](/zh/reference/data-types/int-uint)) — 在惰性倒排列表模式下执行的穷举求交次数。
 * `ProfileEvent_TextIndexLazyLeapfrogIntersections` ([UInt64](/zh/reference/data-types/int-uint)) — 在惰性倒排列表模式下执行的跃蛙求交次数。
-* `ProfileEvent_TextIndexLazyBruteForceEarlyExits` ([UInt64](/zh/reference/data-types/int-uint)) — 在惰性倒排列表模式下，因某个倒排列表在窗口内没有行、求交结果为空而提前终止的穷举求交次数。
+* `ProfileEvent_TextIndexLazyBruteForceEarlyExits` ([UInt64](/zh/reference/data-types/int-uint)) — 在惰性倒排列表模式下，因窗口内已没有任何行同时存在于迄今已应用的所有倒排列表中、求交结果为空而提前终止的穷举求交次数。
 * `ProfileEvent_TextIndexLazySegmentsSkippedDense` ([UInt64](/zh/reference/data-types/int-uint)) — 在惰性倒排列表模式下，对完全稠密的分段进行整体填充 (OR 使用 memset，AND 使用递增) 而非解码块的次数。
-* `ProfileEvent_TextIndexLazySegmentsSkippedResolved` ([UInt64](/zh/reference/data-types/int-uint)) — 在惰性倒排列表模式下，因输出区域已确定 (OR 为全 1，AND 为全 0) 而跳过的分段数量。
-* `ProfileEvent_TextIndexLazyBlocksSkippedResolved` ([UInt64](/zh/reference/data-types/int-uint)) — 在惰性倒排列表模式下，因输出区域已确定 (OR 为全 1，AND 为全 0) 而跳过的打包块数量。
+* `ProfileEvent_TextIndexLazySegmentsSkippedResolved` ([UInt64](/zh/reference/data-types/int-uint)) — 在惰性倒排列表模式下，因输出区域已确定 (OR 为全 1，AND 为迄今已应用的所有倒排列表中均无剩余行) 而跳过的分段数量。
+* `ProfileEvent_TextIndexLazyBlocksSkippedResolved` ([UInt64](/zh/reference/data-types/int-uint)) — 在惰性倒排列表模式下，因输出区域已确定 (OR 为全 1，AND 为迄今已应用的所有倒排列表中均无剩余行) 而跳过的打包块数量。
+* `ProfileEvent_TextIndexLazyBlocksSkippedDense` ([UInt64](/zh/reference/data-types/int-uint)) — 在惰性倒排列表模式下，对由连续行 ID 组成的打包块进行整体填充 (OR 使用 memset，AND 使用递增) 而非解码的数量。
 * `ProfileEvent_TextIndexDiscardPatternScan` ([UInt64](/zh/reference/data-types/int-uint)) — 在文本索引中，基于模式的字典扫描因待读取的倒排列表数量超过阈值而被丢弃的次数。
 * `ProfileEvent_TextIndexPatternBypassCacheHits` ([UInt64](/zh/reference/data-types/int-uint)) — 因先前对同一分区片段的扫描已超过倒排列表阈值，而跳过文本索引模式字典扫描的次数。
 * `ProfileEvent_TextIndexGenericExclusionSearchAlgorithm` ([UInt64](/zh/reference/data-types/int-uint)) — 在文本索引上使用通用排除搜索算法的次数。
@@ -560,11 +561,11 @@ import SystemTableCloud from '/snippets/zh/_system_table_cloud.mdx';
 * `ProfileEvent_MutationAffectedRowsUpperBound` ([UInt64](/zh/reference/data-types/int-uint)) — 受变更影响的行数上限 (例如满足 UPDATE 或 DELETE 变更谓词的行数) 。实际数量可能会略少
 * `ProfileEvent_MutationTotalMilliseconds` ([UInt64](/zh/reference/data-types/int-uint)) — 变更花费的总时间。
 * `ProfileEvent_MutationExecuteMilliseconds` ([UInt64](/zh/reference/data-types/int-uint)) — 执行变更所花费的总忙碌时间。
-* `ProfileEvent_MutationCommitMilliseconds` ([UInt64](/zh/reference/data-types/int-uint)) — 提交变更结果所花费的总时间 (part 重命名、checksum 校验、ZooKeeper 更新)
+* `ProfileEvent_MutationCommitMilliseconds` ([UInt64](/zh/reference/data-types/int-uint)) — 提交变更结果所花费的总时间 (part 重命名、校验和验证、ZooKeeper 更新)
 * `ProfileEvent_MutationAllPartColumns` ([UInt64](/zh/reference/data-types/int-uint)) — 创建对 part 中所有列执行变更任务的次数
 * `ProfileEvent_MutationSomePartColumns` ([UInt64](/zh/reference/data-types/int-uint)) — 创建对 part 中部分列执行变更任务的次数
 * `ProfileEvent_MutateTaskProjectionsCalculationMicroseconds` ([UInt64](/zh/reference/data-types/int-uint)) — 在变更中计算 projections 所花费的时间
-* `ProfileEvent_MergeTreeDataWriterRows` ([UInt64](/zh/reference/data-types/int-uint)) — INSERT 到 MergeTree 表中的行数。
+* `ProfileEvent_MergeTreeDataWriterRows` ([UInt64](/zh/reference/data-types/int-uint)) — 插入到 MergeTree 表中的行数。
 * `ProfileEvent_MergeTreeDataWriterUncompressedBytes` ([UInt64](/zh/reference/data-types/int-uint)) — INSERT 到 MergeTree 表中的未压缩字节数 (按列在内存中的存储形式计算) 。
 * `ProfileEvent_MergeTreeDataWriterCompressedBytes` ([UInt64](/zh/reference/data-types/int-uint)) — 为 INSERT 到 MergeTree 表中的数据写入文件系统的字节数。
 * `ProfileEvent_MergeTreeDataWriterBlocks` ([UInt64](/zh/reference/data-types/int-uint)) — INSERT 到 MergeTree 表中的块数。每个块都会形成一个 0 级数据分区片段。
@@ -885,7 +886,8 @@ import SystemTableCloud from '/snippets/zh/_system_table_cloud.mdx';
 * `ProfileEvent_FilesystemCacheStateLockMicroseconds` ([UInt64](/zh/reference/data-types/int-uint)) — 获取状态锁时锁定文件系统缓存所花费的时间
 * `ProfileEvent_FilesystemCacheReserveMicroseconds` ([UInt64](/zh/reference/data-types/int-uint)) — 预留文件系统缓存空间所花费的时间
 * `ProfileEvent_FilesystemCacheReserveAttempts` ([UInt64](/zh/reference/data-types/int-uint)) — 预留文件系统缓存空间的尝试次数
-* `ProfileEvent_FilesystemCacheFailedReserveAttempts` ([UInt64](/zh/reference/data-types/int-uint)) — 文件系统缓存空间预留失败的尝试次数。
+* `ProfileEvent_FilesystemCacheReserveAheadRetries` ([UInt64](/zh/reference/data-types/int-uint)) — 带超前预留的文件系统缓存预留因空间不足而改为按精确请求大小重试的次数
+* `ProfileEvent_FilesystemCacheFailedReserveAttempts` ([UInt64](/zh/reference/data-types/int-uint)) — 文件系统缓存空间预留失败的尝试次数，包括随后按精确大小重试的超前预留尝试 (参见 FilesystemCacheReserveAheadRetries) 。
 * `ProfileEvent_FilesystemCacheEvictMicroseconds` ([UInt64](/zh/reference/data-types/int-uint)) — 文件系统缓存淘汰所花费的时间
 * `ProfileEvent_FilesystemCacheGetOrSetMicroseconds` ([UInt64](/zh/reference/data-types/int-uint)) — 文件系统缓存 getOrSet() 所花费的时间
 * `ProfileEvent_FilesystemCacheGetMicroseconds` ([UInt64](/zh/reference/data-types/int-uint)) — 文件系统缓存 get() 所花费的时间
@@ -2279,6 +2281,8 @@ CurrentMetric_DistributedFilesToInsert:                          0
     </metric_log>
 </clickhouse>
 ```
+
+由于此 schema 中按指标划分的列都是 `ALIAS` 列，因此它不能与在系统日志表中跳过别名列的配置 (`default_system_log_flush_policy.skip_alias_columns`，或不支持别名列的表引擎) 一起使用：在这种情况下，服务器会拒绝启动，而不会创建缺少 `ProfileEvent_*` 和 `CurrentMetric_*` 列的表。分桶 `Map` 序列化的引擎设置属于默认表定义的一部分，因此当配置中显式指定 `<engine>` 时，这些设置不会生效。
 
 `transposed` schema 以类似 `system.asynchronous_metric_log` 的格式存储数据，其中指标和事件按行存储。该 schema 适用于资源较少的部署，因为它能降低 merge 期间的资源消耗。
 

@@ -373,7 +373,7 @@ SETTINGS convert_query_to_cnf = true;
 * `polyglot` — 将其他方言 (MySQL、PostgreSQL 等) 的 SQL 转译为 ClickHouse SQL。需要启用 Experimental 设置 `allow_experimental_polyglot_dialect`。
 * `promql` — PromQL (Prometheus 查询语言) ，基于由 `promql_database`、`promql_table` 和 `promql_evaluation_time` 设置指定的 TimeSeries 表进行计算。
 * `clickhouse_json` — 查询将不作为 SQL 文本处理，而是解释为 JSON AST (`parseQueryToJSON` 的输出) 。仍可使用普通形式的 `SET` 查询，以便切换回其他方言。需要启用 Experimental 设置 `enable_json_ast_dialect`。
-* `logsql` — LogsQL，即 VictoriaLogs 的日志查询语言，会被转换为 `SELECT` 查询，作用于由 `logsql_database` 和 `logsql_table` 设置指定的日志表。需要启用 Experimental 设置 `allow_experimental_logsql_dialect`。
+* `logsql` — LogsQL，即 VictoriaLogs 的日志查询语言，会被转换为 `SELECT` 查询，作用于由 `logsql_database` 和 `logsql_table` 设置指定的日志表。需要启用 Experimental 设置 `enable_logsql_dialect`。
 * `trino` — Trino SQL：转换 Trino 语法 (`ARRAY[...]`、`TRY_CAST`、`UNNEST` 等) ，并将 Trino 函数名映射为对应的 ClickHouse 函数。需要启用 Experimental 设置 `enable_trino_dialect`。
 
 ## discard_query_data {#discard_query_data}
@@ -1926,6 +1926,14 @@ SELECT idx, i FROM null_in WHERE i IN (1, NULL) SETTINGS transform_null_in = 1;
 
 等待已提交的更改在最新快照中变为可见
 
+## weight {#weight}
+
+<SettingsInfoBlock type="Double" default_value="1" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1"},{"label": "新增查询设置：查询在其所属工作负载内的基础调度权重，供 `fair` 工作负载调度器使用。"}]}]} />
+
+查询在其所属工作负载内的基础调度权重，供 `fair` 工作负载调度器使用 (参见 `scheduler` 工作负载设置) 。当多个查询在同一工作负载内争用时间共享资源 (CPU、IO) 时，权重越高的查询按比例分得的份额越大。默认的 `fifo` 调度器会忽略此设置。非正值 (`<= 0`) 对公平分配没有意义，将按默认值 `1.0` 处理。
+
 ## workload {#workload}
 
 <SettingsInfoBlock type="String" default_value="default" />
@@ -1947,6 +1955,14 @@ SELECT idx, i FROM null_in WHERE i IN (1, NULL) SETTINGS transform_null_in = 1;
 
 * 正整数 — 超时时间，单位为毫秒。
 * 0 — 无限超时：查询将无限期等待准入 (默认值) 。但当达到该 workload 的 `max_waiting_queries` 限制时，查询仍会被立即拒绝。
+
+## workload_priority {#workload_priority}
+
+<SettingsInfoBlock type="Int64" default_value="0" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "0"},{"label": "新增查询设置：查询在其所属工作负载中的调度优先级，供 `priority` 工作负载调度器使用。"}]}]} />
+
+查询在其所属工作负载中的调度优先级，供 `priority` 工作负载调度器使用 (参见 `scheduler` 工作负载设置) 。值越小，优先级越高：默认值 `0` 为中性基线，负值会使查询优先级高于默认水平，正值则会使其低于默认水平。优先级相同的查询按先到先服务的原则处理。其他调度器会忽略此设置。
 
 ## write_full_path_in_iceberg_metadata {#write_full_path_in_iceberg_metadata}
 

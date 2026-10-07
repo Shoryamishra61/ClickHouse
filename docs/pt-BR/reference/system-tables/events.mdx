@@ -2184,7 +2184,7 @@ Número de segmentos de arquivo que falharam inesperadamente ao serem removidos 
 
 ### FilesystemCacheFailedReserveAttempts {#filesystemcachefailedreserveattempts}
 
-Número de tentativas malsucedidas de reserva de espaço no cache de arquivos.
+Número de tentativas malsucedidas de reserva de espaço no cache de arquivos, incluindo tentativas de reserva antecipada que foram repetidas com o tamanho exato (consulte FilesystemCacheReserveAheadRetries).
 
 ### FilesystemCacheFailToReserveSpaceBecauseOfCacheResize {#filesystemcachefailtoreservespacebecauseofcacheresize}
 
@@ -2253,6 +2253,10 @@ Tempo de bloqueio para leitura do cache do sistema de arquivos na fila de priori
 ### FilesystemCachePriorityWriteLockMicroseconds {#filesystemcacheprioritywritelockmicroseconds}
 
 Tempo de bloqueio do cache do sistema de arquivos ao gravar na fila de prioridade
+
+### FilesystemCacheReserveAheadRetries {#filesystemcachereserveaheadretries}
+
+Número de vezes em que uma reserva no cache do sistema de arquivos com reserva antecipada não coube e foi tentada novamente usando exatamente o tamanho solicitado
 
 ### FilesystemCacheReserveAttempts {#filesystemcachereserveattempts}
 
@@ -5978,13 +5982,17 @@ Número de vezes em que um cabeçalho não foi encontrado no cache.
 
 Número de operações de avanço realizadas no modo preguiçoso da lista de postings.
 
+### TextIndexLazyBlocksSkippedDense {#textindexlazyblocksskippeddense}
+
+Número de blocos compactados de IDs de linha consecutivos que foram preenchidos integralmente (memset para OR, incremento para AND), em vez de decodificados, no modo de lista de postings preguiçoso.
+
 ### TextIndexLazyBlocksSkippedResolved {#textindexlazyblocksskippedresolved}
 
-Número de blocos compactados ignorados porque a região de saída já havia sido resolvida (todos 1 para OR, todos 0 para AND) no modo preguiçoso de lista de postings.
+Número de blocos compactados ignorados porque a região de saída já havia sido resolvida (todos 1 para OR, nenhuma linha restante em todas as listas de postings aplicadas até o momento para AND) no modo preguiçoso de lista de postings.
 
 ### TextIndexLazyBruteForceEarlyExits {#textindexlazybruteforceearlyexits}
 
-Número de interseções por força bruta no modo de lista de postings preguiçoso que terminaram antes do previsto porque uma das listas de postings não continha nenhuma linha na janela, resultando em uma interseção vazia.
+Número de interseções por força bruta no modo de lista de postings preguiçoso que terminaram antes do previsto porque nenhuma linha da janela permaneceu em comum entre todas as listas de postings aplicadas até o momento, resultando em uma interseção vazia.
 
 ### TextIndexLazyBruteForceIntersections {#textindexlazybruteforceintersections}
 
@@ -6012,7 +6020,7 @@ Número de segmentos totalmente densos preenchidos de uma só vez (`memset` para
 
 ### TextIndexLazySegmentsSkippedResolved {#textindexlazysegmentsskippedresolved}
 
-Número de segmentos ignorados porque a região de saída já havia sido determinada (todos 1s para OR, todos 0s para AND) no modo preguiçoso de lista de postings.
+Número de segmentos ignorados porque a região de saída já havia sido determinada (todos 1s para OR, nenhuma linha restante em todas as listas de postings aplicadas até o momento para AND) no modo preguiçoso de lista de postings.
 
 ### TextIndexPatternBypassCacheHits {#textindexpatternbypasscachehits}
 

@@ -2184,7 +2184,7 @@ Distributed Cache server event. Время ожидания мьютекса б�
 
 ### FilesystemCacheFailedReserveAttempts {#filesystemcachefailedreserveattempts}
 
-Количество неудачных попыток резервирования места в файловом кэше.
+Количество неудачных попыток резервирования места в файловом кэше, включая попытки опережающего резервирования, повторённые с точным размером (см. FilesystemCacheReserveAheadRetries).
 
 ### FilesystemCacheFailToReserveSpaceBecauseOfCacheResize {#filesystemcachefailtoreservespacebecauseofcacheresize}
 
@@ -2253,6 +2253,10 @@ Distributed Cache server event. Время ожидания мьютекса б�
 ### FilesystemCachePriorityWriteLockMicroseconds {#filesystemcacheprioritywritelockmicroseconds}
 
 Время блокировки файлового кэша при записи в очередь с приоритетом
+
+### FilesystemCacheReserveAheadRetries {#filesystemcachereserveaheadretries}
+
+Количество случаев, когда резервирование места в файловом кэше с упреждением (опережающее резервирование) не удалось выполнить из-за нехватки места и оно было повторено ровно на запрошенный размер
 
 ### FilesystemCacheReserveAttempts {#filesystemcachereserveattempts}
 
@@ -5978,13 +5982,17 @@ Distributed Cache server event. Время ожидания мьютекса б�
 
 Количество операций продвижения, выполненных в режиме ленивого списка вхождений.
 
+### TextIndexLazyBlocksSkippedDense {#textindexlazyblocksskippeddense}
+
+Количество упакованных блоков последовательных идентификаторов строк, которые в режиме ленивого списка вхождений были заполнены целиком (memset для OR, инкремент для побитового И), а не декодированы.
+
 ### TextIndexLazyBlocksSkippedResolved {#textindexlazyblocksskippedresolved}
 
-Количество упакованных блоков, пропущенных, поскольку выходная область уже была определена (все единицы для OR, все нули для побитового И) в режиме ленивого списка вхождений.
+Количество упакованных блоков, пропущенных, поскольку выходная область уже была определена (все единицы для OR, для побитового И — во всех применённых к этому моменту списках вхождений не осталось ни одной строки) в режиме ленивого списка вхождений.
 
 ### TextIndexLazyBruteForceEarlyExits {#textindexlazybruteforceearlyexits}
 
-Число операций пересечения методом полного перебора в режиме ленивого списка вхождений, досрочно завершённых из-за отсутствия строк в окне у одного из списков вхождений. В таких случаях результат пересечения пуст.
+Число операций пересечения методом полного перебора в режиме ленивого списка вхождений, досрочно завершённых из-за того, что ни одна строка окна не встречается одновременно во всех уже применённых списках вхождений. В таких случаях результат пересечения пуст.
 
 ### TextIndexLazyBruteForceIntersections {#textindexlazybruteforceintersections}
 
@@ -6012,7 +6020,7 @@ Distributed Cache server event. Время ожидания мьютекса б�
 
 ### TextIndexLazySegmentsSkippedResolved {#textindexlazysegmentsskippedresolved}
 
-Количество сегментов, пропущенных из-за того, что выходная область уже была определена (все единицы для OR, все нули для побитового И) в режиме ленивого списка вхождений.
+Количество сегментов, пропущенных из-за того, что выходная область уже была определена (все единицы для OR, для побитового И — во всех применённых к этому моменту списках вхождений не осталось ни одной строки) в режиме ленивого списка вхождений.
 
 ### TextIndexPatternBypassCacheHits {#textindexpatternbypasscachehits}
 

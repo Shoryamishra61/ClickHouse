@@ -182,10 +182,11 @@ import SystemTableCloud from '/snippets/ko/_system_table_cloud.mdx';
 * `ProfileEvent_TextIndexLazySegmentsBuilt` ([UInt64](/ko/reference/data-types/int-uint)) — 지연 포스팅 리스트 모드에서 실제로 읽고 디코딩된 세그먼트 수(캐시 미스)입니다.
 * `ProfileEvent_TextIndexLazyBruteForceIntersections` ([UInt64](/ko/reference/data-types/int-uint)) — 지연 포스팅 리스트 모드에서 수행된 무차별 대입 교집합 수입니다.
 * `ProfileEvent_TextIndexLazyLeapfrogIntersections` ([UInt64](/ko/reference/data-types/int-uint)) — 지연 포스팅 리스트 모드에서 수행된 leapfrog 교집합 수입니다.
-* `ProfileEvent_TextIndexLazyBruteForceEarlyExits` ([UInt64](/ko/reference/data-types/int-uint)) — 지연 포스팅 리스트 모드에서 포스팅 리스트 중 하나에 해당 윈도우의 행이 없어 교집합이 비어 있으므로 무차별 대입 교집합 계산을 조기에 중단한 횟수입니다.
+* `ProfileEvent_TextIndexLazyBruteForceEarlyExits` ([UInt64](/ko/reference/data-types/int-uint)) — 지연 포스팅 리스트 모드에서 지금까지 적용된 모든 포스팅 리스트에 공통으로 남은 해당 윈도우의 행이 없어 교집합이 비어 있으므로 무차별 대입 교집합 계산을 조기에 중단한 횟수입니다.
 * `ProfileEvent_TextIndexLazySegmentsSkippedDense` ([UInt64](/ko/reference/data-types/int-uint)) — 지연 포스팅 리스트 모드에서 블록을 디코딩하는 대신 전체를 채운 완전 밀집 세그먼트 수(OR의 경우 memset, AND의 경우 증가)입니다.
-* `ProfileEvent_TextIndexLazySegmentsSkippedResolved` ([UInt64](/ko/reference/data-types/int-uint)) — 지연 포스팅 리스트 모드에서 출력 영역이 이미 확정되어(OR의 경우 모두 1, AND의 경우 모두 0) 건너뛴 세그먼트 수입니다.
-* `ProfileEvent_TextIndexLazyBlocksSkippedResolved` ([UInt64](/ko/reference/data-types/int-uint)) — 지연 포스팅 리스트 모드에서 출력 영역이 이미 확정되어(OR의 경우 모두 1, AND의 경우 모두 0) 건너뛴 패킹된 블록 수입니다.
+* `ProfileEvent_TextIndexLazySegmentsSkippedResolved` ([UInt64](/ko/reference/data-types/int-uint)) — 지연 포스팅 리스트 모드에서 출력 영역이 이미 확정되어(OR의 경우 모두 1, AND의 경우 지금까지 적용된 모든 포스팅 리스트에 공통으로 남은 행이 없음) 건너뛴 세그먼트 수입니다.
+* `ProfileEvent_TextIndexLazyBlocksSkippedResolved` ([UInt64](/ko/reference/data-types/int-uint)) — 지연 포스팅 리스트 모드에서 출력 영역이 이미 확정되어(OR의 경우 모두 1, AND의 경우 지금까지 적용된 모든 포스팅 리스트에 공통으로 남은 행이 없음) 건너뛴 패킹된 블록 수입니다.
+* `ProfileEvent_TextIndexLazyBlocksSkippedDense` ([UInt64](/ko/reference/data-types/int-uint)) — 지연 포스팅 리스트 모드에서 디코딩하는 대신 전체를 채운 연속 행 ID의 패킹된 블록 수(OR의 경우 memset, AND의 경우 증가)입니다.
 * `ProfileEvent_TextIndexDiscardPatternScan` ([UInt64](/ko/reference/data-types/int-uint)) — 텍스트 인덱스의 패턴 기반 딕셔너리 스캔이, 읽어야 할 포스팅 리스트 수가 임계값을 초과하여 폐기된 횟수입니다.
 * `ProfileEvent_TextIndexPatternBypassCacheHits` ([UInt64](/ko/reference/data-types/int-uint)) — 동일한 파트의 이전 스캔에서 포스팅 리스트 수가 임계값을 초과하여 텍스트 인덱스의 패턴 기반 딕셔너리 스캔을 건너뛴 횟수입니다.
 * `ProfileEvent_TextIndexGenericExclusionSearchAlgorithm` ([UInt64](/ko/reference/data-types/int-uint)) — 텍스트 인덱스에 대해 일반 제외 검색 알고리즘이 사용된 횟수입니다.
@@ -890,7 +891,8 @@ import SystemTableCloud from '/snippets/ko/_system_table_cloud.mdx';
 * `ProfileEvent_FilesystemCacheStateLockMicroseconds` ([UInt64](/ko/reference/data-types/int-uint)) — 상태 잠금을 위한 파일 시스템 캐시 잠금 시간
 * `ProfileEvent_FilesystemCacheReserveMicroseconds` ([UInt64](/ko/reference/data-types/int-uint)) — 파일 시스템 캐시 공간 예약 시간
 * `ProfileEvent_FilesystemCacheReserveAttempts` ([UInt64](/ko/reference/data-types/int-uint)) — 파일 시스템 캐시 공간 예약 시도 횟수
-* `ProfileEvent_FilesystemCacheFailedReserveAttempts` ([UInt64](/ko/reference/data-types/int-uint)) — 파일 캐시 공간 예약에 실패한 시도 횟수입니다.
+* `ProfileEvent_FilesystemCacheReserveAheadRetries` ([UInt64](/ko/reference/data-types/int-uint)) — 선행 예약(reserve-ahead)을 사용한 파일 시스템 캐시 예약이 공간에 맞지 않아 요청된 크기 그대로 재시도된 횟수
+* `ProfileEvent_FilesystemCacheFailedReserveAttempts` ([UInt64](/ko/reference/data-types/int-uint)) — 파일 캐시 공간 예약에 실패한 시도 횟수입니다. 정확한 크기로 재시도된 선행 예약 시도도 포함됩니다(FilesystemCacheReserveAheadRetries 참조).
 * `ProfileEvent_FilesystemCacheEvictMicroseconds` ([UInt64](/ko/reference/data-types/int-uint)) — 파일 시스템 캐시 제거 시간
 * `ProfileEvent_FilesystemCacheGetOrSetMicroseconds` ([UInt64](/ko/reference/data-types/int-uint)) — 파일 시스템 캐시 getOrSet() 시간
 * `ProfileEvent_FilesystemCacheGetMicroseconds` ([UInt64](/ko/reference/data-types/int-uint)) — 파일 시스템 캐시 get() 시간

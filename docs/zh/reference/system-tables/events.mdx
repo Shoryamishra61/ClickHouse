@@ -2183,7 +2183,7 @@ FileCache::assertCacheCorrectness 耗费的时间
 
 ### FilesystemCacheFailedReserveAttempts {#filesystemcachefailedreserveattempts}
 
-文件缓存空间预留失败次数。
+文件缓存空间预留失败次数，包括改用精确大小重试的预先预留尝试 (参见 FilesystemCacheReserveAheadRetries) 。
 
 ### FilesystemCacheFailToReserveSpaceBecauseOfCacheResize {#filesystemcachefailtoreservespacebecauseofcacheresize}
 
@@ -2252,6 +2252,10 @@ FileCache::assertCacheCorrectness 耗费的时间
 ### FilesystemCachePriorityWriteLockMicroseconds {#filesystemcacheprioritywritelockmicroseconds}
 
 写入优先队列时锁定文件系统缓存的时间
+
+### FilesystemCacheReserveAheadRetries {#filesystemcachereserveaheadretries}
+
+采用预先预留 (reserve-ahead) 方式的文件系统缓存预留因空间不足而失败、随后改为严格按请求大小重试的次数
 
 ### FilesystemCacheReserveAttempts {#filesystemcachereserveattempts}
 
@@ -5977,13 +5981,17 @@ MergeTree 表中共享数据分区片段锁的获取次数
 
 惰性倒排列表模式下执行的推进操作次数。
 
+### TextIndexLazyBlocksSkippedDense {#textindexlazyblocksskippeddense}
+
+在惰性倒排列表模式下，由连续行 ID 组成、未经解码而是被整体填充 (OR 使用 memset，AND 使用递增) 的打包块数量。
+
 ### TextIndexLazyBlocksSkippedResolved {#textindexlazyblocksskippedresolved}
 
-在惰性倒排列表模式下，由于输出区域已确定 (对于 OR 为全 1，对于 AND 为全 0) 而被跳过的 打包块 数量。
+在惰性倒排列表模式下，由于输出区域已确定 (对于 OR 为全 1，对于 AND 为截至目前已应用的所有倒排列表中均无剩余行) 而被跳过的 打包块 数量。
 
 ### TextIndexLazyBruteForceEarlyExits {#textindexlazybruteforceearlyexits}
 
-在惰性倒排列表模式下，因其中一个倒排列表在当前窗口内没有行、交集为空而提前结束的穷举求交次数。
+在惰性倒排列表模式下，因当前窗口内已没有任何行同时存在于迄今已应用的所有倒排列表中、交集为空而提前结束的穷举求交次数。
 
 ### TextIndexLazyBruteForceIntersections {#textindexlazybruteforceintersections}
 
@@ -6011,7 +6019,7 @@ MergeTree 表中共享数据分区片段锁的获取次数
 
 ### TextIndexLazySegmentsSkippedResolved {#textindexlazysegmentsskippedresolved}
 
-在惰性倒排列表模式下，由于输出区域已确定 (OR 为全 1，AND 为全 0) 而跳过的分段数量。
+在惰性倒排列表模式下，由于输出区域已确定 (OR 为全 1，AND 为迄今为止已应用的所有倒排列表中均无剩余行) 而跳过的分段数量。
 
 ### TextIndexPatternBypassCacheHits {#textindexpatternbypasscachehits}
 

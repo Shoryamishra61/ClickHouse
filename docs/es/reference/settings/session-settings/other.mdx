@@ -394,7 +394,7 @@ Valores admitidos:
 * `polyglot` — transpila SQL de otros dialectos (MySQL, PostgreSQL, etc.) a ClickHouse SQL. Requiere la configuración experimental `allow_experimental_polyglot_dialect`.
 * `promql` — PromQL (Prometheus Query Language) evaluado sobre una tabla TimeSeries, configurada mediante las opciones `promql_database`, `promql_table` y `promql_evaluation_time`.
 * `clickhouse_json` — en lugar de texto SQL, la consulta se interpreta como un AST JSON (la salida de `parseQueryToJSON`). La consulta `SET` se sigue reconociendo en formato sin procesar para poder volver a cambiar el dialecto. Requiere la configuración experimental `enable_json_ast_dialect`.
-* `logsql` — LogsQL, el lenguaje de consulta de logs de VictoriaLogs, traducido a consultas `SELECT` sobre la tabla de logs configurada mediante las opciones `logsql_database` y `logsql_table`. Requiere la configuración experimental `allow_experimental_logsql_dialect`.
+* `logsql` — LogsQL, el lenguaje de consulta de logs de VictoriaLogs, traducido a consultas `SELECT` sobre la tabla de logs configurada mediante las opciones `logsql_database` y `logsql_table`. Requiere la configuración experimental `enable_logsql_dialect`.
 
 - `trino` — Trino SQL: traduce la sintaxis de Trino (`ARRAY[...]`, `TRY_CAST`, `UNNEST`, ...) y asigna los nombres de las funciones de Trino a sus equivalentes de ClickHouse. Requiere la configuración experimental `enable_trino_dialect`.
 
@@ -1956,6 +1956,14 @@ controla qué ocurre con las filas cuyo tipo real es incompatible con la funció
 
 Esperar a que los cambios confirmados sean realmente visibles en la instantánea más reciente
 
+## weight {#weight}
+
+<SettingsInfoBlock type="Double" default_value="1" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1"},{"label": "Nuevo ajuste de consulta: peso base de planificación de una consulta dentro de su workload, utilizado por el planificador de workload `fair`."}]}]} />
+
+Peso base de planificación de la consulta dentro de su workload, utilizado por el planificador de workload `fair` (consulte el ajuste de workload `scheduler`). Cuando varias consultas compiten dentro del mismo workload, las que tienen un peso mayor reciben una parte proporcionalmente mayor de un recurso de tiempo compartido (CPU, IO). El planificador predeterminado `fifo` lo ignora. Un valor no positivo (`<= 0`) carece de sentido para el reparto equitativo, por lo que se trata como el valor predeterminado `1.0`.
+
 ## workload {#workload}
 
 <SettingsInfoBlock type="String" default_value="default" />
@@ -1984,6 +1992,14 @@ Valores posibles:
 * Entero positivo: timeout en milisegundos.
 * 0: timeout infinito; la consulta espera indefinidamente a ser admitida (valor predeterminado). Aun así, puede rechazarse
   de inmediato cuando se alcanza el límite `max_waiting_queries` del workload.
+
+## workload_priority {#workload_priority}
+
+<SettingsInfoBlock type="Int64" default_value="0" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "0"},{"label": "Nuevo ajuste de consulta: prioridad de planificación de una consulta dentro de su workload, utilizada por el planificador de workload `priority`."}]}]} />
+
+Prioridad de planificación de la consulta dentro de su workload, utilizada por el planificador de workload `priority` (consulte el ajuste de workload `scheduler`). Cuanto menor es el valor, mayor es la prioridad; el valor predeterminado `0` es la referencia neutral: un valor negativo sitúa la consulta por encima de la prioridad predeterminada y un valor positivo la sitúa por debajo. Las consultas con la misma prioridad se atienden por orden de llegada. Los demás planificadores ignoran este ajuste.
 
 ## write_full_path_in_iceberg_metadata {#write_full_path_in_iceberg_metadata}
 

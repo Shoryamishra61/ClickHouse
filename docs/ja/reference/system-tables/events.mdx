@@ -2183,7 +2183,7 @@ moving状態のため、エビクションをスキップしたファイルセ�
 
 ### FilesystemCacheFailedReserveAttempts {#filesystemcachefailedreserveattempts}
 
-ファイルキャッシュ領域の予約に失敗した回数。
+ファイルキャッシュ領域の予約に失敗した回数。先行予約に失敗し、正確なサイズで再試行された試行も含みます (FilesystemCacheReserveAheadRetries を参照) 。
 
 ### FilesystemCacheFailToReserveSpaceBecauseOfCacheResize {#filesystemcachefailtoreservespacebecauseofcacheresize}
 
@@ -2252,6 +2252,10 @@ cacheキーのロック時間
 ### FilesystemCachePriorityWriteLockMicroseconds {#filesystemcacheprioritywritelockmicroseconds}
 
 優先度キューへの書き込みのためにファイルシステムキャッシュがロックされていた時間
+
+### FilesystemCacheReserveAheadRetries {#filesystemcachereserveaheadretries}
+
+先行予約 (reserve-ahead) を伴うファイルシステムキャッシュの予約が収まりきらず、要求されたサイズちょうどで再試行された回数
 
 ### FilesystemCacheReserveAttempts {#filesystemcachereserveattempts}
 
@@ -5977,13 +5981,17 @@ cache でヘッダーが見つかった回数。
 
 lazy posting list モードで実行された advance 操作の回数。
 
+### TextIndexLazyBlocksSkippedDense {#textindexlazyblocksskippeddense}
+
+lazy posting list モードにおいて、連続する行 ID からなるパック済みブロックのうち、デコードせずにブロック全体をまとめてパディング処理 (OR の場合は memset、AND の場合はインクリメント) した数。
+
 ### TextIndexLazyBlocksSkippedResolved {#textindexlazyblocksskippedresolved}
 
-lazy posting list モードで、出力領域がすでに確定していた (OR では全ビット1、AND では全ビット0) ためにスキップされたパック済みブロックの数。
+lazy posting list モードで、出力領域がすでに確定していた (OR では全ビット1、AND ではこれまでに適用したすべてのポスティングリストに残っている行がない) ためにスキップされたパック済みブロックの数。
 
 ### TextIndexLazyBruteForceEarlyExits {#textindexlazybruteforceearlyexits}
 
-lazy posting list モードでの総当たり方式による積集合演算のうち、いずれかのポスティングリストでウィンドウ内に行が存在せず、積集合が空になることが確定したため早期終了した回数。
+lazy posting list モードでの総当たり方式による積集合演算のうち、これまでに適用したすべてのポスティングリストに共通するウィンドウ内の行が1つも残らず、積集合が空になることが確定したため早期終了した回数。
 
 ### TextIndexLazyBruteForceIntersections {#textindexlazybruteforceintersections}
 
@@ -6011,7 +6019,7 @@ lazy posting list モードで、ブロックをデコードせずに、完全�
 
 ### TextIndexLazySegmentsSkippedResolved {#textindexlazysegmentsskippedresolved}
 
-lazy posting list モードで、出力領域の値がすでに確定していたため (OR では全ビットが 1、AND では全ビットが 0) スキップされたセグメント数。
+lazy posting list モードで、出力領域の値がすでに確定していたため (OR では全ビットが 1、AND ではこれまでに適用したすべてのポスティングリストに該当する行が残っていない) スキップされたセグメント数。
 
 ### TextIndexPatternBypassCacheHits {#textindexpatternbypasscachehits}
 

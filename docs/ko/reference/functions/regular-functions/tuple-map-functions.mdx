@@ -595,6 +595,39 @@ SELECT mapContainsValueLike(a, 'a%') FROM tab;
 └───────────────────────────────┘
 ```
 
+## mapEntries {#mapEntries}
+
+도입 버전: v26.10.0
+
+맵의 key-value 쌍을 `key` 및 `value` 필드로 구성된 named tuple의 배열로 반환합니다.
+중복된 키는 그대로 유지됩니다.
+
+**구문**
+
+```sql
+mapEntries(map)
+```
+
+**인수**
+
+* `map` — 엔트리를 추출할 맵입니다. [`Map(K, V)`](/ko/reference/data-types/map)
+
+**반환 값**
+
+맵의 key-value 쌍을 담은 배열을 반환합니다. [`Array(Tuple(key K, value V))`](/ko/reference/data-types/array)
+
+**예시**
+
+**사용 예시**
+
+```sql title=Query
+SELECT mapEntries(map('k1', 'v1', 'k2', 'v2'))
+```
+
+```response title=Response
+[('k1','v1'),('k2','v2')]
+```
+
 ## mapExists {#mapExists}
 
 도입 버전: v23.4.0
@@ -945,6 +978,41 @@ SELECT mapPopulateSeries([1, 2, 4], [11, 22, 44], 5)
 
 ```response title=Response
 ([1,2,3,4,5],[11,22,0,44,0])
+```
+
+## mapRemove {#mapRemove}
+
+도입 버전: v26.10.0
+
+맵에서 지정된 키와 같은 키를 가진 엔트리를 모두 제거합니다. 동일한 키를 가진 엔트리가 여러 개이면 일치하는 엔트리가 모두 제거됩니다.
+NULL은 일반 값으로 취급하여 비교합니다. 즉, NULL인 제거 키는 NULL이 아닌 키와 일치하지 않으며, 복합 키에 포함된 NULL 구성 요소는 다른 NULL 구성 요소와 일치합니다.
+공통 상위 타입(common supertype)이 있는 키 타입에서는 NaN 키가 맵 조회 의미 체계를 따르므로, NaN인 제거 키는 맵의 NaN 키와 일치합니다.
+
+**구문**
+
+```sql
+mapRemove(map, key)
+```
+
+**인수**
+
+* `map` — 일치하는 엔트리를 제거할 맵입니다. [`Map(K, V)`](/ko/reference/data-types/map)
+* `key` — 제거할 엔트리와 일치시킬 키입니다. 맵의 키 타입과 비교 가능한 타입이어야 합니다. [`Any`](/ko/reference/data-types/index)
+
+**반환 값**
+
+키가 지정된 키와 일치하지 않는 엔트리만 남긴 맵을 반환합니다. [`Map(K, V)`](/ko/reference/data-types/map)
+
+**예시**
+
+**사용 예시**
+
+```sql title=Query
+SELECT mapRemove(map('k1', 1, 'k2', 2), 'k1')
+```
+
+```response title=Response
+{'k2':2}
 ```
 
 ## mapReverseSort {#mapReverseSort}

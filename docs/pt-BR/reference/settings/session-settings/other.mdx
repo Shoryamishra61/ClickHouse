@@ -394,7 +394,7 @@ Valores compatíveis:
 * `polyglot` — transpila SQL de outros dialetos (MySQL, PostgreSQL etc.) para ClickHouse SQL. Requer a configuração experimental `allow_experimental_polyglot_dialect`.
 * `promql` — PromQL (Prometheus Query Language) avaliada em uma tabela TimeSeries, configurada pelas opções `promql_database`, `promql_table` e `promql_evaluation_time`.
 * `clickhouse_json` — em vez de texto SQL, a consulta é interpretada como um AST JSON (a saída de `parseQueryToJSON`). A consulta `SET` continua sendo reconhecida em formato simples para permitir a reversão para outro dialeto. Requer a configuração experimental `enable_json_ast_dialect`.
-* `logsql` — LogsQL, a linguagem de consulta de logs do VictoriaLogs, traduzida em consultas `SELECT` sobre a tabela de logs configurada pelas opções `logsql_database` e `logsql_table`. Requer a configuração experimental `allow_experimental_logsql_dialect`.
+* `logsql` — LogsQL, a linguagem de consulta de logs do VictoriaLogs, traduzida em consultas `SELECT` sobre a tabela de logs configurada pelas opções `logsql_database` e `logsql_table`. Requer a configuração experimental `enable_logsql_dialect`.
 * `trino` — Trino SQL: traduz a sintaxe do Trino (`ARRAY[...]`, `TRY_CAST`, `UNNEST`, ...) e mapeia os nomes das funções do Trino para seus equivalentes no ClickHouse. Requer a configuração experimental `enable_trino_dialect`.
 
 ## discard_query_data {#discard_query_data}
@@ -1954,6 +1954,14 @@ essa configuração controla o que acontece com as linhas cujo tipo real é inco
 
 Aguarda que as alterações confirmadas se tornem efetivamente visíveis no snapshot mais recente
 
+## weight {#weight}
+
+<SettingsInfoBlock type="Double" default_value="1" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1"},{"label": "Nova configuração de consulta: peso base de agendamento de uma consulta dentro de sua carga de trabalho, usado pelo scheduler de carga de trabalho `fair`."}]}]} />
+
+Peso base de agendamento da consulta dentro de sua carga de trabalho, usado pelo scheduler de carga de trabalho `fair` (veja a configuração de carga de trabalho `scheduler`). Consultas com peso maior recebem uma parcela proporcionalmente maior de um recurso compartilhado por tempo (CPU, E/S) quando competem dentro da mesma carga de trabalho. É ignorado pelo scheduler padrão `fifo`. Um valor não positivo (`<= 0`) não faz sentido para a divisão justa e é tratado como o padrão `1.0`.
+
 ## workload {#workload}
 
 <SettingsInfoBlock type="String" default_value="default" />
@@ -1982,6 +1990,14 @@ Valores possíveis:
 * Inteiro positivo — timeout em milissegundos.
 * 0 — Timeout infinito: a consulta aguarda indefinidamente pela admissão (padrão). Ainda assim, ela pode ser rejeitada
   imediatamente quando o limite `max_waiting_queries` do workload é atingido.
+
+## workload_priority {#workload_priority}
+
+<SettingsInfoBlock type="Int64" default_value="0" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "0"},{"label": "Nova configuração de consulta: prioridade de agendamento de uma consulta dentro de sua carga de trabalho, usada pelo scheduler de carga de trabalho `priority`."}]}]} />
+
+Prioridade de agendamento da consulta dentro de sua carga de trabalho, usada pelo scheduler de carga de trabalho `priority` (consulte a configuração de carga de trabalho `scheduler`). Quanto menor o valor, maior a prioridade. O padrão `0` é o valor neutro de referência: um valor negativo coloca a consulta acima do padrão, e um valor positivo a coloca abaixo. Consultas com a mesma prioridade são atendidas por ordem de chegada. Esta configuração é ignorada pelos demais schedulers.
 
 ## write_full_path_in_iceberg_metadata {#write_full_path_in_iceberg_metadata}
 

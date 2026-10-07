@@ -183,10 +183,11 @@ import SystemTableCloud from '/snippets/zh/_system_table_cloud.mdx';
 * `ProfileEvent_TextIndexLazySegmentsBuilt` ([UInt64](/zh/reference/data-types/int-uint)) — 在惰性倒排列表模式下实际读取并解码的分段数量 (缓存未命中) 。
 * `ProfileEvent_TextIndexLazyBruteForceIntersections` ([UInt64](/zh/reference/data-types/int-uint)) — 在惰性倒排列表模式下执行的穷举求交次数。
 * `ProfileEvent_TextIndexLazyLeapfrogIntersections` ([UInt64](/zh/reference/data-types/int-uint)) — 在惰性倒排列表模式下执行的 leapfrog 求交次数。
-* `ProfileEvent_TextIndexLazyBruteForceEarlyExits` ([UInt64](/zh/reference/data-types/int-uint)) — 在惰性倒排列表模式下，因某个倒排列表在当前窗口内没有行、求交结果为空而提前结束的穷举求交次数。
+* `ProfileEvent_TextIndexLazyBruteForceEarlyExits` ([UInt64](/zh/reference/data-types/int-uint)) — 在惰性倒排列表模式下，因当前窗口内已没有任何行同时出现在迄今已应用的所有倒排列表中、求交结果为空而提前结束的穷举求交次数。
 * `ProfileEvent_TextIndexLazySegmentsSkippedDense` ([UInt64](/zh/reference/data-types/int-uint)) — 在惰性倒排列表模式下，未解码块而是整体填充的完全稠密分段数量 (对于 OR 使用 memset，对于 AND 使用自增) 。
-* `ProfileEvent_TextIndexLazySegmentsSkippedResolved` ([UInt64](/zh/reference/data-types/int-uint)) — 在惰性倒排列表模式下，因输出区域已确定 (对于 OR 为全 1，对于 AND 为全 0) 而跳过的分段数量。
-* `ProfileEvent_TextIndexLazyBlocksSkippedResolved` ([UInt64](/zh/reference/data-types/int-uint)) — 在惰性倒排列表模式下，因输出区域已确定 (对于 OR 为全 1，对于 AND 为全 0) 而跳过的压缩块数量。
+* `ProfileEvent_TextIndexLazySegmentsSkippedResolved` ([UInt64](/zh/reference/data-types/int-uint)) — 在惰性倒排列表模式下，因输出区域已确定 (对于 OR 为全 1，对于 AND 为迄今已应用的所有倒排列表中已无共同行) 而跳过的分段数量。
+* `ProfileEvent_TextIndexLazyBlocksSkippedResolved` ([UInt64](/zh/reference/data-types/int-uint)) — 在惰性倒排列表模式下，因输出区域已确定 (对于 OR 为全 1，对于 AND 为迄今已应用的所有倒排列表中已无共同行) 而跳过的压缩块数量。
+* `ProfileEvent_TextIndexLazyBlocksSkippedDense` ([UInt64](/zh/reference/data-types/int-uint)) — 在惰性倒排列表模式下，未解码而是整体填充的连续行 ID 压缩块数量 (对于 OR 使用 memset，对于 AND 使用自增) 。
 * `ProfileEvent_TextIndexDiscardPatternScan` ([UInt64](/zh/reference/data-types/int-uint)) — 因需读取的倒排列表数量超过阈值，而丢弃文本索引中基于模式的字典扫描的次数。
 * `ProfileEvent_TextIndexPatternBypassCacheHits` ([UInt64](/zh/reference/data-types/int-uint)) — 由于先前对同一分区片段的扫描已超过倒排列表阈值，而跳过文本索引基于模式的字典扫描的次数。
 * `ProfileEvent_TextIndexGenericExclusionSearchAlgorithm` ([UInt64](/zh/reference/data-types/int-uint)) — 在文本索引上使用通用排除搜索算法的次数。
@@ -891,7 +892,8 @@ import SystemTableCloud from '/snippets/zh/_system_table_cloud.mdx';
 * `ProfileEvent_FilesystemCacheStateLockMicroseconds` ([UInt64](/zh/reference/data-types/int-uint)) — 获取状态锁时锁定文件系统缓存所花费的时间
 * `ProfileEvent_FilesystemCacheReserveMicroseconds` ([UInt64](/zh/reference/data-types/int-uint)) — 预留文件系统缓存空间所花费的时间
 * `ProfileEvent_FilesystemCacheReserveAttempts` ([UInt64](/zh/reference/data-types/int-uint)) — 预留文件系统缓存空间的尝试次数
-* `ProfileEvent_FilesystemCacheFailedReserveAttempts` ([UInt64](/zh/reference/data-types/int-uint)) — 文件缓存空间预留失败的尝试次数。
+* `ProfileEvent_FilesystemCacheReserveAheadRetries` ([UInt64](/zh/reference/data-types/int-uint)) — 带超前预留的文件系统缓存空间预留因空间不足而失败、转而按精确请求大小重试的次数
+* `ProfileEvent_FilesystemCacheFailedReserveAttempts` ([UInt64](/zh/reference/data-types/int-uint)) — 文件缓存空间预留失败的尝试次数，包括随后按精确大小重试的超前预留尝试 (参见 FilesystemCacheReserveAheadRetries) 。
 * `ProfileEvent_FilesystemCacheEvictMicroseconds` ([UInt64](/zh/reference/data-types/int-uint)) — 执行文件系统缓存淘汰所花费的时间
 * `ProfileEvent_FilesystemCacheGetOrSetMicroseconds` ([UInt64](/zh/reference/data-types/int-uint)) — 文件系统缓存 getOrSet() 所花费的时间
 * `ProfileEvent_FilesystemCacheGetMicroseconds` ([UInt64](/zh/reference/data-types/int-uint)) — 文件系统缓存 get() 所花费的时间

@@ -176,10 +176,11 @@ import SystemTableCloud from '/snippets/ja/_system_table_cloud.mdx';
 * `ProfileEvent_TextIndexLazySegmentsBuilt` ([UInt64](/ja/reference/data-types/int-uint)) — lazy posting list モードで実際に読み取られ、デコードされたセグメント数 (キャッシュミス) 。
 * `ProfileEvent_TextIndexLazyBruteForceIntersections` ([UInt64](/ja/reference/data-types/int-uint)) — lazy posting list モードで実行された総当たり積集合の回数。
 * `ProfileEvent_TextIndexLazyLeapfrogIntersections` ([UInt64](/ja/reference/data-types/int-uint)) — lazy posting list モードで実行された leapfrog 積集合の回数。
-* `ProfileEvent_TextIndexLazyBruteForceEarlyExits` ([UInt64](/ja/reference/data-types/int-uint)) — lazy posting list モードで、いずれかのポスティングリストにウィンドウ内の行がなく積集合が空になるため、早期に終了した総当たり積集合の回数。
+* `ProfileEvent_TextIndexLazyBruteForceEarlyExits` ([UInt64](/ja/reference/data-types/int-uint)) — lazy posting list モードで、これまでに適用したすべてのポスティングリストに共通するウィンドウ内の行が残っておらず積集合が空となるため、早期に終了した総当たり積集合の回数。
 * `ProfileEvent_TextIndexLazySegmentsSkippedDense` ([UInt64](/ja/reference/data-types/int-uint)) — lazy posting list モードで、ブロックをデコードする代わりに全体をパディングした完全高密度セグメント数 (OR では memset、AND ではインクリメント) 。
-* `ProfileEvent_TextIndexLazySegmentsSkippedResolved` ([UInt64](/ja/reference/data-types/int-uint)) — lazy posting list モードで、出力領域がすでに解決済みだったためスキップされたセグメント数 (OR では全ビット 1、AND では全ビット 0) 。
-* `ProfileEvent_TextIndexLazyBlocksSkippedResolved` ([UInt64](/ja/reference/data-types/int-uint)) — lazy posting list モードで、出力領域がすでに解決済みだったためスキップされたパック済みブロック数 (OR では全ビット 1、AND では全ビット 0) 。
+* `ProfileEvent_TextIndexLazySegmentsSkippedResolved` ([UInt64](/ja/reference/data-types/int-uint)) — lazy posting list モードで、出力領域がすでに解決済みだったためスキップされたセグメント数 (OR では全ビット 1、AND ではこれまでに適用したすべてのポスティングリストに共通する行が残っていない状態) 。
+* `ProfileEvent_TextIndexLazyBlocksSkippedResolved` ([UInt64](/ja/reference/data-types/int-uint)) — lazy posting list モードで、出力領域がすでに解決済みだったためスキップされたパック済みブロック数 (OR では全ビット 1、AND ではこれまでに適用したすべてのポスティングリストに共通する行が残っていない状態) 。
+* `ProfileEvent_TextIndexLazyBlocksSkippedDense` ([UInt64](/ja/reference/data-types/int-uint)) — lazy posting list モードで、デコードせずに全体をパディングした、連続する行 ID のパック済みブロック数 (OR では memset、AND ではインクリメント) 。
 * `ProfileEvent_TextIndexDiscardPatternScan` ([UInt64](/ja/reference/data-types/int-uint)) — 読み取る posting list の数がしきい値を超えたため、テキスト索引でのパターンベースの辞書スキャンが破棄された回数。
 * `ProfileEvent_TextIndexPatternBypassCacheHits` ([UInt64](/ja/reference/data-types/int-uint)) — 同じパートに対する以前のスキャンが posting list のしきい値を超えていたため、テキスト索引のパターン辞書スキャンがスキップされた回数。
 * `ProfileEvent_TextIndexGenericExclusionSearchAlgorithm` ([UInt64](/ja/reference/data-types/int-uint)) — テキスト索引に対して汎用排除検索アルゴリズムが使用された回数。
@@ -884,7 +885,8 @@ import SystemTableCloud from '/snippets/ja/_system_table_cloud.mdx';
 * `ProfileEvent_FilesystemCacheStateLockMicroseconds` ([UInt64](/ja/reference/data-types/int-uint)) — 状態ロック時におけるファイルシステムキャッシュのロック時間
 * `ProfileEvent_FilesystemCacheReserveMicroseconds` ([UInt64](/ja/reference/data-types/int-uint)) — ファイルシステムキャッシュの領域予約にかかった時間
 * `ProfileEvent_FilesystemCacheReserveAttempts` ([UInt64](/ja/reference/data-types/int-uint)) — ファイルシステムキャッシュの領域予約の試行回数
-* `ProfileEvent_FilesystemCacheFailedReserveAttempts` ([UInt64](/ja/reference/data-types/int-uint)) — ファイルキャッシュの領域予約に失敗した試行回数。
+* `ProfileEvent_FilesystemCacheReserveAheadRetries` ([UInt64](/ja/reference/data-types/int-uint)) — 先行予約付きのファイルシステムキャッシュ予約が収まらず、要求されたサイズちょうどで再試行された回数
+* `ProfileEvent_FilesystemCacheFailedReserveAttempts` ([UInt64](/ja/reference/data-types/int-uint)) — ファイルキャッシュの領域予約に失敗した試行回数。正確なサイズで再試行された先行予約の試行も含みます (FilesystemCacheReserveAheadRetries を参照) 。
 * `ProfileEvent_FilesystemCacheEvictMicroseconds` ([UInt64](/ja/reference/data-types/int-uint)) — ファイルシステムキャッシュのエビクションにかかった時間
 * `ProfileEvent_FilesystemCacheGetOrSetMicroseconds` ([UInt64](/ja/reference/data-types/int-uint)) — ファイルシステムキャッシュの getOrSet() にかかった時間
 * `ProfileEvent_FilesystemCacheGetMicroseconds` ([UInt64](/ja/reference/data-types/int-uint)) — ファイルシステムキャッシュの get() にかかった時間
@@ -1488,16 +1490,16 @@ import SystemTableCloud from '/snippets/ja/_system_table_cloud.mdx';
 * `ProfileEvent_AddressesExpired` ([UInt64](/ja/reference/data-types/int-uint)) — HTTP 接続の DNS resolve results に存在しなくなったアドレスの総数
 * `ProfileEvent_AddressesMarkedAsFailed` ([UInt64](/ja/reference/data-types/int-uint)) — HTTP 接続で接続エラーにより障害ありとしてマークされたアドレスの総数
 * `ProfileEvent_ReadWriteBufferFromHTTPRequestsSent` ([UInt64](/ja/reference/data-types/int-uint)) — ReadWriteBufferFromHTTP によって送信された HTTP リクエストの数
-* `ProfileEvent_ReadWriteBufferFromHTTPBytes` ([UInt64](/ja/reference/data-types/int-uint)) — ReadWriteBufferFromHTTP によって送受信された payload バイトの合計サイズ。HTTP ヘッダーは含まれません。
+* `ProfileEvent_ReadWriteBufferFromHTTPBytes` ([UInt64](/ja/reference/data-types/int-uint)) — ReadWriteBufferFromHTTP によって送受信されたペイロードの合計バイト数。HTTP ヘッダーは含まれません。
 * `ProfileEvent_WriteBufferFromHTTPRequestsSent` ([UInt64](/ja/reference/data-types/int-uint)) — WriteBufferFromHTTP によって送信された HTTP リクエストの数
-* `ProfileEvent_WriteBufferFromHTTPBytes` ([UInt64](/ja/reference/data-types/int-uint)) — WriteBufferFromHTTP によって送受信された payload バイトの合計サイズ。HTTP ヘッダーは含まれません。
-* `ProfileEvent_ConcurrencyControlSlotsGranted` ([UInt64](/ja/reference/data-types/int-uint)) — クエリごとに 1 thread を保証する条件、および設定 &#39;use&#95;concurrency&#95;control&#39; = 0 のクエリに基づいて付与された CPU slot の数
-* `ProfileEvent_ConcurrencyControlSlotsDelayed` ([UInt64](/ja/reference/data-types/int-uint)) — 容量不足により割り当て時に付与されなかった CPU slot の数。遅延割り当てによって保留されたスロットは除きます。
-* `ProfileEvent_ConcurrencyControlSlotsAcquired` ([UInt64](/ja/reference/data-types/int-uint)) — 取得された CPU slots の総数
-* `ProfileEvent_ConcurrencyControlSlotsAcquiredNonCompeting` ([UInt64](/ja/reference/data-types/int-uint)) — 競合なしで取得された CPU slot の総数
+* `ProfileEvent_WriteBufferFromHTTPBytes` ([UInt64](/ja/reference/data-types/int-uint)) — WriteBufferFromHTTP によって送受信されたペイロードの合計バイト数。HTTP ヘッダーは含まれません。
+* `ProfileEvent_ConcurrencyControlSlotsGranted` ([UInt64](/ja/reference/data-types/int-uint)) — クエリごとに 1 スレッドを保証するために付与された CPU スロットと、設定 &#39;use&#95;concurrency&#95;control&#39; = 0 のクエリに付与された CPU スロットの数
+* `ProfileEvent_ConcurrencyControlSlotsDelayed` ([UInt64](/ja/reference/data-types/int-uint)) — 容量不足により割り当て時に付与されなかった CPU スロットの数。遅延割り当てによって保留されたスロットは除きます。
+* `ProfileEvent_ConcurrencyControlSlotsAcquired` ([UInt64](/ja/reference/data-types/int-uint)) — 取得された CPU スロットの総数
+* `ProfileEvent_ConcurrencyControlSlotsAcquiredNonCompeting` ([UInt64](/ja/reference/data-types/int-uint)) — 競合なしで取得された CPU スロットの総数
 * `ProfileEvent_ConcurrencyControlQueriesDelayed` ([UInt64](/ja/reference/data-types/int-uint)) — CPU スロットの容量不足により遅延したクエリ数。競合の指標であり、競合のない server での遅延スケールアップ待機は除きます。
-* `ProfileEvent_ConcurrencyControlWaitMicroseconds` ([UInt64](/ja/reference/data-types/int-uint)) — クエリが CPU slots の resource requests を待機していた合計時間。
-* `ProfileEvent_ConcurrencyControlPreemptedMicroseconds` ([UInt64](/ja/reference/data-types/int-uint)) — CPUスロットのプリエンプションによりクエリが待機していた合計時間
+* `ProfileEvent_ConcurrencyControlWaitMicroseconds` ([UInt64](/ja/reference/data-types/int-uint)) — クエリが CPU スロットのリソースリクエストを待機していた合計時間。
+* `ProfileEvent_ConcurrencyControlPreemptedMicroseconds` ([UInt64](/ja/reference/data-types/int-uint)) — CPU スロットのプリエンプションによりクエリが待機していた合計時間
 * `ProfileEvent_ConcurrencyControlPreemptions` ([UInt64](/ja/reference/data-types/int-uint)) — CPUプリエンプションの合計回数
 * `ProfileEvent_ConcurrencyControlUpscales` ([UInt64](/ja/reference/data-types/int-uint)) — CPUスケールアップイベントの合計回数
 * `ProfileEvent_ConcurrencyControlDownscales` ([UInt64](/ja/reference/data-types/int-uint)) — CPUスケールダウンイベントの合計回数
@@ -2278,6 +2280,8 @@ CurrentMetric_DistributedFilesToInsert:                          0
     </metric_log>
 </clickhouse>
 ```
+
+このスキーマのメトリクスごとのカラムは `ALIAS` カラムであるため、システムログテーブルで ALIAS カラムをスキップする設定 (`default_system_log_flush_policy.skip_alias_columns`、または ALIAS カラムをサポートしないテーブルエンジン) とは併用できません。この場合、サーバーは `ProfileEvent_*` および `CurrentMetric_*` カラムを持たないテーブルを作成するのではなく、起動を拒否します。バケット化された `Map` シリアライゼーションのエンジン設定はデフォルトのテーブル定義に含まれるものであるため、設定で `<engine>` を明示的に指定した場合は適用されません。
 
 `transposed` スキーマでは、`system.asynchronous_metric_log` と同様に、メトリクスとイベントを行として保存するフォーマットでデータを格納します。このスキーマは、マージ時のリソース消費を抑えられるため、リソースの限られた環境で有用です。
 

@@ -177,10 +177,11 @@ import SystemTableCloud from '/snippets/ru/_system_table_cloud.mdx';
 * `ProfileEvent_TextIndexLazySegmentsBuilt` ([UInt64](/ru/reference/data-types/int-uint)) — Количество сегментов, фактически прочитанных и декодированных в режиме ленивого списка вхождений (промахи кэша).
 * `ProfileEvent_TextIndexLazyBruteForceIntersections` ([UInt64](/ru/reference/data-types/int-uint)) — Количество пересечений, выполненных полным перебором в режиме ленивого списка вхождений.
 * `ProfileEvent_TextIndexLazyLeapfrogIntersections` ([UInt64](/ru/reference/data-types/int-uint)) — Количество пересечений leapfrog, выполненных в режиме ленивого списка вхождений.
-* `ProfileEvent_TextIndexLazyBruteForceEarlyExits` ([UInt64](/ru/reference/data-types/int-uint)) — Количество пересечений полным перебором в режиме ленивого списка вхождений, досрочно завершённых, поскольку в одном из списков вхождений не было строк в окне и пересечение было пустым.
+* `ProfileEvent_TextIndexLazyBruteForceEarlyExits` ([UInt64](/ru/reference/data-types/int-uint)) — Количество пересечений полным перебором в режиме ленивого списка вхождений, завершённых досрочно, поскольку ни одна строка окна не осталась во всех уже применённых списках вхождений, а значит, пересечение пусто.
 * `ProfileEvent_TextIndexLazySegmentsSkippedDense` ([UInt64](/ru/reference/data-types/int-uint)) — Количество полностью плотных сегментов, заполненных целиком (memset для OR, инкремент для AND) вместо декодирования блоков в режиме ленивого списка вхождений.
-* `ProfileEvent_TextIndexLazySegmentsSkippedResolved` ([UInt64](/ru/reference/data-types/int-uint)) — Количество сегментов, пропущенных, поскольку выходная область уже была определена (все единицы для OR, все нули для AND) в режиме ленивого списка вхождений.
-* `ProfileEvent_TextIndexLazyBlocksSkippedResolved` ([UInt64](/ru/reference/data-types/int-uint)) — Количество упакованных блоков, пропущенных, поскольку выходная область уже была определена (все единицы для OR, все нули для AND) в режиме ленивого списка вхождений.
+* `ProfileEvent_TextIndexLazySegmentsSkippedResolved` ([UInt64](/ru/reference/data-types/int-uint)) — Количество сегментов, пропущенных, поскольку выходная область уже была определена (все единицы для OR; для AND — ни одной строки, оставшейся во всех уже применённых списках вхождений) в режиме ленивого списка вхождений.
+* `ProfileEvent_TextIndexLazyBlocksSkippedResolved` ([UInt64](/ru/reference/data-types/int-uint)) — Количество упакованных блоков, пропущенных, поскольку выходная область уже была определена (все единицы для OR; для AND — ни одной строки, оставшейся во всех уже применённых списках вхождений) в режиме ленивого списка вхождений.
+* `ProfileEvent_TextIndexLazyBlocksSkippedDense` ([UInt64](/ru/reference/data-types/int-uint)) — Количество упакованных блоков последовательных ID строк, заполненных целиком (memset для OR, инкремент для AND) вместо декодирования в режиме ленивого списка вхождений.
 * `ProfileEvent_TextIndexDiscardPatternScan` ([UInt64](/ru/reference/data-types/int-uint)) — Количество раз, когда сканирование словаря по шаблону регулярного выражения в текстовом индексе было отброшено, поскольку число списков вхождений для чтения превысило порог.
 * `ProfileEvent_TextIndexPatternBypassCacheHits` ([UInt64](/ru/reference/data-types/int-uint)) — Количество случаев, когда сканирование словаря текстового индекса по шаблону было пропущено, поскольку предыдущее сканирование той же части превысило порог по числу списков вхождений.
 * `ProfileEvent_TextIndexGenericExclusionSearchAlgorithm` ([UInt64](/ru/reference/data-types/int-uint)) — Количество использований универсального алгоритма поиска с исключением по текстовому индексу.
@@ -885,7 +886,8 @@ import SystemTableCloud from '/snippets/ru/_system_table_cloud.mdx';
 * `ProfileEvent_FilesystemCacheStateLockMicroseconds` ([UInt64](/ru/reference/data-types/int-uint)) — Время блокировки состояния файлового кэша
 * `ProfileEvent_FilesystemCacheReserveMicroseconds` ([UInt64](/ru/reference/data-types/int-uint)) — Время резервирования места в файловом кэше
 * `ProfileEvent_FilesystemCacheReserveAttempts` ([UInt64](/ru/reference/data-types/int-uint)) — Число попыток резервирования места в файловом кэше
-* `ProfileEvent_FilesystemCacheFailedReserveAttempts` ([UInt64](/ru/reference/data-types/int-uint)) — Количество неудачных попыток резервирования места в файловом кэше.
+* `ProfileEvent_FilesystemCacheReserveAheadRetries` ([UInt64](/ru/reference/data-types/int-uint)) — Количество случаев, когда в файловом кэше не хватало места для резервирования с запасом и попытка повторялась с объёмом, точно равным запрошенному
+* `ProfileEvent_FilesystemCacheFailedReserveAttempts` ([UInt64](/ru/reference/data-types/int-uint)) — Количество неудачных попыток резервирования места в файловом кэше, включая попытки резервирования с запасом, после которых выполнялась повторная попытка с объёмом, точно равным запрошенному (см. FilesystemCacheReserveAheadRetries).
 * `ProfileEvent_FilesystemCacheEvictMicroseconds` ([UInt64](/ru/reference/data-types/int-uint)) — Время вытеснения из файлового кэша
 * `ProfileEvent_FilesystemCacheGetOrSetMicroseconds` ([UInt64](/ru/reference/data-types/int-uint)) — Время выполнения getOrSet() для файлового кэша
 * `ProfileEvent_FilesystemCacheGetMicroseconds` ([UInt64](/ru/reference/data-types/int-uint)) — Время выполнения get() для файлового кэша
@@ -2279,6 +2281,8 @@ CurrentMetric_DistributedFilesToInsert:                          0
     </metric_log>
 </clickhouse>
 ```
+
+Поскольку столбцы отдельных метрик в этой схеме являются столбцами `ALIAS`, её нельзя использовать вместе с конфигурацией, в которой столбцы-псевдонимы в системных таблицах логов пропускаются (`default_system_log_flush_policy.skip_alias_columns` или движок таблицы, который их не поддерживает): в этом случае сервер не запустится, вместо того чтобы создать таблицу без столбцов `ProfileEvent_*` и `CurrentMetric_*`. Настройки движка для сериализации `Map` по бакетам входят в определение таблицы по умолчанию, поэтому они не применяются, если в конфигурации явно указан `<engine>`.
 
 Схема `transposed` хранит данные в формате, похожем на `system.asynchronous_metric_log`, где метрики и события хранятся в виде строк. Эта схема полезна в конфигурациях с ограниченными ресурсами, поскольку снижает потребление ресурсов во время слияний.
 

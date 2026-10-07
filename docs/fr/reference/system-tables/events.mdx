@@ -2184,7 +2184,7 @@ Nombre de segments de fichier dont l’éviction a échoué de façon inattendue
 
 ### FilesystemCacheFailedReserveAttempts {#filesystemcachefailedreserveattempts}
 
-Nombre de tentatives ayant échoué lors de la réservation d’espace dans le cache du système de fichiers.
+Nombre de tentatives ayant échoué lors de la réservation d’espace dans le cache du système de fichiers, y compris les tentatives de réservation anticipée relancées avec la taille exacte (voir FilesystemCacheReserveAheadRetries).
 
 ### FilesystemCacheFailToReserveSpaceBecauseOfCacheResize {#filesystemcachefailtoreservespacebecauseofcacheresize}
 
@@ -2253,6 +2253,10 @@ Temps de verrouillage en lecture du cache du système de fichiers dans la file d
 ### FilesystemCachePriorityWriteLockMicroseconds {#filesystemcacheprioritywritelockmicroseconds}
 
 Durée de verrouillage du cache du système de fichiers lors de l’écriture dans la file de priorité
+
+### FilesystemCacheReserveAheadRetries {#filesystemcachereserveaheadretries}
+
+Nombre de fois où une réservation dans le cache du système de fichiers avec réservation anticipée n&#39;a pas pu être satisfaite faute de place et a été retentée avec exactement la taille demandée
 
 ### Tentative de réservation d’espace du cache du système de fichiers {#filesystemcachereserveattempts}
 
@@ -5978,13 +5982,17 @@ Nombre de fois où un en-tête n’a pas été trouvé dans le cache.
 
 Nombre d’opérations d’avancement effectuées en mode lazy des posting lists.
 
+### TextIndexLazyBlocksSkippedDense {#textindexlazyblocksskippeddense}
+
+Nombre de blocs compactés d&#39;identifiants de lignes consécutifs complétés en bloc (memset pour OR, incrémentation pour AND) au lieu d&#39;être décodés, en mode liste de postings différé.
+
 ### TextIndexLazyBlocksSkippedResolved {#textindexlazyblocksskippedresolved}
 
-Nombre de blocs compactés ignorés, car la région de sortie était déjà déterminée (entièrement à 1 pour OR, entièrement à 0 pour AND) en mode lazy des posting lists.
+Nombre de blocs compactés ignorés, car la région de sortie était déjà déterminée (entièrement à 1 pour OR, aucune ligne restante dans l&#39;ensemble des listes de postings appliquées jusqu&#39;ici pour AND) en mode différé des listes de postings.
 
 ### TextIndexLazyBruteForceEarlyExits {#textindexlazybruteforceearlyexits}
 
-Nombre d’intersections par force brute en mode de traitement différé des listes de postings, arrêtées avant terme parce que l’une des listes de postings ne contenait aucune ligne dans la fenêtre, ce qui rendait l’intersection vide.
+Nombre d’intersections par force brute en mode de traitement différé des listes de postings, arrêtées avant terme parce qu’aucune ligne de la fenêtre ne subsistait dans l’ensemble des listes de postings appliquées jusque-là, ce qui rendait l’intersection vide.
 
 ### TextIndexLazyBruteForceIntersections {#textindexlazybruteforceintersections}
 
@@ -6012,7 +6020,7 @@ Nombre de segments entièrement denses traités dans leur ensemble (memset pour 
 
 ### TextIndexLazySegmentsSkippedResolved {#textindexlazysegmentsskippedresolved}
 
-Nombre de segments ignorés parce que la région de résultat était déjà résolue (tout à 1 pour OR, tout à 0 pour AND) en mode lazy des posting lists.
+Nombre de segments ignorés parce que la région de résultat était déjà résolue (tout à 1 pour OR, aucune ligne restante dans toutes les listes de postings appliquées jusqu&#39;à présent pour AND) en mode différé des listes de postings.
 
 ### TextIndexPatternBypassCacheHits {#textindexpatternbypasscachehits}
 

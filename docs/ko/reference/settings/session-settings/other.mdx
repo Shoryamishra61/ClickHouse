@@ -383,7 +383,7 @@ true로 설정하면 DESCRIBE 쿼리 결과에 컬럼명과 타입만 포함됩�
 * `polyglot` — 다른 방언(MySQL, PostgreSQL 등)의 SQL을 ClickHouse SQL로 트랜스파일합니다. 실험적 설정 `allow_experimental_polyglot_dialect`이 필요합니다.
 * `promql` — `promql_database`, `promql_table`, `promql_evaluation_time` 설정으로 구성된 TimeSeries 테이블에서 평가되는 PromQL(Prometheus Query Language)입니다.
 * `clickhouse_json` — SQL 텍스트 대신 쿼리를 JSON AST(`parseQueryToJSON`의 출력)로 해석합니다. 방언을 다시 전환할 수 있도록 일반 형식의 `SET` 쿼리도 계속 인식됩니다. 실험적 설정 `enable_json_ast_dialect`이 필요합니다.
-* `logsql` — VictoriaLogs의 로그 쿼리 언어인 LogsQL입니다. `logsql_database` 및 `logsql_table` 설정으로 구성된 로그 테이블에 대한 `SELECT` 쿼리로 변환됩니다. 실험적 설정 `allow_experimental_logsql_dialect`이 필요합니다.
+* `logsql` — VictoriaLogs의 로그 쿼리 언어인 LogsQL입니다. `logsql_database` 및 `logsql_table` 설정으로 구성된 로그 테이블에 대한 `SELECT` 쿼리로 변환됩니다. 실험적 설정 `enable_logsql_dialect`이 필요합니다.
 * `trino` — Trino SQL: Trino 구문(`ARRAY[...]`, `TRY_CAST`, `UNNEST` 등)을 변환하고 Trino 함수 이름을 이에 상응하는 ClickHouse 함수로 매핑합니다. 실험적 설정 `enable_trino_dialect`이 필요합니다.
 
 ## discard_query_data {#discard_query_data}
@@ -1942,6 +1942,14 @@ N번째 데이터 패킷에서 데이터를 보내는 대신 알 수 없는 패�
 
 커밋된 변경 사항이 최신 스냅샷에 실제로 반영될 때까지 기다립니다
 
+## weight {#weight}
+
+<SettingsInfoBlock type="Double" default_value="1" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1"},{"label": "새 쿼리 설정: `fair` 워크로드 스케줄러에서 사용하는, 워크로드 내 쿼리의 기본 스케줄링 가중치입니다."}]}]} />
+
+`fair` 워크로드 스케줄러에서 사용하는, 워크로드 내 쿼리의 기본 스케줄링 가중치입니다(`scheduler` 워크로드 설정 참조). 동일한 워크로드 내에서 쿼리끼리 경쟁할 때 가중치가 높은 쿼리일수록 시간 공유 리소스(CPU, IO)를 그에 비례하여 더 많이 할당받습니다. 기본 스케줄러인 `fifo`에서는 이 설정이 무시됩니다. 0 이하의 값(`<= 0`)은 공정 분배에서 의미가 없으므로 기본값인 `1.0`으로 처리됩니다.
+
 ## 워크로드 {#workload}
 
 <SettingsInfoBlock type="String" default_value="default" />
@@ -1969,6 +1977,14 @@ memory reservation 대기(`CREATE RESOURCE ... (MEMORY RESERVATION)` resource와
 * 양의 정수 — 밀리초 단위의 타임아웃입니다.
 * 0 — 무한 타임아웃: 쿼리가 admission을 무기한 기다립니다(기본값). 다만 워크로드의
   `max_waiting_queries` 한도에 도달하면 즉시 거부될 수 있습니다.
+
+## workload_priority {#workload_priority}
+
+<SettingsInfoBlock type="Int64" default_value="0" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "0"},{"label": "새 쿼리 설정: 워크로드 내 쿼리의 스케줄링 우선순위로, `priority` 워크로드 스케줄러에서 사용됩니다."}]}]} />
+
+해당 워크로드 내에서 쿼리의 스케줄링 우선순위를 지정하며, `priority` 워크로드 스케줄러에서 사용됩니다(`scheduler` 워크로드 설정 참조). 값이 낮을수록 우선순위가 높습니다. 기본값 `0`은 중립 기준값이며, 음수 값을 지정하면 쿼리의 우선순위가 기본값보다 높아지고 양수 값을 지정하면 낮아집니다. 우선순위가 같은 쿼리는 선착순으로 처리됩니다. 다른 스케줄러에서는 이 설정이 무시됩니다.
 
 ## write_full_path_in_iceberg_metadata {#write_full_path_in_iceberg_metadata}
 

@@ -394,7 +394,7 @@ Valeurs prises en charge :
 * `polyglot` — convertit le SQL provenant d&#39;autres dialectes (MySQL, PostgreSQL, etc.) en ClickHouse SQL. Nécessite le paramètre expérimental `allow_experimental_polyglot_dialect`.
 * `promql` — PromQL (langage de requêtes Prometheus) évalué sur une table TimeSeries, configurée à l&#39;aide des paramètres `promql_database`, `promql_table` et `promql_evaluation_time`.
 * `clickhouse_json` — au lieu d&#39;un texte SQL, la requête est interprétée comme un AST JSON (la sortie de `parseQueryToJSON`). La requête `SET` reste reconnue sous sa forme habituelle afin de pouvoir rétablir le dialecte. Nécessite le paramètre expérimental `enable_json_ast_dialect`.
-* `logsql` — LogsQL, le langage de requêtes de log de VictoriaLogs, traduit en requêtes `SELECT` sur la table de log configurée à l&#39;aide des paramètres `logsql_database` et `logsql_table`. Nécessite le paramètre expérimental `allow_experimental_logsql_dialect`.
+* `logsql` — LogsQL, le langage de requêtes de log de VictoriaLogs, traduit en requêtes `SELECT` sur la table de log configurée à l&#39;aide des paramètres `logsql_database` et `logsql_table`. Nécessite le paramètre expérimental `enable_logsql_dialect`.
 * `trino` — Trino SQL : traduit la syntaxe Trino (`ARRAY[...]`, `TRY_CAST`, `UNNEST`, etc.) et fait correspondre les noms de fonctions Trino à leurs équivalents ClickHouse. Nécessite le paramètre expérimental `enable_trino_dialect`.
 
 ## discard_query_data {#discard_query_data}
@@ -1955,6 +1955,14 @@ contrôle ce qui se passe pour les lignes dont le type réel est incompatible av
 
 Attendre que les modifications validées deviennent réellement visibles dans le snapshot le plus récent
 
+## weight {#weight}
+
+<SettingsInfoBlock type="Double" default_value="1" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "1"},{"label": "Nouveau paramètre de requête : poids de planification de base d'une requête au sein de sa charge de travail, utilisé par le planificateur de charge de travail `fair`."}]}]} />
+
+Poids de planification de base de la requête au sein de sa charge de travail, utilisé par le planificateur de charge de travail `fair` (voir le paramètre de charge de travail `scheduler`). Lorsque plusieurs requêtes sont en concurrence au sein d&#39;une même charge de travail, celles dont le poids est plus élevé obtiennent une part proportionnellement plus importante d&#39;une ressource partagée dans le temps (CPU, IO). Ce paramètre est ignoré par le planificateur par défaut `fifo`. Une valeur négative ou nulle (`<= 0`) n&#39;a pas de sens pour le partage équitable et est remplacée par la valeur par défaut `1.0`.
+
 ## workload {#workload}
 
 <SettingsInfoBlock type="String" default_value="default" />
@@ -1983,6 +1991,14 @@ Valeurs possibles :
 * Entier positif — timeout en millisecondes.
 * 0 — Timeout infini : la requête attend indéfiniment son admission (valeur par défaut). Elle peut toutefois être rejetée
   immédiatement lorsque la limite `max_waiting_queries` de la charge de travail est atteinte.
+
+## workload_priority {#workload_priority}
+
+<SettingsInfoBlock type="Int64" default_value="0" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "0"},{"label": "Nouveau paramètre de requête : priorité de planification d'une requête au sein de sa charge de travail, utilisée par le planificateur de charge de travail `priority`."}]}]} />
+
+Priorité de planification de la requête au sein de sa charge de travail, utilisée par le planificateur de charge de travail `priority` (voir le paramètre de charge de travail `scheduler`). Plus la valeur est faible, plus la priorité est élevée : la valeur par défaut `0` sert de référence neutre, une valeur négative place la requête au-dessus de ce niveau par défaut et une valeur positive la place en dessous. Les requêtes de même priorité sont traitées dans leur ordre d&#39;arrivée. Ce paramètre est ignoré par les autres planificateurs.
 
 ## write_full_path_in_iceberg_metadata {#write_full_path_in_iceberg_metadata}
 

@@ -20,7 +20,7 @@ doc_type: 'reference'
 * `max_elements` ([UInt64](/zh/reference/data-types/int-uint)) — 缓存元素最大数量，例如 File 段 (限制文件系统上的文件数量)
 * `max_file_segment_size` ([UInt64](/zh/reference/data-types/int-uint)) — 单个 File 段的最大大小
 * `boundary_alignment` ([UInt64](/zh/reference/data-types/int-uint)) — File 段对齐方式
-* `reserve_granularity` ([UInt64](/zh/reference/data-types/int-uint)) — 为下载 File 段预留空间时，除已下载的数据大小外，至少额外预留这么多字节 (上限为 File 段大小) 。较粗的粒度可降低预留热路径上获取缓存状态锁的频率，但代价是会占用部分已预留但尚未下载的空间 (File 段完成时回收) 。值为 0 时禁用预先预留：仅按请求的确切大小预留空间。
+* `reserve_granularity` ([UInt64](/zh/reference/data-types/int-uint)) — 在 File 段已下载大小的基础上可提前预留的最大大小，用于降低获取缓存锁的频率。每个读取方/写入方均从 0 开始，随着重复预留逐步增大，直至达到该值。值为 0 时禁用预先预留。
 * `cache_on_write_operations` ([UInt8](/zh/reference/data-types/int-uint)) — 启用直写缓存 (在 INSERT 和 MERGE 时写入缓存)
 * `cache_policy` ([String](/zh/reference/data-types/string)) — 缓存驱逐策略
 * `slru_size_ratio` ([Float64](/zh/reference/data-types/float)) — SLRU 缓存策略中受保护元素与试用元素的大小比例

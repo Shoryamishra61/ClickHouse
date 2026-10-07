@@ -36,8 +36,9 @@ const ServerSettingsExplorer = ({ href: baseRoute }) => {
     },
     {
       label: "allow_experimental_*",
-      count: 3,
+      count: 4,
       settings: [
+        { name: "allow_experimental_cluster_discovery", path: "/allow-experimental#allow_experimental_cluster_discovery", default: '""' },
         { name: "allow_experimental_executable_udf_drivers", path: "/allow-experimental#allow_experimental_executable_udf_drivers", default: "0" },
         { name: "allow_experimental_webassembly_udf", path: "/allow-experimental#allow_experimental_webassembly_udf", default: "0" },
         { name: "allow_experimental_webterminal", path: "/allow-experimental#allow_experimental_webterminal", default: "1" }
@@ -1336,7 +1337,7 @@ const ServerSettingsExplorer = ({ href: baseRoute }) => {
     },
     {
       label: "Autres",
-      count: 123,
+      count: 125,
       settings: [
         { name: "abort_on_logical_error", path: "/other#abort_on_logical_error", default: "0" },
         { name: "allowed_disks_for_table_engines", path: "/other#allowed_disks_for_table_engines", default: '""' },
@@ -1405,6 +1406,7 @@ const ServerSettingsExplorer = ({ href: baseRoute }) => {
         { name: "openSSL.client.cacheSessions", path: "/other#openssl.client.cachesessions", default: "0" },
         { name: "openSSL.client.certificateFile", path: "/other#openssl.client.certificatefile", default: '""' },
         { name: "openSSL.client.cipherList", path: "/other#openssl.client.cipherlist", default: "ALL:!ADH:!LOW:!EXP:!MD5:!3DES:@STRENGTH" },
+        { name: "openSSL.client.cipherSuites", path: "/other#openssl.client.ciphersuites", default: '""' },
         { name: "openSSL.client.disableProtocols", path: "/other#openssl.client.disableprotocols", default: '""' },
         { name: "openSSL.client.extendedVerification", path: "/other#openssl.client.extendedverification", default: "1" },
         { name: "openSSL.client.fips", path: "/other#openssl.client.fips", default: "0" },
@@ -1419,6 +1421,7 @@ const ServerSettingsExplorer = ({ href: baseRoute }) => {
         { name: "openSSL.server.cacheSessions", path: "/other#openssl.server.cachesessions", default: "0" },
         { name: "openSSL.server.certificateFile", path: "/other#openssl.server.certificatefile", default: '""' },
         { name: "openSSL.server.cipherList", path: "/other#openssl.server.cipherlist", default: "ALL:!ADH:!LOW:!EXP:!MD5:!3DES:@STRENGTH" },
+        { name: "openSSL.server.cipherSuites", path: "/other#openssl.server.ciphersuites", default: '""' },
         { name: "openSSL.server.disableProtocols", path: "/other#openssl.server.disableprotocols", default: '""' },
         { name: "openSSL.server.extendedVerification", path: "/other#openssl.server.extendedverification", default: "0" },
         { name: "openSSL.server.fips", path: "/other#openssl.server.fips", default: "0" },

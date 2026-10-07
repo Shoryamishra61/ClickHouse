@@ -597,6 +597,39 @@ SELECT mapContainsValueLike(a, 'a%') FROM tab;
 └───────────────────────────────┘
 ```
 
+## mapEntries {#mapEntries}
+
+引入版本：v26.10.0
+
+以命名元组 array 的形式返回 Map 中的键值对，每个元组包含 `key` 和 `value` 两个字段。
+重复的键会予以保留。
+
+**语法**
+
+```sql
+mapEntries(map)
+```
+
+**参数**
+
+* `map` — 要从中提取条目的 Map。[`Map(K, V)`](/zh/reference/data-types/map)
+
+**返回值**
+
+返回一个 array，其中包含该 Map 中的所有键值对。[`Array(Tuple(key K, value V))`](/zh/reference/data-types/array)
+
+**示例**
+
+**使用示例**
+
+```sql title=Query
+SELECT mapEntries(map('k1', 'v1', 'k2', 'v2'))
+```
+
+```response title=Response
+[('k1','v1'),('k2','v2')]
+```
+
 ## mapExists {#mapExists}
 
 引入版本：v23.4.0
@@ -947,6 +980,41 @@ SELECT mapPopulateSeries([1, 2, 4], [11, 22, 44], 5)
 
 ```response title=Response
 ([1,2,3,4,5],[11,22,0,44,0])
+```
+
+## mapRemove {#mapRemove}
+
+引入版本：v26.10.0
+
+从 Map 中移除键等于指定键的所有条目。如果有多个条目的键相同，则所有匹配的条目都会被移除。
+NULL 按普通值进行比较：为 NULL 的待移除键不会匹配非 NULL 键，而复合键中的 NULL 组成部分会与其他 NULL 组成部分相匹配。
+对于具有共同超类型的键类型，NaN 键遵循 Map 查找语义，因此为 NaN 的待移除键会匹配 Map 中的 NaN 键。
+
+**语法**
+
+```sql
+mapRemove(map, key)
+```
+
+**参数**
+
+* `map` — 要从中删除匹配条目的 Map。[`Map(K, V)`](/zh/reference/data-types/map)
+* `key` — 要删除的条目所对应的键。其类型必须能与该 Map 的键类型进行比较。[`Any`](/zh/reference/data-types/index)
+
+**返回值**
+
+返回一个 Map，仅保留键与指定键不匹配的条目。[`Map(K, V)`](/zh/reference/data-types/map)
+
+**示例**
+
+**使用示例**
+
+```sql title=Query
+SELECT mapRemove(map('k1', 1, 'k2', 2), 'k1')
+```
+
+```response title=Response
+{'k2':2}
 ```
 
 ## mapReverseSort {#mapReverseSort}

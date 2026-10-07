@@ -183,10 +183,11 @@ import SystemTableCloud from '/snippets/ja/_system_table_cloud.mdx';
 * `ProfileEvent_TextIndexLazySegmentsBuilt` ([UInt64](/ja/reference/data-types/int-uint)) — lazy posting list モードで実際に読み取られてデコードされた (キャッシュミスした) セグメント数。
 * `ProfileEvent_TextIndexLazyBruteForceIntersections` ([UInt64](/ja/reference/data-types/int-uint)) — lazy posting list モードで実行された総当たりの積集合回数。
 * `ProfileEvent_TextIndexLazyLeapfrogIntersections` ([UInt64](/ja/reference/data-types/int-uint)) — lazy posting list モードで実行された leapfrog 積集合回数。
-* `ProfileEvent_TextIndexLazyBruteForceEarlyExits` ([UInt64](/ja/reference/data-types/int-uint)) — lazy posting list モードで、いずれかのポスティングリストに対象ウィンドウ内の行がなく、積集合が空になるため、総当たりの積集合演算が早期終了した回数。
+* `ProfileEvent_TextIndexLazyBruteForceEarlyExits` ([UInt64](/ja/reference/data-types/int-uint)) — lazy posting list モードで、それまでに適用したすべてのポスティングリストに共通するウィンドウ内の行が残っておらず、積集合が空になるため、総当たりの積集合演算が早期終了した回数。
 * `ProfileEvent_TextIndexLazySegmentsSkippedDense` ([UInt64](/ja/reference/data-types/int-uint)) — lazy posting list モードで、ブロックをデコードする代わりに全体を埋めた完全に密なセグメント数 (OR では memset、AND ではインクリメント) 。
-* `ProfileEvent_TextIndexLazySegmentsSkippedResolved` ([UInt64](/ja/reference/data-types/int-uint)) — lazy posting list モードで、出力領域がすでに確定していたためにスキップされたセグメント数 (OR ではすべて 1、AND ではすべて 0) 。
-* `ProfileEvent_TextIndexLazyBlocksSkippedResolved` ([UInt64](/ja/reference/data-types/int-uint)) — lazy posting list モードで、出力領域がすでに確定していたためにスキップされたパック済みブロック数 (OR ではすべて 1、AND ではすべて 0) 。
+* `ProfileEvent_TextIndexLazySegmentsSkippedResolved` ([UInt64](/ja/reference/data-types/int-uint)) — lazy posting list モードで、出力領域がすでに確定していたためにスキップされたセグメント数 (OR ではすべて 1、AND ではそれまでに適用したすべてのポスティングリストに共通する行が残っていない状態) 。
+* `ProfileEvent_TextIndexLazyBlocksSkippedResolved` ([UInt64](/ja/reference/data-types/int-uint)) — lazy posting list モードで、出力領域がすでに確定していたためにスキップされたパック済みブロック数 (OR ではすべて 1、AND ではそれまでに適用したすべてのポスティングリストに共通する行が残っていない状態) 。
+* `ProfileEvent_TextIndexLazyBlocksSkippedDense` ([UInt64](/ja/reference/data-types/int-uint)) — lazy posting list モードで、デコードする代わりに全体を埋めた、連続する行 ID のパック済みブロック数 (OR では memset、AND ではインクリメント) 。
 * `ProfileEvent_TextIndexDiscardPatternScan` ([UInt64](/ja/reference/data-types/int-uint)) — 読み取るポスティングリスト数がしきい値を超えたため、テキスト索引でのパターンベースの辞書スキャンが破棄された回数。
 * `ProfileEvent_TextIndexPatternBypassCacheHits` ([UInt64](/ja/reference/data-types/int-uint)) — 同じパートの過去のスキャンでポスティングリスト数がしきい値を超えたため、テキスト索引でのパターンベースの辞書スキャンがスキップされた回数。
 * `ProfileEvent_TextIndexGenericExclusionSearchAlgorithm` ([UInt64](/ja/reference/data-types/int-uint)) — テキスト索引に対して汎用排除検索アルゴリズムが使用された回数。
@@ -352,25 +353,25 @@ import SystemTableCloud from '/snippets/ja/_system_table_cloud.mdx';
 * `ProfileEvent_QueryMaskingRulesMatch` ([UInt64](/ja/reference/data-types/int-uint)) — クエリマスキングルールに正常に一致した回数。
 * `ProfileEvent_ReplicatedPartFetches` ([UInt64](/ja/reference/data-types/int-uint)) — ReplicatedMergeTree テーブルのレプリカからデータパーツをダウンロードした回数。
 * `ProfileEvent_ReplicatedPartFailedFetches` ([UInt64](/ja/reference/data-types/int-uint)) — ReplicatedMergeTree テーブルのレプリカからデータパーツをダウンロードできなかった回数。
-* `ProfileEvent_ObsoleteReplicatedParts` ([UInt64](/ja/reference/data-types/int-uint)) — データパーツが、レプリカから fetch した別のデータパーツに包含された回数 (この場合、包含されたデータパーツは廃止されたものとしてマークされ、不要になります) 。
-* `ProfileEvent_ReplicatedPartMerges` ([UInt64](/ja/reference/data-types/int-uint)) — ReplicatedMergeTree テーブルのデータパーツが正常に merge された回数。
-* `ProfileEvent_ReplicatedPartFetchesOfMerged` ([UInt64](/ja/reference/data-types/int-uint)) — merge を自分で実行する代わりに、ReplicatedMergeTree テーブルのレプリカから、すでに merge 済みのパーツをダウンロードすることを選択した回数 (通常はネットワークトラフィックを節約するため、自分で merge する方を選びます) 。これは、merge を実行するためのソースパーツがすべてそろっていない場合や、データパーツが十分に古い場合に発生します。
-* `ProfileEvent_ReplicatedPartMutations` ([UInt64](/ja/reference/data-types/int-uint)) — ReplicatedMergeTree テーブルのデータパーツに mutation が正常に適用された回数。
+* `ProfileEvent_ObsoleteReplicatedParts` ([UInt64](/ja/reference/data-types/int-uint)) — データパーツが、レプリカからフェッチした別のデータパーツに包含された回数 (この場合、包含されたデータパーツは廃止されたものとしてマークされ、不要になります) 。
+* `ProfileEvent_ReplicatedPartMerges` ([UInt64](/ja/reference/data-types/int-uint)) — ReplicatedMergeTree テーブルのデータパーツが正常にマージされた回数。
+* `ProfileEvent_ReplicatedPartFetchesOfMerged` ([UInt64](/ja/reference/data-types/int-uint)) — マージを自分で実行する代わりに、ReplicatedMergeTree テーブルのレプリカから、すでにマージ済みのパーツをダウンロードすることを選択した回数 (通常はネットワークトラフィックを節約するため、自分でマージする方を選びます) 。これは、マージを実行するためのソースパーツがすべてそろっていない場合や、データパーツが十分に古い場合に発生します。
+* `ProfileEvent_ReplicatedPartMutations` ([UInt64](/ja/reference/data-types/int-uint)) — ReplicatedMergeTree テーブルのデータパーツにミューテーションが正常に適用された回数。
 * `ProfileEvent_ReplicatedPartChecks` ([UInt64](/ja/reference/data-types/int-uint)) — レプリカ上のデータパーツに対して advanced search を実行する必要があった回数、または既存のデータパーツが必要かどうかを確認する必要があった回数。
 * `ProfileEvent_ReplicatedPartChecksFailed` ([UInt64](/ja/reference/data-types/int-uint)) — レプリカ上のデータパーツに対する advanced search で結果が得られなかった回数、または Unexpected なパーツが見つかって移動された回数。
 * `ProfileEvent_ReplicatedDataLoss` ([UInt64](/ja/reference/data-types/int-uint)) — 必要としていたデータパーツがどのレプリカにも存在しなかった回数 (現在オフラインのレプリカも含む) 。それらのデータパーツは確実に失われています。これは非同期レプリケーション (クォーラム inserts が有効になっていない場合) では正常に起こりうるもので、データパーツの書き込み先レプリカが Failed し、その後オンラインに戻ってもそのデータパーツを保持していない場合に発生します。
 * `ProfileEvent_ReplicatedCoveredPartsInZooKeeperOnStart` ([UInt64](/ja/reference/data-types/int-uint)) — debugging 用。包含元のパーツがある一方でディスク上には存在しない ZooKeeper 内のパーツ数。server 起動時に確認されます。
-* `ProfileEvent_QuorumParts` ([UInt64](/ja/reference/data-types/int-uint)) — クォーラム付きで書き込まれたデータパーツ数。sync insert では 1 パーツとして数えられ、非同期 INSERT を flush する insert では、最大で非同期 INSERT の回数分まで数えられる場合があります。
-* `ProfileEvent_QuorumWaitMicroseconds` ([UInt64](/ja/reference/data-types/int-uint)) — inserts 中にクォーラムを待機していた合計時間。
-* `ProfileEvent_QuorumFailedInserts` ([UInt64](/ja/reference/data-types/int-uint)) — クォーラムに達しなかったために失敗した inserts 数。
+* `ProfileEvent_QuorumParts` ([UInt64](/ja/reference/data-types/int-uint)) — クォーラム付きで書き込まれたデータパーツ数。sync insert では 1 パーツとして数えられ、非同期 INSERT を flush する挿入では、最大で非同期 INSERT の回数分まで数えられる場合があります。
+* `ProfileEvent_QuorumWaitMicroseconds` ([UInt64](/ja/reference/data-types/int-uint)) — 挿入処理中にクォーラムを待機していた合計時間。
+* `ProfileEvent_QuorumFailedInserts` ([UInt64](/ja/reference/data-types/int-uint)) — クォーラムに達しなかったために失敗した挿入処理数。
 * `ProfileEvent_InsertedRows` ([UInt64](/ja/reference/data-types/int-uint)) — すべてのテーブルに INSERT された行数。
 * `ProfileEvent_InsertedBytes` ([UInt64](/ja/reference/data-types/int-uint)) — すべてのテーブルに INSERT されたバイト数 (非圧縮。メモリ上に格納されている状態のカラムに対する値) 。
-* `ProfileEvent_DelayedInserts` ([UInt64](/ja/reference/data-types/int-uint)) — パーティション内のアクティブな data part 数が多いために、MergeTree テーブルへの block の INSERT が抑制された回数。
-* `ProfileEvent_RejectedInserts` ([UInt64](/ja/reference/data-types/int-uint)) — パーティション内のアクティブな data part 数が多いために、MergeTree テーブルへの block の INSERT が &#39;Too many parts&#39; 例外で拒否された回数。
-* `ProfileEvent_DelayedInsertsMilliseconds` ([UInt64](/ja/reference/data-types/int-uint)) — パーティション内のアクティブな data part 数が多いために、MergeTree テーブルへの block の INSERT が抑制されていた合計 Milliseconds。
-* `ProfileEvent_DelayedMutations` ([UInt64](/ja/reference/data-types/int-uint)) — テーブル内の未完了 mutation 数が多いために、MergeTree テーブルの mutation が抑制された回数。
-* `ProfileEvent_RejectedMutations` ([UInt64](/ja/reference/data-types/int-uint)) — テーブル内の未完了 mutation 数が多いために、MergeTree テーブルの mutation が &#39;Too many mutations&#39; 例外で拒否された回数。
-* `ProfileEvent_DelayedMutationsMilliseconds` ([UInt64](/ja/reference/data-types/int-uint)) — テーブル内の未完了 mutation 数が多いために、MergeTree テーブルの mutation が抑制されていた合計 Milliseconds。
+* `ProfileEvent_DelayedInserts` ([UInt64](/ja/reference/data-types/int-uint)) — パーティション内のアクティブなデータパーツ数が多いために、MergeTree テーブルへの block の INSERT がスロットリングされた回数。
+* `ProfileEvent_RejectedInserts` ([UInt64](/ja/reference/data-types/int-uint)) — パーティション内のアクティブなデータパーツ数が多いために、MergeTree テーブルへの block の INSERT が &#39;Too many parts&#39; 例外で拒否された回数。
+* `ProfileEvent_DelayedInsertsMilliseconds` ([UInt64](/ja/reference/data-types/int-uint)) — パーティション内のアクティブなデータパーツ数が多いために、MergeTree テーブルへの block の INSERT がスロットリングされていた合計 Milliseconds。
+* `ProfileEvent_DelayedMutations` ([UInt64](/ja/reference/data-types/int-uint)) — テーブル内の未完了ミューテーション数が多いために、MergeTree テーブルのミューテーションがスロットリングされた回数。
+* `ProfileEvent_RejectedMutations` ([UInt64](/ja/reference/data-types/int-uint)) — テーブル内の未完了ミューテーション数が多いために、MergeTree テーブルのミューテーションが &#39;Too many mutations&#39; 例外で拒否された回数。
+* `ProfileEvent_DelayedMutationsMilliseconds` ([UInt64](/ja/reference/data-types/int-uint)) — テーブル内の未完了ミューテーション数が多いために、MergeTree テーブルのミューテーションがスロットリングされていた合計 Milliseconds。
 * `ProfileEvent_RejectedLightweightUpdates` ([UInt64](/ja/reference/data-types/int-uint)) — patches 内の非圧縮バイト数が多すぎるために、論理更新が拒否された回数。
 * `ProfileEvent_DistributedDelayedInserts` ([UInt64](/ja/reference/data-types/int-uint)) — 保留中のバイト数が多いために、分散テーブルへの block の INSERT が抑制された回数。
 * `ProfileEvent_DistributedRejectedInserts` ([UInt64](/ja/reference/data-types/int-uint)) — 保留中のバイト数が多いために、分散テーブルへの block の INSERT が &#39;Too many bytes&#39; 例外で拒否された回数。
@@ -891,7 +892,8 @@ import SystemTableCloud from '/snippets/ja/_system_table_cloud.mdx';
 * `ProfileEvent_FilesystemCacheStateLockMicroseconds` ([UInt64](/ja/reference/data-types/int-uint)) — state ロック時のファイルシステムキャッシュのロック時間
 * `ProfileEvent_FilesystemCacheReserveMicroseconds` ([UInt64](/ja/reference/data-types/int-uint)) — ファイルシステムキャッシュ領域の予約時間
 * `ProfileEvent_FilesystemCacheReserveAttempts` ([UInt64](/ja/reference/data-types/int-uint)) — ファイルシステムキャッシュ領域の予約試行回数
-* `ProfileEvent_FilesystemCacheFailedReserveAttempts` ([UInt64](/ja/reference/data-types/int-uint)) — ファイルキャッシュ領域の予約に失敗した試行回数。
+* `ProfileEvent_FilesystemCacheReserveAheadRetries` ([UInt64](/ja/reference/data-types/int-uint)) — 先行予約付きのファイルシステムキャッシュ予約が収まらず、要求されたサイズちょうどで再試行された回数
+* `ProfileEvent_FilesystemCacheFailedReserveAttempts` ([UInt64](/ja/reference/data-types/int-uint)) — ファイルキャッシュ領域の予約に失敗した試行回数。正確なサイズで再試行された先行予約の試行も含みます (FilesystemCacheReserveAheadRetries を参照) 。
 * `ProfileEvent_FilesystemCacheEvictMicroseconds` ([UInt64](/ja/reference/data-types/int-uint)) — ファイルシステムキャッシュのエビクション時間
 * `ProfileEvent_FilesystemCacheGetOrSetMicroseconds` ([UInt64](/ja/reference/data-types/int-uint)) — ファイルシステムキャッシュの getOrSet() 時間
 * `ProfileEvent_FilesystemCacheGetMicroseconds` ([UInt64](/ja/reference/data-types/int-uint)) — ファイルシステムキャッシュの get() 時間

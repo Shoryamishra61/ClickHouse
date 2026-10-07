@@ -272,6 +272,39 @@ matérialisés lors des insertions et des fusions en arrière-plan, plutôt que 
 
 Active la réplication différée des colonnes dans `JOIN`, `ARRAY JOIN`, ainsi que dans les captures lambda de fonctions d’ordre supérieur (p. ex. `arrayMap`). Cela permet d&#39;éviter de copier inutilement plusieurs fois les mêmes lignes en mémoire.
 
+## enable_logsql_dialect {#enable_logsql_dialect}
+
+<ExperimentalBadge />
+
+<SettingsInfoBlock type="Bool" default_value="0" />
+
+<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "0"},{"label": "Nouveau paramètre permettant d'activer le dialecte LogsQL (le langage de requête de logs de VictoriaLogs)."}]}]} />
+
+Active LogsQL, le langage de requête de logs de VictoriaLogs. Les requêtes écrites dans ce dialecte sont converties en requêtes SELECT sur la table spécifiée par le paramètre `logsql_table`.
+
+Utilisation :
+
+```sql
+SET enable_logsql_dialect = 1;
+SET logsql_table = 'logs';
+SET dialect = 'logsql';
+
+_time:1h error | stats by (host) count()
+```
+
+Une requête `SET` autonome complète est toujours analysée comme du SQL ordinaire, afin de pouvoir revenir au dialecte précédent ; une requête LogsQL qui commence simplement par le mot `set` conserve sa signification.
+Les paramètres `logsql_time_column` et `logsql_message_column` définissent les colonnes
+désignées par le champ `_time` et par le champ par défaut (message).
+
+Contrairement à VictoriaLogs, qui stocke chaque champ sous forme de chaîne de caractères, les requêtes traduites s&#39;exécutent
+sur le schéma de table existant. Il en découle les principaux écarts suivants par rapport au contrat :
+
+* Les filtres textuels (mots, phrases, préfixes, expressions régulières) attendent des colonnes de type `String` et ne convertissent pas les colonnes numériques en texte.
+* Les filtres de comparaison numérique comparent nativement les colonnes numériques (de manière exacte pour les valeurs entières et décimales, tant que le littéral comparé tient dans un `Int128` ou un `Decimal256(38)` ; une valeur plus grande, par exemple un entier supérieur à 1e38 dans un champ `UInt256`, est comparée avec la précision d&#39;un `Float64`, tout comme les pas entiers des buckets de `stats by (<field>:<step>)`). Pour les colonnes `String`, seul le texte numérique simple est analysé ligne par ligne ; les valeurs exprimées selon la grammaire numérique de LogsQL (par exemple `10KiB`, `1h30m`) ne le sont pas.
+* Les fonctions statistiques numériques (`sum`, `avg`, `median`, `quantile`, `stddev`, `rate_sum`) analysent la valeur numérique de chaque champ et ignorent les valeurs non numériques, comme le fait VictoriaLogs. Ces valeurs étant de type `Float64`, une colonne numérique est agrégée avec la précision d&#39;un `Float64`, et non de manière exacte.
+* Le pipe `math` exige des colonnes d&#39;opérandes numériques ; les colonnes `String` ne sont pas converties.
+* Les résultats des requêtes sont renvoyés avec les types des colonnes sous-jacentes, et non sous forme de chaînes de caractères.
+
 ## enable_materialized_cte {#enable_materialized_cte}
 
 <ExperimentalBadge />

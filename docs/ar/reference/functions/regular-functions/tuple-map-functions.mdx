@@ -597,6 +597,39 @@ SELECT mapContainsValueLike(a, 'a%') FROM tab;
 └───────────────────────────────┘
 ```
 
+## mapEntries {#mapEntries}
+
+أُضيف في: v26.10.0
+
+تُعيد أزواج مفتاح-قيمة الموجودة في Map على شكل مصفوفة من عناصر Tuple مسمّاة تتضمن الحقلين `key` و`value`.
+تُحفَظ المفاتيح المكررة كما هي.
+
+**الصيغة**
+
+```sql
+mapEntries(map)
+```
+
+**الوسيطات**
+
+* `map` — قيمة Map المراد استخراج العناصر منها. [`Map(K, V)`](/ar/reference/data-types/map)
+
+**القيمة المُعادة**
+
+تُعيد مصفوفة تحتوي على أزواج مفتاح-قيمة الموجودة في الـ Map. [`Array(Tuple(key K, value V))`](/ar/reference/data-types/array)
+
+**أمثلة**
+
+**مثال على الاستخدام**
+
+```sql title=Query
+SELECT mapEntries(map('k1', 'v1', 'k2', 'v2'))
+```
+
+```response title=Response
+[('k1','v1'),('k2','v2')]
+```
+
 ## mapExists {#mapExists}
 
 قُدِّمت في: v23.4.0
@@ -947,6 +980,41 @@ SELECT mapPopulateSeries([1, 2, 4], [11, 22, 44], 5)
 
 ```response title=Response
 ([1,2,3,4,5],[11,22,0,44,0])
+```
+
+## mapRemove {#mapRemove}
+
+أُضيف في: v26.10.0
+
+تزيل جميع العناصر التي يساوي مفتاحها المفتاحَ المحدد من الـ Map. وإذا تكرر المفتاح نفسه في عدة عناصر، فستُزال جميع العناصر المطابقة.
+تُعامَل قيم NULL في المقارنة كقيم عادية: فمفتاح الإزالة الذي قيمته NULL لا يطابق مفتاحًا قيمته ليست NULL، بينما تتطابق مكونات NULL في المفاتيح المركبة مع مكونات NULL الأخرى.
+وفي أنواع المفاتيح التي يجمعها نوع أعلى مشترك، تخضع مفاتيح NaN لدلالات البحث في الـ Map، ومن ثم فإن مفتاح الإزالة NaN يطابق مفتاح NaN في الـ Map.
+
+**الصيغة**
+
+```sql
+mapRemove(map, key)
+```
+
+**الوسيطات**
+
+* `map` — الـ Map المراد إزالة العناصر المطابقة منه. [`Map(K, V)`](/ar/reference/data-types/map)
+* `key` — المفتاح الذي تُزال العناصر المطابقة له. يجب أن يكون نوعه قابلاً للمقارنة مع نوع مفتاح الـ Map. [`Any`](/ar/reference/data-types/index)
+
+**القيمة المعادة**
+
+يُعيد الـ Map محتويًا فقط على العناصر التي لا يطابق مفتاحُها المفتاحَ المحدد. [`Map(K, V)`](/ar/reference/data-types/map)
+
+**أمثلة**
+
+**مثال على الاستخدام**
+
+```sql title=Query
+SELECT mapRemove(map('k1', 1, 'k2', 2), 'k1')
+```
+
+```response title=Response
+{'k2':2}
 ```
 
 ## mapReverseSort {#mapReverseSort}

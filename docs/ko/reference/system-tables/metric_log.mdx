@@ -176,10 +176,11 @@ import SystemTableCloud from '/snippets/ko/_system_table_cloud.mdx';
 * `ProfileEvent_TextIndexLazySegmentsBuilt` ([UInt64](/ko/reference/data-types/int-uint)) — 지연 포스팅 리스트 모드에서 실제로 읽고 디코딩된 세그먼트 수(캐시 미스)입니다.
 * `ProfileEvent_TextIndexLazyBruteForceIntersections` ([UInt64](/ko/reference/data-types/int-uint)) — 지연 포스팅 리스트 모드에서 수행된 브루트포스 교집합 연산 수입니다.
 * `ProfileEvent_TextIndexLazyLeapfrogIntersections` ([UInt64](/ko/reference/data-types/int-uint)) — 지연 포스팅 리스트 모드에서 수행된 leapfrog 교집합 연산 수입니다.
-* `ProfileEvent_TextIndexLazyBruteForceEarlyExits` ([UInt64](/ko/reference/data-types/int-uint)) — 지연 포스팅 리스트 모드에서 포스팅 리스트 중 하나에 해당 윈도우의 행이 없어 교집합이 비게 되면서 조기에 중단된 브루트포스 교집합 연산 수입니다.
+* `ProfileEvent_TextIndexLazyBruteForceEarlyExits` ([UInt64](/ko/reference/data-types/int-uint)) — 지연 포스팅 리스트 모드에서 지금까지 적용한 모든 포스팅 리스트에 공통으로 남은 윈도우 내 행이 없어 교집합이 비게 되면서 조기에 중단된 브루트포스 교집합 연산 수입니다.
 * `ProfileEvent_TextIndexLazySegmentsSkippedDense` ([UInt64](/ko/reference/data-types/int-uint)) — 지연 포스팅 리스트 모드에서 블록을 디코딩하는 대신 전체를 패딩 처리한 완전 밀집 세그먼트 수입니다(OR의 경우 memset, AND의 경우 증가).
-* `ProfileEvent_TextIndexLazySegmentsSkippedResolved` ([UInt64](/ko/reference/data-types/int-uint)) — 지연 포스팅 리스트 모드에서 출력 영역이 이미 결정되어 건너뛴 세그먼트 수입니다(OR의 경우 모든 비트가 1, AND의 경우 모든 비트가 0).
-* `ProfileEvent_TextIndexLazyBlocksSkippedResolved` ([UInt64](/ko/reference/data-types/int-uint)) — 지연 포스팅 리스트 모드에서 출력 영역이 이미 결정되어 건너뛴 패킹된 블록 수입니다(OR의 경우 모든 비트가 1, AND의 경우 모든 비트가 0).
+* `ProfileEvent_TextIndexLazySegmentsSkippedResolved` ([UInt64](/ko/reference/data-types/int-uint)) — 지연 포스팅 리스트 모드에서 출력 영역이 이미 결정되어 건너뛴 세그먼트 수입니다(OR의 경우 모든 비트가 1, AND의 경우 지금까지 적용된 모든 포스팅 리스트에 남은 행이 없음).
+* `ProfileEvent_TextIndexLazyBlocksSkippedResolved` ([UInt64](/ko/reference/data-types/int-uint)) — 지연 포스팅 리스트 모드에서 출력 영역이 이미 결정되어 건너뛴 패킹된 블록 수입니다(OR의 경우 모든 비트가 1, AND의 경우 지금까지 적용된 모든 포스팅 리스트에 남은 행이 없음).
+* `ProfileEvent_TextIndexLazyBlocksSkippedDense` ([UInt64](/ko/reference/data-types/int-uint)) — 지연 포스팅 리스트 모드에서 디코딩하는 대신 전체를 패딩 처리한, 연속된 행 ID로 구성된 패킹된 블록 수입니다(OR의 경우 memset, AND의 경우 증가).
 * `ProfileEvent_TextIndexDiscardPatternScan` ([UInt64](/ko/reference/data-types/int-uint)) — 읽어야 할 포스팅 리스트 수가 임계값을 초과하여 텍스트 인덱스의 패턴 기반 딕셔너리 스캔이 폐기된 횟수입니다.
 * `ProfileEvent_TextIndexPatternBypassCacheHits` ([UInt64](/ko/reference/data-types/int-uint)) — 동일한 파트의 이전 스캔에서 포스팅 리스트 수가 임계값을 초과하여 텍스트 인덱스의 패턴 기반 딕셔너리 스캔을 건너뛴 횟수입니다.
 * `ProfileEvent_TextIndexGenericExclusionSearchAlgorithm` ([UInt64](/ko/reference/data-types/int-uint)) — 텍스트 인덱스에서 일반 제외 검색 알고리즘이 사용된 횟수입니다.
@@ -884,7 +885,8 @@ import SystemTableCloud from '/snippets/ko/_system_table_cloud.mdx';
 * `ProfileEvent_FilesystemCacheStateLockMicroseconds` ([UInt64](/ko/reference/data-types/int-uint)) — state 잠금을 위한 파일 시스템 캐시 잠금 시간
 * `ProfileEvent_FilesystemCacheReserveMicroseconds` ([UInt64](/ko/reference/data-types/int-uint)) — 파일 시스템 캐시 공간 예약 시간
 * `ProfileEvent_FilesystemCacheReserveAttempts` ([UInt64](/ko/reference/data-types/int-uint)) — 파일 시스템 캐시 공간 예약 시도 횟수
-* `ProfileEvent_FilesystemCacheFailedReserveAttempts` ([UInt64](/ko/reference/data-types/int-uint)) — 파일 캐시 공간 예약에 실패한 시도 횟수입니다.
+* `ProfileEvent_FilesystemCacheReserveAheadRetries` ([UInt64](/ko/reference/data-types/int-uint)) — reserve-ahead를 적용한 파일 시스템 캐시 예약이 공간에 들어가지 않아 요청된 크기 그대로 재시도한 횟수
+* `ProfileEvent_FilesystemCacheFailedReserveAttempts` ([UInt64](/ko/reference/data-types/int-uint)) — 파일 캐시 공간 예약에 실패한 시도 횟수입니다. 정확한 크기로 재시도된 reserve-ahead 시도도 포함합니다(FilesystemCacheReserveAheadRetries 참조).
 * `ProfileEvent_FilesystemCacheEvictMicroseconds` ([UInt64](/ko/reference/data-types/int-uint)) — 파일 시스템 캐시 제거 시간
 * `ProfileEvent_FilesystemCacheGetOrSetMicroseconds` ([UInt64](/ko/reference/data-types/int-uint)) — 파일 시스템 캐시 getOrSet() 시간
 * `ProfileEvent_FilesystemCacheGetMicroseconds` ([UInt64](/ko/reference/data-types/int-uint)) — 파일 시스템 캐시 get() 시간
@@ -2278,6 +2280,8 @@ CurrentMetric_DistributedFilesToInsert:                          0
     </metric_log>
 </clickhouse>
 ```
+
+이 스키마의 메트릭별 컬럼은 `ALIAS` 컬럼이므로, 시스템 로그 테이블에서 별칭 컬럼을 건너뛰는 구성(`default_system_log_flush_policy.skip_alias_columns` 또는 별칭 컬럼을 지원하지 않는 테이블 엔진)과 함께 사용할 수 없습니다. 이 경우 서버는 `ProfileEvent_*` 및 `CurrentMetric_*` 컬럼이 없는 테이블을 생성하지 않고 시작 자체를 거부합니다. 버킷 `Map` 직렬화의 엔진 설정은 기본 테이블 정의에 포함되어 있으므로, 구성에서 `<engine>`을 명시적으로 지정하면 적용되지 않습니다.
 
 `transposed` 스키마는 메트릭과 이벤트를 행으로 저장하는 `system.asynchronous_metric_log`와 유사한 포맷으로 데이터를 저장합니다. 이 스키마는 머지 중 리소스 사용량을 줄여 주므로 리소스가 제한된 환경에서 유용합니다.
 

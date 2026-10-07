@@ -597,6 +597,39 @@ SELECT mapContainsValueLike(a, 'a%') FROM tab;
 └───────────────────────────────┘
 ```
 
+## mapEntries {#mapEntries}
+
+Introduit dans : v26.10.0
+
+Renvoie les paires clé-valeur d&#39;une map sous la forme d&#39;un tableau de tuples nommés comportant les champs `key` et `value`.
+Les clés en double sont conservées.
+
+**Syntaxe**
+
+```sql
+mapEntries(map)
+```
+
+**Arguments**
+
+* `map` — Map dont extraire les entrées. [`Map(K, V)`](/fr/reference/data-types/map)
+
+**Valeur renvoyée**
+
+Renvoie un tableau contenant les paires clé-valeur de la map. [`Array(Tuple(key K, value V))`](/fr/reference/data-types/array)
+
+**Exemples**
+
+**Exemple d&#39;utilisation**
+
+```sql title=Query
+SELECT mapEntries(map('k1', 'v1', 'k2', 'v2'))
+```
+
+```response title=Response
+[('k1','v1'),('k2','v2')]
+```
+
 ## mapExists {#mapExists}
 
 Introduit dans : v23.4.0
@@ -947,6 +980,41 @@ SELECT mapPopulateSeries([1, 2, 4], [11, 22, 44], 5)
 
 ```response title=Response
 ([1,2,3,4,5],[11,22,0,44,0])
+```
+
+## mapRemove {#mapRemove}
+
+Introduit dans : v26.10.0
+
+Supprime d&#39;une map toutes les entrées dont la clé est égale à la clé spécifiée. Si plusieurs entrées partagent la même clé, elles sont toutes supprimées.
+Les valeurs NULL sont comparées comme des valeurs ordinaires : une clé de suppression NULL ne correspond pas à une clé non NULL, et les composants NULL des clés composites correspondent aux autres composants NULL.
+Pour les types de clés ayant un supertype commun, les clés NaN suivent la sémantique du lookup dans une map : une clé de suppression NaN correspond donc à une clé NaN de la map.
+
+**Syntaxe**
+
+```sql
+mapRemove(map, key)
+```
+
+**Arguments**
+
+* `map` — Map dont les entrées correspondantes doivent être supprimées. [`Map(K, V)`](/fr/reference/data-types/map)
+* `key` — Clé dont les entrées correspondantes sont supprimées. Son type doit être comparable au type des clés de la map. [`Any`](/fr/reference/data-types/index)
+
+**Valeur renvoyée**
+
+Renvoie la map contenant toutes les entrées dont la clé ne correspond pas à la clé spécifiée. [`Map(K, V)`](/fr/reference/data-types/map)
+
+**Exemples**
+
+**Exemple d&#39;utilisation**
+
+```sql title=Query
+SELECT mapRemove(map('k1', 1, 'k2', 2), 'k1')
+```
+
+```response title=Response
+{'k2':2}
 ```
 
 ## mapReverseSort {#mapReverseSort}

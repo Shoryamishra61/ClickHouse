@@ -177,10 +177,11 @@ Contém o histórico dos valores das métricas das tabelas `system.metrics` e `s
 * `ProfileEvent_TextIndexLazySegmentsBuilt` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de segmentos efetivamente lidos e decodificados (falhas de cache) no modo de lista de postings lazy.
 * `ProfileEvent_TextIndexLazyBruteForceIntersections` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de interseções por força bruta realizadas no modo de lista de postings lazy.
 * `ProfileEvent_TextIndexLazyLeapfrogIntersections` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de interseções leapfrog realizadas no modo de lista de postings lazy.
-* `ProfileEvent_TextIndexLazyBruteForceEarlyExits` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de interseções por força bruta no modo de lista de postings lazy que foram interrompidas antecipadamente porque uma das listas de postings não tinha linhas na janela, tornando a interseção vazia.
+* `ProfileEvent_TextIndexLazyBruteForceEarlyExits` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de interseções por força bruta no modo de lista de postings lazy que foram interrompidas antecipadamente porque nenhuma linha da janela restou em todas as listas de postings aplicadas até então, tornando a interseção vazia.
 * `ProfileEvent_TextIndexLazySegmentsSkippedDense` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de segmentos totalmente densos preenchidos de uma só vez (memset para OR, incremento para AND), em vez de decodificar blocos, no modo de lista de postings lazy.
-* `ProfileEvent_TextIndexLazySegmentsSkippedResolved` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de segmentos ignorados porque a região de saída já havia sido resolvida (todos uns para OR, todos zeros para AND) no modo de lista de postings lazy.
-* `ProfileEvent_TextIndexLazyBlocksSkippedResolved` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de blocos compactados ignorados porque a região de saída já havia sido resolvida (todos uns para OR, todos zeros para AND) no modo de lista de postings lazy.
+* `ProfileEvent_TextIndexLazySegmentsSkippedResolved` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de segmentos ignorados porque a região de saída já havia sido resolvida (todos uns para OR, nenhuma linha restante em todas as listas de postings aplicadas até então para AND) no modo de lista de postings lazy.
+* `ProfileEvent_TextIndexLazyBlocksSkippedResolved` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de blocos compactados ignorados porque a região de saída já havia sido resolvida (todos uns para OR, nenhuma linha restante em todas as listas de postings aplicadas até então para AND) no modo de lista de postings lazy.
+* `ProfileEvent_TextIndexLazyBlocksSkippedDense` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de blocos compactados de IDs de linha consecutivos preenchidos de uma só vez (memset para OR, incremento para AND), em vez de serem decodificados, no modo de lista de postings lazy.
 * `ProfileEvent_TextIndexDiscardPatternScan` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de vezes em que uma varredura de dicionário baseada em padrão em um índice de texto foi descartada porque o número de listas de postings a serem lidas excedeu o limite.
 * `ProfileEvent_TextIndexPatternBypassCacheHits` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de vezes em que uma varredura do dicionário por padrão em um índice de texto foi ignorada porque uma varredura anterior da mesma parte excedeu o limite de listas de postings.
 * `ProfileEvent_TextIndexGenericExclusionSearchAlgorithm` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de vezes que o algoritmo genérico de busca por exclusão é usado no índice de texto.
@@ -885,7 +886,8 @@ Contém o histórico dos valores das métricas das tabelas `system.metrics` e `s
 * `ProfileEvent_FilesystemCacheStateLockMicroseconds` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Tempo de bloqueio do cache do sistema de arquivos para o bloqueio de estado
 * `ProfileEvent_FilesystemCacheReserveMicroseconds` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Tempo de reserva de espaço no cache do sistema de arquivos
 * `ProfileEvent_FilesystemCacheReserveAttempts` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de tentativas de reserva de espaço no cache do sistema de arquivos
-* `ProfileEvent_FilesystemCacheFailedReserveAttempts` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de tentativas de reserva de espaço no cache de arquivos que falharam.
+* `ProfileEvent_FilesystemCacheReserveAheadRetries` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de vezes em que uma reserva antecipada no cache do sistema de arquivos não coube e foi tentada novamente com exatamente o tamanho solicitado
+* `ProfileEvent_FilesystemCacheFailedReserveAttempts` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Número de tentativas de reserva de espaço no cache de arquivos que falharam, incluindo tentativas de reserva antecipada que foram repetidas com o tamanho exato (consulte FilesystemCacheReserveAheadRetries).
 * `ProfileEvent_FilesystemCacheEvictMicroseconds` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Tempo de remoção do cache do sistema de arquivos
 * `ProfileEvent_FilesystemCacheGetOrSetMicroseconds` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Tempo de getOrSet() do cache do sistema de arquivos
 * `ProfileEvent_FilesystemCacheGetMicroseconds` ([UInt64](/pt-BR/reference/data-types/int-uint)) — Tempo de get() do cache do sistema de arquivos
@@ -2279,6 +2281,8 @@ O esquema `bucketed` armazena todos os eventos de perfil e métricas atuais em u
     </metric_log>
 </clickhouse>
 ```
+
+Como as colunas por métrica desse esquema são colunas `ALIAS`, ele não pode ser usado em conjunto com uma configuração que omite colunas de alias nas tabelas de log do sistema (`default_system_log_flush_policy.skip_alias_columns`, ou um motor de tabela que não as suporte): o servidor se recusa a iniciar em vez de criar uma tabela sem as colunas `ProfileEvent_*` e `CurrentMetric_*`. As configurações de motor da serialização em buckets do `Map` fazem parte da definição padrão da tabela; portanto, elas não são aplicadas quando a configuração especifica `<engine>` explicitamente.
 
 O esquema `transposed` armazena os dados em um formato semelhante a `system.asynchronous_metric_log`, em que métricas e eventos são armazenados como linhas. Esse esquema é útil em ambientes com poucos recursos porque reduz o consumo de recursos durante os merges.
 

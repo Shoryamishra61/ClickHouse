@@ -122,37 +122,6 @@ analyzer 是自 v24.3 起默认启用的查询分析与查询计划基础设施�
 
 允许使用 LATERAL JOIN 语法。启用后，JOIN 右侧的子查询可以引用左侧的列，从而支持在 FROM 子句中使用关联子查询 (即 SQL 标准中的 LATERAL JOIN) 。
 
-## allow_experimental_logsql_dialect {#allow_experimental_logsql_dialect}
-
-<ExperimentalBadge />
-
-<SettingsInfoBlock type="Bool" default_value="0" />
-
-<VersionHistory rows={[{"id": "row-1","items": [{"label": "26.10"},{"label": "0"},{"label": "新增设置，用于启用 LogsQL 方言（VictoriaLogs 的日志查询语言）。"}]}]} />
-
-启用 LogsQL，即 VictoriaLogs 的日志查询语言。以该方言编写的查询会被转换为 SELECT 查询，作用于 `logsql_table` 设置所指定的表。
-
-用法：
-
-```sql
-SET allow_experimental_logsql_dialect = 1;
-SET logsql_table = 'logs';
-SET dialect = 'logsql';
-
-_time:1h error | stats by (host) count()
-```
-
-完整且独立的 `SET` 查询仍会按普通 SQL 解析，以便能够切换回原方言；而仅以单词 `set` 开头的 LogsQL 查询则保持其原有含义。
-`logsql_time_column` 和 `logsql_message_column` 设置分别用于配置 `_time` 字段和默认 (消息) 字段所引用的列。
-
-VictoriaLogs 将所有字段都存储为字符串，而转换后的查询则直接基于现有的表 schema 运行。由此产生以下主要的契约差异：
-
-* 文本过滤器 (单词、短语、前缀、正则表达式) 要求列为 `String` 类型，且不会将数值列转换为文本。
-* 数值比较过滤器以原生方式比较数值列 (只要参与比较的字面量能容纳于 `Int128` 或 `Decimal256(38)`，整数和小数值即可精确比较；范围更大的值，例如 `UInt256` 字段中大于 1e38 的整数，则按 `Float64` 精度比较，`stats by (<field>:<step>)` 的整数分桶步长也是如此) 。对于 `String` 列，仅会逐行解析纯数字文本；符合 LogsQL 数值语法的值 (例如 `10KiB`、`1h30m`) 不会被逐行解析。
-* 数值统计函数 (`sum`、`avg`、`median`、`quantile`、`stddev`、`rate_sum`) 会解析每个字段的数值，并跳过非数字的值，这一点与 VictoriaLogs 一致。这些值均为 `Float64` 类型，因此数值列按 `Float64` 精度聚合，而非精确聚合。
-* `math` 管道要求操作数列为数值类型，不会对 `String` 列进行强制类型转换。
-* 查询结果按底层列的类型返回，而不是以字符串形式返回。
-
 ## allow_experimental_nlp_functions {#allow_experimental_nlp_functions}
 
 <ExperimentalBadge />

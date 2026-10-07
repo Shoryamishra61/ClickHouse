@@ -2184,7 +2184,7 @@ Distributed Cache client event. إجمالي عدد حزم SlowDown الوارد
 
 ### FilesystemCacheFailedReserveAttempts {#filesystemcachefailedreserveattempts}
 
-عدد محاولات حجز المساحة في ذاكرة التخزين المؤقت للملفات التي باءت بالفشل.
+عدد محاولات حجز المساحة في ذاكرة التخزين المؤقت للملفات التي باءت بالفشل، بما في ذلك محاولات الحجز المسبق التي أُعيدت بالحجم الدقيق (راجع FilesystemCacheReserveAheadRetries).
 
 ### FilesystemCacheFailToReserveSpaceBecauseOfCacheResize {#filesystemcachefailtoreservespacebecauseofcacheresize}
 
@@ -2253,6 +2253,10 @@ Distributed Cache client event. إجمالي عدد حزم SlowDown الوارد
 ### FilesystemCachePriorityWriteLockMicroseconds {#filesystemcacheprioritywritelockmicroseconds}
 
 مدة قفل ذاكرة التخزين المؤقت لنظام الملفات عند الكتابة إلى قائمة انتظار الأولوية
+
+### FilesystemCacheReserveAheadRetries {#filesystemcachereserveaheadretries}
+
+عدد المرات التي تعذّر فيها استيعاب حجز في ذاكرة التخزين المؤقت لنظام الملفات باستخدام الحجز المسبق (reserve-ahead)، فأُعيدت محاولة الحجز بالحجم المطلوب بالضبط
 
 ### FilesystemCacheReserveAttempts {#filesystemcachereserveattempts}
 
@@ -5978,13 +5982,17 @@ Distributed Cache client event. إجمالي عدد حزم SlowDown الوارد
 
 عدد عمليات التقدّم التي نُفِّذت في وضع قائمة الترحيل الكسول.
 
+### TextIndexLazyBlocksSkippedDense {#textindexlazyblocksskippeddense}
+
+عدد الكتل المحزومة من معرّفات الصفوف المتتالية التي تُحشى دفعةً واحدة (باستخدام memset مع OR، وبالزيادة مع AND) بدلًا من فك ترميزها، وذلك في وضع قائمة الترحيلات الكسول.
+
 ### TextIndexLazyBlocksSkippedResolved {#textindexlazyblocksskippedresolved}
 
-عدد الكتل المعبّأة التي تم تخطيها لأن نتيجة نطاق الإخراج كانت محسومة بالفعل (all-ones في حالة OR، وall-zeros في حالة AND) في وضع lazy قائمة ترحيل.
+عدد الكتل المعبّأة التي تم تخطيها لأن نتيجة نطاق الإخراج كانت محسومة بالفعل (all-ones في حالة OR، وعدم تبقّي أي صف في جميع قوائم الترحيلات المطبّقة حتى الآن في حالة AND) في وضع قائمة الترحيلات الكسول.
 
 ### TextIndexLazyBruteForceEarlyExits {#textindexlazybruteforceearlyexits}
 
-عدد عمليات التقاطع بأسلوب القوة الغاشمة في الوضع الكسول لقوائم الترحيلات التي توقفت مبكرًا لعدم وجود أي صفوف في النافذة ضمن إحدى قوائم الترحيلات، ما يجعل ناتج التقاطع فارغًا.
+عدد عمليات التقاطع بأسلوب القوة الغاشمة في الوضع الكسول لقوائم الترحيلات التي توقفت مبكرًا لعدم بقاء أي صف من النافذة مشتركًا بين جميع قوائم الترحيلات التي طُبِّقت حتى الآن، ما يجعل ناتج التقاطع فارغًا.
 
 ### TextIndexLazyBruteForceIntersections {#textindexlazybruteforceintersections}
 
@@ -6012,7 +6020,7 @@ Distributed Cache client event. إجمالي عدد حزم SlowDown الوارد
 
 ### TextIndexLazySegmentsSkippedResolved {#textindexlazysegmentsskippedresolved}
 
-عدد المقاطع التي تم تخطيها لأن نطاق الإخراج كان قد حُسم بالفعل (كلها آحاد في OR، وكلها أصفار في AND) في وضع قائمة الترحيلات الكسول.
+عدد المقاطع التي تم تخطيها لأن نطاق الإخراج كان قد حُسم بالفعل (كلها آحاد في OR، ولم يتبقَّ أي صف في جميع قوائم الترحيلات المطبّقة حتى الآن في AND) في وضع قائمة الترحيلات الكسول.
 
 ### TextIndexPatternBypassCacheHits {#textindexpatternbypasscachehits}
 

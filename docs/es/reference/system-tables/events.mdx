@@ -2184,7 +2184,7 @@ Número de segmentos de archivo cuya evicción falló inesperadamente durante la
 
 ### FilesystemCacheFailedReserveAttempts {#filesystemcachefailedreserveattempts}
 
-Número de intentos fallidos de reservar espacio en la caché del sistema de archivos.
+Número de intentos fallidos de reservar espacio en la caché del sistema de archivos, incluidos los intentos de reserva anticipada que se reintentaron con el tamaño exacto (consulte FilesystemCacheReserveAheadRetries).
 
 ### FilesystemCacheFailToReserveSpaceBecauseOfCacheResize {#filesystemcachefailtoreservespacebecauseofcacheresize}
 
@@ -2253,6 +2253,10 @@ Tiempo de bloqueo de lectura de la caché del sistema de archivos en la cola de 
 ### FilesystemCachePriorityWriteLockMicroseconds {#filesystemcacheprioritywritelockmicroseconds}
 
 Tiempo de bloqueo de la caché del sistema de archivos al escribir en la cola de prioridad
+
+### FilesystemCacheReserveAheadRetries {#filesystemcachereserveaheadretries}
+
+Número de veces que una reserva con reserva anticipada en la caché del sistema de archivos no cupo y se reintentó exactamente con el tamaño solicitado
 
 ### FilesystemCacheReserveAttempts {#filesystemcachereserveattempts}
 
@@ -5978,13 +5982,17 @@ Número de veces que no se encontró una cabecera en la caché.
 
 Número de operaciones de avance realizadas en el modo diferido de posting list.
 
+### TextIndexLazyBlocksSkippedDense {#textindexlazyblocksskippeddense}
+
+Número de bloques empaquetados de IDs de fila consecutivos que se rellenan en bloque (memset para OR, incremento para AND) en lugar de decodificarse, en el modo de lista de postings diferida.
+
 ### TextIndexLazyBlocksSkippedResolved {#textindexlazyblocksskippedresolved}
 
-Número de bloques empaquetados omitidos porque la región de salida ya se había resuelto (todo a unos para OR, todo a ceros para AND) en el modo diferido de posting list.
+Número de bloques empaquetados omitidos porque la región de salida ya se había resuelto (todo a unos para OR, ninguna fila restante en ninguna de las listas de postings aplicadas hasta el momento para AND) en el modo diferido de lista de postings.
 
 ### TextIndexLazyBruteForceEarlyExits {#textindexlazybruteforceearlyexits}
 
-Número de intersecciones por fuerza bruta en el modo de lista de postings diferida que finalizaron anticipadamente porque una de las listas de postings no tenía filas en la ventana, lo que implica que la intersección está vacía.
+Número de intersecciones por fuerza bruta en el modo de lista de postings diferida que finalizaron anticipadamente porque no quedaba ninguna fila de la ventana presente en todas las listas de postings aplicadas hasta el momento, lo que implica que la intersección está vacía.
 
 ### TextIndexLazyBruteForceIntersections {#textindexlazybruteforceintersections}
 
@@ -6012,7 +6020,7 @@ Número de segmentos totalmente densos rellenados de una sola vez (memset para O
 
 ### TextIndexLazySegmentsSkippedResolved {#textindexlazysegmentsskippedresolved}
 
-Número de segmentos omitidos porque la región de salida ya se había resuelto (todos unos para OR, todos ceros para AND) en el modo diferido de posting list.
+Número de segmentos omitidos porque la región de salida ya se había resuelto (todos unos para OR, ninguna fila restante en todas las listas de postings aplicadas hasta el momento para AND) en el modo diferido de lista de postings.
 
 ### TextIndexPatternBypassCacheHits {#textindexpatternbypasscachehits}
 

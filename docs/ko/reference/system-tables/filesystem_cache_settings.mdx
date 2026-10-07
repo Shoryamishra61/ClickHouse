@@ -20,7 +20,7 @@ doc_type: '참고'
 * `max_elements` ([UInt64](/ko/reference/data-types/int-uint)) — 캐시 원소의 최대 개수(예: file segment, 파일 시스템의 파일 수 제한)
 * `max_file_segment_size` ([UInt64](/ko/reference/data-types/int-uint)) — 단일 file segment의 최대 크기
 * `boundary_alignment` ([UInt64](/ko/reference/data-types/int-uint)) — file segment 정렬
-* `reserve_granularity` ([UInt64](/ko/reference/data-types/int-uint)) — file segment 다운로드를 위한 공간을 예약할 때 다운로드 크기보다 최소 이 바이트 수만큼 더 예약합니다(file segment 크기를 초과하지 않음). 세분화 수준을 낮추면 아직 다운로드되지 않은 예약 공간이 일부 유지되는 대신(file segment 완료 시 회수됨) 예약 핫 경로에서 캐시 상태 잠금 획득 빈도가 줄어듭니다. 값이 0이면 사전 예약이 비활성화되어 요청된 정확한 크기만큼 공간을 예약합니다.
+* `reserve_granularity` ([UInt64](/ko/reference/data-types/int-uint)) — 캐시 잠금을 획득하는 빈도를 줄이기 위해 file segment의 다운로드된 크기보다 앞서 미리 예약할 수 있는 최대 크기입니다. 각 reader/writer마다 0에서 시작하며, 예약이 반복될수록 이 값까지 증가합니다. 0이면 사전 예약이 비활성화됩니다.
 * `cache_on_write_operations` ([UInt8](/ko/reference/data-types/int-uint)) — write-through 캐시를 활성화합니다(INSERT 및 MERGE 시 캐시)
 * `cache_policy` ([String](/ko/reference/data-types/string)) — 캐시 제거 정책
 * `slru_size_ratio` ([Float64](/ko/reference/data-types/float)) — 보호된 원소와 probationary 원소 간 SLRU 캐시 정책의 크기 비율

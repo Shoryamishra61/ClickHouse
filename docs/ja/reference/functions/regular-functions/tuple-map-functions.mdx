@@ -596,6 +596,39 @@ SELECT mapContainsValueLike(a, 'a%') FROM tab;
 └───────────────────────────────┘
 ```
 
+## mapEntries {#mapEntries}
+
+導入バージョン: v26.10.0
+
+Map のキー・バリューのペアを、`key` と `value` のフィールドを持つ名前付きタプルの Array として返します。
+重複するキーはそのまま保持されます。
+
+**構文**
+
+```sql
+mapEntries(map)
+```
+
+**引数**
+
+* `map` — エントリの抽出元となる Map。[`Map(K, V)`](/ja/reference/data-types/map)
+
+**戻り値**
+
+Map 内のキー・バリューのペアを含むArrayを返します。[`Array(Tuple(key K, value V))`](/ja/reference/data-types/array)
+
+**例**
+
+**使用例**
+
+```sql title=Query
+SELECT mapEntries(map('k1', 'v1', 'k2', 'v2'))
+```
+
+```response title=Response
+[('k1','v1'),('k2','v2')]
+```
+
 ## mapExists {#mapExists}
 
 導入バージョン: v23.4.0
@@ -946,6 +979,41 @@ SELECT mapPopulateSeries([1, 2, 4], [11, 22, 44], 5)
 
 ```response title=Response
 ([1,2,3,4,5],[11,22,0,44,0])
+```
+
+## mapRemove {#mapRemove}
+
+導入バージョン: v26.10.0
+
+Map から、キーが指定したキーと等しいエントリをすべて削除します。同じキーを持つエントリが複数ある場合は、一致するエントリがすべて削除されます。
+NULL は値として比較されます。つまり、削除キーが NULL の場合は非 NULL のキーには一致せず、複合キー内の NULL 部分は他の NULL 部分と一致します。
+共通の上位型を持つキー型では、NaN キーは Map のルックアップと同じセマンティクスに従います。そのため、削除キーが NaN の場合は Map 内の NaN キーに一致します。
+
+**構文**
+
+```sql
+mapRemove(map, key)
+```
+
+**引数**
+
+* `map` — 一致するエントリを削除する対象のMap。[`Map(K, V)`](/ja/reference/data-types/map)
+* `key` — 削除するエントリを照合するキー。型はMapのキーの型と比較可能である必要があります。[`Any`](/ja/reference/data-types/index)
+
+**戻り値**
+
+指定したキーと一致しないキーを持つエントリのみを含むMapを返します。[`Map(K, V)`](/ja/reference/data-types/map)
+
+**例**
+
+**使用例**
+
+```sql title=Query
+SELECT mapRemove(map('k1', 1, 'k2', 2), 'k1')
+```
+
+```response title=Response
+{'k2':2}
 ```
 
 ## mapReverseSort {#mapReverseSort}

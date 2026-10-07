@@ -120,7 +120,7 @@ const SessionSettingsExplorer = ({ href: baseRoute }) => {
     },
     {
       label: "allow_experimental_*",
-      count: 21,
+      count: 20,
       settings: [
         { name: "allow_experimental_analyzer", path: "/allow-experimental#allow_experimental_analyzer", default: "1" },
         { name: "allow_experimental_cleanup_old_data_files_compaction", path: "/allow-experimental#allow_experimental_cleanup_old_data_files_compaction", default: "0" },
@@ -133,7 +133,6 @@ const SessionSettingsExplorer = ({ href: baseRoute }) => {
         { name: "allow_experimental_iceberg_compaction", path: "/allow-experimental#allow_experimental_iceberg_compaction", default: "0" },
         { name: "allow_experimental_kusto_dialect", path: "/allow-experimental#allow_experimental_kusto_dialect", default: "0" },
         { name: "allow_experimental_lateral_join", path: "/allow-experimental#allow_experimental_lateral_join", default: "0" },
-        { name: "allow_experimental_logsql_dialect", path: "/allow-experimental#allow_experimental_logsql_dialect", default: "0" },
         { name: "allow_experimental_nlp_functions", path: "/allow-experimental#allow_experimental_nlp_functions", default: "0" },
         { name: "allow_experimental_object_storage_queue_hive_partitioning", path: "/allow-experimental#allow_experimental_object_storage_queue_hive_partitioning", default: "0" },
         { name: "allow_experimental_paimon_storage_engine", path: "/allow-experimental#allow_experimental_paimon_storage_engine", default: "0" },
@@ -772,7 +771,7 @@ const SessionSettingsExplorer = ({ href: baseRoute }) => {
     },
     {
       label: "enable_*",
-      count: 52,
+      count: 53,
       settings: [
         { name: "enable_adaptive_aggregator", path: "/enable#enable_adaptive_aggregator", default: "1" },
         { name: "enable_adaptive_memory_spill_scheduler", path: "/enable#enable_adaptive_memory_spill_scheduler", default: "0" },
@@ -795,6 +794,7 @@ const SessionSettingsExplorer = ({ href: baseRoute }) => {
         { name: "enable_json_ast_dialect", path: "/enable#enable_json_ast_dialect", default: "0" },
         { name: "enable_json_lazy_type_hints", path: "/enable#enable_json_lazy_type_hints", default: "0" },
         { name: "enable_lazy_columns_replication", path: "/enable#enable_lazy_columns_replication", default: "1" },
+        { name: "enable_logsql_dialect", path: "/enable#enable_logsql_dialect", default: "0" },
         { name: "enable_materialized_cte", path: "/enable#enable_materialized_cte", default: "0" },
         { name: "enable_materialized_postgresql_table", path: "/enable#enable_materialized_postgresql_table", default: "0" },
         { name: "enable_memory_bound_merging_of_aggregation_results", path: "/enable#enable_memory_bound_merging_of_aggregation_results", default: "1" },
@@ -1859,7 +1859,7 @@ const SessionSettingsExplorer = ({ href: baseRoute }) => {
         { name: "min_hit_rate_to_use_consecutive_keys_optimization", path: "/min#min_hit_rate_to_use_consecutive_keys_optimization", default: "0.5" },
         { name: "min_os_cpu_wait_time_ratio_to_throw", path: "/min#min_os_cpu_wait_time_ratio_to_throw", default: "0" },
         { name: "min_outstreams_per_resize_after_split", path: "/min#min_outstreams_per_resize_after_split", default: "24" },
-        { name: "min_rows_ratio_for_hash_join_row_store", path: "/min#min_rows_ratio_for_hash_join_row_store", default: "5" },
+        { name: "min_rows_ratio_for_hash_join_row_store", path: "/min#min_rows_ratio_for_hash_join_row_store", default: "3" },
         { name: "min_table_rows_to_use_projection_index", path: "/min#min_table_rows_to_use_projection_index", default: "1000000" }
       ],
       children: []
@@ -3055,6 +3055,17 @@ const SessionSettingsExplorer = ({ href: baseRoute }) => {
       children: []
     },
     {
+      label: "weight_lowering_*",
+      count: 4,
+      settings: [
+        { name: "weight_lowering_age_seconds", path: "/weight-lowering#weight_lowering_age_seconds", default: "0" },
+        { name: "weight_lowering_cpu_seconds", path: "/weight-lowering#weight_lowering_cpu_seconds", default: "0" },
+        { name: "weight_lowering_factor", path: "/weight-lowering#weight_lowering_factor", default: "1" },
+        { name: "weight_lowering_io_bytes", path: "/weight-lowering#weight_lowering_io_bytes", default: "0" }
+      ],
+      children: []
+    },
+    {
       label: "write_through_distributed_cache_*",
       count: 1,
       settings: [{ name: "write_through_distributed_cache_buffer_size", path: "/write-through-distributed-cache#write_through_distributed_cache_buffer_size", default: "0" }],
@@ -3062,7 +3073,7 @@ const SessionSettingsExplorer = ({ href: baseRoute }) => {
     },
     {
       label: "Другое",
-      count: 149,
+      count: 151,
       settings: [
         { name: "adaptive_aggregator_freeze_threshold", path: "/other#adaptive_aggregator_freeze_threshold", default: "16384" },
         { name: "adaptive_aggregator_freeze_threshold_bytes", path: "/other#adaptive_aggregator_freeze_threshold_bytes", default: "4194304" },
@@ -3209,8 +3220,10 @@ const SessionSettingsExplorer = ({ href: baseRoute }) => {
         { name: "unknown_packet_in_send_data", path: "/other#unknown_packet_in_send_data", default: "0" },
         { name: "variant_throw_on_type_mismatch", path: "/other#variant_throw_on_type_mismatch", default: "1" },
         { name: "wait_changes_become_visible_after_commit_mode", path: "/other#wait_changes_become_visible_after_commit_mode", default: "wait_unknown" },
+        { name: "weight", path: "/other#weight", default: "1" },
         { name: "workload", path: "/other#workload", default: "default" },
         { name: "workload_admission_timeout_ms", path: "/other#workload_admission_timeout_ms", default: "0" },
+        { name: "workload_priority", path: "/other#workload_priority", default: "0" },
         { name: "write_full_path_in_iceberg_metadata", path: "/other#write_full_path_in_iceberg_metadata", default: "0" },
         { name: "zstd_window_log_max", path: "/other#zstd_window_log_max", default: "0" }
       ],

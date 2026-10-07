@@ -2183,7 +2183,7 @@ moving 상태이어서 eviction이 건너뛴 파일 세그먼트 수
 
 ### FilesystemCacheFailedReserveAttempts {#filesystemcachefailedreserveattempts}
 
-파일 캐시 공간 예약에 실패한 시도 횟수입니다.
+파일 캐시 공간 예약에 실패한 시도 횟수이며, 사전 예약(reserve-ahead)에 실패해 정확한 크기로 다시 시도한 경우도 포함합니다(FilesystemCacheReserveAheadRetries 참조).
 
 ### FilesystemCacheFailToReserveSpaceBecauseOfCacheResize {#filesystemcachefailtoreservespacebecauseofcacheresize}
 
@@ -2252,6 +2252,10 @@ moving 상태이어서 eviction이 건너뛴 파일 세그먼트 수
 ### FilesystemCachePriorityWriteLockMicroseconds {#filesystemcacheprioritywritelockmicroseconds}
 
 우선순위 큐에 쓰기 위해 파일 시스템 캐시를 잠그는 시간
+
+### FilesystemCacheReserveAheadRetries {#filesystemcachereserveaheadretries}
+
+사전 예약 방식의 파일 시스템 캐시 예약이 공간 부족으로 실패하여, 요청된 크기 그대로 다시 시도된 횟수입니다
 
 ### FilesystemCacheReserveAttempts {#filesystemcachereserveattempts}
 
@@ -5977,13 +5981,17 @@ OS kernel 모드에서 CPU 명령어를 실행하는 처리(쿼리 및 기타 �
 
 지연 포스팅 리스트 모드에서 수행된 advance 연산 횟수입니다.
 
+### TextIndexLazyBlocksSkippedDense {#textindexlazyblocksskippeddense}
+
+지연 포스팅 리스트 모드에서 연속된 행 ID로 이루어진 패킹된 블록 중 디코딩하지 않고 블록 전체를 한 번에 채운(OR은 memset, AND는 증가 연산) 블록의 수입니다.
+
 ### TextIndexLazyBlocksSkippedResolved {#textindexlazyblocksskippedresolved}
 
-지연 포스팅 리스트 모드에서 출력 영역이 이미 확정되었기 때문에(OR의 경우 모두 1, AND의 경우 모두 0) 건너뛴 패킹된 블록 수입니다.
+지연 포스팅 리스트 모드에서 출력 영역이 이미 확정되었기 때문에(OR의 경우 모두 1, AND의 경우 지금까지 적용된 모든 포스팅 리스트에 남은 행이 없음) 건너뛴 패킹된 블록 수입니다.
 
 ### TextIndexLazyBruteForceEarlyExits {#textindexlazybruteforceearlyexits}
 
-지연 포스팅 리스트 모드에서 수행된 브루트포스 교집합 연산 중, 포스팅 리스트 중 하나에 윈도우 내 행이 없어 교집합이 비어 있다고 판단되어 조기 종료된 횟수입니다.
+지연 포스팅 리스트 모드에서 수행된 브루트포스 교집합 연산 중, 지금까지 적용된 모든 포스팅 리스트에 공통으로 남아 있는 윈도우 내 행이 없어 교집합이 비어 있다고 판단되어 조기 종료된 횟수입니다.
 
 ### TextIndexLazyBruteForceIntersections {#textindexlazybruteforceintersections}
 
@@ -6011,7 +6019,7 @@ OS kernel 모드에서 CPU 명령어를 실행하는 처리(쿼리 및 기타 �
 
 ### TextIndexLazySegmentsSkippedResolved {#textindexlazysegmentsskippedresolved}
 
-지연 포스팅 리스트 모드에서 출력 영역이 이미 확정되어(OR는 모두 1, AND는 모두 0) 건너뛴 세그먼트 수입니다.
+지연 포스팅 리스트 모드에서 출력 영역이 이미 확정되어(OR는 모두 1, AND는 지금까지 적용된 모든 포스팅 리스트에 남은 행이 없음) 건너뛴 세그먼트 수입니다.
 
 ### TextIndexPatternBypassCacheHits {#textindexpatternbypasscachehits}
 
