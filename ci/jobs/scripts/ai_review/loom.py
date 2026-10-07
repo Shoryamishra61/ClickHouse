@@ -26,9 +26,12 @@ Configuration comes from the environment (`LOOM_BASE_URL`, `LOOM_TOKEN`,
 process from per-repository SSM secrets (`REPO_CONFIG`). A repository without an
 entry, or with a missing secret, runs without Loom.
 
-Only master is indexed. Code that exists only on the PR branch is not in the
-index, except through the open-PR overlay of `review_brief` / `impact` /
-`callers` for public PRs, which the Loom mirror follows.
+Loom indexes master and the release branches. Code that exists only on the PR
+branch is not in the index; for repositories with `pr_overlay`, the job sends
+the PR's changed files from the checkout with the `review_brief`, `impact`,
+`callers` and `verify_citations` calls (`post_image()`), and Loom overlays them
+on the index for that request. Nothing sent is stored, and any Loom endpoint
+answers, a read-replica without git included.
 """
 
 import argparse
@@ -96,11 +99,17 @@ _CALL_LOG_ENV = "LOOM_CALL_LOG"
 
 _MAX_DIFF_BYTES = 200_000
 _MAX_FILES = 50
+# The post-image Loom accepts: 50 files of at most 1,000,000 characters each.
+# The total is capped lower, as it rides on every overlay call.
+_MAX_POST_FILE_CHARS = 1_000_000
+_MAX_POST_TOTAL_CHARS = 8_000_000
+_POST_IMAGE_FILE = "post_image.json"
+_POST_IMAGE_ENV = "LOOM_POST_IMAGE"
 
 
 class Config:
     def __init__(self, base_url="", token="", namespace="", repo="", pr_number=0, private=False, pr_overlay=False,
-                 memory_namespace=""):
+                 memory_namespace="", post_image_path=""):
         self.base_url = (base_url or "").rstrip("/")
         self.token = token or ""
         self.namespace = namespace or ""
@@ -109,6 +118,8 @@ class Config:
         self.pr_number = int(pr_number or 0)
         self.private = bool(private)
         self.pr_overlay = bool(pr_overlay)
+        # The PR's post-image `write_brief` saved for the agent's CLI calls.
+        self.post_image_path = post_image_path or ""
 
     def available(self):
         return bool(self.base_url and self.token and self.namespace)
@@ -126,6 +137,7 @@ class Config:
             "LOOM_PR_NUMBER": str(self.pr_number),
             "LOOM_PRIVATE": "1" if self.private else "0",
             "LOOM_PR_OVERLAY": "1" if self.pr_overlay else "0",
+            _POST_IMAGE_ENV: self.post_image_path,
         }
 
     @classmethod
@@ -138,6 +150,7 @@ class Config:
             pr_number=os.environ.get("LOOM_PR_NUMBER", "0") or 0,
             private=os.environ.get("LOOM_PRIVATE", "1") != "0",
             pr_overlay=os.environ.get("LOOM_PR_OVERLAY", "0") == "1",
+            post_image_path=os.environ.get(_POST_IMAGE_ENV, ""),
         )
 
     @classmethod
@@ -315,7 +328,9 @@ def _render_index_status(d, base_sha):
     if base_sha and cov:
         tiers = {t.get("label"): t for t in cov.get("tiers") or []}
         cpp = tiers.get("C++") or {}
-        if cpp and not cpp.get("covered", True):
+        # `covered` is None when Loom could not tell (a read-replica has no git
+        # history to check with): only a known "not yet" is worth the line.
+        if cpp and cpp.get("covered") is False:
             lines.append(
                 f"- The index does not yet include the PR base `{base_sha[:12]}`: code merged to master since the "
                 f"indexed commit is missing from Loom answers. Mention this under \"Missing context\" if it matters."
@@ -607,6 +622,49 @@ def _render_test_gate_after_brief(answers, lines):
     return gate
 
 
+def post_image(pr, files, diff, root="."):
+    """The PR's post-image for Loom's open-PR overlay: the text at the head of
+    each file the PR adds or modifies, read from the checkout at `root`, with the
+    diff and the head and base commits. A file that is unreadable, not UTF-8, or
+    over the size cap is left out; Loom then answers for it from the index.
+    {} when there is nothing to send."""
+    texts, total = {}, 0
+    for f in files[:_MAX_FILES]:
+        name = f.get("filename") or ""
+        if not name or f.get("status") == "removed":
+            continue
+        try:
+            with open(os.path.join(root, name), encoding="utf-8") as fh:
+                text = fh.read(_MAX_POST_FILE_CHARS + 1)
+        except (OSError, UnicodeDecodeError):
+            continue
+        if len(text) > _MAX_POST_FILE_CHARS or total + len(text) > _MAX_POST_TOTAL_CHARS:
+            continue
+        texts[name] = text
+        total += len(text)
+    if not texts and not diff:
+        return {}
+    return {
+        "pr_files": texts,
+        "pr_diff": diff,
+        "pr_head_sha": (pr.get("head") or {}).get("sha") or "",
+        "pr_base_sha": (pr.get("base") or {}).get("sha") or "",
+    }
+
+
+def _saved_post_image(config):
+    """The post-image `write_brief` saved, for the CLI's overlay calls; {} when
+    there is none or it does not read."""
+    if not config.post_image_path:
+        return {}
+    try:
+        with open(config.post_image_path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def write_brief(config, pr, files, out_dir):
     """Fetch the Loom brief for this PR into `out_dir` (brief.md + raw JSON).
     Returns the Markdown brief, or "" when Loom gave nothing."""
@@ -619,6 +677,11 @@ def write_brief(config, pr, files, out_dir):
     author = (pr.get("user") or {}).get("login") or ""
     base_sha = (pr.get("base") or {}).get("sha") or ""
     overlay = config.pr_overlay and config.pr_number > 0
+    post = post_image(pr, files, diff) if overlay else {}
+    if post:
+        config.post_image_path = os.path.abspath(os.path.join(out_dir, _POST_IMAGE_FILE))
+        with open(config.post_image_path, "w", encoding="utf-8") as f:
+            json.dump(post, f)
 
     requests = {
         "index_status": ("code.index_status", {"brief": True, **({"commit": base_sha} if base_sha else {})}),
@@ -628,13 +691,13 @@ def write_brief(config, pr, files, out_dir):
         requests["impact"] = ("code.impact", {
             "files": paths, "diff": diff, "depth": 2,
             **({"exclude_authors": [author]} if author else {}),
-            **({"pr_number": config.pr_number} if overlay else {}),
+            **({"pr_number": config.pr_number, **post} if overlay else {}),
         })
         requests["test_gate"] = ("code.test_gate", {"files": paths, "diff": diff, "depth": 2, "limit": 30})
         requests["conventions"] = ("code.conventions", {"files": paths, "diff": diff})
     if overlay:
         requests["review_brief"] = ("code.review_brief", {
-            "pr_number": config.pr_number, "tier": "standard", "open": True,
+            "pr_number": config.pr_number, "tier": "standard", "open": True, **post,
             "sections": ["paths", "symbols", "tests", "history", "do_not_flag"]})
     # What maintainers recently asked for on the files the PR touches: the
     # codebase's actual review norms, on the code at hand.
@@ -871,12 +934,15 @@ def record_decisions(config, repo, pr_number, decisions):
 
 def _cli_body(args, config):
     overlay = {"pr_number": config.pr_number} if (config.pr_overlay and config.pr_number) else {}
+    # The ops that overlay the PR take its post-image too; `symbol` reads the
+    # PR number for context only.
+    post = {**overlay, **_saved_post_image(config)} if overlay else {}
     if args.command == "symbol":
         return "code.symbol", {"name": args.name, "include_body": not args.no_body, "uses_brief": args.uses,
                                "include_examples": False, "include_lessons": False, **overlay}
     if args.command == "callers":
         return "code.callers", {"name": args.name, "depth": max(1, min(args.depth, 3)),
-                                "max_nodes": max(1, min(args.limit, 500)), **overlay}
+                                "max_nodes": max(1, min(args.limit, 500)), **post}
     if args.command == "grep":
         body = {"pattern": args.pattern, "regex": args.regex, "mode": args.mode, "limit": max(1, min(args.limit, 500))}
         if args.path_prefix:
@@ -923,7 +989,7 @@ def _cli_body(args, config):
     if args.command == "verify-citations":
         with open(args.file, "r", encoding="utf-8") as f:
             text = f.read()
-        return "code.verify_citations", {"text": text[:60000], "limit": 200, **overlay}
+        return "code.verify_citations", {"text": text[:60000], "limit": 200, **post}
     raise ValueError(args.command)
 
 
