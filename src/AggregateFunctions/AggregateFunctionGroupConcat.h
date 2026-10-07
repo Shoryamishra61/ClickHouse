@@ -46,9 +46,12 @@ class GroupConcatImpl final : public IAggregateFunctionDataHelper<GroupConcatDat
     UInt64 limit;
     const String delimiter;
     const DataTypePtr type;
+    /// Whether the trailing zero bytes of a `FixedString` argument are removed, see `cast_fixed_string_to_string_strip_trailing_zeros`.
+    const bool strip_trailing_zeros;
 
 public:
-    GroupConcatImpl(const DataTypePtr & data_type_, const Array & parameters_, UInt64 limit_, const String & delimiter_);
+    GroupConcatImpl(
+        const DataTypePtr & data_type_, const Array & parameters_, UInt64 limit_, const String & delimiter_, bool strip_trailing_zeros_);
 
     String getName() const override;
 

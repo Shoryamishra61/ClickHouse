@@ -3,10 +3,15 @@
 #include <Columns/ColumnFixedString.h>
 #include <Columns/ColumnSparse.h>
 #include <Columns/ColumnString.h>
+#include <Core/Settings.h>
 
 namespace DB
 {
-struct Settings;
+
+namespace Setting
+{
+    extern const SettingsBool cast_fixed_string_to_string_strip_trailing_zeros;
+}
 
 namespace ErrorCodes
 {
@@ -62,12 +67,13 @@ void GroupConcatData::insert(const IColumn * column, const SerializationPtr & se
 
 template <bool has_limit>
 GroupConcatImpl<has_limit>::GroupConcatImpl(
-    const DataTypePtr & data_type_, const Array & parameters_, UInt64 limit_, const String & delimiter_)
+    const DataTypePtr & data_type_, const Array & parameters_, UInt64 limit_, const String & delimiter_, bool strip_trailing_zeros_)
     : IAggregateFunctionDataHelper<GroupConcatData, GroupConcatImpl<has_limit>>(
         {data_type_}, parameters_, std::make_shared<DataTypeString>())
     , limit(limit_)
     , delimiter(delimiter_)
     , type(data_type_)
+    , strip_trailing_zeros(strip_trailing_zeros_)
 {
     serialization = this->argument_types[0]->getDefaultSerialization();
 }
@@ -97,8 +103,13 @@ void GroupConcatImpl<has_limit>::add(
 
     if (isFixedString(type))
     {
-        /// All bytes are kept, including the trailing zero padding, matching `CAST(FixedString AS String)`.
-        cur_data.insertString(assert_cast<const ColumnFixedString &>(*columns[0]).getDataAt(row_num), arena);
+        /// Matches `CAST(FixedString AS String)`: all bytes are kept, including the trailing zero padding,
+        /// unless `cast_fixed_string_to_string_strip_trailing_zeros` is enabled.
+        std::string_view ref = assert_cast<const ColumnFixedString &>(*columns[0]).getDataAt(row_num);
+        if (strip_trailing_zeros)
+            while (!ref.empty() && ref.back() == 0)
+                ref.remove_suffix(1);
+        cur_data.insertString(ref, arena);
     }
     else
         cur_data.insert(columns[0], serialization, row_num, arena);
@@ -242,9 +253,11 @@ bool GroupConcatImpl<has_limit>::allocatesMemoryInArena() const { return true; }
 // Implementation of add, merge, serialize, deserialize, insertResultInto, etc. remains unchanged.
 
 static AggregateFunctionPtr createAggregateFunctionGroupConcat(
-    const std::string & name, const DataTypes & argument_types, const Array & parameters, const Settings *)
+    const std::string & name, const DataTypes & argument_types, const Array & parameters, const Settings * settings)
 {
     assertUnary(name, argument_types);
+
+    bool strip_trailing_zeros = settings && (*settings)[Setting::cast_fixed_string_to_string_strip_trailing_zeros];
 
     bool has_limit = false;
     UInt64 limit = 0;
@@ -278,8 +291,8 @@ static AggregateFunctionPtr createAggregateFunctionGroupConcat(
     }
 
     if (has_limit)
-        return std::make_shared<GroupConcatImpl</* has_limit= */ true>>(argument_types[0], parameters, limit, delimiter);
-    return std::make_shared<GroupConcatImpl</* has_limit= */ false>>(argument_types[0], parameters, limit, delimiter);
+        return std::make_shared<GroupConcatImpl</* has_limit= */ true>>(argument_types[0], parameters, limit, delimiter, strip_trailing_zeros);
+    return std::make_shared<GroupConcatImpl</* has_limit= */ false>>(argument_types[0], parameters, limit, delimiter, strip_trailing_zeros);
 }
 
 void registerAggregateFunctionGroupConcat(AggregateFunctionFactory & factory);
