@@ -280,6 +280,10 @@ public:
 
     virtual void finalize() = 0;
 
+    /// Called by `Changelog::writeAt` under `writer_mutex` before it rewrites or supersedes any existing
+    /// segment, after every scheduled relink was applied by `LogEntryStorage::refreshCache`.
+    virtual void prepareRewrite() {}
+
     ChangelogFileDescriptionPtr getCurrentFileDescription() const { return current_file_description; }
 
     virtual ~IChangelogWriter() = default;
@@ -511,8 +515,10 @@ private:
     std::mutex & writer_mutex;
     uint64_t last_merged_index;
 
-    /// Merges whose sources are not removed yet. Accessed only by the compaction thread, and by `finalize` after it is stopped.
-    std::vector<LogEntryStorage::ChangelogRelinkPtr> relinked_sources;
+    /// Merges whose sources are not removed yet. Appended to under `writer_mutex`, so `prepareRewrite` sees every
+    /// published merge. Lock order: `writer_mutex`, then `relinked_sources_mutex`.
+    std::mutex relinked_sources_mutex;
+    std::vector<LogEntryStorage::ChangelogRelinkPtr> relinked_sources TSA_GUARDED_BY(relinked_sources_mutex);
 
     /// Incremented whenever an already published object is reopened for append. Published objects are
     /// otherwise immutable, so an unchanged epoch proves that the sources of a merge were not rewritten.
@@ -725,6 +731,7 @@ private:
                     /// `entry_storage` still locates the entries of the sources in the source objects, so they
                     /// cannot be removed yet: the next `refreshCache` switches those locations to the merged object.
                     entry_storage.scheduleRelink(relink);
+                    std::lock_guard relinked_sources_lock(relinked_sources_mutex);
                     relinked_sources.push_back(relink);
                 }
 
@@ -759,6 +766,12 @@ private:
     /// retried on the next wake-up of the compaction thread or on shutdown. A stale source left behind
     /// would replay over the merged object on the next startup after a `writeAt` into it.
     void removeRelinkedSources(bool force)
+    {
+        std::lock_guard lock(relinked_sources_mutex);
+        removeRelinkedSourcesLocked(force);
+    }
+
+    void removeRelinkedSourcesLocked(bool force) TSA_REQUIRES(relinked_sources_mutex)
     {
         std::erase_if(
             relinked_sources,
@@ -795,6 +808,32 @@ private:
 
                 return all_removed;
             });
+    }
+
+    /// The cleanup wake-up sent by `on_applied` is asynchronous, so the sources of a merge may still exist when
+    /// `writeAt` rewrites the merged object, or removes it as superseded. A crash after that rewrite would let the
+    /// next startup replay the stale sources over the rewritten range and resurrect the overwritten entries.
+    /// So the sources are removed synchronously here, before anything is rewritten. `writeAt` applied every
+    /// relink under `writer_mutex` right before, and new relinks are scheduled only under `writer_mutex`.
+    void prepareRewrite() override
+    {
+        std::lock_guard lock(relinked_sources_mutex);
+        if (relinked_sources.empty())
+            return;
+
+        for (const auto & relink : relinked_sources)
+            if (!relink->applied)
+                throw Exception(
+                    ErrorCodes::LOGICAL_ERROR,
+                    "Relink of merged S3 changelog {} is not applied before a rewrite", relink->merged->path);
+
+        removeRelinkedSourcesLocked(/* force */ false);
+
+        if (!relinked_sources.empty())
+            throw Exception(
+                ErrorCodes::SYSTEM_ERROR,
+                "Cannot rewrite the S3 changelog: failed to remove the sources of merged S3 changelog {}",
+                relinked_sources.front()->merged->path);
     }
 
     void triggerS3Compaction()
@@ -5235,6 +5274,15 @@ void Changelog::writeAt(uint64_t index, const LogEntryPtr & log_entry)
 
     {
         std::lock_guard lock(writer_mutex);
+
+        if (keeper_context->isS3ExperimentalChangelog())
+        {
+            /// The S3 compaction thread may have scheduled a relink after the `refreshCache` in `flush` above.
+            /// It schedules them only under `writer_mutex`, so this applies all of them before `prepareRewrite`.
+            entry_storage.refreshCache();
+            current_writer->prepareRewrite();
+        }
+
         /// This write_at require to overwrite everything in this file and also in previous file(s)
         const bool go_to_previous_file = index < current_writer->getStartIndex();
 
