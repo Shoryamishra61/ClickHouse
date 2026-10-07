@@ -18,6 +18,7 @@
 #include <IO/WriteBufferFromString.h>
 #include <IO/WriteHelpers.h>
 #include <Parsers/ASTIdentifier.h>
+#include <Parsers/ASTSelectQuery.h>
 #include <Parsers/ASTSQLSecurity.h>
 #include <Parsers/ASTSetQuery.h>
 #include <Storages/IndicesDescription.h>
@@ -1282,6 +1283,42 @@ void updateHashWithRowAffectingSettings(SipHash & hash, const Settings & setting
         hash.update(name);
         hash.update(value);
     }
+}
+
+namespace
+{
+
+/// Drops the entries of every `SETTINGS` clause in `ast` that `settingCanAffectQueryRows` rejects, and
+/// removes a `SELECT`'s clause altogether once nothing is left of it, so that it hashes the same as a
+/// query that never had one.
+void removeSettingsNotAffectingQueryRows(IAST & ast)
+{
+    for (const auto & child : ast.children)
+        removeSettingsNotAffectingQueryRows(*child);
+
+    if (auto * set_query = ast.as<ASTSetQuery>())
+    {
+        std::erase_if(set_query->changes, [](const SettingChange & change) { return !settingCanAffectQueryRows(change.name); });
+        std::erase_if(set_query->default_settings, [](const String & name) { return !settingCanAffectQueryRows(name); });
+    }
+    else if (auto * select = ast.as<ASTSelectQuery>())
+    {
+        if (const auto settings = select->settings())
+        {
+            const auto & set_query = settings->as<const ASTSetQuery &>();
+            if (set_query.changes.empty() && set_query.default_settings.empty() && set_query.query_parameters.empty())
+                select->setExpression(ASTSelectQuery::Expression::SETTINGS, nullptr);
+        }
+    }
+}
+
+}
+
+void updateHashWithQueryIgnoringOperationalSettings(SipHash & hash, const IAST & query)
+{
+    auto normalized = query.clone();
+    removeSettingsNotAffectingQueryRows(*normalized);
+    normalized->updateTreeHash(hash, /*ignore_aliases=*/ false);
 }
 
 }

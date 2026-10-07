@@ -870,9 +870,8 @@ std::optional<UInt128> StorageView::getModificationHash(const StorageSnapshotPtr
             hash,
             effective_context->getSettingsRef(),
             additional_table_filters_matchable_names ? &*additional_table_filters_matchable_names : nullptr);
-        IASTHash view_query_hash = inner_query->getTreeHash(/*ignore_aliases*/ false);
-        hash.update(view_query_hash.low64);
-        hash.update(view_query_hash.high64);
+        /// The operational entries of the stored query's own `SETTINGS` are left out as well.
+        updateHashWithQueryIgnoringOperationalSettings(hash, *inner_query);
         hash.update(*referenced_tables_hash);
         return hash.get128();
     }

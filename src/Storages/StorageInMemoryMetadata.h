@@ -397,6 +397,12 @@ void updateHashWithEffectiveSQLSecurity(SipHash & hash, const StorageInMemoryMet
 /// stale hash look current.
 bool settingCanAffectQueryRows(std::string_view setting_name);
 
+/// Fold the tree hash of `query` into `hash`, leaving out the entries of its `SETTINGS` clauses that
+/// `settingCanAffectQueryRows` rejects. A view's stored `SELECT` is hashed this way, so that an edit
+/// such as `ALTER TABLE mv MODIFY QUERY SELECT ... SETTINGS use_query_cache = 1`, which reads the same
+/// rows, does not look like a definition change.
+void updateHashWithQueryIgnoringOperationalSettings(SipHash & hash, const IAST & query);
+
 /// Fold the settings of `settings` that pass `settingCanAffectQueryRows` into `hash`, in a
 /// deterministic order. Settings left at their default value are equal on every replica and every
 /// refresh attempt, so only the changed ones take part: a profile update that resets a setting back
