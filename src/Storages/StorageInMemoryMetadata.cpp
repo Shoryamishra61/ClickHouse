@@ -1305,8 +1305,8 @@ void removeSettingsNotAffectingQueryRows(IAST & ast)
     {
         if (const auto settings = select->settings())
         {
-            const auto & set_query = settings->as<const ASTSetQuery &>();
-            if (set_query.changes.empty() && set_query.default_settings.empty() && set_query.query_parameters.empty())
+            const auto & select_settings = settings->as<const ASTSetQuery &>();
+            if (select_settings.changes.empty() && select_settings.default_settings.empty() && select_settings.query_parameters.empty())
                 select->setExpression(ASTSelectQuery::Expression::SETTINGS, nullptr);
         }
     }

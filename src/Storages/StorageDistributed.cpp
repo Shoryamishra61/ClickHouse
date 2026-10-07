@@ -2150,7 +2150,8 @@ static std::optional<UInt128> getModificationHashOfRemoteTableInShard(
         /// do not probe one the user cannot read (and, for `system.tables.modification_hash`, a table
         /// the user cannot read in full, see `canComputeModificationHash`).
         const auto storage_id = storage->getStorageID();
-        if (!canComputeModificationHash(context, storage_id.database_name, storage_id.table_name, storage->getInMemoryMetadataPtr()->getColumns()))
+        const auto storage_metadata = storage->getInMemoryMetadataPtr(context, false);
+        if (!canComputeModificationHash(context, storage_id.database_name, storage_id.table_name, storage_metadata->getColumns()))
             return {};
         /// Refresh lazily applied external metadata before hashing, so that the first read through this
         /// `Distributed` table does not report a change that is only the local child's own first-use
