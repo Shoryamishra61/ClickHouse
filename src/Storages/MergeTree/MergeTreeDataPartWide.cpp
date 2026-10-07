@@ -519,7 +519,20 @@ void MergeTreeDataPartWide::doCheckConsistency(bool require_part_metadata) const
                 {
                     auto stream_name = getStreamNameOrHash(substream, marks_file_extension, getDataPartStorage());
                     if (!stream_name)
+                    {
+                        /// Regenerated checksums only list the files left on disk, so they cannot tell that
+                        /// a marks file is gone. But `columns_substreams.txt` names every substream the part
+                        /// was written with, and each of them must have its marks.
+                        if (checksums_were_regenerated)
+                            throw Exception(
+                                ErrorCodes::NO_FILE_IN_DATA_PART,
+                                "Part {} is broken: no marks file ({}{}) for column {}",
+                                getDataPartStorage().getFullPath(),
+                                substream,
+                                marks_file_extension,
+                                getColumns().getNames()[col_idx]);
                         continue;
+                    }
 
                     auto file_path = *stream_name + marks_file_extension;
                     UInt64 file_size = getDataPartStorage().getFileSize(file_path);

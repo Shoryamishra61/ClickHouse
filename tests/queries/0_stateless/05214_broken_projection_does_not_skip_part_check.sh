@@ -29,6 +29,7 @@ TABLES="
     wide_no_checksums
     wide_torn_first_column_no_checksums
     wide_torn_second_column_no_checksums
+    wide_missing_second_column_no_checksums
     compact_torn_no_checksums
     wide_several_blocks_no_checksums
     compact_several_blocks_no_checksums
@@ -137,6 +138,10 @@ truncate -s 0 "$(part_path projection_only_no_checksums)/p.proj/data.cmrk4"
 truncate_to_first_block "$(part_path wide_torn_first_column_no_checksums)/$(column_file wide_torn_first_column_no_checksums id).cmrk2"
 truncate_to_first_block "$(part_path wide_torn_second_column_no_checksums)/$(column_file wide_torn_second_column_no_checksums v).cmrk2"
 truncate_to_first_block "$(part_path compact_torn_no_checksums)/data.cmrk4"
+
+# The marks file of another column is gone altogether, so the regenerated checksums do not list it.
+# `columns_substreams.txt` still names its substream.
+rm "$(part_path wide_missing_second_column_no_checksums)/$(column_file wide_missing_second_column_no_checksums v).cmrk2"
 
 # Without `columns_substreams.txt` the dynamic streams are not enumerated, but the marks of every stream
 # with a data file are checked when the checksums are regenerated.
