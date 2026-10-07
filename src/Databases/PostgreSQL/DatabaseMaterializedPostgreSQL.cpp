@@ -577,10 +577,14 @@ void DatabaseMaterializedPostgreSQL::createTable(ContextPtr local_context, const
 
     /// `attachTable` needs a live handler to update the PostgreSQL publication. Check this before
     /// `DatabaseAtomic::createTable`: otherwise a startup-window refusal leaves a physical nested
-    /// table and UUID mapping behind, and the retry collides with that orphan.
+    /// table and UUID mapping behind, and the retry collides with that orphan. A non-null handler is not
+    /// enough: `startSynchronization` assigns it before fetching the tables and starting it up, and a failed
+    /// attempt leaves an uninitialized handler behind for the retry, which `addTableToReplication` would
+    /// reject only after the nested table had been created. `synchronization_started` is set (under
+    /// `handler_mutex`) only once the handler has started up.
     {
         std::lock_guard lock(handler_mutex);
-        if (!replication_handler)
+        if (!replication_handler || !synchronization_started)
             throw Exception(ErrorCodes::POSTGRESQL_REPLICATION_INTERNAL_ERROR,
                 "Cannot add table `{}` to replication: the database has not finished starting replication yet. "
                 "Retry once synchronization has started", table_name);
