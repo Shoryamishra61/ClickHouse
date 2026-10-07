@@ -536,15 +536,20 @@ private:
                 Session::reconnect(connect_time);
                 ProfileEvents::increment(metrics.created);
             }
+            notifySocketInode();
+
             /// Poco can reconnect from inside sendRequest when the borrowed connection turns out
-            /// to be dead. Publish again - it re-identifies the socket first - so the log describes
-            /// the socket that actually carried the request, not the one that was discarded.
+            /// to be dead. Publish again so the log describes the socket that actually carried the
+            /// request, not the one that was discarded.
             ///
             /// Re-sample the idle time as well: the connection we just took from the pool may have
             /// been sitting there far longer than the sample `assignFrom` copied along with it,
             /// which belongs to that socket's previous request.
-            sampleIdleTime();
-            publishConnectionInfo();
+            if (isHTTPConnectionInfoCaptureEnabled())
+            {
+                sampleIdleTime();
+                publishConnectionInfo();
+            }
         }
 
         String getTarget() const
@@ -597,9 +602,13 @@ private:
         std::ostream & sendRequest(Poco::Net::HTTPRequest & request, UInt64 * connect_time, UInt64 * first_byte_time) override
         {
             /// Sampled before Poco's sendRequest, which updates the session's last-request
-            /// timestamp.
-            sampleIdleTime();
-            publishConnectionInfo();
+            /// timestamp. Only for a request that is going to be logged: the pool is shared by
+            /// many callers that never read it, and they should not pay for the sampling.
+            if (isHTTPConnectionInfoCaptureEnabled())
+            {
+                sampleIdleTime();
+                publishConnectionInfo();
+            }
 
             // Set data hooks for IO scheduling
             if (ResourceLink link = CurrentThread::getReadResourceLink())
@@ -727,11 +736,12 @@ private:
         /// Notify the connection group about the current socket inode, and give the socket an
         /// identity the first time we see it.
         ///
-        /// Deriving identity from the socket rather than from the connect paths is deliberate: Poco
-        /// reaches a connected socket by several routes - handed out by the pool, connected lazily
-        /// inside sendRequest, or copied in by assign() from another session - and hooking each one
-        /// separately means whichever route is forgotten silently reports connection id 0. The fstat
-        /// costs one syscall per request, against a network round trip.
+        /// Called on every route by which a session gets a connected socket: `doConnect`, the
+        /// `reconnect` override (which Poco also uses for the lazy connect inside sendRequest), and
+        /// the copy made by `assignFrom` when a connection is stored for reuse. The identity is
+        /// derived from the socket itself, so calling it again for a socket already seen is
+        /// harmless: `publishConnectionInfo` does that as a safety net, but only for requests that
+        /// are going to be logged, so the fstat is not paid on every request through the pool.
         void notifySocketInode()
         {
             int fd = -1;

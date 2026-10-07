@@ -91,6 +91,11 @@ private:
     size_t previous_requests_in_scope;
 };
 
+/// Whether the current thread is inside an `HTTPConnectionInfoScope`. The pooled session checks it
+/// before sampling the connection, so that requests nobody is going to log - most of the traffic
+/// through the shared pool - do not pay for it.
+bool isHTTPConnectionInfoCaptureEnabled();
+
 /// Publish the connection that is about to serve a request on this thread. Called by the pooled
 /// session; does nothing outside of an `HTTPConnectionInfoScope`.
 void setCurrentHTTPConnectionInfo(const HTTPConnectionInfo & info);

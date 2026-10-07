@@ -43,6 +43,11 @@ HTTPConnectionInfoScope::~HTTPConnectionInfoScope()
     requests_in_scope = previous_requests_in_scope;
 }
 
+bool isHTTPConnectionInfoCaptureEnabled()
+{
+    return capture_connection_info;
+}
+
 void setCurrentHTTPConnectionInfo(const HTTPConnectionInfo & info)
 {
     if (!capture_connection_info)
