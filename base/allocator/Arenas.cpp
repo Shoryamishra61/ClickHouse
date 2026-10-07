@@ -208,7 +208,10 @@ Arena * arenaChooseHard(ThreadState & thread_state, bool internal)
     {
         unsigned choose = perCPUArenaChoose();
         result = arenaGet(thread_state_ptr, choose, true);
-        ALLOCATOR_ASSERT(result != nullptr);
+        /// The arena may fail to initialize (out of memory). Unlike jemalloc, report the failure to the caller
+        /// instead of dereferencing a null pointer.
+        if (ALLOCATOR_UNLIKELY(result == nullptr))
+            return nullptr;
         arenaBind(thread_state, arenaIdxGet(result), false);
         arenaBind(thread_state, arenaIdxGet(result), true);
 
@@ -303,7 +306,9 @@ Arena * arenaChooseHard(ThreadState & thread_state, bool internal)
 Arena * arenaChooseFirstUse(ThreadState & thread_state, bool internal)
 {
     Arena * result = arenaChooseHard(thread_state, internal);
-    ALLOCATOR_ASSERT(result);
+    /// Out of memory while initializing an arena: the thread stays unbound, and the allocation fails.
+    if (ALLOCATOR_UNLIKELY(result == nullptr))
+        return nullptr;
     if (threadCacheAvailable(thread_state))
     {
         ThreadCacheSlow * thread_cache_slow = thread_state.threadCacheSlowGet();
@@ -335,7 +340,10 @@ void perCPUArenaUpdate(ThreadState & thread_state, unsigned cpu)
     {
         unsigned new_idx = cpu;
         Arena * new_arena = arenaGet(&thread_state, new_idx, true);
-        ALLOCATOR_ASSERT(new_arena != nullptr);
+        /// Out of memory while initializing the arena of the new CPU: keep the thread bound to its current arena,
+        /// which remains fully usable.
+        if (ALLOCATOR_UNLIKELY(new_arena == nullptr))
+            return;
 
         /// Set new arena/tcache associations.
         arenaMigrate(thread_state, old_arena, new_arena);

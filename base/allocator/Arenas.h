@@ -219,7 +219,11 @@ ALLOCATOR_ALWAYS_INLINE Arena * arenaChooseImpl(ThreadState & thread_state, Aren
 
     Arena * result = internal ? thread_state.internal_arena : thread_state.arena;
     if (ALLOCATOR_UNLIKELY(result == nullptr))
+    {
         result = arenaChooseFirstUse(thread_state, internal);
+        if (ALLOCATOR_UNLIKELY(result == nullptr))
+            return nullptr;
+    }
 
     /// Note that for percpu arena, if the current arena is outside of the auto percpu arena range, (i.e. thread is
     /// assigned to a manually managed arena), then percpu arena is skipped.
@@ -261,6 +265,8 @@ ALLOCATOR_ALWAYS_INLINE Arena * arenaChooseMaybeHuge(ThreadState & thread_state,
     Arena * thread_state_arena = thread_state.arena;
     if (thread_state_arena == nullptr)
         thread_state_arena = arenaChoose(thread_state, nullptr);
+    if (ALLOCATOR_UNLIKELY(thread_state_arena == nullptr))
+        return nullptr;
 
     size_t threshold = thread_state_arena->page_allocator_shard.page_allocator.oversize_threshold.load(std::memory_order_relaxed);
     if (ALLOCATOR_UNLIKELY(size >= threshold) && arenaIsAuto(thread_state_arena))

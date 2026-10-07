@@ -895,6 +895,17 @@ bool threadStateThreadCacheDataInitImpl(ThreadState & thread_state, Arena * aren
     {
         if (arena == nullptr)
             arena = arenaChoose(thread_state, nullptr);
+        if (ALLOCATOR_UNLIKELY(arena == nullptr))
+        {
+            /// Out of memory while initializing an arena. Roll back `threadCacheInit` (the same way as
+            /// `threadCacheCleanup` does), so that the tcache stays uninitialized, and report the error.
+            if (cacheBinStackUseTransparentHugePages())
+                b0DeallocateThreadCacheStack(&thread_state, memory);
+            else
+                internalDeallocateFull(&thread_state, memory, nullptr, nullptr, true, true);
+            memset(static_cast<void *>(thread_cache->bins), 0, sizeof(CacheBin) * THREAD_CACHE_NUM_BINS_MAX);
+            return true;
+        }
         /// This may happen if thread.tcache.enabled is used.
         if (thread_cache_slow->arena == nullptr)
             threadCacheArenaAssociate(&thread_state, thread_cache_slow, thread_cache, arena);
