@@ -51,17 +51,26 @@ namespace ErrorCodes
 namespace
 {
 
-void collectReadSteps(const QueryPlan::Node * node, std::vector<ReadFromMergeTree *> & steps)
+void collectReadSteps(const QueryPlan::Node * node, std::vector<ReadFromMergeTree *> & steps, bool skip_sets)
 {
-    /// a subquery that only builds a set for `IN` is not the read to estimate
-    if (!node || typeid_cast<const CreatingSetStep *>(node->step.get()))
+    if (!node || (skip_sets && typeid_cast<const CreatingSetStep *>(node->step.get())))
         return;
 
     if (auto * read_step = dynamic_cast<ReadFromMergeTree *>(node->step.get()))
         steps.push_back(read_step);
 
     for (const auto & child : node->children)
-        collectReadSteps(child, steps);
+        collectReadSteps(child, steps, skip_sets);
+}
+
+/// a subquery that only builds a set for `IN` holds the read to estimate only when the query reads no other table
+std::vector<ReadFromMergeTree *> collectReadSteps(const QueryPlan::Node * root)
+{
+    std::vector<ReadFromMergeTree *> steps;
+    collectReadSteps(root, steps, /* skip_sets */ true);
+    if (steps.empty())
+        collectReadSteps(root, steps, /* skip_sets */ false);
+    return steps;
 }
 
 /// Resolve the source table from the query
@@ -351,8 +360,7 @@ WhatIfResult estimateHypotheticalObjects(
 
     plan.optimize(QueryPlanOptimizationSettings(plan_context));
 
-    std::vector<ReadFromMergeTree *> read_steps;
-    collectReadSteps(plan.getRootNode(), read_steps);
+    const auto read_steps = collectReadSteps(plan.getRootNode());
 
     if (read_steps.empty())
     {

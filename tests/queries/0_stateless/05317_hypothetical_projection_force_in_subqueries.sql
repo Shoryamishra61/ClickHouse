@@ -5,7 +5,7 @@ CREATE TABLE t_whatif_force_nested (a UInt64, b UInt64, v UInt64) ENGINE = Merge
     SETTINGS index_granularity = 100, index_granularity_bytes = '10Mi';
 INSERT INTO t_whatif_force_nested SELECT number, number % 100, number FROM numbers(300);
 
-SET optimize_use_projections = 1, optimize_use_implicit_projections = 0, prefer_optimize_projection = 0, enable_parallel_replicas = 0;
+SET optimize_use_projections = 1, optimize_use_implicit_projections = 0, prefer_optimize_projection = 0, enable_parallel_replicas = 0, optimize_move_to_prewhere = 1;
 
 CREATE HYPOTHETICAL PROJECTION p_b ON t_whatif_force_nested (SELECT a, b, v ORDER BY b);
 
@@ -26,6 +26,11 @@ SELECT replaceRegexpAll(trim(explain), '\\s+', ' ') AS line
 FROM (EXPLAIN WHATIF SELECT a, b, v FROM t_whatif_force_nested
       WHERE a = 42 AND b IN (SELECT b FROM t_whatif_force_nested WHERE b >= 40)
       SETTINGS force_optimize_projection = 1, optimize_move_to_prewhere = 0)
+WHERE match(line, '^(status|verdict):');
+
+SELECT '-- the only read is in an IN subquery, so it is the read to estimate';
+SELECT replaceRegexpAll(trim(explain), '\\s+', ' ') AS line
+FROM (EXPLAIN WHATIF SELECT 1 WHERE 42 IN (SELECT a FROM t_whatif_force_nested WHERE b = 42))
 WHERE match(line, '^(status|verdict):');
 
 SELECT '-- force_optimize_projection in the subquery only, the cost decides the outer read';

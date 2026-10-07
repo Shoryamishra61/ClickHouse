@@ -9,6 +9,9 @@ reason: `force_optimize_projection = 1` overrides the cost; the projection reads
 -- IN subquery without PREWHERE, the set has its own plan step, and the statement does not fail
 status: applicable
 verdict: chosen (forced)
+-- the only read is in an IN subquery, so it is the read to estimate
+status: applicable
+verdict: chosen
 -- force_optimize_projection in the subquery only, the cost decides the outer read
 status: applicable
 verdict: not chosen
