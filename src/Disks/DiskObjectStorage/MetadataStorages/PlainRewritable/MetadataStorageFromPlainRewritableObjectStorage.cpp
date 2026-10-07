@@ -167,8 +167,13 @@ constexpr UInt64 SNAPSHOT_WRITE_RETRY_DELAY_MS = 1000;
 
 PlainRewritableRemoteLayout MetadataStorageFromPlainRewritableObjectStorage::getCurrentLayout() const
 {
+    return getLayoutOf(*fs.takeReadOnlySnapshot());
+}
+
+PlainRewritableRemoteLayout MetadataStorageFromPlainRewritableObjectStorage::getLayoutOf(const FsSnapshot & tree)
+{
     PlainRewritableRemoteLayout result;
-    for (auto & [path, info] : fs.takeReadOnlySnapshot()->getSubtreeRemoteInfo(""))
+    for (auto & [path, info] : tree.getSubtreeRemoteInfo(""))
     {
         /// Virtual directories (created only as parents of the real ones) are not stored anywhere.
         if (info)
@@ -734,7 +739,8 @@ void MetadataStorageFromPlainRewritableObjectStorage::onLayoutChanged()
     if (!isSnapshotWriter())
         return;
 
-    const UInt64 generation = ++snapshot_change_generation;
+    /// The change was already applied to `fs`, so its version is not greater than the current one.
+    const UInt64 generation = fs.getVersion();
     snapshot_dirty = true;
 
     /// When everything was removed from the disk, the snapshot is removed right away regardless of the delay:
@@ -758,17 +764,15 @@ void MetadataStorageFromPlainRewritableObjectStorage::writeSnapshotIfDirty(UInt6
     if (!snapshot_dirty.exchange(false))
         return;
 
-    /// Every change is applied to the state before its generation is incremented, so the state taken below includes
-    /// all the changes up to this generation.
-    const UInt64 generation = snapshot_change_generation.load();
-
     LoggerPtr log = getLogger("MetadataStorageFromPlainObjectStorage");
     const auto key = layout->constructSnapshotObjectKey();
 
     std::unique_ptr<WriteBufferFromFileBase> out;
     try
     {
-        auto remote_layout = getCurrentLayout();
+        /// The tree and its version are taken together, so the recorded generation is exactly the state that is written.
+        auto [tree, generation] = fs.takeReadOnlySnapshotWithVersion();
+        auto remote_layout = getLayoutOf(*tree);
         if (isEmptyLayout(remote_layout))
         {
             /// Everything was removed from the disk: do not leave the snapshot behind.

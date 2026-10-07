@@ -116,6 +116,7 @@ class MetadataStorageFromPlainRewritableObjectStorage final : public IMetadataSt
     PlainRewritableRemoteLayout listRemoteLayout(
         const PlainRewritableRemoteLayout * base, bool reuse_files, bool & differs_from_base, const LoggerPtr & log) const;
     PlainRewritableRemoteLayout getCurrentLayout() const;
+    static PlainRewritableRemoteLayout getLayoutOf(const FsSnapshot & tree);
 
     /// Whether this disk writes the snapshot file: snapshots are enabled and the object storage is writable.
     bool isSnapshotWriter() const;
@@ -191,11 +192,9 @@ private:
 
     /// Set after every change of the state, cleared when the snapshot write starts.
     std::atomic<bool> snapshot_dirty = false;
-    /// Incremented after every change of the state.
-    std::atomic<UInt64> snapshot_change_generation = 0;
     /// Serializes the snapshot writes.
     std::mutex snapshot_write_mutex;
-    /// The generation of the state in the last successfully written snapshot. Protected by `snapshot_write_mutex`.
+    /// The version of `fs` in the last successfully written snapshot. Protected by `snapshot_write_mutex`.
     UInt64 snapshot_written_generation = 0;
     /// Must be the last member: it is deactivated first in the destructor, and the task uses the other members.
     BackgroundSchedulePoolTaskHolder snapshot_write_task;
