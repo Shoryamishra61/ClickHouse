@@ -3512,6 +3512,22 @@ bool QueryAnalyzer::expandMatchersInsideWindowDefinition(QueryTreeNodePtr & node
 
     bool expanded = false;
 
+    /** As with the projection items, the entries of the definition are resolved in order, `PARTITION BY` before `ORDER BY`,
+      * so the following matchers must not rewrite the entries already passed. The guard is scoped to this definition:
+      * the following projection items may still rewrite a named window in the `WINDOW` clause, as without `group_by_use_nulls`.
+      */
+    std::vector<const IQueryTreeNode *> passed_nodes;
+    SCOPE_EXIT({
+        for (const auto * passed_node : passed_nodes)
+            projection_nodes_before_matcher.erase(passed_node);
+    });
+
+    auto mark_passed = [&](const QueryTreeNodePtr & passed_node)
+    {
+        if (projection_nodes_before_matcher.insert(passed_node.get()).second)
+            passed_nodes.push_back(passed_node.get());
+    };
+
     if (window_node->hasPartitionBy())
     {
         auto & partition_by_nodes = window_node->getPartitionBy().getNodes();
@@ -3530,6 +3546,7 @@ bool QueryAnalyzer::expandMatchersInsideWindowDefinition(QueryTreeNodePtr & node
             }
 
             expanded |= expandMatchersInsideProjectionExpression(partition_by_node, scope);
+            mark_passed(partition_by_node);
             expanded_partition_by_nodes.push_back(partition_by_node);
         }
 
@@ -3543,6 +3560,7 @@ bool QueryAnalyzer::expandMatchersInsideWindowDefinition(QueryTreeNodePtr & node
         if (sort_expression->getNodeType() != QueryTreeNodeType::MATCHER)
         {
             expanded |= expandMatchersInsideProjectionExpression(sort_expression, scope);
+            mark_passed(order_by_node);
             continue;
         }
 
