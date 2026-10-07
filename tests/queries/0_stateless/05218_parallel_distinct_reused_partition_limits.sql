@@ -33,8 +33,9 @@ SELECT DISTINCT k FROM distinct_reused_limits SETTINGS max_bytes_in_distinct = 6
 SELECT DISTINCT k FROM distinct_reused_limits SETTINGS allow_parallel_distinct = 0, max_rows_in_distinct = 100 FORMAT Null; -- { serverError SET_SIZE_LIMIT_EXCEEDED }
 SELECT DISTINCT k FROM distinct_reused_limits SETTINGS allow_parallel_distinct = 0, max_bytes_in_distinct = 6144 FORMAT Null; -- { serverError SET_SIZE_LIMIT_EXCEEDED }
 
--- Global `BREAK` emits the chunk reaching the limit and closes all partitions.
-SELECT count() BETWEEN 100 AND 115 FROM (SELECT DISTINCT k FROM distinct_reused_limits)
+-- Global `BREAK` emits the chunk reaching the limit and closes all partitions. The preliminary `DISTINCT`
+-- coalesces its output up to `max_block_size` rows, so a chunk holds fewer than 2 * `max_block_size` keys.
+SELECT count() BETWEEN 100 AND 130 FROM (SELECT DISTINCT k FROM distinct_reused_limits)
 SETTINGS max_rows_in_distinct = 100, distinct_overflow_mode = 'break';
 SELECT count() > 0 AND count() < 200 FROM (SELECT DISTINCT k FROM distinct_reused_limits)
 SETTINGS max_bytes_in_distinct = 6144, distinct_overflow_mode = 'break';
