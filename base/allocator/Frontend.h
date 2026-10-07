@@ -551,7 +551,9 @@ ALLOCATOR_ALWAYS_INLINE bool freeFastPath(void * ptr, size_t size, bool size_hin
         return false;
     /// The `tsd_fast` / initialized checks are folded into the branch testing (deallocated_after >= threshold) later in
     /// this function. The threshold will be set to 0 when !tsd_fast.
-    ALLOCATOR_ASSERT(thread_state->fast() || thread_state->thread_deallocated_next_event_fast == 0);
+    ALLOCATOR_ASSERT(
+        thread_state->fast()
+        || std::atomic_ref<uint64_t>(thread_state->thread_deallocated_next_event_fast).load(std::memory_order_relaxed) == 0);
 
     AllocContext alloc_context{0, 0, false};
     size_t usable_size;

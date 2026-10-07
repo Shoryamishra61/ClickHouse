@@ -303,6 +303,8 @@ public:
 
     /// Exposed through `thread.allocatedp` / `thread.deallocatedp`: their addresses must be stable.
     uint64_t thread_allocated = 0;
+    /// The fast thresholds are also zeroed by other threads (`threadStateForceRecompute`), so all accesses go through
+    /// relaxed `std::atomic_ref` (plain loads and stores on all supported platforms).
     uint64_t thread_allocated_next_event_fast = 0;
     uint64_t thread_deallocated = 0;
     uint64_t thread_deallocated_next_event_fast = 0;

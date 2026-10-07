@@ -87,7 +87,7 @@ struct ThreadEventContext
     /// jemalloc: te_ctx_next_event_fast_get
     ALLOCATOR_ALWAYS_INLINE uint64_t nextEventFastGet() const
     {
-        uint64_t v = *next_event_fast;
+        uint64_t v = std::atomic_ref<uint64_t>(*next_event_fast).load(std::memory_order_relaxed);
         ALLOCATOR_ASSERT(v <= THREAD_EVENT_NEXT_EVENT_FAST_MAX);
         return v;
     }
@@ -96,7 +96,7 @@ struct ThreadEventContext
     ALLOCATOR_ALWAYS_INLINE void nextEventFastSet(uint64_t v)
     {
         ALLOCATOR_ASSERT(v <= THREAD_EVENT_NEXT_EVENT_FAST_MAX);
-        *next_event_fast = v;
+        std::atomic_ref<uint64_t>(*next_event_fast).store(v, std::memory_order_relaxed);
     }
 
     /// jemalloc: te_ctx_next_event_get
@@ -171,7 +171,7 @@ ALLOCATOR_ALWAYS_INLINE void statsIntervalLastEventSet(ThreadState & thread_stat
 ALLOCATOR_ALWAYS_INLINE void threadEventMallocFastPathContext(ThreadState & thread_state, uint64_t & allocated, uint64_t & threshold)
 {
     allocated = thread_state.thread_allocated;
-    threshold = thread_state.thread_allocated_next_event_fast;
+    threshold = std::atomic_ref<uint64_t>(thread_state.thread_allocated_next_event_fast).load(std::memory_order_relaxed);
     ALLOCATOR_ASSERT(threshold <= THREAD_EVENT_NEXT_EVENT_FAST_MAX);
 }
 
@@ -180,7 +180,7 @@ ALLOCATOR_ALWAYS_INLINE void threadEventMallocFastPathContext(ThreadState & thre
 ALLOCATOR_ALWAYS_INLINE void threadEventFreeFastPathContext(ThreadState & thread_state, uint64_t & deallocated, uint64_t & threshold)
 {
     deallocated = thread_state.thread_deallocated;
-    threshold = thread_state.thread_deallocated_next_event_fast;
+    threshold = std::atomic_ref<uint64_t>(thread_state.thread_deallocated_next_event_fast).load(std::memory_order_relaxed);
     ALLOCATOR_ASSERT(threshold <= THREAD_EVENT_NEXT_EVENT_FAST_MAX);
 }
 
@@ -189,8 +189,8 @@ ALLOCATOR_ALWAYS_INLINE void threadEventFreeFastPathContext(ThreadState & thread
 /// jemalloc: te_next_event_fast_set_non_nominal
 ALLOCATOR_ALWAYS_INLINE void threadEventNextEventFastSetNonNominal(ThreadState & thread_state)
 {
-    thread_state.thread_allocated_next_event_fast = 0;
-    thread_state.thread_deallocated_next_event_fast = 0;
+    std::atomic_ref<uint64_t>(thread_state.thread_allocated_next_event_fast).store(0, std::memory_order_relaxed);
+    std::atomic_ref<uint64_t>(thread_state.thread_deallocated_next_event_fast).store(0, std::memory_order_relaxed);
 }
 
 /// Checks in debug mode whether the event counters are in a consistent state (the invariants before and after each
