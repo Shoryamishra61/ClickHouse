@@ -1,30 +1,24 @@
--- emptyArrayToSingle, value is not the default
+-- emptyArrayToSingle
 Name: idx_tags
 Granules: 1/10
 1
 Name: idx_tags
 Granules: 2/10
 2
--- emptyArrayToSingle, value is the default
-2
+-- emptyArrayToSingle, the filter accepts the default element
 3
--- Dynamic round trip
+-- LEFT ARRAY JOIN
 Name: idx_tags
 Granules: 1/10
 1
+-- LEFT ARRAY JOIN, the filter accepts the default element
+2
+-- subquery set
 Name: idx_tags
 Granules: 1/10
 1
-Name: idx_tags
-Granules: 1/10
-1
--- Dynamic round trip that changes the value
-1
--- both on a JSON path
-Name: idx_doc_tags
-Granules: 1/10
-1
--- both on a JSON path, arrayJoin stays a function
+3
+-- Dynamic round trip on a JSON path
 Name: idx_doc_tags
 Granules: 1/10
 1
