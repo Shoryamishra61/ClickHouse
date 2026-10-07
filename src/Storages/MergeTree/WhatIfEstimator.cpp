@@ -9,6 +9,7 @@
 #include <Parsers/ASTSelectWithUnionQuery.h>
 #include <Parsers/ASTSetQuery.h>
 #include <Interpreters/parseIdentifiersOrStringLiteralsWithSettings.h>
+#include <Interpreters/PreparedSets.h>
 #include <Processors/QueryPlan/CreatingSetsStep.h>
 #include <Processors/QueryPlan/QueryPlan.h>
 #include <Processors/QueryPlan/Optimizations/QueryPlanOptimizationSettings.h>
@@ -58,6 +59,12 @@ void collectReadSteps(const QueryPlan::Node * node, std::vector<ReadFromMergeTre
 
     if (auto * read_step = dynamic_cast<ReadFromMergeTree *>(node->step.get()))
         steps.push_back(read_step);
+
+    /// before optimization, the plans of the sets are inside `DelayedCreatingSetsStep`
+    if (const auto * delayed = typeid_cast<const DelayedCreatingSetsStep *>(node->step.get()); delayed && !skip_sets)
+        for (const auto & set : delayed->getSets())
+            if (const auto * set_plan = set->getQueryPlan())
+                collectReadSteps(set_plan->getRootNode(), steps, skip_sets);
 
     for (const auto & child : node->children)
         collectReadSteps(child, steps, skip_sets);
@@ -570,9 +577,7 @@ WhatIfResult estimateHypotheticalObjects(
         interpreter.applyDistributedPlanFallbackIfNeeded();
         auto weigh_context = interpreter.getContext();
         auto weigh_plan = std::move(interpreter).extractQueryPlan();
-        std::vector<ReadFromMergeTree *> weigh_reads;
-        collectReadSteps(weigh_plan.getRootNode(), weigh_reads);
-        for (auto * weigh_read : weigh_reads)
+        for (auto * weigh_read : collectReadSteps(weigh_plan.getRootNode()))
             if (weigh_read->getMergeTreeData().getStorageID() == data.getStorageID())
                 weigh_read->setHypotheticalProjection(hypothetical);
         weigh_plan.optimize(QueryPlanOptimizationSettings(weigh_context));
