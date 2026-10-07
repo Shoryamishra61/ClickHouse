@@ -547,3 +547,62 @@ def test_an_unrelated_watcher_is_not_taken_for_an_exported_table():
         Instance(), tables, {"query_log", "text_log"}, "1 AS c"
     )
     assert active == ["query_log", "text_log"]
+
+
+def test_test_name_of_a_single_file_suite_is_the_suite(tmp_path):
+    """A suite with a single test module is labelled with the suite name
+    whatever the module is called, a multi-file suite with the module too."""
+
+    def name(suite, module, files):
+        suite_dir = tmp_path / suite
+        suite_dir.mkdir()
+        for file in files:
+            (suite_dir / file).touch()
+
+        class Cluster:
+            base_dir = str(suite_dir)
+            base_path = str(suite_dir / module)
+
+        return HELPER._test_name(Cluster())
+
+    assert name("test_a", "test.py", ["__init__.py", "test.py"]) == "test_a"
+    assert (
+        name("test_b", "test_hard_limit.py", ["__init__.py", "test_hard_limit.py"])
+        == "test_b"
+    )
+    assert (
+        name("test_c", "test_one.py", ["conftest.py", "test_one.py", "test_two.py"])
+        == "test_c/test_one"
+    )
+    assert (
+        name("test_d", "conftest.py", ["conftest.py", "test_one.py", "test_two.py"])
+        == "test_d"
+    )
+
+
+def test_teardown_keeps_the_state_until_the_drops_succeed(monkeypatch):
+    """If the drops fail, the instance still names the tables to clean up and
+    the error propagates, so the caller does not remove the `DEFINER` the views
+    left behind still reference."""
+
+    class Instance:
+        name = "node"
+        ci_logs_export_tables = ["query_log"]
+        ci_logs_export_hashes = {"query_log": "h"}
+        fail = True
+
+        def query(self, sql, timeout=None):
+            if "DROP" in sql and self.fail:
+                raise RuntimeError("drop failed")
+            return ""
+
+    instance = Instance()
+    with pytest.raises(RuntimeError):
+        HELPER.teardown_for_instance(instance)
+    assert instance.ci_logs_export_tables == ["query_log"]
+    assert instance.ci_logs_export_hashes == {"query_log": "h"}
+
+    instance.fail = False
+    HELPER.teardown_for_instance(instance)
+    assert instance.ci_logs_export_tables == []
+    assert instance.ci_logs_export_hashes == {}

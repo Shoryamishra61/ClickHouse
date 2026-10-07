@@ -36,6 +36,7 @@ them in the preprocessed config), and the values are passed into the containers
 through the docker compose process environment.
 """
 
+import glob
 import hashlib
 import json
 import logging
@@ -570,7 +571,11 @@ def _test_name(cluster):
     still correct for all of its rows."""
     suite = os.path.basename(cluster.base_dir)
     module = os.path.splitext(os.path.basename(cluster.base_path))[0]
-    if module in ("test", "conftest", "__init__"):
+    if module in ("conftest", "__init__"):
+        return suite
+    # The modules pytest collects from the suite, see `python_files` in pytest.ini
+    modules = glob.glob(os.path.join(cluster.base_dir, "test*.py"))
+    if len(modules) <= 1:
         return suite
     return f"{suite}/{module}"
 
@@ -800,26 +805,25 @@ def teardown_for_instance(instance):
     """Flush what has been collected so far and remove the export from a running
     server, for an instance that is about to be restarted into an old release:
     the `_watcher` views would keep referencing a `DEFINER` that
-    remove_instance_config takes away. Best effort: never raises."""
+    remove_instance_config takes away.
+
+    The flush is best effort, but a failure to drop the tables propagates: the
+    views left behind would reference the `DEFINER` that is about to be removed,
+    so the caller must not proceed to remove the configs. The export state of
+    the instance is cleared only after the drops succeed, so that it still
+    names the tables to clean up if they did not."""
     tables = getattr(instance, "ci_logs_export_tables", None)
     if not tables:
         return
     flush_before_shutdown(instance)
-    instance.ci_logs_export_tables = []
-    instance.ci_logs_export_hashes = {}
     statements = "".join(
         f"DROP VIEW IF EXISTS system.{table}_watcher SYNC;\n"
         f"DROP TABLE IF EXISTS system.{table}_sender SYNC;\n"
         for table in tables
     )
-    try:
-        instance.query(statements, timeout=120)
-    except Exception:
-        logging.warning(
-            "CI logs export: failed to remove the export from %s",
-            instance.name,
-            exc_info=True,
-        )
+    instance.query(statements, timeout=120)
+    instance.ci_logs_export_tables = []
+    instance.ci_logs_export_hashes = {}
 
 
 def flush_before_shutdown(instance):
