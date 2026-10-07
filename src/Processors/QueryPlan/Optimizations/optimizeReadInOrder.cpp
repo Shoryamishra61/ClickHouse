@@ -15,6 +15,7 @@
 #include <Processors/QueryPlan/JoinStep.h>
 #include <Processors/QueryPlan/JoinStepLogical.h>
 #include <Processors/QueryPlan/LimitByStep.h>
+#include <Processors/QueryPlan/NegativeLimitByStep.h>
 #include <Processors/QueryPlan/LimitStep.h>
 #include <Processors/QueryPlan/Optimizations/Optimizations.h>
 #include <Processors/QueryPlan/Optimizations/actionsDAGUtils.h>
@@ -1874,6 +1875,10 @@ InputOrderInfoPtr getInputOrderIfReadInOrderIsUseful(
 /// about whether this sort's `LIMIT 10` may stop the read early, so the walk stops at the first hit.
 /// A `LIMIT BY` that must drain its input (`exact_rows_before_limit` with `LIMIT BY`) forces the same,
 /// whether it is seen through the hint `limitPushDown` stores in the sort or directly on the path.
+/// A negative `LIMIT BY` always drains its input: it cannot know the last rows of any group before
+/// the end of the input (see `NegativeLimitByTransform`). `limitPushDown` does not push a `LIMIT`
+/// through it, so the sort below carries no bound today, but the walk treats it explicitly so that
+/// the guard does not depend on that.
 static bool limitReadsTillEnd(const SortingStep & sorting, const Stack & stack)
 {
     if (sorting.alwaysReadTillEnd() || sorting.limitByAlwaysReadTillEnd())
@@ -1882,6 +1887,8 @@ static bool limitReadsTillEnd(const SortingStep & sorting, const Stack & stack)
     for (const auto & frame : stack | std::views::reverse)
     {
         if (const auto * limit_by = typeid_cast<const LimitByStep *>(frame.node->step.get()); limit_by && limit_by->alwaysReadTillEnd())
+            return true;
+        if (typeid_cast<const NegativeLimitByStep *>(frame.node->step.get()))
             return true;
         if (const auto * limit = typeid_cast<const LimitStep *>(frame.node->step.get()))
             return limit->alwaysReadTillEnd();
