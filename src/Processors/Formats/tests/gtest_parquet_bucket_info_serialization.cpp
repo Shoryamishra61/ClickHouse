@@ -389,6 +389,23 @@ TEST(ClusterFunctionReadTaskResponseSerialization, WholeFileBucketStrippedForOld
     EXPECT_EQ(*restored.read_source_index, 3u);
 }
 
+/// A whole-file bucket is stripped for an old worker only when the rest of the payload fits its
+/// protocol too: a worker that predates `excluded_rows` would silently return deleted rows of a
+/// data-lake file, so the task keeps the bucket and fails closed instead.
+TEST(ClusterFunctionReadTaskResponseSerialization, WholeFileBucketKeepsFailingWhenPayloadNeedsNewerWorker)
+{
+    prepareResponseEnvironment();
+
+    auto bucket = std::make_shared<ParquetFileBucketInfo>(std::vector<size_t>{0, 1, 2}, /*file_num_row_groups=*/3);
+    bucket->footer_digest = 0xdeadbeef;
+    auto response = makeResponse(bucket);
+    response.read_source_index.reset();
+    response.data_lake_metadata.excluded_rows = std::make_shared<DataLakeObjectMetadata::ExcludedRows>();
+    response.data_lake_metadata.excluded_rows->add(1);
+
+    EXPECT_THROW(serializeResponse(response, DBMS_CLUSTER_PROCESSING_PROTOCOL_VERSION_WITH_FILE_BUCKETS_INFO), DB::Exception);
+}
+
 /// A bucket that is a strict subset of the file must never be stripped - the worker would read the
 /// whole file for every bucket task and duplicate rows - so the task fails closed instead.
 TEST(ClusterFunctionReadTaskResponseSerialization, PartialBucketFailsClosedForOldWorker)

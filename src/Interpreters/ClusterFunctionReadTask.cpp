@@ -139,14 +139,18 @@ void ClusterFunctionReadTaskResponse::serialize(WriteBuffer & out, size_t worker
 
     auto bucket_info_to_send = file_bucket_info;
     if (bucket_info_to_send && protocol_version < bucket_info_to_send->getMinProtocolVersion()
-        && bucket_info_to_send->coversWholeFile())
+        && bucket_info_to_send->coversWholeFile()
+        && protocol_version >= getDataLakePayloadMinProtocolVersion(data_lake_metadata, iceberg_info))
     {
         /// Trivial split: the single bucket covers the whole file (e.g. `splitToBuckets` returned one
         /// bucket for a small / single-row-group object). Dropping it on the wire is semantically safe -
         /// an older worker reading the plain path once returns exactly the same rows, since there is no
         /// second bucket to duplicate or omit - so a mixed-version cluster read must not fail for it.
         /// Only the fail-close overwrite guard is lost, which a worker below the required protocol could
-        /// not run anyway.
+        /// not run anyway. The downgrade is allowed only when the rest of the payload (data-lake
+        /// `schema_transform`, `excluded_rows`, newer `iceberg_info` fields) also fits the worker protocol:
+        /// otherwise the worker would silently read with a wrong schema or miss deleted rows, so the task
+        /// keeps the bucket and is failed below instead.
         bucket_info_to_send = nullptr;
     }
 
