@@ -4,14 +4,19 @@ Case B: reverse order
 1000
 9
 Case C: schema inference
-1
+CANNOT_DECOMPRESS
 Case D: same-mode reuse
 50
 50
 Case E: URL behavior
 50
-1
-1
+50
+c1	Nullable(Int64)
+CANNOT_DECOMPRESS
+CANNOT_DECOMPRESS
 Case F: auto vs explicit matching
 100
 100
+Case G: schema cache system table
+1
+1
