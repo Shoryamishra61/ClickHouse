@@ -301,6 +301,7 @@ private:
     StorageID storage_id;
     size_t total_rows_in_file = 0;
     NamesAndTypesList hive_partition_columns_to_read_from_file_path;
+    CompressionMethod compression_method;
 
     Poco::Net::HTTPBasicCredentials credentials;
 

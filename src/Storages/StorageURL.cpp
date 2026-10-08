@@ -598,6 +598,7 @@ StorageURLSource::StorageURLSource(
     , need_only_count(need_only_count_)
     , storage_id(std::move(storage_id_))
     , hive_partition_columns_to_read_from_file_path(info.hive_partition_columns_to_read_from_file_path)
+    , compression_method(compression_method)
 {
     /// Lazy initialization. We should not perform requests in constructor, because we need to do it in query pipeline.
     initialize = [=, this]()
@@ -1198,13 +1199,15 @@ std::pair<Poco::URI, std::unique_ptr<ReadWriteBufferFromHTTP>> StorageURLSource:
 
 void StorageURLSource::addNumRowsToCache(const String & uri, size_t num_rows)
 {
-    auto cache_key = getKeyForSchemaCache(uri, format, format_settings, getContext());
+    auto compression_name = toContentEncodingName(compression_method);
+    auto cache_key = getKeyForSchemaCache(uri, format, format_settings, getContext(), compression_name);
     StorageURL::getSchemaCache(getContext()).addNumRows(cache_key, num_rows);
 }
 
 std::optional<size_t> StorageURLSource::tryGetNumRowsFromCache(const String & uri, std::optional<time_t> last_mod_time)
 {
-    auto cache_key = getKeyForSchemaCache(uri, format, format_settings, getContext());
+    auto compression_name = toContentEncodingName(compression_method);
+    auto cache_key = getKeyForSchemaCache(uri, format, format_settings, getContext(), compression_name);
     auto get_last_mod_time = [&]() -> std::optional<time_t>
     {
         /// Some URLs could not have Last-Modified header, in this case we cannot be sure that
@@ -1500,7 +1503,8 @@ namespace
             if (!getContext()->getSettingsRef()[Setting::schema_inference_use_cache_for_url])
                 return;
 
-            auto key = getKeyForSchemaCache(current_url_option, *format, format_settings, getContext());
+            auto compression_name = toContentEncodingName(compression_method);
+            auto key = getKeyForSchemaCache(current_url_option, *format, format_settings, getContext(), compression_name);
             StorageURL::getSchemaCache(getContext()).addNumRows(key, num_rows);
         }
 
@@ -1509,7 +1513,8 @@ namespace
             if (!getContext()->getSettingsRef()[Setting::schema_inference_use_cache_for_url])
                 return;
 
-            auto key = getKeyForSchemaCache(current_url_option, *format, format_settings, getContext());
+            auto compression_name = toContentEncodingName(compression_method);
+            auto key = getKeyForSchemaCache(current_url_option, *format, format_settings, getContext(), compression_name);
             StorageURL::getSchemaCache(getContext()).addColumns(key, columns);
         }
 
@@ -1618,9 +1623,10 @@ namespace
                     return last_mod_time;
                 };
 
+                auto compression_name = toContentEncodingName(compression_method);
                 if (format)
                 {
-                    auto cache_key = getKeyForSchemaCache(url, *format, format_settings, context);
+                    auto cache_key = getKeyForSchemaCache(url, *format, format_settings, context, compression_name);
                     if (auto columns = schema_cache.tryGetColumns(cache_key, get_last_mod_time))
                         return columns;
                 }
@@ -1631,7 +1637,7 @@ namespace
                     /// If we have such entry for some format, we can use this format to read the file.
                     for (const auto & format_name : FormatFactory::instance().getAllInputFormats())
                     {
-                        auto cache_key = getKeyForSchemaCache(url, format_name, format_settings, context);
+                        auto cache_key = getKeyForSchemaCache(url, format_name, format_settings, context, compression_name);
                         if (auto columns = schema_cache.tryGetColumns(cache_key, get_last_mod_time))
                         {
                             format = format_name;

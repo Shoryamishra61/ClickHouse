@@ -1,0 +1,17 @@
+Case A: wrong row count
+1000
+Case B: reverse order
+1000
+9
+Case C: schema inference
+1
+Case D: same-mode reuse
+50
+50
+Case E: URL behavior
+50
+1
+1
+Case F: auto vs explicit matching
+100
+100
