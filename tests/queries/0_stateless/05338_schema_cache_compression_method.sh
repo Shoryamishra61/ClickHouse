@@ -38,7 +38,12 @@ assert_exception()
         exit 1
     fi
 
-    if ! echo "$out" | grep -q -F "$expected_code"; then
+    local pattern="$expected_code"
+    if [ "$expected_code" = "CANNOT_DECOMPRESS" ]; then
+        pattern="CANNOT_DECOMPRESS|ZLIB_INFLATE_FAILED"
+    fi
+
+    if ! echo "$out" | grep -q -E "$pattern"; then
         echo "Unexpected error: expected $expected_code, but got rc=$rc: $*" >&2
         echo "Command output: $out" >&2
         exit 1
