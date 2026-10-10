@@ -131,18 +131,18 @@ echo "Case I: Schema cache system table inspection"
 $CLICKHOUSE_CLIENT -q "
 SELECT storage, format, compression_method, number_of_rows
 FROM system.schema_inference_cache
-WHERE source LIKE '%${CLICKHOUSE_TEST_UNIQUE_NAME}_count%'
+WHERE storage = 'URL' AND source LIKE '%${CLICKHOUSE_TEST_UNIQUE_NAME}_count%'
 SETTINGS schema_inference_use_cache_for_url=0
 "
 $CLICKHOUSE_CLIENT -q "
 SELECT storage, format, compression_method, number_of_rows
 FROM system.schema_inference_cache
-WHERE source LIKE '%${CLICKHOUSE_TEST_UNIQUE_NAME}_gz%'
+WHERE storage = 'URL' AND source LIKE '%${CLICKHOUSE_TEST_UNIQUE_NAME}_gz%'
 SETTINGS schema_inference_use_cache_for_url=0
 "
 $CLICKHOUSE_CLIENT -q "
 SELECT storage, format, compression_method, number_of_rows
 FROM system.schema_inference_cache
-WHERE source LIKE '%${CLICKHOUSE_TEST_UNIQUE_NAME}_same.raw%'
+WHERE storage = 'File' AND format = 'LineAsString' AND source LIKE '%${CLICKHOUSE_TEST_UNIQUE_NAME}_same.raw%'
 SETTINGS schema_inference_use_cache_for_file=0
 "
