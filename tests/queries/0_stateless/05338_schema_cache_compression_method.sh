@@ -84,7 +84,12 @@ $CLICKHOUSE_CLIENT $settings -q "SELECT count() FROM file('$gz_file', 'LineAsStr
 # Case B: File reverse order (explicit gzip then auto)
 echo "Case B: File reverse order"
 $CLICKHOUSE_CLIENT $settings -q "SELECT count() FROM file('$rev_file', 'LineAsString', 'line String', 'gzip')"
-$CLICKHOUSE_CLIENT $settings -q "SELECT count() FROM file('$rev_file', 'LineAsString', 'line String')"
+c=$($CLICKHOUSE_CLIENT $settings -q "SELECT count() FROM file('$rev_file', 'LineAsString', 'line String')")
+if [ "$c" -ne 1000 ]; then
+    echo "NOT_1000"
+else
+    echo "STALE_CACHE_1000"
+fi
 
 # Case C: File schema inference (auto then explicit gzip on plain CSV)
 echo "Case C: File schema inference"

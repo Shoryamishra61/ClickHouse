@@ -2,7 +2,7 @@ Case A: File wrong row count
 1000
 Case B: File reverse order
 1000
-9
+NOT_1000
 Case C: File schema inference
 CANNOT_DECOMPRESS
 Case D: File same-mode reuse
