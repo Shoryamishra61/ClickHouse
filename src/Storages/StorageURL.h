@@ -233,7 +233,7 @@ public:
         const ContextPtr & context,
         UInt64 max_block_size,
         const ConnectionTimeouts & timeouts,
-        CompressionMethod compression_method,
+        CompressionMethod compression_method_,
         FormatParserSharedResourcesPtr parser_shared_resources_,
         FormatFilterInfoPtr format_filter_info_,
         const HTTPHeaderEntries & headers_ = {},

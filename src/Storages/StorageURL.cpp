@@ -573,7 +573,7 @@ StorageURLSource::StorageURLSource(
     const ContextPtr & context_,
     UInt64 max_block_size,
     const ConnectionTimeouts & timeouts,
-    CompressionMethod compression_method,
+    CompressionMethod compression_method_,
     FormatParserSharedResourcesPtr parser_shared_resources_,
     FormatFilterInfoPtr format_filter_info_,
     const HTTPHeaderEntries & headers_,
@@ -598,7 +598,7 @@ StorageURLSource::StorageURLSource(
     , need_only_count(need_only_count_)
     , storage_id(std::move(storage_id_))
     , hive_partition_columns_to_read_from_file_path(info.hive_partition_columns_to_read_from_file_path)
-    , compression_method(compression_method)
+    , compression_method(compression_method_)
 {
     /// Lazy initialization. We should not perform requests in constructor, because we need to do it in query pipeline.
     initialize = [=, this]()
